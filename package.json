@@ -32,7 +32,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Talador12/agent-of-agent-of-empires"
+    "url": "git+https://github.com/Talador12/agent-of-agent-of-empires.git"
   },
   "homepage": "https://github.com/Talador12/agent-of-agent-of-empires",
   "bugs": {
