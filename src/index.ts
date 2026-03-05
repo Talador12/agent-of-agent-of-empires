@@ -5,6 +5,7 @@ import { createReasoner } from "./reasoner/index.js";
 import { Executor, type ActionLogEntry } from "./executor.js";
 import { printDashboard } from "./dashboard.js";
 import { InputReader } from "./input.js";
+import { ReasonerConsole } from "./console.js";
 import type { AoaoeConfig, Observation, ReasonerResult } from "./types.js";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -13,7 +14,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 async function main() {
-  const { overrides, help, version } = parseCliArgs(process.argv);
+  const { overrides, help, version, attach } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -30,6 +31,12 @@ async function main() {
     process.exit(0);
   }
 
+  // `aoaoe attach` -- drop into the reasoner console tmux session
+  if (attach) {
+    await attachToConsole();
+    return;
+  }
+
   const config = loadConfig(overrides);
   log("starting aoaoe supervisor");
   log(`reasoner: ${config.reasoner}`);
@@ -43,14 +50,17 @@ async function main() {
   const reasoner = createReasoner(config);
   const executor = new Executor(config);
   const input = new InputReader();
+  const console_ = new ReasonerConsole();
 
   // init reasoner (starts opencode serve, verifies claude, etc)
   log("initializing reasoner...");
   await reasoner.init();
   log("reasoner ready");
 
-  // start interactive input listener
+  // start interactive input listener (stdin fallback) and console tmux session
   input.start();
+  await console_.start();
+  log(`reasoner console ready -- run 'aoaoe attach' to enter`);
 
   // graceful shutdown
   let running = true;
@@ -59,6 +69,7 @@ async function main() {
     running = false;
     log("shutting down...");
     input.stop();
+    await console_.stop();
     await reasoner.shutdown();
     process.exit(0);
   };
@@ -73,8 +84,10 @@ async function main() {
   while (running) {
     pollCount++;
 
-    // drain user input
-    const userMessages = input.drain();
+    // drain user input from both stdin and console tmux session
+    const stdinMessages = input.drain();
+    const consoleMessages = console_.drainInput();
+    const userMessages = [...stdinMessages, ...consoleMessages];
     let userMessage: string | undefined;
 
     // handle built-in command markers
@@ -99,7 +112,7 @@ async function main() {
     }
 
     try {
-      await tick(config, poller, reasoner, executor, pollCount, userMessage, forceDashboard);
+      await tick(config, poller, reasoner, executor, console_, pollCount, userMessage, forceDashboard);
       forceDashboard = false;
     } catch (err) {
       console.error(`[error] tick ${pollCount} failed: ${err}`);
@@ -116,6 +129,7 @@ async function tick(
   poller: Poller,
   reasoner: ReturnType<typeof createReasoner>,
   executor: Executor,
+  console_: ReasonerConsole,
   pollCount: number,
   userMessage?: string,
   forceDashboard?: boolean
@@ -128,6 +142,7 @@ async function tick(
   // attach user message to observation if present
   if (userMessage) {
     observation.userMessage = userMessage;
+    console_.writeUserMessage(userMessage);
   }
 
   if (sessionCount === 0 && !userMessage) {
@@ -150,6 +165,14 @@ async function tick(
     `\r[poll #${pollCount}] ${sessionCount} sessions (${statuses}) | ${changeCount} changed${userTag}`
   );
 
+  // write observation to console
+  if (changeCount > 0) {
+    const changeSummary = observation.changes.map(
+      (c) => `${c.title} (${c.tool}): ${c.status}`
+    );
+    console_.writeObservation(sessionCount, changeCount, changeSummary);
+  }
+
   // 2. if nothing changed AND no user message, skip reasoning (save tokens)
   if (changeCount === 0 && !userMessage) {
     if (config.verbose) {
@@ -170,8 +193,9 @@ async function tick(
   const actionSummary = result.actions.map((a) => a.action).join(", ");
   process.stdout.write(` -> ${actionSummary}\n`);
 
-  if (result.reasoning && config.verbose) {
-    log(`reasoning: ${result.reasoning}`);
+  if (result.reasoning) {
+    console_.writeReasoning(result.reasoning);
+    if (config.verbose) log(`reasoning: ${result.reasoning}`);
   }
 
   // 4. execute (skip if all actions are "wait")
@@ -183,7 +207,9 @@ async function tick(
   // dry-run: log what would happen, don't actually execute
   if (config.dryRun) {
     for (const action of nonWaitActions) {
-      log(`[dry-run] would ${action.action}: ${JSON.stringify(action)}`);
+      const msg = `would ${action.action}: ${JSON.stringify(action)}`;
+      log(`[dry-run] ${msg}`);
+      console_.writeAction(action.action, "dry-run", true);
     }
     return;
   }
@@ -193,6 +219,7 @@ async function tick(
     if (entry.action.action === "wait") continue;
     const icon = entry.success ? "+" : "!";
     log(`[${icon}] ${entry.action.action}: ${entry.detail}`);
+    console_.writeAction(entry.action.action, entry.detail, entry.success);
   }
 }
 
@@ -222,6 +249,28 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
       resolve(fallback);
     }, ms)),
   ]);
+}
+
+// `aoaoe attach` -- enter the reasoner console tmux session
+async function attachToConsole(): Promise<void> {
+  const { execQuiet } = await import("./shell.js");
+  const name = ReasonerConsole.sessionName();
+
+  // check if the session exists
+  const exists = await execQuiet("tmux", ["has-session", "-t", name]);
+  if (!exists) {
+    console.error(`no running aoaoe session found (looking for tmux session '${name}')`);
+    console.error("start the daemon first: aoaoe");
+    process.exit(1);
+  }
+
+  // attach -- replace this process with tmux attach
+  const { execFileSync } = await import("node:child_process");
+  try {
+    execFileSync("tmux", ["attach-session", "-t", name], { stdio: "inherit" });
+  } catch {
+    // normal exit when user detaches
+  }
 }
 
 main().catch((err) => {

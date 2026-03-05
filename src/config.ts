@@ -105,10 +105,17 @@ export function parseCliArgs(argv: string[]): {
   overrides: Partial<AoaoeConfig>;
   help: boolean;
   version: boolean;
+  attach: boolean;
 } {
   const overrides: Partial<AoaoeConfig> = {};
   let help = false;
   let version = false;
+  let attach = false;
+
+  // check for subcommand as first non-flag arg
+  if (argv[2] === "attach") {
+    return { overrides, help: false, version: false, attach: true };
+  }
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -147,13 +154,17 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version };
+  return { overrides, help, version, attach };
 }
 
 export function printHelp() {
   console.log(`aoaoe - autonomous supervisor for agent-of-empires sessions
 
-usage: aoaoe [options]
+usage: aoaoe [command] [options]
+
+commands:
+  (none)         start the daemon
+  attach         enter the reasoner console (Ctrl+B D to detach)
 
 options:
   --reasoner <opencode|claude-code>  reasoning backend (default: opencode)
@@ -164,5 +175,8 @@ options:
   --dry-run                          observe + reason but don't execute
   --verbose, -v                      verbose logging
   --help, -h                         show this help
-  --version                          show version`);
+  --version                          show version
+
+console commands (inside reasoner console):
+  type any text    send a message to the reasoner on next tick`);
 }
