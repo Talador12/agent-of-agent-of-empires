@@ -4,26 +4,24 @@ on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write
-  id-token: write # npm trusted publishing (OIDC, no stored token)
-
 jobs:
   publish-npm:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
+      id-token: write # npm trusted publishing via OIDC
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          registry-url: https://registry.npmjs.org
+          # no registry-url -- letting npm handle OIDC auth natively
       - run: npm ci
       - run: npm run build
-      - run: npm publish --provenance --access public
+      - run: |
+          npm config set registry https://registry.npmjs.org/
+          npm publish --provenance --access public
 
   github-release:
     runs-on: ubuntu-latest
