@@ -90,6 +90,7 @@ export interface DaemonSessionState {
   status: string;
   currentTask?: string; // last send_input text sent to this session
   lastActivity?: string; // last non-empty line of output
+  todoSummary?: string; // formatted OpenCode-style TODO list parsed from pane output
 }
 
 export interface DaemonState {

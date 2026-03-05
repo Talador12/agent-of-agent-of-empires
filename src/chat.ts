@@ -1,18 +1,17 @@
 #!/usr/bin/env node
-// chat.ts -- standalone interactive chat that runs inside an AoE-managed tmux pane
-// this is the program that --cmd_override points to when aoaoe registers itself as an AoE session.
-// it reads conversation.log for history display, writes user input to pending-input.txt,
-// and the daemon picks it up on the next poll cycle.
+// chat.ts -- interactive chat UI for the aoaoe reasoner
+// runs inside an AoE-managed tmux pane (registered via `aoaoe register`).
+// reads conversation.log for daemon output, writes user input to pending-input.txt.
 //
-// features:
-// - live countdown to next reasoning cycle (reads daemon-state.json every 1s)
-// - per-pane task display (/tasks command)
-// - ESC-ESC to interrupt the current reasoner (like OpenCode)
+// works standalone too: captures all AoE panes directly via tmux + aoe CLI
+// to show /overview even when the daemon isn't running.
 import { createInterface, emitKeypressEvents } from "node:readline";
 import { appendFileSync, writeFileSync, existsSync, mkdirSync, watchFile, unwatchFile, readFileSync, statSync, openSync, readSync, closeSync, unlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { readState, requestInterrupt } from "./daemon-state.js";
+import { parseTasks, parseModel, parseContext, parseCost, parseLastLine, formatTaskList } from "./task-parser.js";
 import type { DaemonState } from "./types.js";
 
 const AOAOE_DIR = join(homedir(), ".aoaoe");
@@ -20,7 +19,7 @@ const CONVO_LOG = join(AOAOE_DIR, "conversation.log");
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt");
 const PID_FILE = join(AOAOE_DIR, "chat.pid");
 
-// ANSI helpers
+// ANSI
 const DIM = "\x1b[2m";
 const BOLD = "\x1b[1m";
 const GREEN = "\x1b[32m";
@@ -29,253 +28,370 @@ const YELLOW = "\x1b[33m";
 const RED = "\x1b[31m";
 const MAGENTA = "\x1b[35m";
 const RESET = "\x1b[0m";
-const SAVE_CURSOR = "\x1b7";
-const RESTORE_CURSOR = "\x1b8";
-const CLEAR_LINE = "\x1b[2K";
 
 // ESC-ESC interrupt detection
 let lastEscTime = 0;
 const ESC_DOUBLE_TAP_MS = 500;
 
+// track last displayed status to avoid spamming
+let lastStatusLine = "";
+
 function main() {
   mkdirSync(AOAOE_DIR, { recursive: true });
-
-  // write PID so daemon can detect we're running
   writeFileSync(PID_FILE, String(process.pid));
 
-  // print banner
+  // banner
   console.log(`${BOLD}${CYAN}aoaoe reasoner chat${RESET}`);
-  console.log(`${DIM}messages you type here are sent to the reasoner on the next poll cycle${RESET}`);
-  console.log(`${DIM}the daemon writes observations and decisions to this view${RESET}`);
   console.log(`${DIM}type /help for commands, ESC ESC to interrupt reasoner, Ctrl+C to exit${RESET}`);
+
+  // daemon check on startup
+  checkDaemon();
   console.log();
 
-  // replay existing conversation log
+  // replay conversation history
   replayLog();
 
-  // watch conversation.log for new content and stream it
+  // watch conversation.log for new daemon output
   let lastSize = existsSync(CONVO_LOG) ? statSync(CONVO_LOG).size : 0;
   watchFile(CONVO_LOG, { interval: 500 }, (curr) => {
     if (curr.size > lastSize) {
-      // read only new bytes
       const fd = openSync(CONVO_LOG, "r");
       const buf = Buffer.alloc(curr.size - lastSize);
       readSync(fd, buf, 0, buf.length, lastSize);
       closeSync(fd);
       const newText = buf.toString("utf-8");
-      // move cursor to start of line, clear it, print new content, then re-show prompt
       process.stdout.write(`\r\x1b[K${colorize(newText)}`);
       rl.prompt(true);
       lastSize = curr.size;
     }
   });
 
-  // set up keypress events for ESC-ESC detection
+  // ESC-ESC detection
   if (process.stdin.isTTY) {
     emitKeypressEvents(process.stdin);
     process.stdin.on("keypress", (_ch: string | undefined, key: { name?: string; sequence?: string }) => {
       if (key?.name === "escape" || key?.sequence === "\x1b") {
         const now = Date.now();
         if (now - lastEscTime < ESC_DOUBLE_TAP_MS) {
-          // double-ESC detected -- interrupt the reasoner
-          handleInterrupt();
+          handleInterrupt(rl);
           lastEscTime = 0;
         } else {
           lastEscTime = now;
         }
       } else {
-        // any other key resets the ESC timer
         lastEscTime = 0;
       }
     });
   }
 
-  // interactive readline
+  // readline
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
     prompt: `${GREEN}>${RESET} `,
     terminal: true,
   });
-
   rl.prompt();
 
-  // live status bar -- update every second
+  // status ticker -- print a status line every 5s, only if it changed
   const statusInterval = setInterval(() => {
-    renderStatusBar(rl);
-  }, 1000);
+    const line = buildStatusLine();
+    if (line && line !== lastStatusLine) {
+      process.stdout.write(`\r\x1b[K${DIM}${line}${RESET}\n`);
+      lastStatusLine = line;
+      rl.prompt(true);
+    }
+    // also set tmux pane title
+    const titleLine = buildStatusLine(true);
+    if (titleLine) process.stdout.write(`\x1b]2;${titleLine}\x07`);
+  }, 5000);
 
   rl.on("line", (line: string) => {
     const trimmed = line.trim();
-    if (!trimmed) {
+    if (!trimmed) { rl.prompt(); return; }
+
+    // slash commands
+    if (trimmed.startsWith("/")) {
+      handleCommand(trimmed, rl);
       rl.prompt();
       return;
     }
 
-    // handle local commands
-    if (trimmed === "/help") {
-      printHelp();
-      rl.prompt();
-      return;
-    }
-    if (trimmed === "/status") {
-      appendToInput("__CMD_STATUS__");
-      console.log(`${DIM}status requested${RESET}`);
-      rl.prompt();
-      return;
-    }
-    if (trimmed === "/dashboard") {
-      appendToInput("__CMD_DASHBOARD__");
-      console.log(`${DIM}dashboard requested${RESET}`);
-      rl.prompt();
-      return;
-    }
-    if (trimmed === "/tasks") {
-      printTasks();
-      rl.prompt();
-      return;
-    }
-    if (trimmed === "/verbose") {
-      appendToInput("__CMD_VERBOSE__");
-      console.log(`${DIM}verbose toggled${RESET}`);
-      rl.prompt();
-      return;
-    }
-    if (trimmed === "/pause") {
-      appendToInput("__CMD_PAUSE__");
-      console.log(`${DIM}pause requested${RESET}`);
-      rl.prompt();
-      return;
-    }
-    if (trimmed === "/resume") {
-      appendToInput("__CMD_RESUME__");
-      console.log(`${DIM}resume requested${RESET}`);
-      rl.prompt();
-      return;
-    }
-    if (trimmed === "/interrupt") {
-      handleInterrupt();
-      rl.prompt();
-      return;
-    }
-    if (trimmed === "/clear") {
-      process.stdout.write("\x1b[2J\x1b[H");
-      rl.prompt();
-      return;
-    }
-
-    // regular message -- queue for reasoner
+    // regular message -> queue for reasoner
     appendToInput(trimmed);
-    console.log(`${DIM}queued for next reasoning cycle${RESET}`);
+    const eta = getCountdown();
+    if (eta !== null) {
+      console.log(`${DIM}queued -- reasoner will read this in ~${eta}s${RESET}`);
+    } else if (isDaemonRunning()) {
+      console.log(`${DIM}queued -- waiting for next reasoning cycle${RESET}`);
+    } else {
+      console.log(`${YELLOW}queued, but daemon is not running!${RESET}`);
+      console.log(`${DIM}start it with: aoaoe${RESET}`);
+    }
     rl.prompt();
   });
 
-  rl.on("close", () => {
-    clearInterval(statusInterval);
-    cleanup();
-    process.exit(0);
-  });
-
-  process.on("SIGINT", () => {
-    clearInterval(statusInterval);
-    cleanup();
-    process.exit(0);
-  });
-
-  process.on("SIGTERM", () => {
-    clearInterval(statusInterval);
-    cleanup();
-    process.exit(0);
-  });
+  rl.on("close", () => { clearInterval(statusInterval); cleanup(); process.exit(0); });
+  process.on("SIGINT", () => { clearInterval(statusInterval); cleanup(); process.exit(0); });
+  process.on("SIGTERM", () => { clearInterval(statusInterval); cleanup(); process.exit(0); });
 }
 
-function handleInterrupt() {
-  const state = readState();
-  if (state?.phase === "reasoning") {
-    requestInterrupt();
-    console.log(`${RED}${BOLD}interrupting reasoner...${RESET}`);
-    console.log(`${DIM}type your message -- it will be sent before the next reasoning cycle${RESET}`);
-  } else {
-    console.log(`${DIM}no active reasoning to interrupt (phase: ${state?.phase ?? "unknown"})${RESET}`);
+// --- commands ---
+
+function handleCommand(cmd: string, rl: ReturnType<typeof createInterface>) {
+  const parts = cmd.split(/\s+/);
+  switch (parts[0]) {
+    case "/help": printHelp(); break;
+    case "/overview": printOverview(); break;
+    case "/tasks": printOverview(); break; // alias
+    case "/status": printStatus(); break;
+    case "/dashboard":
+      appendToInput("__CMD_DASHBOARD__");
+      console.log(`${DIM}dashboard requested${RESET}`);
+      break;
+    case "/verbose":
+      appendToInput("__CMD_VERBOSE__");
+      console.log(`${DIM}verbose toggled${RESET}`);
+      break;
+    case "/pause":
+      appendToInput("__CMD_PAUSE__");
+      console.log(`${DIM}pause requested${RESET}`);
+      break;
+    case "/resume":
+      appendToInput("__CMD_RESUME__");
+      console.log(`${DIM}resume requested${RESET}`);
+      break;
+    case "/interrupt":
+      handleInterrupt(rl);
+      break;
+    case "/clear":
+      process.stdout.write("\x1b[2J\x1b[H");
+      break;
+    default:
+      console.log(`${DIM}unknown command: ${parts[0]} (try /help)${RESET}`);
   }
 }
 
-// render a status bar showing countdown, phase, and session count
-function renderStatusBar(rl: ReturnType<typeof createInterface>) {
+// --- interrupt ---
+
+function handleInterrupt(rl: ReturnType<typeof createInterface>) {
   const state = readState();
-  if (!state) return;
+  if (state?.phase === "reasoning") {
+    requestInterrupt();
+    console.log(`\n${RED}${BOLD}>>> interrupting reasoner <<<${RESET}`);
+    console.log(`${YELLOW}type your message now -- it will be sent before the next cycle resumes${RESET}`);
+    rl.prompt(true);
+  } else if (!isDaemonRunning()) {
+    console.log(`${YELLOW}daemon is not running -- nothing to interrupt${RESET}`);
+    console.log(`${DIM}start it with: aoaoe${RESET}`);
+  } else {
+    console.log(`${DIM}reasoner not active right now (phase: ${state?.phase ?? "sleeping"})${RESET}`);
+    const eta = getCountdown();
+    if (eta !== null) console.log(`${DIM}next cycle in ~${eta}s -- type your message, it will be included${RESET}`);
+  }
+}
 
-  const parts: string[] = [];
+// --- /overview: capture all panes directly via tmux + aoe, parse tasks ---
 
-  // phase indicator
-  const phaseIcons: Record<string, string> = {
-    sleeping: "zzz",
-    polling: "...",
-    reasoning: "thinking",
-    executing: "running",
-    interrupted: "INTERRUPTED",
-  };
-  const phaseStr = phaseIcons[state.phase] ?? state.phase;
+function printOverview() {
+  console.log(`\n${BOLD}${CYAN}=== aoaoe overview ===${RESET}`);
 
-  // countdown to next tick
+  // daemon status
+  const state = readState();
+  const daemonUp = isDaemonRunning();
+  if (daemonUp) {
+    const eta = getCountdown();
+    const phaseStr = state?.phase === "reasoning" ? `${YELLOW}reasoning${RESET}`
+      : state?.phase === "executing" ? `${GREEN}executing${RESET}`
+      : state?.phase === "interrupted" ? `${RED}INTERRUPTED${RESET}`
+      : state?.phase ?? "sleeping";
+    console.log(`  daemon: ${GREEN}running${RESET} | phase: ${phaseStr} | poll #${state?.pollCount ?? "?"}${eta !== null ? ` | next cycle: ${eta}s` : ""}`);
+  } else {
+    console.log(`  daemon: ${RED}not running${RESET} ${DIM}(start with: aoaoe)${RESET}`);
+  }
+  console.log();
+
+  // list all AoE sessions by calling aoe CLI directly
+  const sessions = listAoeSessions();
+  if (sessions.length === 0) {
+    console.log(`  ${DIM}no AoE sessions found${RESET}`);
+    console.log();
+    return;
+  }
+
+  for (const s of sessions) {
+    // capture tmux pane output
+    const output = captureTmuxPane(s.tmuxName);
+    if (!output) {
+      const statusIcon = `${RED}x${RESET}`;
+      console.log(`${statusIcon} ${BOLD}${s.title}${RESET} ${DIM}[${s.tool}]${RESET} ${DIM}(tmux pane not found)${RESET}`);
+      console.log();
+      continue;
+    }
+
+    // parse tasks and metadata
+    const tasks = parseTasks(output);
+    const model = parseModel(output);
+    const context = parseContext(output);
+    const cost = parseCost(output);
+    const lastLine = parseLastLine(output);
+
+    // status icon
+    const statusIcon = s.status === "working" ? `${GREEN}~${RESET}`
+      : s.status === "idle" ? `${DIM}.${RESET}`
+      : s.status === "error" ? `${RED}!${RESET}`
+      : `${YELLOW}?${RESET}`;
+
+    // header
+    const meta: string[] = [];
+    if (model) meta.push(model);
+    if (context) meta.push(context);
+    if (cost) meta.push(cost);
+    const metaStr = meta.length > 0 ? `${DIM}(${meta.join(" | ")})${RESET}` : "";
+
+    console.log(`${statusIcon} ${BOLD}${s.title}${RESET} ${DIM}[${s.tool}]${RESET} ${metaStr}`);
+
+    // tasks
+    if (tasks.length > 0) {
+      for (const t of tasks) {
+        const icon = t.status === "done" ? `${GREEN}✓${RESET}`
+          : t.status === "in_progress" ? `${YELLOW}•${RESET}`
+          : t.status === "failed" ? `${RED}✗${RESET}`
+          : `${DIM}○${RESET}`;
+        console.log(`    [${icon}] ${t.text}`);
+      }
+    } else {
+      console.log(`    ${DIM}(no task list detected)${RESET}`);
+    }
+
+    // last activity
+    console.log(`    ${DIM}> ${lastLine}${RESET}`);
+    console.log();
+  }
+}
+
+// --- /status: quick daemon status ---
+
+function printStatus() {
+  const state = readState();
+  if (!isDaemonRunning()) {
+    console.log(`${YELLOW}daemon is not running${RESET}`);
+    console.log(`${DIM}start it with: aoaoe${RESET}`);
+    return;
+  }
+
+  const eta = getCountdown();
+  console.log(`${BOLD}daemon status:${RESET}`);
+  console.log(`  phase: ${state?.phase ?? "?"}`);
+  console.log(`  poll #${state?.pollCount ?? "?"}`);
+  console.log(`  sessions: ${state?.sessionCount ?? "?"}`);
+  console.log(`  interval: ${state?.pollIntervalMs ?? "?"}ms`);
+  if (eta !== null) console.log(`  next cycle: ${eta}s`);
+  if (state?.paused) console.log(`  ${YELLOW}PAUSED${RESET}`);
+}
+
+// --- AoE session capture (works without daemon) ---
+
+interface AoeSessionInfo {
+  id: string;
+  title: string;
+  tool: string;
+  status: string;
+  tmuxName: string;
+}
+
+function listAoeSessions(): AoeSessionInfo[] {
+  try {
+    const out = execFileSync("aoe", ["list", "--json"], { timeout: 10_000, encoding: "utf-8" });
+    const raw = JSON.parse(out) as Array<Record<string, string>>;
+    // get status for each session
+    return raw.map((s) => {
+      const id = s.id ?? "";
+      const title = s.title ?? "";
+      let status = "unknown";
+      try {
+        const showOut = execFileSync("aoe", ["session", "show", id, "--json"], { timeout: 5_000, encoding: "utf-8" });
+        status = (JSON.parse(showOut) as { status?: string }).status ?? "unknown";
+      } catch {}
+      // replicate AoE tmux naming
+      const safeTitle = title.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 20);
+      const tmuxName = `aoe_${safeTitle}_${id.slice(0, 8)}`;
+      return { id, title, tool: s.tool ?? "", status, tmuxName };
+    }).filter((s) => s.title !== "aoaoe"); // exclude ourselves
+  } catch {
+    return [];
+  }
+}
+
+function captureTmuxPane(tmuxName: string): string | null {
+  try {
+    return execFileSync("tmux", ["capture-pane", "-t", tmuxName, "-p", "-S", "-100"], {
+      timeout: 5_000, encoding: "utf-8",
+    });
+  } catch {
+    return null;
+  }
+}
+
+// --- daemon connection check ---
+
+function isDaemonRunning(): boolean {
+  const state = readState();
+  if (!state) return false;
+  // state file exists -- check if it's recent (within 2x poll interval or 30s max)
+  const staleMs = Math.max(state.pollIntervalMs * 2, 30_000);
+  const age = Date.now() - state.phaseStartedAt;
+  return age < staleMs;
+}
+
+function getCountdown(): number | null {
+  const state = readState();
+  if (!state || !isDaemonRunning()) return null;
   if (state.phase === "sleeping" && state.nextTickAt) {
     const remaining = Math.max(0, Math.ceil((state.nextTickAt - Date.now()) / 1000));
-    parts.push(`next cycle: ${remaining}s`);
+    return remaining;
+  }
+  return null;
+}
+
+function checkDaemon() {
+  if (isDaemonRunning()) {
+    const state = readState()!;
+    const eta = getCountdown();
+    console.log(`${GREEN}daemon connected${RESET} ${DIM}(${state.sessionCount} sessions, poll #${state.pollCount})${RESET}`);
+    if (eta !== null) console.log(`${DIM}next reasoning cycle in ${eta}s${RESET}`);
+  } else {
+    console.log(`${YELLOW}daemon not detected${RESET} ${DIM}-- start it with: aoaoe${RESET}`);
+    console.log(`${DIM}/overview still works (captures panes directly)${RESET}`);
+  }
+}
+
+// --- status line (printed periodically, only when changed) ---
+
+function buildStatusLine(forTitle = false): string | null {
+  const state = readState();
+  if (!state || !isDaemonRunning()) return forTitle ? "aoaoe (daemon offline)" : null;
+
+  const parts: string[] = [];
+  if (state.phase === "sleeping" && state.nextTickAt) {
+    const remaining = Math.max(0, Math.ceil((state.nextTickAt - Date.now()) / 1000));
+    parts.push(`next: ${remaining}s`);
   } else if (state.phase === "reasoning") {
     const elapsed = Math.floor((Date.now() - state.phaseStartedAt) / 1000);
     parts.push(`reasoning: ${elapsed}s`);
   } else {
-    parts.push(phaseStr);
+    parts.push(state.phase);
   }
-
-  // session count
   parts.push(`${state.sessionCount} sessions`);
-  if (state.paused) parts.push("PAUSED");
   parts.push(`poll #${state.pollCount}`);
-
-  const statusLine = parts.join(" | ");
-
-  // write status to terminal title (visible in tmux pane title)
-  process.stdout.write(`\x1b]0;aoaoe: ${statusLine}\x07`);
-
-  // also write a status line above the prompt using save/restore cursor
-  // this overwrites the line above the current prompt
-  process.stderr.write(
-    `${SAVE_CURSOR}\x1b[s` + // save position
-    `\x1b[1A` +              // move up one line
-    `\r${CLEAR_LINE}` +      // clear that line
-    `${DIM}[${statusLine}]${RESET}` +
-    `\x1b[u${RESTORE_CURSOR}` // restore position
-  );
+  if (state.paused) parts.push("PAUSED");
+  return parts.join(" | ");
 }
 
-function printTasks() {
-  const state = readState();
-  if (!state || state.sessions.length === 0) {
-    console.log(`${DIM}no active sessions${RESET}`);
-    return;
-  }
-
-  console.log(`\n${BOLD}session tasks:${RESET}`);
-  for (const s of state.sessions) {
-    const statusIcon = s.status === "working" ? "~" : s.status === "idle" ? "." : s.status === "error" ? "!" : "?";
-    const task = s.currentTask ?? `${DIM}(no task assigned)${RESET}`;
-    const activity = s.lastActivity
-      ? `${DIM}last: ${s.lastActivity.slice(0, 60)}${RESET}`
-      : "";
-    console.log(`  ${statusIcon} ${BOLD}${s.title}${RESET} [${s.tool}] ${s.id.slice(0, 8)}`);
-    console.log(`    task: ${task}`);
-    if (activity) console.log(`    ${activity}`);
-  }
-  console.log();
-}
+// --- helpers ---
 
 function appendToInput(msg: string) {
-  try {
-    appendFileSync(INPUT_FILE, msg + "\n");
-  } catch {
-    // ignore write errors
-  }
+  try { appendFileSync(INPUT_FILE, msg + "\n"); } catch {}
 }
 
 function replayLog() {
@@ -286,12 +402,9 @@ function replayLog() {
       process.stdout.write(colorize(content));
       console.log(`${DIM}--- end of history ---${RESET}\n`);
     }
-  } catch {
-    // ignore read errors
-  }
+  } catch {}
 }
 
-// colorize conversation log lines based on their tag
 function colorize(text: string): string {
   return text.replace(/^(.*?\[)(observation|you|reasoner|action|\+ action|! action|system)(\].*$)/gm, (_, pre, tag, post) => {
     switch (tag) {
@@ -309,18 +422,19 @@ function colorize(text: string): string {
 function printHelp() {
   console.log(`
 ${BOLD}commands:${RESET}
-  /help       show this help
-  /status     request daemon status
-  /dashboard  request dashboard output
-  /tasks      show per-session task assignments
-  /verbose    toggle verbose logging
-  /pause      pause the daemon
-  /resume     resume the daemon
-  /interrupt  interrupt the current reasoner call
-  /clear      clear the screen
+  /overview    show all AoE sessions with tasks and status (works without daemon)
+  /tasks       alias for /overview
+  /status      daemon connection status + countdown
+  /dashboard   request full dashboard from daemon
+  /interrupt   interrupt the current reasoner call
+  /verbose     toggle verbose logging
+  /pause       pause the daemon
+  /resume      resume the daemon
+  /clear       clear the screen
+  /help        show this help
 
 ${BOLD}shortcuts:${RESET}
-  ESC ESC     interrupt the current reasoner (same as /interrupt)
+  ESC ESC      interrupt the current reasoner (same as /interrupt)
 
 ${BOLD}anything else${RESET} is sent to the reasoner as an operator message
 `);
@@ -329,13 +443,10 @@ ${BOLD}anything else${RESET} is sent to the reasoner as an operator message
 function cleanup() {
   unwatchFile(CONVO_LOG);
   try {
-    // only remove PID file if it's still ours
     if (existsSync(PID_FILE) && readFileSync(PID_FILE, "utf-8").trim() === String(process.pid)) {
       unlinkSync(PID_FILE);
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 main();

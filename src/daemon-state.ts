@@ -5,6 +5,7 @@ import { writeFileSync, readFileSync, existsSync, unlinkSync, mkdirSync } from "
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { DaemonState, DaemonPhase, DaemonSessionState, Observation } from "./types.js";
+import { parseTasks, formatTaskList } from "./task-parser.js";
 
 const AOAOE_DIR = join(homedir(), ".aoaoe");
 const STATE_FILE = join(AOAOE_DIR, "daemon-state.json");
@@ -49,13 +50,16 @@ export function writeState(
   }
 }
 
-// build session state list from an observation, merging in tracked tasks
+// build session state list from an observation, merging in tracked tasks + parsed TODOs
 export function buildSessionStates(obs: Observation): DaemonSessionState[] {
   return obs.sessions.map((snap) => {
     const s = snap.session;
     // extract last non-empty line from output as "last activity"
     const lines = snap.output.split("\n").filter((l) => l.trim());
     const lastActivity = lines.length > 0 ? lines[lines.length - 1].trim() : undefined;
+    // parse OpenCode-style TODO items from pane output
+    const todos = parseTasks(snap.output);
+    const todoSummary = todos.length > 0 ? formatTaskList(todos) : undefined;
     return {
       id: s.id,
       title: s.title,
@@ -65,6 +69,7 @@ export function buildSessionStates(obs: Observation): DaemonSessionState[] {
       lastActivity: lastActivity && lastActivity.length > 100
         ? lastActivity.slice(0, 97) + "..."
         : lastActivity,
+      todoSummary,
     };
   });
 }
