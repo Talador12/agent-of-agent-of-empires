@@ -4,6 +4,7 @@ import { Poller } from "./poller.js";
 import { createReasoner } from "./reasoner/index.js";
 import { Executor, type ActionLogEntry } from "./executor.js";
 import { printDashboard } from "./dashboard.js";
+import { InputReader } from "./input.js";
 import type { AoaoeConfig, Observation, ReasonerResult } from "./types.js";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -41,11 +42,15 @@ async function main() {
   const poller = new Poller(config);
   const reasoner = createReasoner(config);
   const executor = new Executor(config);
+  const input = new InputReader();
 
   // init reasoner (starts opencode serve, verifies claude, etc)
   log("initializing reasoner...");
   await reasoner.init();
   log("reasoner ready");
+
+  // start interactive input listener
+  input.start();
 
   // graceful shutdown
   let running = true;
@@ -53,6 +58,7 @@ async function main() {
     if (!running) return;
     running = false;
     log("shutting down...");
+    input.stop();
     await reasoner.shutdown();
     process.exit(0);
   };
@@ -61,12 +67,40 @@ async function main() {
 
   // main loop
   let pollCount = 0;
+  let forceDashboard = false;
   log("entering main loop (Ctrl+C to stop)\n");
 
   while (running) {
     pollCount++;
+
+    // drain user input
+    const userMessages = input.drain();
+    let userMessage: string | undefined;
+
+    // handle built-in command markers
+    for (const msg of userMessages) {
+      if (msg === "__CMD_STATUS__") {
+        log(`status: poll #${pollCount}, reasoner=${config.reasoner}, paused=${input.isPaused()}, dry-run=${config.dryRun}`);
+      } else if (msg === "__CMD_DASHBOARD__") {
+        forceDashboard = true;
+      } else if (msg === "__CMD_VERBOSE__") {
+        config.verbose = !config.verbose;
+        log(`verbose: ${config.verbose ? "on" : "off"}`);
+      } else {
+        // real user message -- combine if multiple
+        userMessage = userMessage ? `${userMessage}\n${msg}` : msg;
+      }
+    }
+
+    if (input.isPaused()) {
+      if (pollCount % 6 === 1) log("paused (type /resume to continue)");
+      await sleep(config.pollIntervalMs);
+      continue;
+    }
+
     try {
-      await tick(config, poller, reasoner, executor, pollCount);
+      await tick(config, poller, reasoner, executor, pollCount, userMessage, forceDashboard);
+      forceDashboard = false;
     } catch (err) {
       console.error(`[error] tick ${pollCount} failed: ${err}`);
     }
@@ -82,14 +116,21 @@ async function tick(
   poller: Poller,
   reasoner: ReturnType<typeof createReasoner>,
   executor: Executor,
-  pollCount: number
+  pollCount: number,
+  userMessage?: string,
+  forceDashboard?: boolean
 ): Promise<void> {
   // 1. poll
   const observation = await poller.poll();
   const sessionCount = observation.sessions.length;
   const changeCount = observation.changes.length;
 
-  if (sessionCount === 0) {
+  // attach user message to observation if present
+  if (userMessage) {
+    observation.userMessage = userMessage;
+  }
+
+  if (sessionCount === 0 && !userMessage) {
     if (pollCount % 6 === 1) {
       // log every ~60s when no sessions
       log("no active aoe sessions found");
@@ -97,19 +138,20 @@ async function tick(
     return;
   }
 
-  // dashboard every 6 polls (~60s at default interval)
-  if (pollCount % 6 === 1) {
+  // dashboard every 6 polls (~60s at default interval), or on demand
+  if (forceDashboard || pollCount % 6 === 1) {
     printDashboard(observation, executor.getRecentLog(), pollCount, config);
   }
 
   // status line
   const statuses = summarizeStatuses(observation);
+  const userTag = userMessage ? " | +operator msg" : "";
   process.stdout.write(
-    `\r[poll #${pollCount}] ${sessionCount} sessions (${statuses}) | ${changeCount} changed`
+    `\r[poll #${pollCount}] ${sessionCount} sessions (${statuses}) | ${changeCount} changed${userTag}`
   );
 
-  // 2. if nothing changed, skip reasoning (save tokens)
-  if (changeCount === 0) {
+  // 2. if nothing changed AND no user message, skip reasoning (save tokens)
+  if (changeCount === 0 && !userMessage) {
     if (config.verbose) {
       process.stdout.write(" | no changes, skipping reasoner\n");
     }

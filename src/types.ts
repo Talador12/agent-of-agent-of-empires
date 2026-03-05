@@ -21,6 +21,7 @@ export interface Observation {
   timestamp: number;
   sessions: SessionSnapshot[];
   changes: SessionChange[]; // only sessions with new output since last poll
+  userMessage?: string; // optional human operator message injected via stdin
 }
 
 export interface SessionChange {

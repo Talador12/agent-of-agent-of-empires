@@ -68,5 +68,14 @@ export function formatObservation(obs: Observation): string {
     }
   }
 
+  // user operator message (injected via stdin)
+  if (obs.userMessage) {
+    parts.push("--- OPERATOR MESSAGE (from human supervisor) ---");
+    parts.push(obs.userMessage);
+    parts.push("--- END OPERATOR MESSAGE ---");
+    parts.push("");
+    parts.push("IMPORTANT: The operator message above takes priority. Factor it into your decision.");
+  }
+
   return parts.join("\n");
 }
