@@ -106,15 +106,29 @@ export function parseCliArgs(argv: string[]): {
   help: boolean;
   version: boolean;
   attach: boolean;
+  register: boolean;
+  registerTitle?: string;
 } {
   const overrides: Partial<AoaoeConfig> = {};
   let help = false;
   let version = false;
   let attach = false;
+  let register = false;
+  let registerTitle: string | undefined;
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "attach") {
-    return { overrides, help: false, version: false, attach: true };
+    return { overrides, help: false, version: false, attach: true, register: false };
+  }
+  if (argv[2] === "register") {
+    register = true;
+    // parse --title from remaining args
+    for (let i = 3; i < argv.length; i++) {
+      if ((argv[i] === "--title" || argv[i] === "-t") && argv[i + 1]) {
+        registerTitle = argv[++i];
+      }
+    }
+    return { overrides, help: false, version: false, attach: false, register, registerTitle };
   }
 
   for (let i = 2; i < argv.length; i++) {
@@ -154,7 +168,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, attach };
+  return { overrides, help, version, attach, register: false };
 }
 
 export function printHelp() {
@@ -165,6 +179,7 @@ usage: aoaoe [command] [options]
 commands:
   (none)         start the daemon
   attach         enter the reasoner console (Ctrl+B D to detach)
+  register       register aoaoe as an AoE session (appears in aoe list)
 
 options:
   --reasoner <opencode|claude-code>  reasoning backend (default: opencode)
@@ -177,6 +192,15 @@ options:
   --help, -h                         show this help
   --version                          show version
 
-console commands (inside reasoner console):
-  type any text    send a message to the reasoner on next tick`);
+register options:
+  --title, -t <name>                 session title in AoE (default: aoaoe)
+
+console commands (inside reasoner chat):
+  /help          show available commands
+  /status        request daemon status
+  /dashboard     request dashboard output
+  /pause         pause the daemon
+  /resume        resume the daemon
+  /clear         clear the screen
+  (anything)     send a message to the reasoner`);
 }

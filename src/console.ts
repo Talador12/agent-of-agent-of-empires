@@ -1,6 +1,7 @@
-// console.ts -- manages the aoaoe_reasoner tmux session
-// two-pane layout: top shows conversation, bottom accepts user input
-// "aoaoe attach" drops you into this session, Ctrl+B D to detach
+// console.ts -- manages conversation log and user input IPC for the reasoner
+// supports two modes:
+// 1. standalone tmux session (aoaoe_reasoner) -- legacy fallback when not registered as AoE session
+// 2. file-only mode -- when chat.ts runs inside an AoE-managed tmux pane, we just read/write files
 import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -9,10 +10,26 @@ import { execQuiet, exec } from "./shell.js";
 const AOAOE_DIR = join(homedir(), ".aoaoe");
 const CONVO_LOG = join(AOAOE_DIR, "conversation.log");
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt");
+const PID_FILE = join(AOAOE_DIR, "chat.pid");
 const SESSION_NAME = "aoaoe_reasoner";
 
 export class ReasonerConsole {
   private started = false;
+  private ownsTmux = false; // true if we created the aoaoe_reasoner tmux session
+
+  // detect if chat.ts is running (registered as AoE session)
+  private chatIsRunning(): boolean {
+    if (!existsSync(PID_FILE)) return false;
+    try {
+      const pid = parseInt(readFileSync(PID_FILE, "utf-8").trim(), 10);
+      if (isNaN(pid)) return false;
+      // check if process is alive (signal 0 doesn't kill, just checks)
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   async start(): Promise<void> {
     mkdirSync(AOAOE_DIR, { recursive: true });
@@ -21,39 +38,39 @@ export class ReasonerConsole {
     writeFileSync(CONVO_LOG, "");
     writeFileSync(INPUT_FILE, "");
 
-    // kill any stale session
+    // if chat.ts is running in an AoE pane, skip creating our own tmux session
+    if (this.chatIsRunning()) {
+      this.started = true;
+      this.writeSystem("aoaoe daemon connected (chat running in AoE session)");
+      this.writeSystem("---");
+      return;
+    }
+
+    // fallback: create standalone tmux session
     await execQuiet("tmux", ["kill-session", "-t", SESSION_NAME]);
 
-    // create the session with the conversation viewer in the top pane
-    // using ANSI colors for a nice look
     await exec("tmux", [
       "new-session", "-d", "-s", SESSION_NAME, "-x", "200", "-y", "50",
       `tail -f ${CONVO_LOG}`,
     ]);
 
-    // split bottom pane for user input
     await exec("tmux", [
       "split-window", "-t", SESSION_NAME, "-v", "-l", "4",
       `bash ${join(AOAOE_DIR, "input-loop.sh")}`,
     ]);
 
-    // write the input loop script
     writeFileSync(join(AOAOE_DIR, "input-loop.sh"), INPUT_LOOP_SCRIPT);
 
-    // select top pane by default (so user sees conversation first)
     await execQuiet("tmux", ["select-pane", "-t", `${SESSION_NAME}:.0`]);
-
-    // style: set pane border labels
     await execQuiet("tmux", [
       "set-option", "-t", SESSION_NAME, "pane-border-format",
       " #{?pane_active,#[fg=green],#[fg=white]}#{pane_title} ",
     ]);
     await execQuiet("tmux", ["select-pane", "-t", `${SESSION_NAME}:.0`, "-T", "conversation"]);
     await execQuiet("tmux", ["select-pane", "-t", `${SESSION_NAME}:.1`, "-T", "input (type here)"]);
-
-    // focus the input pane so user can type immediately on attach
     await execQuiet("tmux", ["select-pane", "-t", `${SESSION_NAME}:.1`]);
 
+    this.ownsTmux = true;
     this.started = true;
     this.writeSystem("aoaoe reasoner console started");
     this.writeSystem("type a message below to send to the reasoner");
@@ -101,10 +118,10 @@ export class ReasonerConsole {
   }
 
   async stop(): Promise<void> {
-    if (this.started) {
+    if (this.started && this.ownsTmux) {
       await execQuiet("tmux", ["kill-session", "-t", SESSION_NAME]);
-      this.started = false;
     }
+    this.started = false;
   }
 
   private append(line: string): void {

@@ -51,13 +51,31 @@ npm link
 # 1. Make sure you have AoE sessions running
 aoe
 
-# 2. Start the supervisor
+# 2. Register aoaoe as an AoE session (one-time setup)
+aoaoe register
+
+# 3. Start the supervisor daemon
 aoaoe
 
-# 3. Or specify a reasoning backend
+# 4. Start the aoaoe session in AoE, then enter it via AoE's TUI
+aoe session start aoaoe
+aoe    # select "aoaoe" to chat with the reasoner
+
+# Or specify a reasoning backend
 aoaoe --reasoner opencode
 aoaoe --reasoner claude-code
 ```
+
+### Register as an AoE Session
+
+`aoaoe register` adds aoaoe to your AoE session list so you can enter it just like any other agent. Inside the session you get an interactive chat where you can send messages to the reasoner, see observations, and watch decisions in real time.
+
+```bash
+aoaoe register                    # register with default title "aoaoe"
+aoaoe register --title my-brain   # custom title
+```
+
+The session runs an interactive chat (chat.ts) inside the AoE-managed tmux pane. The daemon reads your messages from `~/.aoaoe/pending-input.txt` and writes observations and decisions to `~/.aoaoe/conversation.log`.
 
 ## How It Works
 
@@ -212,22 +230,34 @@ AoE sessions are named `aoe_<sanitized_title>_<first8_of_id>` in tmux. State is 
 
 ```
 src/
-  index.ts          # entry point, daemon loop
+  index.ts          # entry point, daemon loop, register/attach subcommands
+  chat.ts           # interactive chat for AoE-managed tmux pane
   config.ts         # config loader and validation
+  console.ts        # conversation log + input IPC (file-based)
   poller.ts         # aoe CLI + tmux capture-pane wrapper
   executor.ts       # maps action decisions to shell commands
+  dashboard.ts      # periodic CLI status table
+  input.ts          # stdin readline listener
+  shell.ts          # exec() wrappers
+  types.ts          # shared types (SessionSnapshot, Action, etc.)
   reasoner/
     index.ts        # common Reasoner interface
+    prompt.ts       # system prompt + observation formatting
     opencode.ts     # OpenCode SDK backend
     claude-code.ts  # Claude Code CLI backend
-  types.ts          # shared types (SessionSnapshot, Action, etc.)
 ```
 
-## CLI Flags
+## CLI
 
 ```
-aoaoe [options]
+aoaoe [command] [options]
 
+commands:
+  (none)         start the daemon
+  attach         enter the reasoner console (Ctrl+B D to detach)
+  register       register aoaoe as an AoE session (appears in aoe list)
+
+options:
   --reasoner <opencode|claude-code>  reasoning backend (default: opencode)
   --poll-interval <ms>               poll interval in ms (default: 10000)
   --port <number>                    opencode server port (default: 4097)
@@ -235,6 +265,18 @@ aoaoe [options]
   --profile <name>                   aoe profile (default: default)
   --dry-run                          observe + reason but don't execute
   --verbose, -v                      verbose logging
+
+register options:
+  --title, -t <name>                 session title in AoE (default: aoaoe)
+
+chat commands (inside AoE session):
+  /help       show available commands
+  /status     request daemon status
+  /dashboard  request dashboard output
+  /pause      pause the daemon
+  /resume     resume the daemon
+  /clear      clear the screen
+  (anything)  send a message to the reasoner
 ```
 
 Action history is persisted to `~/.aoaoe/actions.log` (JSONL format).

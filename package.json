@@ -1,11 +1,12 @@
 {
   "name": "aoaoe",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Autonomous supervisor for agent-of-empires sessions using OpenCode or Claude Code",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "aoaoe": "dist/index.js"
+    "aoaoe": "dist/index.js",
+    "aoaoe-chat": "dist/chat.js"
   },
   "files": [
     "dist",

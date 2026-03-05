@@ -8,13 +8,14 @@ import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
 import type { AoaoeConfig, Observation, ReasonerResult } from "./types.js";
 import { readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 async function main() {
-  const { overrides, help, version, attach } = parseCliArgs(process.argv);
+  const { overrides, help, version, attach, register, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -34,6 +35,12 @@ async function main() {
   // `aoaoe attach` -- drop into the reasoner console tmux session
   if (attach) {
     await attachToConsole();
+    return;
+  }
+
+  // `aoaoe register` -- register aoaoe as an AoE session
+  if (register) {
+    await registerAsAoeSession(registerTitle);
     return;
   }
 
@@ -79,6 +86,7 @@ async function main() {
   // main loop
   let pollCount = 0;
   let forceDashboard = false;
+  let paused = false; // can be set by /pause from stdin or chat.ts
   log("entering main loop (Ctrl+C to stop)\n");
 
   while (running) {
@@ -90,22 +98,35 @@ async function main() {
     const userMessages = [...stdinMessages, ...consoleMessages];
     let userMessage: string | undefined;
 
-    // handle built-in command markers
+    // handle built-in command markers (from stdin or chat.ts file IPC)
     for (const msg of userMessages) {
       if (msg === "__CMD_STATUS__") {
-        log(`status: poll #${pollCount}, reasoner=${config.reasoner}, paused=${input.isPaused()}, dry-run=${config.dryRun}`);
+        const isPausedNow = paused || input.isPaused();
+        log(`status: poll #${pollCount}, reasoner=${config.reasoner}, paused=${isPausedNow}, dry-run=${config.dryRun}`);
+        console_.writeSystem(`status: poll #${pollCount}, reasoner=${config.reasoner}, paused=${isPausedNow}, dry-run=${config.dryRun}`);
       } else if (msg === "__CMD_DASHBOARD__") {
         forceDashboard = true;
       } else if (msg === "__CMD_VERBOSE__") {
         config.verbose = !config.verbose;
         log(`verbose: ${config.verbose ? "on" : "off"}`);
+        console_.writeSystem(`verbose: ${config.verbose ? "on" : "off"}`);
+      } else if (msg === "__CMD_PAUSE__") {
+        paused = true;
+        log("paused via console");
+        console_.writeSystem("paused -- reasoner will not be called until /resume");
+      } else if (msg === "__CMD_RESUME__") {
+        paused = false;
+        log("resumed via console");
+        console_.writeSystem("resumed");
       } else {
         // real user message -- combine if multiple
         userMessage = userMessage ? `${userMessage}\n${msg}` : msg;
       }
     }
 
-    if (input.isPaused()) {
+    // check pause from both stdin input and console commands
+    const isPaused = paused || input.isPaused();
+    if (isPaused) {
       if (pollCount % 6 === 1) log("paused (type /resume to continue)");
       await sleep(config.pollIntervalMs);
       continue;
@@ -249,6 +270,84 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
       resolve(fallback);
     }, ms)),
   ]);
+}
+
+// `aoaoe register` -- register aoaoe as an AoE session using --cmd_override
+// this makes aoaoe appear in `aoe list` so users can enter it via AoE's normal interface
+async function registerAsAoeSession(title?: string): Promise<void> {
+  const sessionTitle = title ?? "aoaoe";
+
+  // resolve the path to chat.js -- works whether installed globally via npm or run from source
+  const chatPath = resolve(__dirname, "chat.js");
+  const { existsSync: exists } = await import("node:fs");
+  if (!exists(chatPath)) {
+    console.error(`error: chat.js not found at ${chatPath}`);
+    console.error("run 'npm run build' first if running from source");
+    process.exit(1);
+  }
+
+  const cwd = process.cwd();
+
+  // create a wrapper script that runs chat.js inside AoE's tmux pane.
+  // we use /bin/sh (not bash) to avoid loading .bashrc which pollutes the pane,
+  // and embed the full node path since nvm isn't available in a bare /bin/sh.
+  //
+  // AoE integration constraints (0.13.3):
+  // 1. -c value must contain a known tool name (resolve_tool_name does substring match)
+  // 2. -c value must contain a space or AoE won't store it (add.rs:183)
+  // 3. yolo mode with EnvVar tools (opencode) breaks exec -- use claude (CliFlag) instead
+  // 4. wrapper name contains "claude" so `-c "<path> --"` passes tool validation
+  const wrapperPath = join(homedir(), ".aoaoe", "claude-aoaoe-chat.sh");
+  const { mkdirSync: mkdirS, writeFileSync: writeS, chmodSync } = await import("node:fs");
+  mkdirS(join(homedir(), ".aoaoe"), { recursive: true });
+  const nodePath = process.execPath; // full path to current node binary
+  writeS(wrapperPath, `#!/bin/sh\nexec "${nodePath}" "${chatPath}"\n`);
+  chmodSync(wrapperPath, 0o755);
+  // trailing "--" ensures the command contains a space so AoE stores it
+  const chatCmd = `${wrapperPath} --`;
+
+  // check if already registered by looking at aoe list
+  const { exec: shellExec } = await import("./shell.js");
+  try {
+    const listResult = await shellExec("aoe", ["list", "--json"]);
+    if (listResult.exitCode === 0 && listResult.stdout.trim()) {
+      const sessions = JSON.parse(listResult.stdout);
+      const existing = sessions.find((s: { title: string }) => s.title === sessionTitle);
+      if (existing) {
+        console.log(`session '${sessionTitle}' already registered (id: ${existing.id})`);
+        console.log(`start it with: aoe session start ${sessionTitle}`);
+        console.log(`then enter it with: aoe (and select ${sessionTitle})`);
+        return;
+      }
+    }
+  } catch {
+    // aoe list failed -- maybe no sessions, continue with registration
+  }
+
+  // register via aoe add with -c containing "opencode" in the env var to pass tool validation.
+  // AoE stores the full command string and runs it directly in the tmux pane on session start.
+  console.log(`registering '${sessionTitle}' as an AoE session...`);
+  console.log(`  path: ${cwd}`);
+  console.log(`  command: ${chatCmd}`);
+
+  const addResult = await shellExec("aoe", [
+    "add", cwd,
+    "-t", sessionTitle,
+    "-c", chatCmd,
+  ]);
+
+  if (addResult.exitCode !== 0) {
+    console.error(`failed to register: ${addResult.stderr || addResult.stdout}`);
+    process.exit(1);
+  }
+
+  console.log();
+  console.log(`registered! next steps:`);
+  console.log(`  1. start the daemon:  aoaoe`);
+  console.log(`  2. start the session: aoe session start ${sessionTitle}`);
+  console.log(`  3. enter via AoE:     aoe  (then select ${sessionTitle})`);
+  console.log();
+  console.log(`or start + enter immediately: aoe session start ${sessionTitle} && aoe`);
 }
 
 // `aoaoe attach` -- enter the reasoner console tmux session
