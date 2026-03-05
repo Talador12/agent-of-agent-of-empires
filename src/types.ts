@@ -79,3 +79,28 @@ export interface AoaoeConfig {
   verbose: boolean;
   dryRun: boolean; // observe + reason but don't execute; log what would happen
 }
+
+// daemon state written to ~/.aoaoe/daemon-state.json for chat UI IPC
+export type DaemonPhase = "sleeping" | "polling" | "reasoning" | "executing" | "interrupted";
+
+export interface DaemonSessionState {
+  id: string;
+  title: string;
+  tool: string;
+  status: string;
+  currentTask?: string; // last send_input text sent to this session
+  lastActivity?: string; // last non-empty line of output
+}
+
+export interface DaemonState {
+  tickStartedAt: number;
+  nextTickAt: number;
+  pollIntervalMs: number;
+  phase: DaemonPhase;
+  phaseStartedAt: number;
+  pollCount: number;
+  paused: boolean;
+  sessionCount: number;
+  changeCount: number;
+  sessions: DaemonSessionState[];
+}

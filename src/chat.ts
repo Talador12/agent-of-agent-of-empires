@@ -3,10 +3,17 @@
 // this is the program that --cmd_override points to when aoaoe registers itself as an AoE session.
 // it reads conversation.log for history display, writes user input to pending-input.txt,
 // and the daemon picks it up on the next poll cycle.
-import { createInterface } from "node:readline";
+//
+// features:
+// - live countdown to next reasoning cycle (reads daemon-state.json every 1s)
+// - per-pane task display (/tasks command)
+// - ESC-ESC to interrupt the current reasoner (like OpenCode)
+import { createInterface, emitKeypressEvents } from "node:readline";
 import { appendFileSync, writeFileSync, existsSync, mkdirSync, watchFile, unwatchFile, readFileSync, statSync, openSync, readSync, closeSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { readState, requestInterrupt } from "./daemon-state.js";
+import type { DaemonState } from "./types.js";
 
 const AOAOE_DIR = join(homedir(), ".aoaoe");
 const CONVO_LOG = join(AOAOE_DIR, "conversation.log");
@@ -20,7 +27,15 @@ const GREEN = "\x1b[32m";
 const CYAN = "\x1b[36m";
 const YELLOW = "\x1b[33m";
 const RED = "\x1b[31m";
+const MAGENTA = "\x1b[35m";
 const RESET = "\x1b[0m";
+const SAVE_CURSOR = "\x1b7";
+const RESTORE_CURSOR = "\x1b8";
+const CLEAR_LINE = "\x1b[2K";
+
+// ESC-ESC interrupt detection
+let lastEscTime = 0;
+const ESC_DOUBLE_TAP_MS = 500;
 
 function main() {
   mkdirSync(AOAOE_DIR, { recursive: true });
@@ -32,7 +47,7 @@ function main() {
   console.log(`${BOLD}${CYAN}aoaoe reasoner chat${RESET}`);
   console.log(`${DIM}messages you type here are sent to the reasoner on the next poll cycle${RESET}`);
   console.log(`${DIM}the daemon writes observations and decisions to this view${RESET}`);
-  console.log(`${DIM}type /help for commands, Ctrl+C to exit${RESET}`);
+  console.log(`${DIM}type /help for commands, ESC ESC to interrupt reasoner, Ctrl+C to exit${RESET}`);
   console.log();
 
   // replay existing conversation log
@@ -55,6 +70,26 @@ function main() {
     }
   });
 
+  // set up keypress events for ESC-ESC detection
+  if (process.stdin.isTTY) {
+    emitKeypressEvents(process.stdin);
+    process.stdin.on("keypress", (_ch: string | undefined, key: { name?: string; sequence?: string }) => {
+      if (key?.name === "escape" || key?.sequence === "\x1b") {
+        const now = Date.now();
+        if (now - lastEscTime < ESC_DOUBLE_TAP_MS) {
+          // double-ESC detected -- interrupt the reasoner
+          handleInterrupt();
+          lastEscTime = 0;
+        } else {
+          lastEscTime = now;
+        }
+      } else {
+        // any other key resets the ESC timer
+        lastEscTime = 0;
+      }
+    });
+  }
+
   // interactive readline
   const rl = createInterface({
     input: process.stdin,
@@ -64,6 +99,11 @@ function main() {
   });
 
   rl.prompt();
+
+  // live status bar -- update every second
+  const statusInterval = setInterval(() => {
+    renderStatusBar(rl);
+  }, 1000);
 
   rl.on("line", (line: string) => {
     const trimmed = line.trim();
@@ -90,6 +130,11 @@ function main() {
       rl.prompt();
       return;
     }
+    if (trimmed === "/tasks") {
+      printTasks();
+      rl.prompt();
+      return;
+    }
     if (trimmed === "/verbose") {
       appendToInput("__CMD_VERBOSE__");
       console.log(`${DIM}verbose toggled${RESET}`);
@@ -108,6 +153,11 @@ function main() {
       rl.prompt();
       return;
     }
+    if (trimmed === "/interrupt") {
+      handleInterrupt();
+      rl.prompt();
+      return;
+    }
     if (trimmed === "/clear") {
       process.stdout.write("\x1b[2J\x1b[H");
       rl.prompt();
@@ -121,19 +171,103 @@ function main() {
   });
 
   rl.on("close", () => {
+    clearInterval(statusInterval);
     cleanup();
     process.exit(0);
   });
 
   process.on("SIGINT", () => {
+    clearInterval(statusInterval);
     cleanup();
     process.exit(0);
   });
 
   process.on("SIGTERM", () => {
+    clearInterval(statusInterval);
     cleanup();
     process.exit(0);
   });
+}
+
+function handleInterrupt() {
+  const state = readState();
+  if (state?.phase === "reasoning") {
+    requestInterrupt();
+    console.log(`${RED}${BOLD}interrupting reasoner...${RESET}`);
+    console.log(`${DIM}type your message -- it will be sent before the next reasoning cycle${RESET}`);
+  } else {
+    console.log(`${DIM}no active reasoning to interrupt (phase: ${state?.phase ?? "unknown"})${RESET}`);
+  }
+}
+
+// render a status bar showing countdown, phase, and session count
+function renderStatusBar(rl: ReturnType<typeof createInterface>) {
+  const state = readState();
+  if (!state) return;
+
+  const parts: string[] = [];
+
+  // phase indicator
+  const phaseIcons: Record<string, string> = {
+    sleeping: "zzz",
+    polling: "...",
+    reasoning: "thinking",
+    executing: "running",
+    interrupted: "INTERRUPTED",
+  };
+  const phaseStr = phaseIcons[state.phase] ?? state.phase;
+
+  // countdown to next tick
+  if (state.phase === "sleeping" && state.nextTickAt) {
+    const remaining = Math.max(0, Math.ceil((state.nextTickAt - Date.now()) / 1000));
+    parts.push(`next cycle: ${remaining}s`);
+  } else if (state.phase === "reasoning") {
+    const elapsed = Math.floor((Date.now() - state.phaseStartedAt) / 1000);
+    parts.push(`reasoning: ${elapsed}s`);
+  } else {
+    parts.push(phaseStr);
+  }
+
+  // session count
+  parts.push(`${state.sessionCount} sessions`);
+  if (state.paused) parts.push("PAUSED");
+  parts.push(`poll #${state.pollCount}`);
+
+  const statusLine = parts.join(" | ");
+
+  // write status to terminal title (visible in tmux pane title)
+  process.stdout.write(`\x1b]0;aoaoe: ${statusLine}\x07`);
+
+  // also write a status line above the prompt using save/restore cursor
+  // this overwrites the line above the current prompt
+  process.stderr.write(
+    `${SAVE_CURSOR}\x1b[s` + // save position
+    `\x1b[1A` +              // move up one line
+    `\r${CLEAR_LINE}` +      // clear that line
+    `${DIM}[${statusLine}]${RESET}` +
+    `\x1b[u${RESTORE_CURSOR}` // restore position
+  );
+}
+
+function printTasks() {
+  const state = readState();
+  if (!state || state.sessions.length === 0) {
+    console.log(`${DIM}no active sessions${RESET}`);
+    return;
+  }
+
+  console.log(`\n${BOLD}session tasks:${RESET}`);
+  for (const s of state.sessions) {
+    const statusIcon = s.status === "working" ? "~" : s.status === "idle" ? "." : s.status === "error" ? "!" : "?";
+    const task = s.currentTask ?? `${DIM}(no task assigned)${RESET}`;
+    const activity = s.lastActivity
+      ? `${DIM}last: ${s.lastActivity.slice(0, 60)}${RESET}`
+      : "";
+    console.log(`  ${statusIcon} ${BOLD}${s.title}${RESET} [${s.tool}] ${s.id.slice(0, 8)}`);
+    console.log(`    task: ${task}`);
+    if (activity) console.log(`    ${activity}`);
+  }
+  console.log();
 }
 
 function appendToInput(msg: string) {
@@ -178,10 +312,15 @@ ${BOLD}commands:${RESET}
   /help       show this help
   /status     request daemon status
   /dashboard  request dashboard output
+  /tasks      show per-session task assignments
   /verbose    toggle verbose logging
   /pause      pause the daemon
   /resume     resume the daemon
+  /interrupt  interrupt the current reasoner call
   /clear      clear the screen
+
+${BOLD}shortcuts:${RESET}
+  ESC ESC     interrupt the current reasoner (same as /interrupt)
 
 ${BOLD}anything else${RESET} is sent to the reasoner as an operator message
 `);

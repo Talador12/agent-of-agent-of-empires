@@ -34,6 +34,11 @@ export class InputReader {
     return this.paused;
   }
 
+  // inject a message directly into the queue (used after interrupt to feed text into next tick)
+  inject(msg: string): void {
+    this.queue.push(msg);
+  }
+
   stop(): void {
     this.rl?.close();
     this.rl = null;
@@ -64,6 +69,8 @@ export class InputReader {
   /pause             pause the daemon loop (polling continues, reasoning skipped)
   /resume            resume the daemon loop
   /dashboard         force a dashboard print on next tick
+  /tasks             show per-session task assignments
+  /interrupt         interrupt the current reasoner call
   /verbose           toggle verbose mode
   <any text>         send message to the reasoner on next tick
 `);
@@ -90,6 +97,15 @@ export class InputReader {
 
       case "/verbose":
         this.queue.push("__CMD_VERBOSE__");
+        break;
+
+      case "/interrupt":
+        this.queue.push("__CMD_INTERRUPT__");
+        console.error("[input] interrupt requested");
+        break;
+
+      case "/tasks":
+        this.queue.push("__CMD_DASHBOARD__"); // reuse dashboard for now
         break;
 
       default:

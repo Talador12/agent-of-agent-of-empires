@@ -6,6 +6,7 @@ import { Executor, type ActionLogEntry } from "./executor.js";
 import { printDashboard } from "./dashboard.js";
 import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
+import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState } from "./daemon-state.js";
 import type { AoaoeConfig, Observation, ReasonerResult } from "./types.js";
 import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -78,6 +79,7 @@ async function main() {
     input.stop();
     await console_.stop();
     await reasoner.shutdown();
+    cleanupState();
     process.exit(0);
   };
   process.on("SIGINT", shutdown);
@@ -88,6 +90,9 @@ async function main() {
   let forceDashboard = false;
   let paused = false; // can be set by /pause from stdin or chat.ts
   log("entering main loop (Ctrl+C to stop)\n");
+
+  // clear any stale interrupt from a previous run
+  clearInterrupt();
 
   while (running) {
     pollCount++;
@@ -118,6 +123,9 @@ async function main() {
         paused = false;
         log("resumed via console");
         console_.writeSystem("resumed");
+      } else if (msg === "__CMD_INTERRUPT__") {
+        // interrupt is handled inside tick() via the flag file; clear it here if no tick is running
+        log("interrupt requested (will take effect during next reasoning call)");
       } else {
         // real user message -- combine if multiple
         userMessage = userMessage ? `${userMessage}\n${msg}` : msg;
@@ -128,23 +136,43 @@ async function main() {
     const isPaused = paused || input.isPaused();
     if (isPaused) {
       if (pollCount % 6 === 1) log("paused (type /resume to continue)");
+      writeState("sleeping", { paused: true, pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt: Date.now() + config.pollIntervalMs });
       await sleep(config.pollIntervalMs);
       continue;
     }
 
     try {
-      await tick(config, poller, reasoner, executor, console_, pollCount, userMessage, forceDashboard);
+      const interrupted = await tick(config, poller, reasoner, executor, console_, pollCount, userMessage, forceDashboard);
       forceDashboard = false;
+
+      // if the reasoner was interrupted, wait for user input before continuing
+      if (interrupted) {
+        writeState("interrupted", { pollCount, pollIntervalMs: config.pollIntervalMs });
+        console_.writeSystem("reasoner interrupted -- type a message to continue, or wait for next cycle");
+        log("interrupted -- waiting for user input (up to 60s)");
+
+        const injected = await waitForInput(input, console_, 60_000);
+        if (injected) {
+          // feed the injected message into the next tick as a user message
+          input.inject(injected);
+          log(`received post-interrupt input, continuing`);
+          console_.writeSystem("resuming with your input");
+        }
+        clearInterrupt();
+      }
     } catch (err) {
       console.error(`[error] tick ${pollCount} failed: ${err}`);
     }
 
     if (running) {
+      const nextTickAt = Date.now() + config.pollIntervalMs;
+      writeState("sleeping", { pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt, paused: false });
       await sleep(config.pollIntervalMs);
     }
   }
 }
 
+// returns true if the reasoner was interrupted
 async function tick(
   config: AoaoeConfig,
   poller: Poller,
@@ -154,11 +182,16 @@ async function tick(
   pollCount: number,
   userMessage?: string,
   forceDashboard?: boolean
-): Promise<void> {
+): Promise<boolean> {
   // 1. poll
+  writeState("polling", { pollCount, pollIntervalMs: config.pollIntervalMs, tickStartedAt: Date.now() });
   const observation = await poller.poll();
   const sessionCount = observation.sessions.length;
   const changeCount = observation.changes.length;
+
+  // update state with session info
+  const sessionStates = buildSessionStates(observation);
+  writeState("polling", { pollCount, sessionCount, changeCount, sessions: sessionStates });
 
   // attach user message to observation if present
   if (userMessage) {
@@ -171,7 +204,7 @@ async function tick(
       // log every ~60s when no sessions
       log("no active aoe sessions found");
     }
-    return;
+    return false;
   }
 
   // dashboard every 6 polls (~60s at default interval), or on demand
@@ -199,17 +232,24 @@ async function tick(
     if (config.verbose) {
       process.stdout.write(" | no changes, skipping reasoner\n");
     }
-    return;
+    return false;
   }
 
   process.stdout.write(" | reasoning...");
+  writeState("reasoning", { pollCount, sessionCount, changeCount, sessions: sessionStates });
 
-  // 3. reason (with timeout to avoid blocking the loop)
-  const result = await withTimeout(
+  // 3. reason (with timeout + interrupt support)
+  const { result, interrupted } = await withTimeoutAndInterrupt(
     reasoner.decide(observation),
     90_000, // 90s max for a single reasoning call
     { actions: [{ action: "wait" as const, reason: "reasoner timeout" }] }
   );
+
+  if (interrupted) {
+    process.stdout.write(" INTERRUPTED\n");
+    console_.writeSystem("reasoner interrupted by operator");
+    return true;
+  }
 
   const actionSummary = result.actions.map((a) => a.action).join(", ");
   process.stdout.write(` -> ${actionSummary}\n`);
@@ -222,8 +262,10 @@ async function tick(
   // 4. execute (skip if all actions are "wait")
   const nonWaitActions = result.actions.filter((a) => a.action !== "wait");
   if (nonWaitActions.length === 0) {
-    return;
+    return false;
   }
+
+  writeState("executing", { pollCount, sessionCount, changeCount, sessions: sessionStates });
 
   // dry-run: log what would happen, don't actually execute
   if (config.dryRun) {
@@ -232,7 +274,7 @@ async function tick(
       log(`[dry-run] ${msg}`);
       console_.writeAction(action.action, "dry-run", true);
     }
-    return;
+    return false;
   }
 
   const entries = await executor.execute(result.actions, observation.sessions);
@@ -242,6 +284,7 @@ async function tick(
     log(`[${icon}] ${entry.action.action}: ${entry.detail}`);
     console_.writeAction(entry.action.action, entry.detail, entry.success);
   }
+  return false;
 }
 
 function summarizeStatuses(obs: Observation): string {
@@ -262,14 +305,69 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((resolve) => setTimeout(() => {
+// race the reasoner against both a timeout and the interrupt flag file
+function withTimeoutAndInterrupt<T>(
+  promise: Promise<T>,
+  ms: number,
+  fallback: T
+): Promise<{ result: T; interrupted: boolean }> {
+  return new Promise((resolve) => {
+    let settled = false;
+
+    // poll for interrupt flag every 300ms
+    const interruptInterval = setInterval(() => {
+      if (settled) return;
+      if (checkInterrupt()) {
+        settled = true;
+        clearInterval(interruptInterval);
+        clearTimeout(timer);
+        clearInterrupt();
+        resolve({ result: fallback, interrupted: true });
+      }
+    }, 300);
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      clearInterval(interruptInterval);
       log(`reasoner timed out after ${ms}ms, using fallback`);
-      resolve(fallback);
-    }, ms)),
-  ]);
+      resolve({ result: fallback, interrupted: false });
+    }, ms);
+
+    promise.then((result) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(interruptInterval);
+      clearTimeout(timer);
+      resolve({ result, interrupted: false });
+    }).catch(() => {
+      if (settled) return;
+      settled = true;
+      clearInterval(interruptInterval);
+      clearTimeout(timer);
+      resolve({ result: fallback, interrupted: false });
+    });
+  });
+}
+
+// after an interrupt, wait for user input before resuming the main loop
+async function waitForInput(
+  input: InputReader,
+  console_: ReasonerConsole,
+  maxWaitMs: number
+): Promise<string | null> {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    // check stdin input
+    const stdinMsgs = input.drain();
+    const consoleMsgs = console_.drainInput();
+    const msgs = [...stdinMsgs, ...consoleMsgs].filter(
+      (m) => !m.startsWith("__CMD_")
+    );
+    if (msgs.length > 0) return msgs.join("\n");
+    await sleep(500);
+  }
+  return null;
 }
 
 // `aoaoe register` -- register aoaoe as an AoE session using --cmd_override

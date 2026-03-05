@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { Action, AoaoeConfig, SessionSnapshot } from "./types.js";
+import { setSessionTask } from "./daemon-state.js";
 
 const LOG_DIR = join(homedir(), ".aoaoe");
 const LOG_FILE = join(LOG_DIR, "actions.log");
@@ -96,6 +97,9 @@ export class Executor {
     // tmux send-keys sends literal text then Enter
     const ok = await execQuiet("tmux", ["send-keys", "-t", tmuxName, text, "Enter"]);
     this.markAction(sessionId);
+
+    // track as current task for this session
+    if (ok) setSessionTask(sessionId, text);
 
     return this.logAction(
       { action: "send_input", session: sessionId, text },
