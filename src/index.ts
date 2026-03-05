@@ -3,6 +3,7 @@ import { loadConfig, validateEnvironment, parseCliArgs, printHelp } from "./conf
 import { Poller } from "./poller.js";
 import { createReasoner } from "./reasoner/index.js";
 import { Executor, type ActionLogEntry } from "./executor.js";
+import { printDashboard } from "./dashboard.js";
 import type { AoaoeConfig, Observation, ReasonerResult } from "./types.js";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -32,6 +33,7 @@ async function main() {
   log("starting aoaoe supervisor");
   log(`reasoner: ${config.reasoner}`);
   log(`poll interval: ${config.pollIntervalMs}ms`);
+  if (config.dryRun) log("DRY RUN -- will observe and reason but not execute");
 
   // validate tools are installed
   await validateEnvironment(config);
@@ -95,6 +97,11 @@ async function tick(
     return;
   }
 
+  // dashboard every 6 polls (~60s at default interval)
+  if (pollCount % 6 === 1) {
+    printDashboard(observation, executor.getRecentLog(), pollCount, config);
+  }
+
   // status line
   const statuses = summarizeStatuses(observation);
   process.stdout.write(
@@ -128,6 +135,14 @@ async function tick(
   // 4. execute (skip if all actions are "wait")
   const nonWaitActions = result.actions.filter((a) => a.action !== "wait");
   if (nonWaitActions.length === 0) {
+    return;
+  }
+
+  // dry-run: log what would happen, don't actually execute
+  if (config.dryRun) {
+    for (const action of nonWaitActions) {
+      log(`[dry-run] would ${action.action}: ${JSON.stringify(action)}`);
+    }
     return;
   }
 

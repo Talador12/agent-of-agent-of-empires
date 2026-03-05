@@ -7,12 +7,18 @@
   "bin": {
     "aoaoe": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "lint": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "agent-of-empires",
@@ -28,7 +34,13 @@
     "type": "git",
     "url": "https://github.com/Talador12/agent-of-agent-of-empires"
   },
-  "homepage": "https://github.com/njbrake/agent-of-empires",
+  "homepage": "https://github.com/Talador12/agent-of-agent-of-empires",
+  "bugs": {
+    "url": "https://github.com/Talador12/agent-of-agent-of-empires/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20"
   },

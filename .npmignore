@@ -1,0 +1,12 @@
+src/
+scripts/
+assets/
+.git/
+.github/
+node_modules/
+tsconfig.json
+Makefile
+.gitignore
+*.ts
+!dist/**/*.js
+!dist/**/*.d.ts

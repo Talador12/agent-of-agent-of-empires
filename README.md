@@ -223,16 +223,21 @@ src/
   types.ts          # shared types (SessionSnapshot, Action, etc.)
 ```
 
-## Status
+## CLI Flags
 
-Not yet implemented. Build phases:
+```
+aoaoe [options]
 
-1. **Scaffolding** -- npm init, tsconfig, Makefile, config loader
-2. **Poller** -- aoe CLI + tmux capture, snapshot diffing
-3. **Reasoner** -- OpenCode + Claude Code backends behind common interface
-4. **Executor** -- action dispatch, rate limiting, safety checks
-5. **Dashboard** -- CLI summary output, optional web view
-6. **Distribution** -- install script, Homebrew tap, npm publish
+  --reasoner <opencode|claude-code>  reasoning backend (default: opencode)
+  --poll-interval <ms>               poll interval in ms (default: 10000)
+  --port <number>                    opencode server port (default: 4097)
+  --model <model>                    model to use
+  --profile <name>                   aoe profile (default: default)
+  --dry-run                          observe + reason but don't execute
+  --verbose, -v                      verbose logging
+```
+
+Action history is persisted to `~/.aoaoe/actions.log` (JSONL format).
 
 ## Related Projects
 

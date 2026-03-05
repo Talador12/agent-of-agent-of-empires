@@ -1,5 +1,11 @@
 import { exec, execQuiet } from "./shell.js";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import type { Action, AoaoeConfig, SessionSnapshot } from "./types.js";
+
+const LOG_DIR = join(homedir(), ".aoaoe");
+const LOG_FILE = join(LOG_DIR, "actions.log");
 
 export class Executor {
   private config: AoaoeConfig;
@@ -8,6 +14,8 @@ export class Executor {
 
   constructor(config: AoaoeConfig) {
     this.config = config;
+    // ensure log dir exists
+    try { mkdirSync(LOG_DIR, { recursive: true }); } catch {}
   }
 
   async execute(
@@ -185,9 +193,16 @@ export class Executor {
     };
     this.actionLog.push(entry);
 
-    // keep log bounded
+    // keep in-memory log bounded
     if (this.actionLog.length > 1000) {
       this.actionLog = this.actionLog.slice(-500);
+    }
+
+    // persist to ~/.aoaoe/actions.log (JSONL, one entry per line)
+    if (action.action !== "wait") {
+      try {
+        appendFileSync(LOG_FILE, JSON.stringify(entry) + "\n");
+      } catch {} // best-effort, don't crash the daemon
     }
 
     return entry;

@@ -76,4 +76,5 @@ export interface AoaoeConfig {
   };
   captureLinesCount: number; // how many lines to capture from each tmux pane
   verbose: boolean;
+  dryRun: boolean; // observe + reason but don't execute; log what would happen
 }

@@ -22,6 +22,7 @@ const DEFAULTS: AoaoeConfig = {
   },
   captureLinesCount: 100,
   verbose: false,
+  dryRun: false,
 };
 
 const CONFIG_NAMES = ["aoaoe.config.json", ".aoaoe.json"];
@@ -133,6 +134,9 @@ export function parseCliArgs(argv: string[]): {
       case "-v":
         overrides.verbose = true;
         break;
+      case "--dry-run":
+        overrides.dryRun = true;
+        break;
       case "--help":
       case "-h":
         help = true;
@@ -157,6 +161,7 @@ options:
   --port <number>                    opencode server port (default: 4097)
   --model <model>                    model to use
   --profile <name>                   aoe profile (default: default)
+  --dry-run                          observe + reason but don't execute
   --verbose, -v                      verbose logging
   --help, -h                         show this help
   --version                          show version`);
