@@ -1,0 +1,42 @@
+{
+  "name": "aoaoe",
+  "version": "0.1.0",
+  "description": "Autonomous supervisor for agent-of-empires sessions using OpenCode or Claude Code",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "aoaoe": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "agent-of-empires",
+    "opencode",
+    "claude-code",
+    "ai-agents",
+    "tmux",
+    "autonomous"
+  ],
+  "author": "Keith Adler",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Talador12/agent-of-agent-of-empires"
+  },
+  "homepage": "https://github.com/njbrake/agent-of-empires",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@opencode-ai/sdk": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
