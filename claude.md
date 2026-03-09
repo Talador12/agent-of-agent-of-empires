@@ -109,7 +109,6 @@ case-sensitive FS correctly). Budget: 8KB per file, 24KB per directory, cached 6
 - Homebrew tap dispatch (broken — PAT needs `repo` scope)
 
 ## What's Next
-- Optional `.claude/` scratchpad loading (read active ticket's notes based on git branch)
 - Fix Homebrew tap PAT
 - End-to-end testing with mock daemon + canned reasoner
 - Smoother UX for meta-level users (auto session naming, project directory config)

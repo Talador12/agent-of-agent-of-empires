@@ -265,8 +265,6 @@ export function resolveProjectDir(basePath: string, sessionTitle: string): strin
 //
 // loads AGENTS.md + claude.md (primary) plus any other AI instruction files,
 // then checks parent dir for group-level context.
-// TODO: optionally load .claude/<TICKET>.md based on the session's active git branch
-// (run `git -C <projectDir> branch --show-current`, parse ticket ID, check file).
 export function loadSessionContext(sessionPath: string, sessionTitle?: string, extraFiles?: string[]): string {
   if (!sessionPath) return "";
 
