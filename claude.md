@@ -1,6 +1,6 @@
 # aoaoe — Agent of Agent of Empires
 
-## Version: v0.8.0
+## Version: v0.9.0
 
 Autonomous supervisor daemon for [agent-of-empires](https://github.com/njbrake/agent-of-empires) sessions.
 Uses OpenCode or Claude Code as its reasoning engine. Observes agents via tmux, decides when to intervene, acts.
@@ -9,7 +9,7 @@ Uses OpenCode or Claude Code as its reasoning engine. Observes agents via tmux, 
 
 ```bash
 npm run build          # tsc -> dist/
-npm test               # build + node --test (140 tests, node:test stdlib)
+npm test               # build + node --test (158 tests, node:test stdlib)
 npm start              # run daemon
 aoaoe --dry-run        # observe + reason, don't execute
 aoaoe --verbose        # verbose logging
@@ -26,7 +26,7 @@ Poller (aoe CLI + tmux capture)
 
 Three loops: poll sessions, reason about observations, execute actions. The reasoner
 gets a system prompt defining the supervisor role + per-session project context
-(AGENTS.md/claude.md from each session's resolved directory).
+(auto-discovered AI instruction files from each session's resolved directory).
 
 ## Source Layout
 
@@ -56,10 +56,16 @@ gets a system prompt defining the supervisor role + per-session project context
 - **Single-repo**: User runs `aoe` from inside a project. `session.path` points to the project directly.
 - **Meta-level**: User runs `aoe` from a parent dir (e.g. `~/repos/`), manually names sessions to match projects. All sessions share the same `path`. `resolveProjectDir()` searches 2 levels deep to find the actual project dir by matching the session title (normalized: spaces/underscores -> hyphens, case-insensitive).
 
-### Context loading
-- Global context: AGENTS.md/claude.md from the directory where aoaoe runs (injected into system prompt once at init).
-- Per-session context: AGENTS.md/claude.md from each session's resolved project dir + its parent (group-level). Cached 60s, 8KB max per file.
-- `buildSystemPrompt(globalContext?)` replaced the old const `SYSTEM_PROMPT` — both reasoner backends accept globalContext at construction time.
+### Context loading — auto-discovery
+Instead of a hardcoded file list, `discoverContextFiles()` scans each project root:
+1. **Primary files** (always first): `AGENTS.md`, `claude.md`, `CLAUDE.md`
+2. **Auto-discovered** via readdir + pattern matching: `*rules` (catches .cursorrules, .windsurfrules, .clinerules, and future tools), `*instructions*` (copilot), `.aider*`, `CODEX.md`, `CONTRIBUTING.md`
+3. **Known nested paths**: `.github/copilot-instructions.md`, `.cursor/rules`
+4. **User extras**: `config.contextFiles` array for custom paths
+
+Budget: 8KB max per file, 24KB total per directory. Cached 60s.
+Parent directory is also checked for primary files (group-level context).
+`buildSystemPrompt(globalContext?)` injects global context into the reasoner at init time.
 
 ### Policy enforcement
 - `maxIdleBeforeNudgeMs` (default 120s) — nudge idle sessions
@@ -68,8 +74,8 @@ gets a system prompt defining the supervisor role + per-session project context
 - Policy violations trigger reasoning even when no output changes detected
 
 ### Testing
-- 140 tests across 7 files, `node:test` (stdlib, zero deps)
-- Pure functions exported for testability: `resolveProjectDir`, `parseReasonerResponse`, `validateResult`, `computeTmuxName`, `quickHash`, `extractNewLines`, `deepMerge`, `detectPermissionPrompt`
+- 158 tests across 7 files, `node:test` (stdlib, zero deps)
+- Pure functions exported for testability: `resolveProjectDir`, `discoverContextFiles`, `parseReasonerResponse`, `validateResult`, `computeTmuxName`, `quickHash`, `extractNewLines`, `deepMerge`, `detectPermissionPrompt`
 - Run: `npm test` (builds first, then `node --test --test-reporter spec dist/**/*.test.js`)
 
 ## Dependencies
