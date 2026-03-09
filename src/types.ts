@@ -15,6 +15,7 @@ export interface SessionSnapshot {
   output: string; // last N lines from tmux capture-pane
   outputHash: string; // quick hash to detect changes
   capturedAt: number; // Date.now()
+  projectContext?: string; // AGENTS.md / claude.md content from session's path
 }
 
 export interface Observation {

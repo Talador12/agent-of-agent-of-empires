@@ -1,15 +1,17 @@
 import type { AoaoeConfig, Reasoner, Observation, ReasonerResult, Action } from "../types.js";
 import { exec } from "../shell.js";
-import { SYSTEM_PROMPT, formatObservation } from "./prompt.js";
+import { buildSystemPrompt, formatObservation } from "./prompt.js";
 
 // Claude Code backend: uses `claude --print` subprocess for each decision.
 // Optionally stateful via `--resume`.
 export class ClaudeCodeReasoner implements Reasoner {
   private config: AoaoeConfig;
+  private systemPrompt: string;
   private sessionId: string | null = null;
 
-  constructor(config: AoaoeConfig) {
+  constructor(config: AoaoeConfig, globalContext?: string) {
     this.config = config;
+    this.systemPrompt = buildSystemPrompt(globalContext);
   }
 
   async init(): Promise<void> {
@@ -49,8 +51,8 @@ export class ClaudeCodeReasoner implements Reasoner {
     // output format
     args.push("--output-format", "text");
 
-    // system prompt injection
-    args.push("--append-system-prompt", SYSTEM_PROMPT);
+    // system prompt injection (includes global context if loaded)
+    args.push("--append-system-prompt", this.systemPrompt);
 
     // model selection
     if (this.config.claudeCode.model) {

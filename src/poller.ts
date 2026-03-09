@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { exec } from "./shell.js";
+import { loadSessionContext } from "./context.js";
 import type {
   AoaoeConfig,
   AoeSession,
@@ -93,11 +94,16 @@ export class Poller {
     const output = await this.captureTmuxPane(session.tmux_name);
     const outputHash = quickHash(output);
 
+    // load project context (AGENTS.md / claude.md) from session's working directory
+    // cached internally with 60s TTL so this is cheap on subsequent polls
+    const projectContext = loadSessionContext(session.path) || undefined;
+
     return {
       session,
       output,
       outputHash,
       capturedAt: Date.now(),
+      projectContext,
     };
   }
 

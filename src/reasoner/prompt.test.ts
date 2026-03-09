@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatObservation, detectPermissionPrompt } from "./prompt.js";
+import { formatObservation, detectPermissionPrompt, buildSystemPrompt } from "./prompt.js";
 import type { Observation, SessionSnapshot } from "../types.js";
 
 // helper to build a minimal observation
@@ -206,5 +206,71 @@ describe("detectPermissionPrompt", () => {
   it("detects prompt in last 10 lines", () => {
     const lines = [...Array.from({ length: 5 }, (_, i) => `output ${i}`), "Do you want to continue?"];
     assert.equal(detectPermissionPrompt(lines.join("\n")), true);
+  });
+});
+
+describe("buildSystemPrompt", () => {
+  it("returns base prompt when no global context", () => {
+    const result = buildSystemPrompt();
+    assert.ok(result.includes("You are a supervisor"));
+    assert.ok(!result.includes("GLOBAL PROJECT CONTEXT"));
+  });
+
+  it("returns base prompt for undefined context", () => {
+    const result = buildSystemPrompt(undefined);
+    assert.ok(result.includes("You are a supervisor"));
+  });
+
+  it("appends global context to base prompt", () => {
+    const result = buildSystemPrompt("\n\n--- GLOBAL PROJECT CONTEXT ---\n# My project rules");
+    assert.ok(result.includes("You are a supervisor"));
+    assert.ok(result.includes("GLOBAL PROJECT CONTEXT"));
+    assert.ok(result.includes("# My project rules"));
+  });
+});
+
+describe("formatObservation with project context", () => {
+  it("includes per-session project context", () => {
+    const obs = makeObs({
+      sessions: [{
+        ...makeSnap("abc12345", "agent-1"),
+        projectContext: "# AGENTS.md\nShip ship ship.",
+      }],
+    });
+    const result = formatObservation(obs);
+    assert.ok(result.includes("Project context for sessions:"));
+    assert.ok(result.includes("agent-1"));
+    assert.ok(result.includes("Ship ship ship."));
+  });
+
+  it("includes session path in session table", () => {
+    const obs = makeObs({
+      sessions: [makeSnap("abc12345", "agent-1", "opencode", "working")],
+    });
+    const result = formatObservation(obs);
+    assert.ok(result.includes("path=/tmp"));
+  });
+
+  it("omits project context section when no sessions have context", () => {
+    const obs = makeObs({
+      sessions: [makeSnap("abc12345", "agent-1")],
+    });
+    const result = formatObservation(obs);
+    assert.ok(!result.includes("Project context for sessions:"));
+  });
+
+  it("only shows context for sessions that have it", () => {
+    const obs = makeObs({
+      sessions: [
+        makeSnap("abc12345", "agent-1"),
+        { ...makeSnap("def67890", "agent-2"), projectContext: "# Context for agent-2" },
+      ],
+    });
+    const result = formatObservation(obs);
+    assert.ok(result.includes("Project context for sessions:"));
+    assert.ok(result.includes("agent-2"));
+    assert.ok(result.includes("# Context for agent-2"));
+    // agent-1 shouldn't appear in context section
+    assert.ok(!result.includes("agent-1 [abc12345] project context"));
   });
 });

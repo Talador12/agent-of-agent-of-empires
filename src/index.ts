@@ -8,6 +8,7 @@ import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
 import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState } from "./daemon-state.js";
 import { type SessionPolicyState, detectPermissionPrompt } from "./reasoner/prompt.js";
+import { loadGlobalContext, loadSessionContext } from "./context.js";
 import type { AoaoeConfig, Observation, ReasonerResult } from "./types.js";
 import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -55,8 +56,14 @@ async function main() {
   // validate tools are installed
   await validateEnvironment(config);
 
+  // load global context (AGENTS.md / claude.md from cwd or parent)
+  const globalContext = loadGlobalContext();
+  if (globalContext) {
+    log("loaded global context (AGENTS.md / claude.md)");
+  }
+
   const poller = new Poller(config);
-  const reasoner = createReasoner(config);
+  const reasoner = createReasoner(config, globalContext || undefined);
   const executor = new Executor(config);
   const input = new InputReader();
   const console_ = new ReasonerConsole();

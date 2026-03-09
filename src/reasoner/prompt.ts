@@ -1,7 +1,7 @@
 import type { Observation, AoaoeConfig } from "../types.js";
 
-// shared system prompt used by both backends
-export const SYSTEM_PROMPT = `You are a supervisor managing multiple AI coding agents in an agent-of-empires (AoE) tmux session.
+// base system prompt -- global context appended at runtime via buildSystemPrompt()
+const BASE_SYSTEM_PROMPT = `You are a supervisor managing multiple AI coding agents in an agent-of-empires (AoE) tmux session.
 
 You receive periodic observations of each agent's terminal output and status.
 
@@ -12,6 +12,9 @@ Your job:
 - If a session crashes or is stopped unexpectedly, restart it.
 - Do NOT micromanage. Only intervene when there is a clear problem or a decision is needed.
 - When multiple actions are needed, return them all at once.
+- Use the project context (AGENTS.md / claude.md) to understand each project's goals,
+  coding guidelines, and current work items. This context tells you what each agent
+  should be working on and how to guide them.
 
 Respond with ONLY a JSON object matching this schema:
 {
@@ -32,6 +35,15 @@ Rules:
 - When sending input, be concise and direct. You are typing into a terminal prompt.
 - Prefer "wait" over unnecessary intervention. Agents work best when left alone.
 - Never send empty or trivial messages to agents.`;
+
+// for backwards compat -- consumers that import SYSTEM_PROMPT get the base version
+export const SYSTEM_PROMPT = BASE_SYSTEM_PROMPT;
+
+// build the full system prompt with global context appended
+export function buildSystemPrompt(globalContext?: string): string {
+  if (!globalContext) return BASE_SYSTEM_PROMPT;
+  return `${BASE_SYSTEM_PROMPT}\n${globalContext}`;
+}
 
 // per-session idle/error tracking for policy enforcement
 export interface SessionPolicyState {
@@ -67,9 +79,20 @@ export function formatObservation(obs: Observation): string {
   parts.push("Sessions:");
   for (const snap of obs.sessions) {
     const s = snap.session;
-    parts.push(`  [${s.id.slice(0, 8)}] "${s.title}" tool=${s.tool} status=${s.status}`);
+    parts.push(`  [${s.id.slice(0, 8)}] "${s.title}" tool=${s.tool} status=${s.status} path=${s.path}`);
   }
   parts.push("");
+
+  // per-session project context (AGENTS.md / claude.md from each session's path)
+  const sessionsWithContext = obs.sessions.filter((s) => s.projectContext);
+  if (sessionsWithContext.length > 0) {
+    parts.push("Project context for sessions:");
+    for (const snap of sessionsWithContext) {
+      parts.push(`--- ${snap.session.title} [${snap.session.id.slice(0, 8)}] project context ---`);
+      parts.push(snap.projectContext!);
+      parts.push("");
+    }
+  }
 
   // policy alerts: inject concrete idle/error/permission data so the reasoner has facts
   const policies = obs.policyContext?.policies;

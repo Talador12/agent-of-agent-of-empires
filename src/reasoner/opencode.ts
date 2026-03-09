@@ -1,17 +1,19 @@
 import type { AoaoeConfig, Reasoner, Observation, ReasonerResult, Action } from "../types.js";
 import { exec } from "../shell.js";
-import { SYSTEM_PROMPT, formatObservation } from "./prompt.js";
+import { buildSystemPrompt, formatObservation } from "./prompt.js";
 
 // OpenCode backend: uses `opencode serve` + SDK for long-running sessions.
 // Falls back to `opencode run` if SDK is not available.
 export class OpencodeReasoner implements Reasoner {
   private config: AoaoeConfig;
+  private systemPrompt: string;
   private serverProcess: ReturnType<typeof import("node:child_process").spawn> | null = null;
   private client: OpencodeClient | null = null;
   private sessionId: string | null = null;
 
-  constructor(config: AoaoeConfig) {
+  constructor(config: AoaoeConfig, globalContext?: string) {
     this.config = config;
+    this.systemPrompt = buildSystemPrompt(globalContext);
   }
 
   async init(): Promise<void> {
@@ -65,8 +67,8 @@ export class OpencodeReasoner implements Reasoner {
       const session = await client.createSession("aoaoe-supervisor");
       this.sessionId = session.id;
 
-      // inject system prompt as context
-      await client.sendMessage(this.sessionId, SYSTEM_PROMPT, true);
+      // inject system prompt (with global context) as context
+      await client.sendMessage(this.sessionId, this.systemPrompt, true);
     }
 
     const response = await client.sendMessage(this.sessionId, prompt, false);
@@ -75,7 +77,7 @@ export class OpencodeReasoner implements Reasoner {
 
   private async decideViaCli(prompt: string): Promise<ReasonerResult> {
     // opencode run with system prompt prepended
-    const fullPrompt = `${SYSTEM_PROMPT}\n\n${prompt}`;
+    const fullPrompt = `${this.systemPrompt}\n\n${prompt}`;
     const args = ["run", "--format", "json"];
     if (this.config.opencode.model) {
       args.push("--model", this.config.opencode.model);
