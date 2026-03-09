@@ -21,3 +21,4 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+      - run: node --test --test-reporter spec dist/**/*.test.js
