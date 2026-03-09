@@ -262,6 +262,12 @@ export function resolveProjectDir(basePath: string, sessionTitle: string): strin
 
 // load per-session context by resolving the project directory from the title
 // falls back to loading from sessionPath directly if resolution fails
+//
+// currently loads Tier 1 (committed repo files) and Tier 2 (group-level parent files).
+// TODO: Tier 3 — load .claude/<TICKET>.md based on the session's active git branch.
+// this would give the supervisor knowledge of what was tried/failed on the current task.
+// implementation: run `git -C <projectDir> branch --show-current`, parse ticket ID,
+// check if .claude/<TICKET>.md exists, append to context.
 export function loadSessionContext(sessionPath: string, sessionTitle?: string, extraFiles?: string[]): string {
   if (!sessionPath) return "";
 
