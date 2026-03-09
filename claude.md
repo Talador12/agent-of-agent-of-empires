@@ -108,6 +108,11 @@ case-sensitive FS correctly). Budget: 8KB per file, 24KB per directory, cached 6
 - On tag push (v*): npm publish + GitHub Release (with tarball + SHA256)
 - Homebrew tap dispatch (broken — PAT needs `repo` scope)
 
+## Recent Changes
+- Created `AGENTS.md` (stable architecture reference)
+- Removed `.claude/` from `.gitignore` — no scratchpad system, `claude.md` is the single source of truth
+- Propagated simplified AI Working Context (two-file system) across all repos
+
 ## What's Next
 - Fix Homebrew tap PAT
 - End-to-end testing with mock daemon + canned reasoner
