@@ -24,7 +24,7 @@
 //   .clinerules (cline), .aider.conf.yml (aider)
 //   + user-configured custom paths via config.contextFiles
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
-import { join, resolve, basename, dirname } from "node:path";
+import { join, resolve, basename, dirname, relative, sep } from "node:path";
 
 // primary files — always loaded first in this order
 const PRIMARY_FILES = ["AGENTS.md", "claude.md", "CLAUDE.md"];
@@ -84,15 +84,32 @@ export function readContextFile(filePath: string): string {
 
 // discover AI instruction files in a directory via readdir + pattern matching.
 // returns de-duped list: primary files first, then auto-discovered, then nested.
+// de-dupes by device+inode to handle case-insensitive filesystems (macOS APFS)
+// where claude.md and CLAUDE.md resolve to the same file.
 export function discoverContextFiles(dir: string): string[] {
   if (!dir) return [];
   const found: string[] = [];
-  const seen = new Set<string>();
+  const seenPaths = new Set<string>();
+  const seenInodes = new Set<string>();
 
   const add = (filePath: string) => {
     const resolved = resolve(filePath);
-    if (seen.has(resolved)) return;
-    seen.add(resolved);
+    if (seenPaths.has(resolved)) return;
+    // de-dupe by inode for case-insensitive filesystems (macOS APFS, Windows NTFS).
+    // on case-sensitive systems (Linux ext4) different-case files have different inodes
+    // so both are kept — which is correct.
+    // guard: ino=0 on some network mounts / edge cases, fall back to path-only de-dupe.
+    try {
+      const stat = statSync(resolved);
+      if (stat.ino > 0) {
+        const inodeKey = `${stat.dev}:${stat.ino}`;
+        if (seenInodes.has(inodeKey)) return;
+        seenInodes.add(inodeKey);
+      }
+    } catch {
+      // stat failed — still add by path to avoid silently dropping
+    }
+    seenPaths.add(resolved);
     found.push(filePath);
   };
 
@@ -143,10 +160,9 @@ export function loadContextFromDir(dir: string, extraFiles?: string[]): string {
     if (totalSize >= MAX_DIR_BUDGET) break;
     const content = readContextFile(filePath);
     if (content) {
-      // label with path relative to dir for readability
-      const label = filePath.startsWith(dir)
-        ? filePath.slice(dir.length + 1)
-        : basename(filePath);
+      // label with path relative to dir for readability (cross-platform)
+      const rel = relative(dir, filePath);
+      const label = rel && !rel.startsWith("..") ? rel.split(sep).join("/") : basename(filePath);
       parts.push(`--- ${label} ---`);
       parts.push(content);
       parts.push("");
@@ -158,12 +174,27 @@ export function loadContextFromDir(dir: string, extraFiles?: string[]): string {
   // this matches the AGENTS.md pattern: "Put claude.md in the group folder"
   const parentDir = resolve(dir, "..");
   if (parentDir !== resolve(dir)) {
+    // collect inodes of files we already loaded to avoid dupes on case-insensitive FS
+    const loadedInodes = new Set<string>();
+    for (const f of files) {
+      try {
+        const s = statSync(resolve(f));
+        if (s.ino > 0) loadedInodes.add(`${s.dev}:${s.ino}`);
+      } catch { /* ignore */ }
+    }
+
     for (const name of PRIMARY_FILES) {
       if (totalSize >= MAX_DIR_BUDGET) break;
       const parentPath = join(parentDir, name);
       if (!existsSync(parentPath) || !isFile(parentPath)) continue;
-      // skip if we already loaded this file from the dir itself
+      // skip if same resolved path (dir is a root with no real parent)
       if (resolve(parentPath) === resolve(join(dir, name))) continue;
+      // skip if same inode as something already loaded (case-insensitive FS)
+      try {
+        const s = statSync(resolve(parentPath));
+        if (s.ino > 0 && loadedInodes.has(`${s.dev}:${s.ino}`)) continue;
+        if (s.ino > 0) loadedInodes.add(`${s.dev}:${s.ino}`);
+      } catch { /* ignore */ }
       const content = readContextFile(parentPath);
       if (content) {
         parts.push(`--- ../${name} (parent directory) ---`);

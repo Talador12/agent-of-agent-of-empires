@@ -47,6 +47,12 @@ async function main() {
     return;
   }
 
+  // `aoaoe test-context` -- safe read-only scan of sessions + context discovery
+  if (process.argv[2] === "test-context") {
+    await testContext();
+    return;
+  }
+
   const config = loadConfig(overrides);
   log("starting aoaoe supervisor");
   log(`reasoner: ${config.reasoner}`);
@@ -421,6 +427,108 @@ async function waitForInput(
     await sleep(500);
   }
   return null;
+}
+
+// `aoaoe test-context` -- safe read-only scan: list sessions, resolve project dirs,
+// discover context files. touches nothing, just prints what it finds.
+async function testContext(): Promise<void> {
+  const { exec: shellExec } = await import("./shell.js");
+  const { resolveProjectDir, discoverContextFiles, loadSessionContext } = await import("./context.js");
+  const { computeTmuxName } = await import("./poller.js");
+
+  const basePath = process.cwd();
+  console.log(`base path: ${basePath}\n`);
+
+  // 1. list sessions
+  const listResult = await shellExec("aoe", ["list", "--json"]);
+  if (listResult.exitCode !== 0) {
+    console.error("failed to list sessions (is aoe running?)");
+    console.error(listResult.stderr);
+    process.exit(1);
+  }
+
+  let sessions: Array<{ id: string; title: string; path: string; tool: string }>;
+  try {
+    sessions = JSON.parse(listResult.stdout);
+  } catch {
+    console.error("failed to parse aoe list output");
+    process.exit(1);
+  }
+
+  if (sessions.length === 0) {
+    console.log("no active aoe sessions found");
+    return;
+  }
+
+  console.log(`found ${sessions.length} session(s):\n`);
+
+  for (const s of sessions) {
+    const tmuxName = computeTmuxName(s.id, s.title);
+    console.log(`--- ${s.title} (${s.id.slice(0, 8)}) ---`);
+    console.log(`  tool:      ${s.tool}`);
+    console.log(`  path:      ${s.path}`);
+    console.log(`  tmux:      ${tmuxName}`);
+
+    // resolve project directory
+    const projectDir = resolveProjectDir(basePath, s.title);
+    console.log(`  resolved:  ${projectDir ?? "(not found — will fall back to session path)"}`);
+
+    // discover context files in the resolved dir
+    const scanDir = projectDir ?? s.path;
+    const discovered = discoverContextFiles(scanDir);
+    if (discovered.length > 0) {
+      console.log(`  context files (${discovered.length}):`);
+      for (const f of discovered) {
+        // show relative path for readability
+        const rel = f.startsWith(basePath) ? f.slice(basePath.length + 1) : f;
+        const { statSync } = await import("node:fs");
+        try {
+          const size = statSync(f).size;
+          console.log(`    ${rel} (${(size / 1024).toFixed(1)}KB)`);
+        } catch {
+          console.log(`    ${rel} (unreadable)`);
+        }
+      }
+    } else {
+      console.log(`  context files: (none found)`);
+    }
+
+    // also check parent dir for group-level context
+    if (projectDir) {
+      const { resolve: pathResolve } = await import("node:path");
+      const parentDir = pathResolve(projectDir, "..");
+      const parentFiles = discoverContextFiles(parentDir);
+      const parentOnly = parentFiles.filter((f) => !discovered.includes(f));
+      if (parentOnly.length > 0) {
+        console.log(`  group-level context (from parent):`);
+        for (const f of parentOnly) {
+          const rel = f.startsWith(basePath) ? f.slice(basePath.length + 1) : f;
+          console.log(`    ${rel}`);
+        }
+      }
+    }
+
+    // show total loaded context size
+    const fullContext = loadSessionContext(basePath, s.title);
+    const contextSize = Buffer.byteLength(fullContext, "utf-8");
+    console.log(`  total context: ${(contextSize / 1024).toFixed(1)}KB`);
+    console.log();
+  }
+
+  // global context
+  const { loadGlobalContext: loadGlobal, discoverContextFiles: discoverGlobal } = await import("./context.js");
+  const globalFiles = discoverGlobal(basePath);
+  if (globalFiles.length > 0) {
+    console.log("--- global context (supervisor working directory) ---");
+    for (const f of globalFiles) {
+      const rel = f.startsWith(basePath) ? f.slice(basePath.length + 1) : f;
+      console.log(`  ${rel}`);
+    }
+    const globalCtx = loadGlobal(basePath);
+    console.log(`  total: ${(Buffer.byteLength(globalCtx, "utf-8") / 1024).toFixed(1)}KB\n`);
+  }
+
+  console.log("done — no sessions were modified.");
 }
 
 // `aoaoe register` -- register aoaoe as an AoE session using --cmd_override

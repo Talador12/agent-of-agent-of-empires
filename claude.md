@@ -5,15 +5,19 @@
 Autonomous supervisor daemon for [agent-of-empires](https://github.com/njbrake/agent-of-empires) sessions.
 Uses OpenCode or Claude Code as its reasoning engine. Observes agents via tmux, decides when to intervene, acts.
 
+## Rules
+- Update this file (claude.md) with every commit.
+
 ## Quick Reference
 
 ```bash
-npm run build          # tsc -> dist/
-npm test               # build + node --test (158 tests, node:test stdlib)
-npm start              # run daemon
-aoaoe --dry-run        # observe + reason, don't execute
-aoaoe --verbose        # verbose logging
-aoaoe-chat             # interactive chat UI
+npm run build            # tsc -> dist/
+npm test                 # build + node --test (158 tests, node:test stdlib)
+npm start                # run daemon
+aoaoe --dry-run          # observe + reason, don't execute
+aoaoe --verbose          # verbose logging
+aoaoe test-context       # safe read-only scan of sessions + context discovery
+aoaoe-chat               # interactive chat UI
 ```
 
 ## Architecture
@@ -32,11 +36,11 @@ gets a system prompt defining the supervisor role + per-session project context
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Main daemon loop — poll/reason/execute cycle, policy tracking |
+| `src/index.ts` | Main daemon loop, subcommands (attach, register, test-context) |
 | `src/config.ts` | Config loader, CLI arg parser, env validation |
 | `src/types.ts` | All interfaces — SessionSnapshot, Observation, Action, Reasoner |
 | `src/poller.ts` | `aoe list --json` + `tmux capture-pane`, SHA-256 diff detection |
-| `src/context.ts` | `resolveProjectDir`, `loadSessionContext`, `loadGlobalContext`, context caching |
+| `src/context.ts` | `discoverContextFiles`, `resolveProjectDir`, `loadSessionContext`, caching |
 | `src/executor.ts` | Action dispatch — send_input, start/stop/restart, create/remove agent |
 | `src/reasoner/index.ts` | `createReasoner()` factory |
 | `src/reasoner/prompt.ts` | `buildSystemPrompt()`, `formatObservation()`, `detectPermissionPrompt()` |
@@ -63,9 +67,27 @@ Instead of a hardcoded file list, `discoverContextFiles()` scans each project ro
 3. **Known nested paths**: `.github/copilot-instructions.md`, `.cursor/rules`
 4. **User extras**: `config.contextFiles` array for custom paths
 
+De-duplication uses device+inode to handle case-insensitive filesystems (macOS APFS,
+Windows NTFS) where `claude.md` and `CLAUDE.md` are the same file. On case-sensitive
+systems (Linux ext4), different-case files are kept as separate entries. Falls back
+to path-only de-dupe when `ino=0` (some network mounts).
+
 Budget: 8KB max per file, 24KB total per directory. Cached 60s.
 Parent directory is also checked for primary files (group-level context).
 `buildSystemPrompt(globalContext?)` injects global context into the reasoner at init time.
+
+### Cross-platform
+- Path operations use `node:path` (`join`, `resolve`, `relative`, `sep`) — no hardcoded separators
+- Inode de-dupe works on macOS/Windows (case-insensitive) and Linux (case-sensitive)
+- `relative()` + `sep` normalization for display labels instead of string slicing
+
+### test-context subcommand
+`aoaoe test-context` is a safe read-only scan that:
+- Lists all aoe sessions
+- Resolves project directories from session titles
+- Discovers context files in each project dir
+- Reports sizes and group-level context
+- Touches nothing — no send-keys, no restarts, no state changes
 
 ### Policy enforcement
 - `maxIdleBeforeNudgeMs` (default 120s) — nudge idle sessions
@@ -91,5 +113,4 @@ Parent directory is also checked for primary files (group-level context).
 ## What's Next
 - Fix Homebrew tap PAT
 - End-to-end testing with mock daemon + canned reasoner
-- Verify with real 3-session setup (`aoaoe --verbose --dry-run`)
 - Smoother UX for meta-level users (auto session naming, project directory config)

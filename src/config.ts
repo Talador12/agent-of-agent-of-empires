@@ -182,6 +182,7 @@ commands:
   (none)         start the daemon
   attach         enter the reasoner console (Ctrl+B D to detach)
   register       register aoaoe as an AoE session (appears in aoe list)
+  test-context   safe read-only scan of sessions + context file discovery
 
 options:
   --reasoner <opencode|claude-code>  reasoning backend (default: opencode)
