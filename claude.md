@@ -60,37 +60,19 @@ gets a system prompt defining the supervisor role + per-session project context
 - **Single-repo**: User runs `aoe` from inside a project. `session.path` points to the project directly.
 - **Meta-level**: User runs `aoe` from a parent dir (e.g. `~/repos/`), manually names sessions to match projects. All sessions share the same `path`. `resolveProjectDir()` searches 2 levels deep to find the actual project dir by matching the session title (normalized: spaces/underscores -> hyphens, case-insensitive).
 
-### Context loading — three-tier system
-aoaoe loads context from three tiers (see root AGENTS.md for the full spec):
+### Context loading
+aoaoe auto-discovers AI instruction files from each session's project directory.
+One `readdir` call, pattern match, done. Loads:
 
-**Tier 1 (committed, in repo):** `AGENTS.md`, `claude.md` — project conventions
-and current status. Auto-discovered alongside any other AI instruction files
-(.cursorrules, .windsurfrules, copilot-instructions.md, etc.) via `discoverContextFiles()`.
-This is the primary context source for each session.
-
-**Tier 2 (local, group folder):** `claude.md` in the parent directory — cross-repo
-roadmap and coordination. Loaded automatically when the parent dir contains context files.
-
-**Tier 3 (gitignored, `.claude/<TICKET>.md`):** Branch-specific working state.
-NOT YET LOADED by aoaoe. Future feature: read the active ticket's `.claude/` file
-based on the session's current git branch, so the supervisor knows what was tried
-and what failed.
-
-**Auto-discovery:** Instead of a hardcoded file list, `discoverContextFiles()` scans
-each project root via a single `readdir`:
-1. **Primary files** (always first): `AGENTS.md`, `claude.md`, `CLAUDE.md`
-2. **Pattern-matched**: `*rules` (.cursorrules, .windsurfrules, .clinerules, future tools),
-   `*instructions*` (copilot), `.aider*`, `CODEX.md`, `CONTRIBUTING.md`
+1. **`AGENTS.md` + `claude.md`** first (the single source of truth)
+2. **Other AI tool files** via pattern matching: `*rules` (.cursorrules, .windsurfrules,
+   .clinerules), `*instructions*` (copilot), `.aider*`, `CODEX.md`, `CONTRIBUTING.md`
 3. **Known nested paths**: `.github/copilot-instructions.md`, `.cursor/rules`
 4. **User extras**: `config.contextFiles` array for custom paths
+5. **Parent directory** checked for group-level `claude.md` (optional cross-repo context)
 
-De-duplication uses device+inode to handle case-insensitive filesystems (macOS APFS,
-Windows NTFS) where `claude.md` and `CLAUDE.md` are the same file. On case-sensitive
-systems (Linux ext4), different-case files are kept as separate entries. Falls back
-to path-only de-dupe when `ino=0` (some network mounts).
-
-Budget: 8KB max per file, 24KB total per directory. Cached 60s.
-`buildSystemPrompt(globalContext?)` injects global context into the reasoner at init time.
+De-duplication uses device+inode (handles macOS/Windows case-insensitive FS and Linux
+case-sensitive FS correctly). Budget: 8KB per file, 24KB per directory, cached 60s.
 
 ### Cross-platform
 - Path operations use `node:path` (`join`, `resolve`, `relative`, `sep`) — no hardcoded separators
@@ -127,8 +109,7 @@ Budget: 8KB max per file, 24KB total per directory. Cached 60s.
 - Homebrew tap dispatch (broken — PAT needs `repo` scope)
 
 ## What's Next
-- Tier 3 integration: load `.claude/<TICKET>.md` from each session's project dir
-  based on active git branch. Gives supervisor knowledge of what was tried/failed.
+- Optional `.claude/` scratchpad loading (read active ticket's notes based on git branch)
 - Fix Homebrew tap PAT
 - End-to-end testing with mock daemon + canned reasoner
 - Smoother UX for meta-level users (auto session naming, project directory config)
