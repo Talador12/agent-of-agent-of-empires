@@ -9,6 +9,7 @@ import {
   loadGlobalContext,
   loadSessionContext,
   resolveProjectDir,
+  discoverContextFiles,
   clearContextCache,
 } from "./context.js";
 
@@ -107,6 +108,117 @@ describe("loadGlobalContext", () => {
     const emptyDir = join(TMP, "empty");
     mkdirSync(emptyDir, { recursive: true });
     assert.equal(loadGlobalContext(emptyDir), "");
+  });
+});
+
+describe("discoverContextFiles", () => {
+  it("finds primary files (AGENTS.md, claude.md, CLAUDE.md)", () => {
+    writeFileSync(join(TMP, "AGENTS.md"), "agents");
+    writeFileSync(join(TMP, "claude.md"), "claude");
+    const files = discoverContextFiles(TMP);
+    assert.ok(files.some((f) => f.endsWith("AGENTS.md")));
+    assert.ok(files.some((f) => f.endsWith("claude.md")));
+  });
+
+  it("discovers .cursorrules", () => {
+    writeFileSync(join(TMP, ".cursorrules"), "cursor rules");
+    const files = discoverContextFiles(TMP);
+    assert.ok(files.some((f) => f.endsWith(".cursorrules")));
+  });
+
+  it("discovers .windsurfrules", () => {
+    writeFileSync(join(TMP, ".windsurfrules"), "windsurf rules");
+    const files = discoverContextFiles(TMP);
+    assert.ok(files.some((f) => f.endsWith(".windsurfrules")));
+  });
+
+  it("discovers .clinerules", () => {
+    writeFileSync(join(TMP, ".clinerules"), "cline rules");
+    const files = discoverContextFiles(TMP);
+    assert.ok(files.some((f) => f.endsWith(".clinerules")));
+  });
+
+  it("discovers .github/copilot-instructions.md", () => {
+    mkdirSync(join(TMP, ".github"), { recursive: true });
+    writeFileSync(join(TMP, ".github", "copilot-instructions.md"), "copilot");
+    const files = discoverContextFiles(TMP);
+    assert.ok(files.some((f) => f.includes("copilot-instructions.md")));
+  });
+
+  it("discovers .aider.conf.yml", () => {
+    writeFileSync(join(TMP, ".aider.conf.yml"), "aider config");
+    const files = discoverContextFiles(TMP);
+    assert.ok(files.some((f) => f.endsWith(".aider.conf.yml")));
+  });
+
+  it("discovers CODEX.md", () => {
+    writeFileSync(join(TMP, "CODEX.md"), "codex");
+    const files = discoverContextFiles(TMP);
+    assert.ok(files.some((f) => f.endsWith("CODEX.md")));
+  });
+
+  it("discovers CONTRIBUTING.md", () => {
+    writeFileSync(join(TMP, "CONTRIBUTING.md"), "contributing");
+    const files = discoverContextFiles(TMP);
+    assert.ok(files.some((f) => f.endsWith("CONTRIBUTING.md")));
+  });
+
+  it("puts primary files first", () => {
+    writeFileSync(join(TMP, ".cursorrules"), "cursor");
+    writeFileSync(join(TMP, "AGENTS.md"), "agents");
+    writeFileSync(join(TMP, "claude.md"), "claude");
+    const files = discoverContextFiles(TMP);
+    assert.ok(files[0].endsWith("AGENTS.md"));
+    assert.ok(files[1].endsWith("claude.md"));
+  });
+
+  it("de-dupes files", () => {
+    writeFileSync(join(TMP, "AGENTS.md"), "agents");
+    const files = discoverContextFiles(TMP);
+    const agentsCount = files.filter((f) => f.endsWith("AGENTS.md")).length;
+    assert.equal(agentsCount, 1);
+  });
+
+  it("returns empty for nonexistent dir", () => {
+    assert.deepEqual(discoverContextFiles(join(TMP, "nope")), []);
+  });
+
+  it("returns empty for empty string", () => {
+    assert.deepEqual(discoverContextFiles(""), []);
+  });
+
+  it("catches future *rules tools automatically", () => {
+    writeFileSync(join(TMP, ".somenewtoolrules"), "future tool");
+    const files = discoverContextFiles(TMP);
+    assert.ok(files.some((f) => f.endsWith(".somenewtoolrules")));
+  });
+});
+
+describe("loadContextFromDir with auto-discovery", () => {
+  it("loads discovered files into combined output", () => {
+    writeFileSync(join(TMP, "AGENTS.md"), "# Agents");
+    writeFileSync(join(TMP, ".cursorrules"), "no semicolons");
+    const result = loadContextFromDir(TMP);
+    assert.ok(result.includes("--- AGENTS.md ---"));
+    assert.ok(result.includes("--- .cursorrules ---"));
+    assert.ok(result.includes("no semicolons"));
+  });
+
+  it("loads extra user-configured files", () => {
+    writeFileSync(join(TMP, "my-custom-rules.txt"), "custom stuff");
+    const result = loadContextFromDir(TMP, ["my-custom-rules.txt"]);
+    assert.ok(result.includes("custom stuff"));
+  });
+
+  it("respects total budget cap", () => {
+    // write enough files to exceed 24KB budget
+    for (let i = 0; i < 5; i++) {
+      writeFileSync(join(TMP, `file${i}rules`), "x".repeat(7000));
+    }
+    const result = loadContextFromDir(TMP);
+    // should have loaded some but stopped before loading all
+    assert.ok(result.length < 5 * 7000 + 500);
+    assert.ok(result.length > 0);
   });
 });
 
@@ -218,5 +330,19 @@ describe("loadSessionContext", () => {
     writeFileSync(join(TMP, "AGENTS.md"), "no-title rules");
     const result = loadSessionContext(TMP);
     assert.ok(result.includes("no-title rules"));
+  });
+
+  it("passes extra context files through to discovery", () => {
+    mkdirSync(join(TMP, "github", "myproj"), { recursive: true });
+    writeFileSync(join(TMP, "github", "myproj", "custom-ai.md"), "custom rules");
+    const result = loadSessionContext(TMP, "myproj", ["custom-ai.md"]);
+    assert.ok(result.includes("custom rules"));
+  });
+
+  it("discovers .cursorrules in resolved project dir", () => {
+    mkdirSync(join(TMP, "github", "myproj"), { recursive: true });
+    writeFileSync(join(TMP, "github", "myproj", ".cursorrules"), "no tabs");
+    const result = loadSessionContext(TMP, "myproj");
+    assert.ok(result.includes("no tabs"));
   });
 });

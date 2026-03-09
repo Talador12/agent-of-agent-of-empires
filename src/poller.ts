@@ -94,10 +94,12 @@ export class Poller {
     const output = await this.captureTmuxPane(session.tmux_name);
     const outputHash = quickHash(output);
 
-    // load project context (AGENTS.md / claude.md) from session's project directory
+    // load AI instruction files from session's project directory
+    // auto-discovers AGENTS.md, claude.md, .cursorrules, etc. + user-configured extras
     // resolves the actual repo dir by matching session title against subdirectories
     // cached internally with 60s TTL so this is cheap on subsequent polls
-    const projectContext = loadSessionContext(session.path, session.title) || undefined;
+    const extraFiles = this.config.contextFiles.length ? this.config.contextFiles : undefined;
+    const projectContext = loadSessionContext(session.path, session.title, extraFiles) || undefined;
 
     return {
       session,

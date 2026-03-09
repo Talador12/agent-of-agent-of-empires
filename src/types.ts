@@ -86,6 +86,7 @@ export interface AoaoeConfig {
     maxErrorsBeforeRestart: number;
     autoAnswerPermissions: boolean;
   };
+  contextFiles: string[]; // extra AI instruction file paths to load (relative to project root)
   captureLinesCount: number; // how many lines to capture from each tmux pane
   verbose: boolean;
   dryRun: boolean; // observe + reason but don't execute; log what would happen

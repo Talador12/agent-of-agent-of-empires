@@ -1,4 +1,4 @@
-// context.ts -- reads AGENTS.md / claude.md files for reasoner context
+// context.ts -- reads AI instruction files for reasoner context
 // global context: from cwd (or configured dir), applies to all sessions
 // per-session context: from each session's path, scoped to that session
 //
@@ -16,11 +16,37 @@
 //
 // resolveProjectDir searches basePath subdirs for a directory matching
 // the session title, then loads context from repo dir + group dir.
+//
+// supports AI instruction files from many tools:
+//   AGENTS.md, claude.md/CLAUDE.md (opencode/claude-code)
+//   .cursorrules (cursor), .windsurfrules (windsurf)
+//   .github/copilot-instructions.md (github copilot)
+//   .clinerules (cline), .aider.conf.yml (aider)
+//   + user-configured custom paths via config.contextFiles
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
-import { join, resolve, basename } from "node:path";
+import { join, resolve, basename, dirname } from "node:path";
 
-const CONTEXT_FILES = ["AGENTS.md", "claude.md"];
+// primary files — always loaded first in this order
+const PRIMARY_FILES = ["AGENTS.md", "claude.md", "CLAUDE.md"];
+
+// patterns to auto-discover AI instruction files from root readdir
+// catches .cursorrules, .windsurfrules, .clinerules, future *rules tools, etc.
+const AUTO_DISCOVER_PATTERNS = [
+  /rules$/i, // .cursorrules, .windsurfrules, .clinerules, etc.
+  /instructions/i, // copilot-instructions.md, etc.
+  /\.aider/i, // .aider.conf.yml, .aiderignore
+  /^codex\.md$/i, // CODEX.md
+  /^contributing\.md$/i, // CONTRIBUTING.md
+];
+
+// known nested paths to check (not discoverable via root readdir)
+const NESTED_CONTEXT_PATHS = [
+  ".github/copilot-instructions.md",
+  ".cursor/rules",
+];
+
 const MAX_FILE_SIZE = 8_000; // truncate individual files to keep token budget sane
+const MAX_DIR_BUDGET = 24_000; // total budget per directory load (global or per-session)
 const CACHE_TTL_MS = 60_000; // re-read files at most every 60s
 
 interface CachedContext {
@@ -56,32 +82,95 @@ export function readContextFile(filePath: string): string {
   }
 }
 
-// load all context files from a directory, return combined string
-export function loadContextFromDir(dir: string): string {
-  if (!dir) return "";
-  const parts: string[] = [];
+// discover AI instruction files in a directory via readdir + pattern matching.
+// returns de-duped list: primary files first, then auto-discovered, then nested.
+export function discoverContextFiles(dir: string): string[] {
+  if (!dir) return [];
+  const found: string[] = [];
+  const seen = new Set<string>();
 
-  for (const name of CONTEXT_FILES) {
-    const content = readContextFile(join(dir, name));
-    if (content) {
-      parts.push(`--- ${name} ---`);
-      parts.push(content);
-      parts.push("");
+  const add = (filePath: string) => {
+    const resolved = resolve(filePath);
+    if (seen.has(resolved)) return;
+    seen.add(resolved);
+    found.push(filePath);
+  };
+
+  // 1. primary files — always checked first
+  for (const name of PRIMARY_FILES) {
+    const p = join(dir, name);
+    if (existsSync(p) && isFile(p)) add(p);
+  }
+
+  // 2. auto-discover from root readdir
+  const entries = safeReaddir(dir);
+  for (const entry of entries) {
+    if (AUTO_DISCOVER_PATTERNS.some((pat) => pat.test(entry))) {
+      const p = join(dir, entry);
+      if (isFile(p)) add(p);
     }
   }
 
-  // also check parent directory for context files (e.g. group-level claude.md)
-  // this matches the AGENTS.md pattern: "Put claude.md in the group folder"
-  const parentDir = join(dir, "..");
-  for (const name of CONTEXT_FILES) {
-    const parentPath = join(parentDir, name);
-    // skip if same file we already read (dir is the parent)
-    if (parentPath === join(dir, name)) continue;
-    const content = readContextFile(parentPath);
+  // 3. known nested paths
+  for (const nested of NESTED_CONTEXT_PATHS) {
+    const p = join(dir, nested);
+    if (existsSync(p) && isFile(p)) add(p);
+  }
+
+  return found;
+}
+
+// load all context files from a directory, return combined string.
+// auto-discovers AI instruction files, respects total budget.
+export function loadContextFromDir(dir: string, extraFiles?: string[]): string {
+  if (!dir) return "";
+  const parts: string[] = [];
+  let totalSize = 0;
+
+  const files = discoverContextFiles(dir);
+
+  // append user-configured extra files
+  if (extraFiles) {
+    for (const f of extraFiles) {
+      const p = resolve(dir, f);
+      if (existsSync(p) && isFile(p) && !files.includes(p)) {
+        files.push(p);
+      }
+    }
+  }
+
+  for (const filePath of files) {
+    if (totalSize >= MAX_DIR_BUDGET) break;
+    const content = readContextFile(filePath);
     if (content) {
-      parts.push(`--- ../${name} (parent directory) ---`);
+      // label with path relative to dir for readability
+      const label = filePath.startsWith(dir)
+        ? filePath.slice(dir.length + 1)
+        : basename(filePath);
+      parts.push(`--- ${label} ---`);
       parts.push(content);
       parts.push("");
+      totalSize += content.length;
+    }
+  }
+
+  // also check parent directory for primary context files (group-level)
+  // this matches the AGENTS.md pattern: "Put claude.md in the group folder"
+  const parentDir = resolve(dir, "..");
+  if (parentDir !== resolve(dir)) {
+    for (const name of PRIMARY_FILES) {
+      if (totalSize >= MAX_DIR_BUDGET) break;
+      const parentPath = join(parentDir, name);
+      if (!existsSync(parentPath) || !isFile(parentPath)) continue;
+      // skip if we already loaded this file from the dir itself
+      if (resolve(parentPath) === resolve(join(dir, name))) continue;
+      const content = readContextFile(parentPath);
+      if (content) {
+        parts.push(`--- ../${name} (parent directory) ---`);
+        parts.push(content);
+        parts.push("");
+        totalSize += content.length;
+      }
     }
   }
 
@@ -142,7 +231,7 @@ export function resolveProjectDir(basePath: string, sessionTitle: string): strin
 
 // load per-session context by resolving the project directory from the title
 // falls back to loading from sessionPath directly if resolution fails
-export function loadSessionContext(sessionPath: string, sessionTitle?: string): string {
+export function loadSessionContext(sessionPath: string, sessionTitle?: string, extraFiles?: string[]): string {
   if (!sessionPath) return "";
 
   // try to resolve the actual project directory from the title
@@ -153,12 +242,12 @@ export function loadSessionContext(sessionPath: string, sessionTitle?: string): 
 
   if (projectDir) {
     // found the repo dir -- load context from it (includes parent/group-level)
-    const context = loadContextFromDir(projectDir);
+    const context = loadContextFromDir(projectDir, extraFiles);
     if (context) return context;
   }
 
   // fallback: load from the session path directly
-  const context = loadContextFromDir(sessionPath);
+  const context = loadContextFromDir(sessionPath, extraFiles);
   if (!context) return "";
   return context;
 }
@@ -174,6 +263,14 @@ function safeReaddir(dir: string): string[] {
 function isDir(p: string): boolean {
   try {
     return statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function isFile(p: string): boolean {
+  try {
+    return statSync(p).isFile();
   } catch {
     return false;
   }

@@ -20,6 +20,7 @@ const DEFAULTS: AoaoeConfig = {
     maxErrorsBeforeRestart: 3,
     autoAnswerPermissions: true,
   },
+  contextFiles: [],
   captureLinesCount: 100,
   verbose: false,
   dryRun: false,
