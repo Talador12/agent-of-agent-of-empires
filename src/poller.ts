@@ -94,9 +94,10 @@ export class Poller {
     const output = await this.captureTmuxPane(session.tmux_name);
     const outputHash = quickHash(output);
 
-    // load project context (AGENTS.md / claude.md) from session's working directory
+    // load project context (AGENTS.md / claude.md) from session's project directory
+    // resolves the actual repo dir by matching session title against subdirectories
     // cached internally with 60s TTL so this is cheap on subsequent polls
-    const projectContext = loadSessionContext(session.path) || undefined;
+    const projectContext = loadSessionContext(session.path, session.title) || undefined;
 
     return {
       session,

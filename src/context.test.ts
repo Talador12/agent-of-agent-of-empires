@@ -8,6 +8,7 @@ import {
   loadContextFromDir,
   loadGlobalContext,
   loadSessionContext,
+  resolveProjectDir,
   clearContextCache,
 } from "./context.js";
 
@@ -109,14 +110,113 @@ describe("loadGlobalContext", () => {
   });
 });
 
+describe("resolveProjectDir", () => {
+  it("finds a direct child matching the title", () => {
+    mkdirSync(join(TMP, "adventure"), { recursive: true });
+    assert.equal(resolveProjectDir(TMP, "adventure"), join(TMP, "adventure"));
+  });
+
+  it("finds a nested child (group/repo) matching the title", () => {
+    // simulate: repos/github/adventure/
+    mkdirSync(join(TMP, "github", "adventure"), { recursive: true });
+    assert.equal(resolveProjectDir(TMP, "adventure"), join(TMP, "github", "adventure"));
+  });
+
+  it("matches case-insensitively", () => {
+    mkdirSync(join(TMP, "github", "Adventure"), { recursive: true });
+    assert.equal(resolveProjectDir(TMP, "adventure"), join(TMP, "github", "Adventure"));
+  });
+
+  it("normalizes spaces and underscores to hyphens", () => {
+    // session title: "agent of agent of empires" -> "agent-of-agent-of-empires"
+    mkdirSync(join(TMP, "github", "agent-of-agent-of-empires"), { recursive: true });
+    assert.equal(
+      resolveProjectDir(TMP, "agent of agent of empires"),
+      join(TMP, "github", "agent-of-agent-of-empires"),
+    );
+  });
+
+  it("normalizes underscores in directory names", () => {
+    mkdirSync(join(TMP, "my_project"), { recursive: true });
+    assert.equal(resolveProjectDir(TMP, "my-project"), join(TMP, "my_project"));
+  });
+
+  it("prefers direct child over nested match", () => {
+    // both repos/cloudchamber/ and repos/cc/cloudchamber/ exist
+    mkdirSync(join(TMP, "cloudchamber"), { recursive: true });
+    mkdirSync(join(TMP, "cc", "cloudchamber"), { recursive: true });
+    assert.equal(resolveProjectDir(TMP, "cloudchamber"), join(TMP, "cloudchamber"));
+  });
+
+  it("returns null when no match found", () => {
+    mkdirSync(join(TMP, "github", "other-project"), { recursive: true });
+    assert.equal(resolveProjectDir(TMP, "nonexistent"), null);
+  });
+
+  it("returns null for empty inputs", () => {
+    assert.equal(resolveProjectDir("", "title"), null);
+    assert.equal(resolveProjectDir(TMP, ""), null);
+  });
+
+  it("skips hidden directories", () => {
+    mkdirSync(join(TMP, ".hidden", "adventure"), { recursive: true });
+    assert.equal(resolveProjectDir(TMP, "adventure"), null);
+  });
+
+  it("skips node_modules", () => {
+    mkdirSync(join(TMP, "node_modules", "adventure"), { recursive: true });
+    assert.equal(resolveProjectDir(TMP, "adventure"), null);
+  });
+
+  it("finds across multiple group folders", () => {
+    // repos/github/adventure and repos/cc/cloudchamber
+    mkdirSync(join(TMP, "github", "adventure"), { recursive: true });
+    mkdirSync(join(TMP, "cc", "cloudchamber"), { recursive: true });
+    assert.equal(resolveProjectDir(TMP, "adventure"), join(TMP, "github", "adventure"));
+    assert.equal(resolveProjectDir(TMP, "cloudchamber"), join(TMP, "cc", "cloudchamber"));
+  });
+});
+
 describe("loadSessionContext", () => {
-  it("loads context from session path", () => {
-    writeFileSync(join(TMP, "AGENTS.md"), "session rules");
-    const result = loadSessionContext(TMP);
-    assert.ok(result.includes("session rules"));
+  it("loads context from resolved project dir", () => {
+    // simulate repos/github/adventure with AGENTS.md
+    mkdirSync(join(TMP, "github", "adventure"), { recursive: true });
+    writeFileSync(join(TMP, "github", "adventure", "AGENTS.md"), "adventure rules");
+    const result = loadSessionContext(TMP, "adventure");
+    assert.ok(result.includes("adventure rules"));
+  });
+
+  it("includes group-level context from parent dir", () => {
+    // simulate repos/github/claude.md + repos/github/adventure/
+    mkdirSync(join(TMP, "github", "adventure"), { recursive: true });
+    writeFileSync(join(TMP, "github", "claude.md"), "github group context");
+    const result = loadSessionContext(TMP, "adventure");
+    assert.ok(result.includes("github group context"));
+    assert.ok(result.includes("parent directory"));
+  });
+
+  it("loads both repo-level and group-level context", () => {
+    mkdirSync(join(TMP, "cc", "cloudchamber"), { recursive: true });
+    writeFileSync(join(TMP, "cc", "cloudchamber", "AGENTS.md"), "cc repo rules");
+    writeFileSync(join(TMP, "cc", "claude.md"), "cc group roadmap");
+    const result = loadSessionContext(TMP, "cloudchamber");
+    assert.ok(result.includes("cc repo rules"));
+    assert.ok(result.includes("cc group roadmap"));
+  });
+
+  it("falls back to session path when title doesnt resolve", () => {
+    writeFileSync(join(TMP, "AGENTS.md"), "fallback rules");
+    const result = loadSessionContext(TMP, "nonexistent-project");
+    assert.ok(result.includes("fallback rules"));
   });
 
   it("returns empty for empty path", () => {
     assert.equal(loadSessionContext(""), "");
+  });
+
+  it("works without title (backwards compat)", () => {
+    writeFileSync(join(TMP, "AGENTS.md"), "no-title rules");
+    const result = loadSessionContext(TMP);
+    assert.ok(result.includes("no-title rules"));
   });
 });
