@@ -2,3 +2,6 @@ node_modules/
 dist/
 .env
 *.tsbuildinfo
+
+# AI agent working context
+.claude/
