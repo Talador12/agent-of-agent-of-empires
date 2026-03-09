@@ -158,9 +158,11 @@ export class Poller {
   }
 }
 
+// exported for testing -- pure utility functions below
+
 // replicate AoE tmux naming: aoe_<sanitized_title_max20>_<first8_of_id>
 // from agent-of-empires/src/tmux/session.rs:22-25
-function computeTmuxName(id: string, title: string): string {
+export function computeTmuxName(id: string, title: string): string {
   const safeTitle = sanitizeTmuxName(title);
   const shortId = id.slice(0, 8);
   return `aoe_${safeTitle}_${shortId}`;
@@ -168,17 +170,17 @@ function computeTmuxName(id: string, title: string): string {
 
 // AoE sanitization: only [a-zA-Z0-9_-], max 20 chars, everything else -> _
 // from agent-of-empires/src/tmux/session.rs:220-231
-function sanitizeTmuxName(name: string): string {
+export function sanitizeTmuxName(name: string): string {
   const sanitized = name.replace(/[^a-zA-Z0-9_-]/g, "_");
   return sanitized.slice(0, 20);
 }
 
-function quickHash(s: string): string {
+export function quickHash(s: string): string {
   return createHash("sha256").update(s).digest("hex").slice(0, 16);
 }
 
 // extract lines in `current` that weren't in `previous`
-function extractNewLines(previous: string, current: string): string {
+export function extractNewLines(previous: string, current: string): string {
   const prevLines = previous.split("\n");
   const currLines = current.split("\n");
 

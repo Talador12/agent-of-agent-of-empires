@@ -81,7 +81,8 @@ async function which(cmd: string): Promise<boolean> {
   }
 }
 
-function deepMerge(...objects: Record<string, unknown>[]): AoaoeConfig {
+// exported for testing
+export function deepMerge(...objects: Record<string, unknown>[]): AoaoeConfig {
   const result: Record<string, unknown> = {};
   for (const obj of objects) {
     for (const [key, val] of Object.entries(obj)) {

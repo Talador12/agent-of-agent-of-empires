@@ -158,7 +158,8 @@ class OpencodeClient {
   }
 }
 
-function parseReasonerResponse(raw: string): ReasonerResult {
+// exported for testing
+export function parseReasonerResponse(raw: string): ReasonerResult {
   const trimmed = raw.trim();
 
   // try direct JSON parse
@@ -195,7 +196,7 @@ function parseReasonerResponse(raw: string): ReasonerResult {
   return { actions: [{ action: "wait", reason: "failed to parse reasoner response" }] };
 }
 
-function validateResult(parsed: unknown): ReasonerResult {
+export function validateResult(parsed: unknown): ReasonerResult {
   if (typeof parsed !== "object" || parsed === null) {
     return { actions: [{ action: "wait", reason: "invalid response shape" }] };
   }

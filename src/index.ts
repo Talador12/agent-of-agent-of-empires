@@ -7,6 +7,7 @@ import { printDashboard } from "./dashboard.js";
 import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
 import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState } from "./daemon-state.js";
+import { type SessionPolicyState, detectPermissionPrompt } from "./reasoner/prompt.js";
 import type { AoaoeConfig, Observation, ReasonerResult } from "./types.js";
 import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -89,6 +90,7 @@ async function main() {
   let pollCount = 0;
   let forceDashboard = false;
   let paused = false; // can be set by /pause from stdin or chat.ts
+  const policyStates = new Map<string, SessionPolicyState>(); // per-session idle/error tracking
   log("entering main loop (Ctrl+C to stop)\n");
 
   // clear any stale interrupt from a previous run
@@ -142,7 +144,7 @@ async function main() {
     }
 
     try {
-      const interrupted = await tick(config, poller, reasoner, executor, console_, pollCount, userMessage, forceDashboard);
+      const interrupted = await tick(config, poller, reasoner, executor, console_, pollCount, policyStates, userMessage, forceDashboard);
       forceDashboard = false;
 
       // if the reasoner was interrupted, wait for user input before continuing
@@ -180,6 +182,7 @@ async function tick(
   executor: Executor,
   console_: ReasonerConsole,
   pollCount: number,
+  policyStates: Map<string, SessionPolicyState>,
   userMessage?: string,
   forceDashboard?: boolean
 ): Promise<boolean> {
@@ -192,6 +195,35 @@ async function tick(
   // update state with session info
   const sessionStates = buildSessionStates(observation);
   writeState("polling", { pollCount, sessionCount, changeCount, sessions: sessionStates });
+
+  // update per-session policy tracking (idle time, error counts, permission prompts)
+  const now = Date.now();
+  const changedIds = new Set(observation.changes.map((c) => c.sessionId));
+  for (const snap of observation.sessions) {
+    const sid = snap.session.id;
+    let ps = policyStates.get(sid);
+    if (!ps) {
+      ps = { sessionId: sid, lastOutputChangeAt: now, consecutiveErrorPolls: 0, hasPermissionPrompt: false };
+      policyStates.set(sid, ps);
+    }
+    // update idle tracking: reset timer when output changed
+    if (changedIds.has(sid)) {
+      ps.lastOutputChangeAt = now;
+    }
+    // update error counter
+    if (snap.session.status === "error") {
+      ps.consecutiveErrorPolls++;
+    } else {
+      ps.consecutiveErrorPolls = 0;
+    }
+    // detect permission prompts in recent output
+    ps.hasPermissionPrompt = detectPermissionPrompt(snap.output);
+  }
+  // prune policy states for sessions that no longer exist
+  const activeIds = new Set(observation.sessions.map((s) => s.session.id));
+  for (const key of policyStates.keys()) {
+    if (!activeIds.has(key)) policyStates.delete(key);
+  }
 
   // attach user message to observation if present
   if (userMessage) {
@@ -227,13 +259,27 @@ async function tick(
     console_.writeObservation(sessionCount, changeCount, changeSummary);
   }
 
-  // 2. if nothing changed AND no user message, skip reasoning (save tokens)
-  if (changeCount === 0 && !userMessage) {
+  // check if any policy alerts should force reasoning even without output changes
+  const policyAlerts = [...policyStates.values()].filter((ps) =>
+    (now - ps.lastOutputChangeAt >= config.policies.maxIdleBeforeNudgeMs) ||
+    (ps.consecutiveErrorPolls >= config.policies.maxErrorsBeforeRestart) ||
+    (ps.hasPermissionPrompt && config.policies.autoAnswerPermissions)
+  );
+  const hasPolicyAlerts = policyAlerts.length > 0;
+
+  // 2. if nothing changed AND no user message AND no policy alerts, skip reasoning
+  if (changeCount === 0 && !userMessage && !hasPolicyAlerts) {
     if (config.verbose) {
       process.stdout.write(" | no changes, skipping reasoner\n");
     }
     return false;
   }
+
+  // attach policy context to observation so formatObservation can annotate the prompt
+  observation.policyContext = {
+    policies: config.policies,
+    sessionStates: [...policyStates.values()],
+  };
 
   process.stdout.write(" | reasoning...");
   writeState("reasoning", { pollCount, sessionCount, changeCount, sessions: sessionStates });

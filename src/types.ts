@@ -22,6 +22,16 @@ export interface Observation {
   sessions: SessionSnapshot[];
   changes: SessionChange[]; // only sessions with new output since last poll
   userMessage?: string; // optional human operator message injected via stdin
+  // policy enforcement context (attached by main loop, consumed by formatObservation)
+  policyContext?: {
+    policies: AoaoeConfig["policies"];
+    sessionStates: Array<{
+      sessionId: string;
+      lastOutputChangeAt: number;
+      consecutiveErrorPolls: number;
+      hasPermissionPrompt: boolean;
+    }>;
+  };
 }
 
 export interface SessionChange {
