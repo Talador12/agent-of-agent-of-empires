@@ -1,4 +1,4 @@
-.PHONY: help setup build dev lint test test-integration test-all clean start daemon check
+.PHONY: help setup build dev lint test test-integration test-all clean start daemon check release
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -39,3 +39,16 @@ daemon: build ## build and start the supervisor daemon
 	node dist/index.js
 
 start: daemon ## alias for daemon
+
+release: test-all ## cut a release: run tests, tag, push (usage: make release v=0.29.0)
+	@if [ -z "$(v)" ]; then echo "  usage: make release v=0.29.0"; exit 1; fi
+	@if ! git diff --quiet HEAD; then echo "  error: uncommitted changes"; exit 1; fi
+	@echo ""
+	@echo "  releasing v$(v)..."
+	npm version $(v) --no-git-tag-version
+	git add package.json
+	git commit -m "v$(v): $$(git log -1 --format='%s' | sed 's/^v[0-9]*\.[0-9]*\.[0-9]*: //')"
+	git tag "v$(v)"
+	git push origin main --tags
+	@echo ""
+	@echo "  v$(v) pushed. CI will npm publish + GitHub Release."
