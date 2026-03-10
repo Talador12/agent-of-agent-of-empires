@@ -5,22 +5,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.12.0
+## Version: v0.13.0
 
 ## Current Focus
 
-Post v0.12.0: address remaining low-priority audit findings and UX improvements.
-200 tests.
+All audit findings addressed. 213 tests. Looking at UX and feature improvements next.
 
 ## Working Items
-
-### Audit findings (low priority)
-- **Status:** Todo
-- `test-context` subcommand not handled in `parseCliArgs()` (inconsistent)
-- Dynamic `import("node:fs")` inside loop in testContext
-- OpenCode SDK session never recreated after server restart (stale sessionId)
-- `shell.ts` exit code extraction uses `err.code` (string) instead of `err.status`
-- Missing test coverage: tick() error propagation, config edge cases
 
 ### Fix Homebrew tap PAT
 - **Status:** Todo
@@ -34,6 +25,11 @@ Post v0.12.0: address remaining low-priority audit findings and UX improvements.
 
 ## Completed
 
+- v0.13.0: remaining audit fixes — test-context parsed in parseCliArgs (consistent
+  with attach/register), hoisted dynamic imports out of testContext loop, stale
+  OpenCode SDK session auto-recovery (retry with fresh session), shell.ts captures
+  signal on process kill, validateConfig edge case tests, tick() error propagation
+  tests, subcommand mutual exclusivity tests, 213 tests
 - v0.12.0: audit fixes — balanced-brace JSON extraction (replaces greedy regex),
   action log rotation (1MB cap), TOCTOU race fix in daemon-state cleanup,
   rate limiting normalizes session refs through resolver, 200 tests
@@ -48,7 +44,7 @@ Post v0.12.0: address remaining low-priority audit findings and UX improvements.
 - v0.9.0: Auto-discovery of AI instruction files, `resolveProjectDir`, cross-platform inode de-dupe, `test-context` subcommand
 - v0.8.0: Title-based project directory resolution for meta-level aoe usage
 - v0.7.0: AGENTS.md + claude.md context loading, global + per-session context
-- 200 tests across 9 files, all passing
+- 213 tests across 9 files, all passing
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases

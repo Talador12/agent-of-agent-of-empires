@@ -487,6 +487,69 @@ describe("tick — multi-tick sequences", () => {
     assert.equal(executor.executed.length, 1);
   });
 
+  it("recovers from poller error", async () => {
+    // a poller that throws on first call, then succeeds
+    let callCount = 0;
+    const failingPoller: PollerLike = {
+      async poll() {
+        callCount++;
+        if (callCount === 1) throw new Error("tmux not found");
+        return makeObservation([makeSnapshot()], []);
+      },
+    };
+    const reasoner = new MockReasoner();
+    const executor = new MockExecutor();
+    const policyStates = new Map<string, SessionPolicyState>();
+
+    // first tick throws (poller error bubbles up)
+    await assert.rejects(
+      () => tick({ config: defaultConfig(), poller: failingPoller, reasoner, executor, policyStates, pollCount: 1 }),
+      /tmux not found/
+    );
+
+    // second tick succeeds (poller returns data)
+    const result = await tick({ config: defaultConfig(), poller: failingPoller, reasoner, executor, policyStates, pollCount: 2 });
+    assert.equal(result.skippedReason, "no changes");
+  });
+
+  it("recovers from reasoner error", async () => {
+    const snap = makeSnapshot();
+    const changes = [{
+      sessionId: snap.session.id, title: snap.session.title,
+      tool: snap.session.tool, status: snap.session.status,
+      newLines: "output",
+    }];
+    const poller = new MockPoller();
+    poller.enqueue(
+      makeObservation([snap], changes),
+      makeObservation([snap], changes),
+    );
+
+    // reasoner that throws on first call, then succeeds
+    let reasonerCallCount = 0;
+    const failingReasoner: Reasoner = {
+      async init() {},
+      async decide() {
+        reasonerCallCount++;
+        if (reasonerCallCount === 1) throw new Error("API rate limited");
+        return { actions: [{ action: "wait" as const }] };
+      },
+      async shutdown() {},
+    };
+    const executor = new MockExecutor();
+    const policyStates = new Map<string, SessionPolicyState>();
+
+    // first tick throws (reasoner error bubbles up)
+    await assert.rejects(
+      () => tick({ config: defaultConfig(), poller, reasoner: failingReasoner, executor, policyStates, pollCount: 1 }),
+      /API rate limited/
+    );
+
+    // second tick succeeds
+    const result = await tick({ config: defaultConfig(), poller, reasoner: failingReasoner, executor, policyStates, pollCount: 2 });
+    assert.equal(result.result?.actions[0].action, "wait");
+  });
+
   it("change then idle sequence", async () => {
     const session = makeSession({ id: "seq-1" });
     const snap = makeSnapshot({ session });

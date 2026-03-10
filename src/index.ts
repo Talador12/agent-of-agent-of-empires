@@ -19,7 +19,7 @@ import { homedir } from "node:os";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 async function main() {
-  const { overrides, help, version, attach, register, registerTitle } = parseCliArgs(process.argv);
+  const { overrides, help, version, attach, register, testContext: isTestContext, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -49,7 +49,7 @@ async function main() {
   }
 
   // `aoaoe test-context` -- safe read-only scan of sessions + context discovery
-  if (process.argv[2] === "test-context") {
+  if (isTestContext) {
     await testContext();
     return;
   }
@@ -400,9 +400,12 @@ async function waitForInput(
 // `aoaoe test-context` -- safe read-only scan: list sessions, resolve project dirs,
 // discover context files. touches nothing, just prints what it finds.
 async function testContext(): Promise<void> {
+  // hoist all imports to top of function (not inside loops)
   const { exec: shellExec } = await import("./shell.js");
-  const { resolveProjectDirWithSource, discoverContextFiles, loadSessionContext } = await import("./context.js");
+  const { resolveProjectDirWithSource, discoverContextFiles, loadSessionContext, loadGlobalContext: loadGlobal } = await import("./context.js");
   const { computeTmuxName } = await import("./poller.js");
+  const { statSync } = await import("node:fs");
+  const { resolve: pathResolve } = await import("node:path");
 
   const basePath = process.cwd();
   const config = loadConfig();
@@ -454,9 +457,7 @@ async function testContext(): Promise<void> {
     if (discovered.length > 0) {
       console.log(`  context files (${discovered.length}):`);
       for (const f of discovered) {
-        // show relative path for readability
         const rel = f.startsWith(basePath) ? f.slice(basePath.length + 1) : f;
-        const { statSync } = await import("node:fs");
         try {
           const size = statSync(f).size;
           console.log(`    ${rel} (${(size / 1024).toFixed(1)}KB)`);
@@ -470,7 +471,6 @@ async function testContext(): Promise<void> {
 
     // also check parent dir for group-level context
     if (projectDir) {
-      const { resolve: pathResolve } = await import("node:path");
       const parentDir = pathResolve(projectDir, "..");
       const parentFiles = discoverContextFiles(parentDir);
       const parentOnly = parentFiles.filter((f) => !discovered.includes(f));
@@ -491,8 +491,7 @@ async function testContext(): Promise<void> {
   }
 
   // global context
-  const { loadGlobalContext: loadGlobal, discoverContextFiles: discoverGlobal } = await import("./context.js");
-  const globalFiles = discoverGlobal(basePath);
+  const globalFiles = discoverContextFiles(basePath);
   if (globalFiles.length > 0) {
     console.log("--- global context (supervisor working directory) ---");
     for (const f of globalFiles) {

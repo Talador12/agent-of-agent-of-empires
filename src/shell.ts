@@ -5,6 +5,7 @@ export interface ExecResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  signal?: string; // set when process was killed by signal (e.g. SIGTERM)
   aborted?: boolean; // true if killed via AbortSignal
 }
 
@@ -22,15 +23,19 @@ export async function exec(
       (err, stdout, stderr) => {
         cleanup();
         if (signal?.aborted) {
-          resolve({ stdout: stdout ?? "", stderr: stderr ?? "", exitCode: 130, aborted: true });
+          resolve({ stdout: stdout ?? "", stderr: stderr ?? "", exitCode: 130, signal: "SIGTERM", aborted: true });
           return;
         }
         if (err) {
-          const e = err as { code?: number | string };
+          // execFile error: code is exit code (number) or error string (e.g. 'ENOENT')
+          // signal is set when the process was killed (e.g. 'SIGTERM' from timeout)
+          const e = err as { code?: number | string; signal?: string; killed?: boolean };
+          const exitCode = typeof e.code === "number" ? e.code : 1;
           resolve({
             stdout: stdout ?? "",
             stderr: stderr ?? "",
-            exitCode: typeof e.code === "number" ? e.code : 1,
+            exitCode,
+            signal: e.signal ?? undefined,
           });
           return;
         }

@@ -137,6 +137,7 @@ export function parseCliArgs(argv: string[]): {
   version: boolean;
   attach: boolean;
   register: boolean;
+  testContext: boolean;
   registerTitle?: string;
 } {
   const overrides: Partial<AoaoeConfig> = {};
@@ -144,11 +145,15 @@ export function parseCliArgs(argv: string[]): {
   let version = false;
   let attach = false;
   let register = false;
+  let testContext = false;
   let registerTitle: string | undefined;
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "attach") {
-    return { overrides, help: false, version: false, attach: true, register: false };
+    return { overrides, help: false, version: false, attach: true, register: false, testContext: false };
+  }
+  if (argv[2] === "test-context") {
+    return { overrides, help: false, version: false, attach: false, register: false, testContext: true };
   }
   if (argv[2] === "register") {
     register = true;
@@ -158,7 +163,7 @@ export function parseCliArgs(argv: string[]): {
         registerTitle = argv[++i];
       }
     }
-    return { overrides, help: false, version: false, attach: false, register, registerTitle };
+    return { overrides, help: false, version: false, attach: false, register, testContext: false, registerTitle };
   }
 
   // helper: consume next arg with bounds check
@@ -214,7 +219,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, attach, register: false };
+  return { overrides, help, version, attach, register: false, testContext: false };
 }
 
 export function printHelp() {

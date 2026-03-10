@@ -68,7 +68,7 @@ export class OpencodeReasoner implements Reasoner {
   private async decideViaSDK(prompt: string): Promise<ReasonerResult> {
     const client = this.client!;
 
-    // create session on first call
+    // create session on first call (or recreate if previous session went stale)
     if (!this.sessionId) {
       const session = await client.createSession("aoaoe-supervisor");
       this.sessionId = session.id;
@@ -77,8 +77,28 @@ export class OpencodeReasoner implements Reasoner {
       await client.sendMessage(this.sessionId, this.systemPrompt, true);
     }
 
-    const response = await client.sendMessage(this.sessionId, prompt, false);
-    return parseReasonerResponse(response);
+    try {
+      const response = await client.sendMessage(this.sessionId, prompt, false);
+      return parseReasonerResponse(response);
+    } catch (err) {
+      // session may be stale (server restarted, session expired, etc.)
+      // reset sessionId so the next call creates a fresh one
+      this.log(`SDK request failed (resetting session): ${err}`);
+      this.sessionId = null;
+
+      // retry once with a fresh session
+      try {
+        const session = await client.createSession("aoaoe-supervisor");
+        this.sessionId = session.id;
+        await client.sendMessage(this.sessionId, this.systemPrompt, true);
+        const response = await client.sendMessage(this.sessionId, prompt, false);
+        return parseReasonerResponse(response);
+      } catch (retryErr) {
+        this.log(`SDK retry also failed: ${retryErr}`);
+        this.sessionId = null;
+        return { actions: [{ action: "wait", reason: "SDK session error" }] };
+      }
+    }
   }
 
   private async decideViaCli(prompt: string): Promise<ReasonerResult> {
