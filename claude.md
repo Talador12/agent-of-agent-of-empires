@@ -5,17 +5,44 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.28.0
+## Version: v0.29.0 (unreleased)
 
 ## Current Focus
 
-Reactive permission prompt clearing via `tmux pipe-pane`. 371 tests across
-19 files. The new `prompt-watcher` module hooks into tmux's pipe-pane to
-stream pane output to a Node.js subprocess that fires on ANY data (not just
-newlines — critical for TUI apps). On detection, it captures the rendered
-screen via `capture-pane`, pattern matches, and sends Enter within ~10-50ms.
-No polling. Integration test passes end-to-end: both sessions create files,
-3 permission prompts cleared reactively.
+Daemon UX improvements: wakeable sleep, live status, interrupt fixes.
+383 tests across 20 files.
+
+### What changed in v0.29.0
+
+- **Wakeable sleep (`src/wake.ts`)**: New `wakeableSleep()` primitive using
+  `fs.watch` on `~/.aoaoe/` directory. Replaces dumb `sleep()` in the main
+  loop. Message latency drops from up to 10s (full poll interval) to ~100ms.
+  Interrupt works from ANY daemon phase (sleeping, polling, reasoning).
+  Falls back to pure timeout if watch dir doesn't exist.
+
+- **Fix stdin `/interrupt` (`src/input.ts`)**: The `/interrupt` command now
+  calls `requestInterrupt()` to create the flag file. Previously it only
+  pushed a `__CMD_INTERRUPT__` marker that logged a message but never
+  actually triggered an interrupt. ESC-ESC from `aoaoe-chat` already worked
+  (it calls `requestInterrupt()` directly); now stdin `/interrupt` does too.
+
+- **Live status in conversation log (`src/console.ts`, `src/index.ts`)**:
+  New `writeStatus()` method on `ReasonerConsole`. Phase transitions
+  (sleeping, reasoning, executing) are written to the conversation log
+  so `aoaoe-chat` shows daemon activity in real-time. Message acknowledgment:
+  `[status] received your message, processing...` when user input is drained.
+
+- **Remove blocking post-interrupt wait (`src/index.ts`)**: Replaced the 60s
+  `waitForInput()` busy-poll loop with a simple continue-to-next-tick.
+  Wakeable sleep picks up the user's follow-up message immediately via
+  `fs.watch` instead of blocking the main loop.
+
+- **`[status]` colorization in chat (`src/chat.ts`)**: Added `status` tag
+  to the colorize regex so `[status]` entries render with dim styling.
+
+- **12 new unit tests (`src/wake.test.ts`)**: timeout, wake on file change,
+  abort signal, cleanup (no leaked timers/watchers), sequential calls,
+  missing watch directory fallback.
 
 ## Working Items
 
@@ -30,6 +57,17 @@ No polling. Integration test passes end-to-end: both sessions create files,
 
 ## Completed
 
+- v0.29.0: Wakeable sleep + live status + interrupt fixes (383 tests):
+  - **`wake.ts`**: New `wakeableSleep()` using `fs.watch` — message latency
+    10s → ~100ms. Returns `{ reason, elapsed }` with timeout/wake/abort.
+  - **`input.ts`**: `/interrupt` now calls `requestInterrupt()` to create
+    the flag file (was broken — only logged a message).
+  - **`console.ts`**: New `writeStatus()` for phase transition entries.
+  - **`index.ts`**: Replaced `sleep()` with `wakeableSleep()` in main loop.
+    Removed 60s blocking `waitForInput()`. Added status entries for
+    reasoning/executing/sleeping phases. Message receipt acknowledgment.
+  - **`chat.ts`**: `[status]` tag colorization added to `colorize()`.
+  - **12 new tests** in `wake.test.ts`.
 - v0.28.0: Reactive prompt-watcher + integration test (371 tests):
   - **`prompt-watcher.ts`**: New module using `tmux pipe-pane` to reactively
     detect and clear permission prompts. Spawns a Node.js subprocess per pane

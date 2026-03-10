@@ -11,6 +11,7 @@ import { type SessionPolicyState } from "./reasoner/prompt.js";
 import { loadGlobalContext } from "./context.js";
 import { tick as loopTick } from "./loop.js";
 import { sleep } from "./shell.js";
+import { wakeableSleep } from "./wake.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState } from "./types.js";
 import { readFileSync } from "node:fs";
@@ -19,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 
 async function main() {
   const { overrides, help, version, attach, register, testContext: isTestContext, runTest, showTasks, registerTitle } = parseCliArgs(process.argv);
@@ -164,6 +166,11 @@ async function main() {
     const userMessages = [...stdinMessages, ...consoleMessages];
     let userMessage: string | undefined;
 
+    // acknowledge receipt of user messages in the conversation log
+    if (userMessages.filter((m) => !m.startsWith("__CMD_")).length > 0) {
+      reasonerConsole.writeStatus("received your message, processing...");
+    }
+
     // handle built-in command markers (from stdin or chat.ts file IPC)
     for (const msg of userMessages) {
       if (msg === "__CMD_STATUS__") {
@@ -198,7 +205,7 @@ async function main() {
     if (isPaused) {
       if (pollCount % 6 === 1) log("paused (type /resume to continue)");
       writeState("sleeping", { paused: true, pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt: Date.now() + config.pollIntervalMs });
-      await sleep(config.pollIntervalMs);
+      await wakeableSleep(config.pollIntervalMs, AOAOE_DIR);
       continue;
     }
 
@@ -207,19 +214,13 @@ async function main() {
       const interrupted = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager);
       forceDashboard = false;
 
-      // if the reasoner was interrupted, wait for user input before continuing
+      // if the reasoner was interrupted, continue to next tick immediately.
+      // wakeable sleep will pick up the user's follow-up message via fs.watch
+      // instead of blocking for 60s in a busy-poll loop.
       if (interrupted) {
         writeState("interrupted", { pollCount, pollIntervalMs: config.pollIntervalMs });
-        reasonerConsole.writeSystem("reasoner interrupted -- type a message to continue, or wait for next cycle");
-        log("interrupted -- waiting for user input (up to 60s)");
-
-        const injected = await waitForInput(input, reasonerConsole, 60_000);
-        if (injected) {
-          // feed the injected message into the next tick as a user message
-          input.inject(injected);
-          log(`received post-interrupt input, continuing`);
-          reasonerConsole.writeSystem("resuming with your input");
-        }
+        reasonerConsole.writeSystem("reasoner interrupted -- type a message and it will be picked up immediately");
+        log("interrupted -- continuing to next tick (wakeable sleep will pick up input)");
         clearInterrupt();
       }
     } catch (err) {
@@ -229,7 +230,12 @@ async function main() {
     if (running) {
       const nextTickAt = Date.now() + config.pollIntervalMs;
       writeState("sleeping", { pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt, paused: false });
-      await sleep(config.pollIntervalMs);
+      reasonerConsole.writeStatus(`sleeping (next tick in ${config.pollIntervalMs / 1000}s)`);
+
+      const wake = await wakeableSleep(config.pollIntervalMs, AOAOE_DIR);
+      if (wake.reason === "wake") {
+        log(`woke early after ${wake.elapsed}ms (file change detected)`);
+      }
     }
   }
 }
@@ -263,6 +269,7 @@ async function daemonTick(
     shutdown: () => reasoner.shutdown(),
     decide: async (obs) => {
       writeState("reasoning", { pollCount, pollIntervalMs: config.pollIntervalMs });
+      reasonerConsole.writeStatus("reasoning...");
       process.stdout.write(" | reasoning...");
 
       const { result: r, interrupted } = await withTimeoutAndInterrupt(
@@ -351,6 +358,10 @@ async function daemonTick(
 
   // execution results
   writeState("executing", { pollCount, sessionCount, changeCount, sessions: sessionStates });
+  if (executed.length > 0) {
+    const actionCount = executed.filter((e) => e.action.action !== "wait").length;
+    if (actionCount > 0) reasonerConsole.writeStatus(`executing ${actionCount} action${actionCount !== 1 ? "s" : ""}`);
+  }
   for (const entry of executed) {
     if (entry.action.action === "wait") continue;
     const icon = entry.success ? "+" : "!";
@@ -427,34 +438,7 @@ function withTimeoutAndInterrupt<T>(
   });
 }
 
-// after an interrupt, wait for user input before resuming the main loop.
-// re-injects command messages back into the input queue so /pause etc. aren't lost.
-async function waitForInput(
-  input: InputReader,
-  reasonerConsole: ReasonerConsole,
-  maxWaitMs: number
-): Promise<string | null> {
-  const deadline = Date.now() + maxWaitMs;
-  while (Date.now() < deadline) {
-    // check stdin input
-    const stdinMsgs = input.drain();
-    const consoleMsgs = reasonerConsole.drainInput();
-    const allMsgs = [...stdinMsgs, ...consoleMsgs];
 
-    const userMsgs: string[] = [];
-    for (const m of allMsgs) {
-      if (m.startsWith("__CMD_")) {
-        // re-inject command messages so they're processed in the main loop
-        input.inject(m);
-      } else {
-        userMsgs.push(m);
-      }
-    }
-    if (userMsgs.length > 0) return userMsgs.join("\n");
-    await sleep(500);
-  }
-  return null;
-}
 
 // `aoaoe test-context` -- safe read-only scan: list sessions, resolve project dirs,
 // discover context files. touches nothing, just prints what it finds.

@@ -1,6 +1,7 @@
 // interactive stdin input -- lets the user send messages to the reasoner
 // and run built-in slash commands while the daemon is running
 import { createInterface, type Interface } from "node:readline";
+import { requestInterrupt } from "./daemon-state.js";
 
 export class InputReader {
   private rl: Interface | null = null;
@@ -100,6 +101,7 @@ export class InputReader {
         break;
 
       case "/interrupt":
+        requestInterrupt(); // create the flag file so daemon sees it from any phase
         this.queue.push("__CMD_INTERRUPT__");
         console.error("[input] interrupt requested");
         break;

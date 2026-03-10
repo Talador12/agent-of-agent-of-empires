@@ -106,6 +106,11 @@ export class ReasonerConsole {
     this.append(`${this.ts()} [system] ${msg}`);
   }
 
+  // phase transition status — lighter than [system], visible in chat
+  writeStatus(msg: string): void {
+    this.append(`${this.ts()} [status] ${msg}`);
+  }
+
   // read and clear pending user input from the input pane.
   // uses atomic rename to avoid race where input written between read and clear is lost.
   drainInput(): string[] {

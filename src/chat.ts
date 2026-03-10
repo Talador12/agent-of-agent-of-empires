@@ -415,7 +415,7 @@ function replayLog() {
 }
 
 export function colorize(text: string): string {
-  return text.replace(/^(.*?\[)(observation|you|reasoner|action|\+ action|! action|system)(\].*$)/gm, (_, pre, tag, post) => {
+  return text.replace(/^(.*?\[)(observation|you|reasoner|action|\+ action|! action|system|status)(\].*$)/gm, (_, pre, tag, post) => {
     switch (tag) {
       case "observation": return `${DIM}${pre}${tag}${post}${RESET}`;
       case "you": return `${GREEN}${pre}${tag}${post}${RESET}`;
@@ -423,6 +423,7 @@ export function colorize(text: string): string {
       case "+ action": return `${YELLOW}${pre}${tag}${post}${RESET}`;
       case "! action": return `${RED}${pre}${tag}${post}${RESET}`;
       case "system": return `${DIM}${pre}${tag}${post}${RESET}`;
+      case "status": return `${DIM}${pre}${tag}${post}${RESET}`;
       default: return `${pre}${tag}${post}`;
     }
   });
