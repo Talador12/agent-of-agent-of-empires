@@ -6,6 +6,9 @@ import assert from "node:assert/strict";
 
 import type { SessionSnapshot } from "./types.js";
 
+// default cooldown from executor.ts (config.policies.actionCooldownMs ?? 30_000)
+const DEFAULT_COOLDOWN_MS = 30_000;
+
 // replicated from executor.ts -- the actual method is private on the class,
 // but the logic is pure and worth validating. if this drifts from the source,
 // the integration tests will catch it.
@@ -118,14 +121,14 @@ describe("rate limiting (logic)", () => {
     // mark an action
     recentActions.set("s1", now);
 
-    // check within 30s window
+    // check within cooldown window
     const last = recentActions.get("s1")!;
-    assert.equal(now - last < 30_000, true); // rate limited
+    assert.equal(now - last < DEFAULT_COOLDOWN_MS, true); // rate limited
 
-    // simulate 31s later
-    recentActions.set("s1", now - 31_000);
+    // simulate past-cooldown
+    recentActions.set("s1", now - DEFAULT_COOLDOWN_MS - 1_000);
     const last2 = recentActions.get("s1")!;
-    assert.equal(Date.now() - last2 < 30_000, false); // not rate limited
+    assert.equal(Date.now() - last2 < DEFAULT_COOLDOWN_MS, false); // not rate limited
   });
 
   it("different sessions have independent limits", () => {

@@ -24,11 +24,11 @@ export class ClaudeCodeReasoner implements Reasoner {
     this.log(`claude available: ${result.stdout.trim()}`);
   }
 
-  async decide(observation: Observation): Promise<ReasonerResult> {
+  async decide(observation: Observation, signal?: AbortSignal): Promise<ReasonerResult> {
     const prompt = formatObservation(observation);
     const args = this.buildArgs(prompt);
 
-    const result = await exec("claude", args, 120_000);
+    const result = await exec("claude", args, 120_000, signal);
     if (result.exitCode !== 0) {
       this.log(`claude failed: ${result.stderr}`);
       return { actions: [{ action: "wait", reason: "reasoner error" }] };

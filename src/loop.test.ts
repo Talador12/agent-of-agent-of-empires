@@ -92,7 +92,7 @@ class MockReasoner implements Reasoner {
 
   async init() { this.initCalled = true; }
 
-  async decide(observation: Observation): Promise<ReasonerResult> {
+  async decide(observation: Observation, _signal?: AbortSignal): Promise<ReasonerResult> {
     this.calls.push(observation);
     const idx = Math.min(this.callIndex, this.responses.length - 1);
     this.callIndex++;

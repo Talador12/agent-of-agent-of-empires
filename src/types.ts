@@ -60,7 +60,7 @@ export interface ReasonerResult {
 // reasoner backend interface
 export interface Reasoner {
   init(): Promise<void>;
-  decide(observation: Observation): Promise<ReasonerResult>;
+  decide(observation: Observation, signal?: AbortSignal): Promise<ReasonerResult>;
   shutdown(): Promise<void>;
 }
 

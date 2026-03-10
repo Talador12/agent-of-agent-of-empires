@@ -5,12 +5,12 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.16.0
+## Version: v0.17.0
 
 ## Current Focus
 
-IPC hardening + chat.ts modernization. 323 tests across 15 files. Next:
-AbortSignal for reasoner timeout, end-to-end daemon+chat integration tests.
+AbortSignal cancellation for reasoner backends. 334 tests across 16 files.
+Next: end-to-end daemon+chat integration tests, meta-level UX improvements.
 
 ## Working Items
 
@@ -19,18 +19,32 @@ AbortSignal for reasoner timeout, end-to-end daemon+chat integration tests.
 - `HOMEBREW_TAP_TOKEN` PAT needs `repo` scope for `peter-evans/repository-dispatch`
 - Once fixed, re-run release workflow to trigger tap update
 
-### AbortSignal for reasoner timeout
+### End-to-end daemon+chat integration tests
 - **Status:** Todo
-- `withTimeoutAndInterrupt` leaks the original promise when timeout fires
-- Should pass `AbortSignal` through to backends so they can cancel
+- Mock-based test exercising daemon state IPC + chat reads
 
 ### Meta-level UX improvements
 - **Status:** Todo
 - Auto session naming (match session titles to project directories)
 - Better onboarding for users who run `aoe` from a parent directory
 
+### chat.ts tests
+- **Status:** Todo
+- Tests for colorize, buildStatusLine, isDaemonRunning patterns
+
 ## Completed
 
+- v0.17.0: AbortSignal cancellation — `withTimeoutAndInterrupt` refactored from
+  raw `Promise<T>` to factory `(signal: AbortSignal) => Promise<T>`, creates
+  `AbortController` and passes signal through to reasoner backends; both OpenCode
+  (fetch signal) and Claude Code (exec signal) now receive and respect the signal;
+  signal is aborted on timeout or interrupt for proper resource cleanup. Renamed
+  `console_` to `reasonerConsole` in index.ts for clarity. Fixed hardcoded 30s in
+  executor.test.ts to use `DEFAULT_COOLDOWN_MS` constant. Updated MockReasoner in
+  loop.test.ts to accept optional AbortSignal (interface compat). New
+  abort-signal.test.ts with 11 tests covering factory/signal contract, timeout
+  abort behavior, fetch/exec integration patterns, and Reasoner.decide() interface
+  contract. 334 tests across 16 files.
 - v0.16.0: IPC hardening + chat modernization — atomic rename-based drain in
   console.ts (fixes race condition where input lost between read and clear),
   opencode server PID file (orphan detection + kill on restart), chat.ts async
@@ -65,7 +79,7 @@ AbortSignal for reasoner timeout, end-to-end daemon+chat integration tests.
 - v0.9.0: Auto-discovery of AI instruction files, `resolveProjectDir`, cross-platform inode de-dupe, `test-context` subcommand
 - v0.8.0: Title-based project directory resolution for meta-level aoe usage
 - v0.7.0: AGENTS.md + claude.md context loading, global + per-session context
-- 323 tests across 15 files, all passing
+- 334 tests across 16 files, all passing
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases

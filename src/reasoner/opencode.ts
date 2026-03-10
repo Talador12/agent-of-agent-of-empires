@@ -52,16 +52,16 @@ export class OpencodeReasoner implements Reasoner {
     throw new Error("opencode server failed to start within 30s");
   }
 
-  async decide(observation: Observation): Promise<ReasonerResult> {
+  async decide(observation: Observation, signal?: AbortSignal): Promise<ReasonerResult> {
     const prompt = formatObservation(observation);
 
     // prefer SDK if connected
     if (this.client) {
-      return this.decideViaSDK(prompt);
+      return this.decideViaSDK(prompt, signal);
     }
 
     // fallback: opencode run
-    return this.decideViaCli(prompt);
+    return this.decideViaCli(prompt, signal);
   }
 
   async shutdown(): Promise<void> {
@@ -73,7 +73,7 @@ export class OpencodeReasoner implements Reasoner {
     try { unlinkSync(OPENCODE_PID_FILE); } catch {}
   }
 
-  private async decideViaSDK(prompt: string): Promise<ReasonerResult> {
+  private async decideViaSDK(prompt: string, signal?: AbortSignal): Promise<ReasonerResult> {
     const client = this.client!;
 
     // create session on first call (or recreate if previous session went stale)
@@ -86,9 +86,11 @@ export class OpencodeReasoner implements Reasoner {
     }
 
     try {
-      const response = await client.sendMessage(this.sessionId, prompt, false);
+      const response = await client.sendMessage(this.sessionId, prompt, false, signal);
+      if (signal?.aborted) return { actions: [{ action: "wait", reason: "aborted" }] };
       return parseReasonerResponse(response);
     } catch (err) {
+      if (signal?.aborted) return { actions: [{ action: "wait", reason: "aborted" }] };
       // session may be stale (server restarted, session expired, etc.)
       // reset sessionId so the next call creates a fresh one
       this.log(`SDK request failed (resetting session): ${err}`);
@@ -98,8 +100,10 @@ export class OpencodeReasoner implements Reasoner {
       try {
         const session = await client.createSession("aoaoe-supervisor");
         this.sessionId = session.id;
-        await client.sendMessage(this.sessionId, this.systemPrompt, true);
-        const response = await client.sendMessage(this.sessionId, prompt, false);
+        await client.sendMessage(this.sessionId, this.systemPrompt, true, signal);
+        if (signal?.aborted) return { actions: [{ action: "wait", reason: "aborted" }] };
+        const response = await client.sendMessage(this.sessionId, prompt, false, signal);
+        if (signal?.aborted) return { actions: [{ action: "wait", reason: "aborted" }] };
         return parseReasonerResponse(response);
       } catch (retryErr) {
         this.log(`SDK retry also failed: ${retryErr}`);
@@ -109,7 +113,7 @@ export class OpencodeReasoner implements Reasoner {
     }
   }
 
-  private async decideViaCli(prompt: string): Promise<ReasonerResult> {
+  private async decideViaCli(prompt: string, signal?: AbortSignal): Promise<ReasonerResult> {
     // opencode run with system prompt prepended
     const fullPrompt = `${this.systemPrompt}\n\n${prompt}`;
     const args = ["run", "--format", "json"];
@@ -118,7 +122,7 @@ export class OpencodeReasoner implements Reasoner {
     }
     args.push(fullPrompt);
 
-    const result = await exec("opencode", args, 120_000);
+    const result = await exec("opencode", args, 120_000, signal);
     if (result.exitCode !== 0) {
       this.log(`opencode run failed: ${result.stderr}`);
       return { actions: [{ action: "wait", reason: "reasoner error" }] };
@@ -203,7 +207,7 @@ class OpencodeClient {
     return (await res.json()) as { id: string };
   }
 
-  async sendMessage(sessionId: string, text: string, noReply: boolean): Promise<string> {
+  async sendMessage(sessionId: string, text: string, noReply: boolean, signal?: AbortSignal): Promise<string> {
     const res = await fetch(`${this.baseUrl}/session/${sessionId}/message`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -211,6 +215,7 @@ class OpencodeClient {
         noReply,
         parts: [{ type: "text", text }],
       }),
+      signal,
     });
     if (!res.ok) throw new Error(`send message failed: ${res.status}`);
     if (noReply) return "";

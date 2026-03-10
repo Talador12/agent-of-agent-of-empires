@@ -74,7 +74,7 @@ async function main() {
   const reasoner = createReasoner(config, globalContext || undefined);
   const executor = new Executor(config);
   const input = new InputReader();
-  const console_ = new ReasonerConsole();
+  const reasonerConsole = new ReasonerConsole();
 
   // init reasoner (starts opencode serve, verifies claude, etc)
   log("initializing reasoner...");
@@ -83,7 +83,7 @@ async function main() {
 
   // start interactive input listener (stdin fallback) and console tmux session
   input.start();
-  await console_.start();
+  await reasonerConsole.start();
   log(`reasoner console ready -- run 'aoaoe attach' to enter`);
 
   // graceful shutdown
@@ -93,7 +93,7 @@ async function main() {
     running = false;
     log("shutting down...");
     input.stop();
-    await console_.stop();
+    await reasonerConsole.stop();
     await reasoner.shutdown();
     cleanupState();
     process.exit(0);
@@ -116,7 +116,7 @@ async function main() {
 
     // drain user input from both stdin and console tmux session
     const stdinMessages = input.drain();
-    const consoleMessages = console_.drainInput();
+    const consoleMessages = reasonerConsole.drainInput();
     const userMessages = [...stdinMessages, ...consoleMessages];
     let userMessage: string | undefined;
 
@@ -125,21 +125,21 @@ async function main() {
       if (msg === "__CMD_STATUS__") {
         const isPausedNow = paused || input.isPaused();
         log(`status: poll #${pollCount}, reasoner=${config.reasoner}, paused=${isPausedNow}, dry-run=${config.dryRun}`);
-        console_.writeSystem(`status: poll #${pollCount}, reasoner=${config.reasoner}, paused=${isPausedNow}, dry-run=${config.dryRun}`);
+        reasonerConsole.writeSystem(`status: poll #${pollCount}, reasoner=${config.reasoner}, paused=${isPausedNow}, dry-run=${config.dryRun}`);
       } else if (msg === "__CMD_DASHBOARD__") {
         forceDashboard = true;
       } else if (msg === "__CMD_VERBOSE__") {
         config.verbose = !config.verbose;
         log(`verbose: ${config.verbose ? "on" : "off"}`);
-        console_.writeSystem(`verbose: ${config.verbose ? "on" : "off"}`);
+        reasonerConsole.writeSystem(`verbose: ${config.verbose ? "on" : "off"}`);
       } else if (msg === "__CMD_PAUSE__") {
         paused = true;
         log("paused via console");
-        console_.writeSystem("paused -- reasoner will not be called until /resume");
+        reasonerConsole.writeSystem("paused -- reasoner will not be called until /resume");
       } else if (msg === "__CMD_RESUME__") {
         paused = false;
         log("resumed via console");
-        console_.writeSystem("resumed");
+        reasonerConsole.writeSystem("resumed");
       } else if (msg === "__CMD_INTERRUPT__") {
         // interrupt is handled inside tick() via the flag file; clear it here if no tick is running
         log("interrupt requested (will take effect during next reasoning call)");
@@ -159,21 +159,21 @@ async function main() {
     }
 
     try {
-      const interrupted = await daemonTick(config, poller, reasoner, executor, console_, pollCount, policyStates, userMessage, forceDashboard);
+      const interrupted = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard);
       forceDashboard = false;
 
       // if the reasoner was interrupted, wait for user input before continuing
       if (interrupted) {
         writeState("interrupted", { pollCount, pollIntervalMs: config.pollIntervalMs });
-        console_.writeSystem("reasoner interrupted -- type a message to continue, or wait for next cycle");
+        reasonerConsole.writeSystem("reasoner interrupted -- type a message to continue, or wait for next cycle");
         log("interrupted -- waiting for user input (up to 60s)");
 
-        const injected = await waitForInput(input, console_, 60_000);
+        const injected = await waitForInput(input, reasonerConsole, 60_000);
         if (injected) {
           // feed the injected message into the next tick as a user message
           input.inject(injected);
           log(`received post-interrupt input, continuing`);
-          console_.writeSystem("resuming with your input");
+          reasonerConsole.writeSystem("resuming with your input");
         }
         clearInterrupt();
       }
@@ -196,7 +196,7 @@ async function daemonTick(
   poller: Poller,
   reasoner: ReturnType<typeof createReasoner>,
   executor: Executor,
-  console_: ReasonerConsole,
+  reasonerConsole: ReasonerConsole,
   pollCount: number,
   policyStates: Map<string, SessionPolicyState>,
   userMessage?: string,
@@ -207,10 +207,10 @@ async function daemonTick(
 
   // user message -> console
   if (userMessage) {
-    console_.writeUserMessage(userMessage);
+    reasonerConsole.writeUserMessage(userMessage);
   }
 
-  // wrap reasoner with timeout + interrupt support
+  // wrap reasoner with timeout + interrupt support (passes AbortSignal to backends)
   const wrappedReasoner: import("./types.js").Reasoner = {
     init: () => reasoner.init(),
     shutdown: () => reasoner.shutdown(),
@@ -219,13 +219,13 @@ async function daemonTick(
       process.stdout.write(" | reasoning...");
 
       const { result: r, interrupted } = await withTimeoutAndInterrupt(
-        reasoner.decide(obs),
+        (signal) => reasoner.decide(obs, signal),
         90_000,
         { actions: [{ action: "wait" as const, reason: "reasoner timeout" }] }
       );
       if (interrupted) {
         process.stdout.write(" INTERRUPTED\n");
-        console_.writeSystem("reasoner interrupted by operator");
+        reasonerConsole.writeSystem("reasoner interrupted by operator");
         throw new InterruptError();
       }
       return r;
@@ -272,7 +272,7 @@ async function daemonTick(
   // console: observation summary
   if (changeCount > 0) {
     const changeSummary = observation.changes.map((c) => `${c.title} (${c.tool}): ${c.status}`);
-    console_.writeObservation(sessionCount, changeCount, changeSummary);
+    reasonerConsole.writeObservation(sessionCount, changeCount, changeSummary);
   }
 
   if (skippedReason === "no changes") {
@@ -286,7 +286,7 @@ async function daemonTick(
     process.stdout.write(` -> ${actionSummary}\n`);
 
     if (result.reasoning) {
-      console_.writeReasoning(result.reasoning);
+      reasonerConsole.writeReasoning(result.reasoning);
       if (config.verbose) log(`reasoning: ${result.reasoning}`);
     }
   }
@@ -296,7 +296,7 @@ async function daemonTick(
     for (const action of dryRunActions) {
       const msg = `would ${action.action}: ${JSON.stringify(action)}`;
       log(`[dry-run] ${msg}`);
-      console_.writeAction(action.action, "dry-run", true);
+      reasonerConsole.writeAction(action.action, "dry-run", true);
     }
     return false;
   }
@@ -307,7 +307,7 @@ async function daemonTick(
     if (entry.action.action === "wait") continue;
     const icon = entry.success ? "+" : "!";
     log(`[${icon}] ${entry.action.action}: ${entry.detail}`);
-    console_.writeAction(entry.action.action, entry.detail, entry.success);
+    reasonerConsole.writeAction(entry.action.action, entry.detail, entry.success);
   }
   return false;
 }
@@ -328,20 +328,24 @@ function log(msg: string) {
   console.error(`[${ts}] ${msg}`);
 }
 
-// race the reasoner against both a timeout and the interrupt flag file
+// race the reasoner against both a timeout and the interrupt flag file.
+// accepts a factory that receives an AbortSignal so the underlying HTTP
+// request / subprocess can be cancelled on timeout or interrupt.
 function withTimeoutAndInterrupt<T>(
-  promise: Promise<T>,
+  factory: (signal: AbortSignal) => Promise<T>,
   ms: number,
   fallback: T
 ): Promise<{ result: T; interrupted: boolean }> {
   return new Promise((resolve) => {
     let settled = false;
+    const ac = new AbortController();
 
     // poll for interrupt flag every 300ms
     const interruptInterval = setInterval(() => {
       if (settled) return;
       if (checkInterrupt()) {
         settled = true;
+        ac.abort();
         clearInterval(interruptInterval);
         clearTimeout(timer);
         clearInterrupt();
@@ -352,12 +356,13 @@ function withTimeoutAndInterrupt<T>(
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      ac.abort();
       clearInterval(interruptInterval);
       log(`reasoner timed out after ${ms}ms, using fallback`);
       resolve({ result: fallback, interrupted: false });
     }, ms);
 
-    promise.then((result) => {
+    factory(ac.signal).then((result) => {
       if (settled) return;
       settled = true;
       clearInterval(interruptInterval);
@@ -377,14 +382,14 @@ function withTimeoutAndInterrupt<T>(
 // after an interrupt, wait for user input before resuming the main loop
 async function waitForInput(
   input: InputReader,
-  console_: ReasonerConsole,
+  reasonerConsole: ReasonerConsole,
   maxWaitMs: number
 ): Promise<string | null> {
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
     // check stdin input
     const stdinMsgs = input.drain();
-    const consoleMsgs = console_.drainInput();
+    const consoleMsgs = reasonerConsole.drainInput();
     const msgs = [...stdinMsgs, ...consoleMsgs].filter(
       (m) => !m.startsWith("__CMD_")
     );
