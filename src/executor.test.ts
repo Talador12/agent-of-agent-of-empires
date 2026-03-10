@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 // for resolveTmuxName logic, we replicate it here since it's pure:
 
 import type { SessionSnapshot } from "./types.js";
-import { VALID_TOOLS } from "./executor.js";
+import { VALID_TOOLS, PERMISSION_COOLDOWN_MS } from "./executor.js";
 
 // default cooldown from executor.ts (config.policies.actionCooldownMs ?? 30_000)
 const DEFAULT_COOLDOWN_MS = 30_000;
@@ -230,5 +230,57 @@ describe("session ID resolution for start/stop/remove", () => {
   it("falls back to raw ref when session not found", () => {
     const resolved = resolveSessionId("unknown-session", snaps);
     assert.equal(resolved, "unknown-session");
+  });
+});
+
+describe("permission approval fast cooldown", () => {
+  it("PERMISSION_COOLDOWN_MS is much shorter than default", () => {
+    assert.ok(PERMISSION_COOLDOWN_MS < DEFAULT_COOLDOWN_MS, "permission cooldown should be shorter");
+    assert.ok(PERMISSION_COOLDOWN_MS <= 2_000, "permission cooldown should be <= 2s");
+    assert.ok(PERMISSION_COOLDOWN_MS >= 500, "permission cooldown should be >= 500ms");
+  });
+
+  it("permission action uses fast cooldown, next non-permission uses normal", () => {
+    // simulate the rate-limit logic from executor.ts
+    const recentActions = new Map<string, number>();
+    const lastActionWasPermission = new Map<string, boolean>();
+
+    const now = Date.now();
+
+    // simulate permission approval
+    recentActions.set("s1", now);
+    lastActionWasPermission.set("s1", true);
+
+    // check at PERMISSION_COOLDOWN_MS + 100ms: should NOT be rate limited
+    const afterPermCooldown = now + PERMISSION_COOLDOWN_MS + 100;
+    const wasPermission = lastActionWasPermission.get("s1") ?? false;
+    const cooldown = wasPermission ? PERMISSION_COOLDOWN_MS : DEFAULT_COOLDOWN_MS;
+    assert.equal(afterPermCooldown - now < cooldown, false, "should not be rate limited after permission cooldown");
+
+    // but at PERMISSION_COOLDOWN_MS - 100ms: SHOULD be rate limited
+    const beforePermCooldown = now + PERMISSION_COOLDOWN_MS - 100;
+    assert.equal(beforePermCooldown - now < cooldown, true, "should be rate limited within permission cooldown");
+  });
+
+  it("non-permission action after permission resets to normal cooldown", () => {
+    const recentActions = new Map<string, number>();
+    const lastActionWasPermission = new Map<string, boolean>();
+
+    const now = Date.now();
+
+    // first: permission approval (fast cooldown)
+    recentActions.set("s1", now);
+    lastActionWasPermission.set("s1", true);
+
+    // then: normal send_input (should use normal cooldown going forward)
+    recentActions.set("s1", now + PERMISSION_COOLDOWN_MS + 100);
+    lastActionWasPermission.set("s1", false);
+
+    // check: at +5s after normal action, should still be rate limited (30s cooldown)
+    const checkTime = now + PERMISSION_COOLDOWN_MS + 100 + 5_000;
+    const last = recentActions.get("s1")!;
+    const wasPermission = lastActionWasPermission.get("s1") ?? false;
+    const cooldown = wasPermission ? PERMISSION_COOLDOWN_MS : DEFAULT_COOLDOWN_MS;
+    assert.equal(checkTime - last < cooldown, true, "normal action should use 30s cooldown");
   });
 });

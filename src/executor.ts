@@ -15,10 +15,16 @@ const LOG_DIR = join(homedir(), ".aoaoe");
 const LOG_FILE = join(LOG_DIR, "actions.log");
 const LOG_MAX_BYTES = 1_048_576; // 1 MB — rotate when exceeded
 
+// permission approvals (Enter-only) get a much shorter cooldown since OpenCode
+// has multi-step permission flows (mkdir → dir access → edit → run) that each
+// need a separate Enter. 30s between steps would take 2+ minutes per agent.
+export const PERMISSION_COOLDOWN_MS = 1_500;
+
 export class Executor {
   private config: AoaoeConfig;
   private actionLog: ActionLogEntry[] = [];
   private recentActions: Map<string, number> = new Map(); // session -> last action timestamp
+  private lastActionWasPermission: Map<string, boolean> = new Map(); // session -> was last action a permission approval
 
   constructor(config: AoaoeConfig) {
     this.config = config;
@@ -114,7 +120,7 @@ export class Executor {
       const enterOk = await execQuiet("tmux", ["send-keys", "-t", tmuxName, "Enter"]);
       const resolvedId = this.resolveSessionId(sessionId, snapshots);
       if (enterOk) {
-        this.markAction(resolvedId);
+        this.markAction(resolvedId, true); // permission = true -> fast cooldown
         setSessionTask(resolvedId, "(approved permission prompt)");
       }
       return this.logAction(
@@ -277,15 +283,20 @@ export class Executor {
     return this.config.policies.actionCooldownMs ?? 30_000;
   }
 
-  // rate limiting: don't act on the same session within the cooldown window
+  // rate limiting: don't act on the same session within the cooldown window.
+  // permission approvals use a much shorter cooldown (1.5s) since OpenCode has
+  // multi-step permission flows that each need a separate Enter.
   private isRateLimited(sessionId: string): boolean {
     const last = this.recentActions.get(sessionId);
     if (!last) return false;
-    return Date.now() - last < this.cooldownMs;
+    const wasPermission = this.lastActionWasPermission.get(sessionId) ?? false;
+    const cooldown = wasPermission ? PERMISSION_COOLDOWN_MS : this.cooldownMs;
+    return Date.now() - last < cooldown;
   }
 
-  private markAction(sessionId: string) {
+  private markAction(sessionId: string, isPermission = false) {
     this.recentActions.set(sessionId, Date.now());
+    this.lastActionWasPermission.set(sessionId, isPermission);
     this.pruneStaleActions();
   }
 

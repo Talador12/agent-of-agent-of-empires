@@ -5,41 +5,40 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.25.2
+## Version: v0.25.3
 
 ## Current Focus
 
-Session rotation fix for reasoner timeouts. 474 tests across 19 files. The
-opencode SDK backend now rotates to a fresh session every 7 reasoning calls,
-preventing unbounded context accumulation that caused consistent 90s timeouts
-after ~15 polls. Also fixed abort not resetting the session (caused infinite
-timeout loops). Daemon is running live in full autonomous mode.
+Fast permission approval cooldown. 477 tests across 19 files. Permission
+approvals (Enter-only actions) now use a 1.5s cooldown instead of 30s. OpenCode
+has multi-step permission flows (mkdir → dir access → edit → run) that each need
+a separate Enter — at 30s between steps that took 2+ minutes per agent. Now
+completes in ~6s. Session rotation (v0.25.2) and permission approval (v0.25.1)
+also working. Daemon is live supervising FizzBuzz collaboration across 2 test
+sessions.
 
 ## Working Items
 
 ### Remaining backlog
 - `OpencodeReasoner.shutdown()` doesn't clean up orphaned servers from prior runs
-- 30s cooldown too slow for multi-step permission flows (consider shorter cooldown for approvals)
 - `index.ts` dynamic imports in `testContext` that could be static
 - `types.ts` `AoeSession.status` is `string` instead of union type
 - Meta-level UX improvements (auto session naming, onboarding)
 
 ## Completed
 
-- v0.25.2: Session rotation + abort-reset fix — 7 new tests (474 total):
-  - HIGH: opencode.ts — added session rotation after MAX_SESSION_MESSAGES (7)
-    reasoning calls. Each observation can be up to 100KB; after ~15 messages the
-    opencode conversation history grew so large the LLM couldn't respond within
-    90s. Now rotates to a fresh session proactively, re-sending the system prompt.
-    Observed breaking point was poll #17; rotation at 7 gives 2x safety margin.
-  - HIGH: opencode.ts — fixed abort not resetting session. When the 90s timeout
-    fired, the AbortSignal early-return in decideViaSDK skipped the sessionId
-    reset, so the next call reused the same bloated session → timeout again →
-    infinite loop. Now resets session on all abort/timeout paths.
-  - Extracted `resetSession()` helper for consistent session/messageCount cleanup.
-  - 7 new tests with mock HTTP server: session creation, reuse within limit,
-    rotation at threshold, multiple rotations, abort-resets-session, constant
-    sanity check, error recovery with fresh session.
+- v0.25.3: Fast permission cooldown — 3 new tests (477 total):
+  - Permission approvals (Enter-only) now use PERMISSION_COOLDOWN_MS (1.5s)
+    instead of the default 30s actionCooldownMs. Multi-step permission flows
+    (mkdir → dir access → edit → run command) now complete in ~6s per agent
+    instead of 2+ minutes. Non-permission actions still use normal 30s cooldown.
+  - Tracks `lastActionWasPermission` per session. `markAction(id, true)` for
+    permission approvals, `isRateLimited()` checks this to pick the right cooldown.
+  - 3 new tests: constant validation, fast→normal cooldown transition, normal
+    cooldown after non-permission action.
+- v0.25.2: Session rotation + abort-reset — 7 new tests (474 total):
+  - Rotate opencode SDK session after 7 reasoning calls to prevent timeouts.
+  - Fixed abort not resetting session (caused infinite timeout loop).
 - v0.25.1: Permission prompt approval — empty text sends bare Enter (467 total)
 - v0.25.0: Reliability — byte/char budget, first-poll blindness (464 total)
 - v0.24.0: Correctness — 7 fixes, extractNewLines rewrite (451 total)
@@ -59,7 +58,7 @@ timeout loops). Daemon is running live in full autonomous mode.
 - v0.11.0: sessionDirs, daemonTick refactor (193 total)
 - v0.10.0: E2e loop tests, CI test glob fix
 - v0.9.0: Auto-discovery, resolveProjectDir, test-context
-- 474 tests across 19 files, all passing
+- 477 tests across 19 files, all passing
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases
