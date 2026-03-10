@@ -5,6 +5,7 @@ import {
   sanitizeTmuxName,
   quickHash,
   extractNewLines,
+  stripAnsi,
 } from "./poller.js";
 
 describe("sanitizeTmuxName", () => {
@@ -74,6 +75,62 @@ describe("quickHash", () => {
     const hash = quickHash("");
     assert.equal(hash.length, 16);
     assert.match(hash, /^[0-9a-f]{16}$/);
+  });
+});
+
+describe("stripAnsi", () => {
+  it("removes CSI color codes", () => {
+    assert.equal(stripAnsi("\x1b[31mred text\x1b[0m"), "red text");
+  });
+
+  it("removes CSI bold/underline", () => {
+    assert.equal(stripAnsi("\x1b[1mbold\x1b[22m \x1b[4munderline\x1b[24m"), "bold underline");
+  });
+
+  it("removes cursor movement sequences", () => {
+    assert.equal(stripAnsi("\x1b[2Ahello\x1b[K"), "hello");
+  });
+
+  it("removes 256-color and truecolor codes", () => {
+    assert.equal(stripAnsi("\x1b[38;5;196mred\x1b[0m"), "red");
+    assert.equal(stripAnsi("\x1b[38;2;255;0;0mred\x1b[0m"), "red");
+  });
+
+  it("removes OSC sequences (title setting)", () => {
+    assert.equal(stripAnsi("\x1b]0;window title\x07text"), "text");
+  });
+
+  it("removes OSC with ST terminator", () => {
+    assert.equal(stripAnsi("\x1b]0;title\x1b\\text"), "text");
+  });
+
+  it("returns plain text unchanged", () => {
+    assert.equal(stripAnsi("hello world"), "hello world");
+  });
+
+  it("handles empty string", () => {
+    assert.equal(stripAnsi(""), "");
+  });
+
+  it("handles multiple escape sequences in one line", () => {
+    assert.equal(
+      stripAnsi("\x1b[1m\x1b[32m✓\x1b[0m test passed \x1b[90m(0.5ms)\x1b[0m"),
+      "✓ test passed (0.5ms)",
+    );
+  });
+
+  it("handles progress bar spinners", () => {
+    // typical spinner: \r + cursor move + overwrite
+    const spinner = "\x1b[2K\x1b[1G⠋ Loading...\x1b[2K\x1b[1G⠙ Loading...";
+    assert.equal(stripAnsi(spinner), "⠋ Loading...⠙ Loading...");
+  });
+
+  it("strips 8-bit CSI (0x9b) sequences", () => {
+    assert.equal(stripAnsi("\x9b31mred\x9b0m"), "red");
+  });
+
+  it("preserves newlines and meaningful whitespace", () => {
+    assert.equal(stripAnsi("\x1b[32mline1\x1b[0m\nline2\n  indented"), "line1\nline2\n  indented");
   });
 });
 

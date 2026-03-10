@@ -136,8 +136,8 @@ export class Poller {
       return "";
     }
 
-    // trim trailing blank lines that tmux pads
-    return result.stdout.replace(/\n+$/, "");
+    // strip ANSI escape codes then trim trailing blank lines that tmux pads
+    return stripAnsi(result.stdout).replace(/\n+$/, "");
   }
 
   private diffSnapshots(current: SessionSnapshot[]): SessionChange[] {
@@ -195,6 +195,15 @@ export function sanitizeTmuxName(name: string): string {
 
 export function quickHash(s: string): string {
   return createHash("sha256").update(s).digest("hex").slice(0, 16);
+}
+
+// strip ANSI escape sequences (CSI, OSC, simple escapes) so they don't break
+// hash-based change detection or anchor-based line diffing.
+// covers: CSI (\x1b[...X), OSC (\x1b]...ST), and simple two-char escapes (\x1bX)
+// also strips \x9b (8-bit CSI) sequences
+export function stripAnsi(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[^[\]()#;?0-9A-ORZcf-nqry=><~]/g, "");
 }
 
 // extract lines in `current` that weren't in `previous`

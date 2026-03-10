@@ -5,12 +5,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.14.0
+## Version: v0.15.0
 
 ## Current Focus
 
-Robustness + code quality round. 215 tests. Next: IPC hardening, missing test
-coverage for daemon infrastructure (console, chat, dashboard, daemon-state).
+Test coverage expansion + ANSI stripping for reliable diffing. 313 tests across
+14 files. Next: IPC race condition fix (console.ts atomic swap), remaining code
+review findings (AbortSignal for reasoner, PID file for opencode server).
 
 ## Working Items
 
@@ -19,6 +20,16 @@ coverage for daemon infrastructure (console, chat, dashboard, daemon-state).
 - `HOMEBREW_TAP_TOKEN` PAT needs `repo` scope for `peter-evans/repository-dispatch`
 - Once fixed, re-run release workflow to trigger tap update
 
+### IPC race condition fix (console.ts)
+- **Status:** Todo
+- `drainInput()` reads then truncates `pending-input.txt` non-atomically
+- Input can be lost between read and write. Should use rename+read (atomic swap)
+
+### AbortSignal for reasoner timeout
+- **Status:** Todo
+- `withTimeoutAndInterrupt` leaks the original promise when timeout fires
+- Should pass `AbortSignal` through to backends so they can cancel
+
 ### Meta-level UX improvements
 - **Status:** Todo
 - Auto session naming (match session titles to project directories)
@@ -26,6 +37,9 @@ coverage for daemon infrastructure (console, chat, dashboard, daemon-state).
 
 ## Completed
 
+- v0.15.0: test coverage expansion — 5 new test files (dashboard, claude-code,
+  reasoner-factory, daemon-state, input), ANSI escape code stripping in poller
+  (stripAnsi before hash+diff), 12 stripAnsi tests, 313 tests total
 - v0.14.0: robustness — prompt budget (50KB context cap, changed sessions prioritized),
   send_input text length cap (4KB), DRY session resolution (single resolveSession method),
   configurable rate limit cooldown (policies.actionCooldownMs), auto-prune stale rate
@@ -50,7 +64,7 @@ coverage for daemon infrastructure (console, chat, dashboard, daemon-state).
 - v0.9.0: Auto-discovery of AI instruction files, `resolveProjectDir`, cross-platform inode de-dupe, `test-context` subcommand
 - v0.8.0: Title-based project directory resolution for meta-level aoe usage
 - v0.7.0: AGENTS.md + claude.md context loading, global + per-session context
-- 215 tests across 9 files, all passing
+- 313 tests across 14 files, all passing
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases
