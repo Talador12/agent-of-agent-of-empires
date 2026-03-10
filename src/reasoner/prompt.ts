@@ -187,12 +187,36 @@ export function formatObservation(obs: Observation): string {
 
   let assembled = parts.join("\n");
 
-  // enforce total prompt budget to prevent blowing LLM context windows
+  // enforce total prompt budget to prevent blowing LLM context windows.
+  // the prompt is laid out as: session table -> project context -> policy alerts -> changes -> operator message.
+  // on truncation, we want to preserve the ends (operator message + changes = most important real-time data)
+  // and trim from the middle (project context = stale, least important when budget is tight).
   const totalBytes = Buffer.byteLength(assembled, "utf-8");
   if (totalBytes > MAX_PROMPT_BYTES) {
-    // truncate from the end (project context is at the front, changes at the back)
-    // preserve the last 1KB for user message/policy alerts
-    assembled = assembled.slice(0, MAX_PROMPT_BYTES - 100) + "\n\n[...prompt truncated to fit context budget]";
+    // find where project context starts and ends so we can trim it
+    const ctxStart = assembled.indexOf("Project context for sessions:");
+    const ctxEnd = assembled.indexOf("Policy alerts:");
+    const changesMarker = ctxEnd >= 0 ? ctxEnd : assembled.indexOf("No new output from any session");
+    const changesMarker2 = changesMarker >= 0 ? changesMarker : assembled.indexOf("Changes detected in");
+
+    if (ctxStart >= 0 && changesMarker2 > ctxStart) {
+      // trim project context section to fit budget
+      const header = assembled.slice(0, ctxStart);
+      const tail = assembled.slice(changesMarker2);
+      const headerBytes = Buffer.byteLength(header, "utf-8");
+      const tailBytes = Buffer.byteLength(tail, "utf-8");
+      const availableForCtx = MAX_PROMPT_BYTES - headerBytes - tailBytes - 100;
+      if (availableForCtx > 200) {
+        const ctxSection = assembled.slice(ctxStart, changesMarker2);
+        assembled = header + ctxSection.slice(0, availableForCtx) + "\n[...project context truncated]\n\n" + tail;
+      } else {
+        // no room for context at all — drop it entirely
+        assembled = header + "[project context omitted — prompt budget exceeded]\n\n" + tail;
+      }
+    } else {
+      // no project context section — truncate from end as fallback
+      assembled = assembled.slice(0, MAX_PROMPT_BYTES - 100) + "\n\n[...prompt truncated to fit context budget]";
+    }
   }
 
   return assembled;

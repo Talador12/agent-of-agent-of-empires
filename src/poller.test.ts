@@ -166,4 +166,36 @@ describe("extractNewLines", () => {
     const result = extractNewLines(content, content);
     assert.equal(result, "");
   });
+
+  it("handles repeated lines correctly (no false negatives)", () => {
+    const previous = "BUILD OK\nBUILD OK\nBUILD OK";
+    const current = "BUILD OK\nBUILD OK\nBUILD OK\nnew output here";
+    const result = extractNewLines(previous, current);
+    assert.ok(result.includes("new output here"));
+  });
+
+  it("handles repeated log lines with new content after", () => {
+    const previous = "test 1 passed\ntest 2 passed\ntest 3 passed\ntest 4 passed\ntest 5 passed";
+    const current = "test 1 passed\ntest 2 passed\ntest 3 passed\ntest 4 passed\ntest 5 passed\ntest 6 passed\ntest 7 FAILED";
+    const result = extractNewLines(previous, current);
+    assert.ok(result.includes("test 6 passed"));
+    assert.ok(result.includes("test 7 FAILED"));
+    assert.ok(!result.includes("test 5 passed"));
+  });
+
+  it("handles build progress lines that repeat", () => {
+    const previous = "[build] compiling...\n[build] compiling...\n[build] compiling...";
+    const current = "[build] compiling...\n[build] compiling...\n[build] compiling...\n[build] done!\nerrors: 0";
+    const result = extractNewLines(previous, current);
+    assert.ok(result.includes("[build] done!"));
+    assert.ok(result.includes("errors: 0"));
+  });
+
+  it("skips blank lines when matching anchor", () => {
+    const previous = "line A\n\nline B\n\nline C";
+    const current = "line A\n\nline B\n\nline C\n\nnew stuff";
+    const result = extractNewLines(previous, current);
+    assert.ok(result.includes("new stuff"));
+    assert.ok(!result.includes("line C"));
+  });
 });

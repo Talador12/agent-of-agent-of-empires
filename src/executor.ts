@@ -144,7 +144,9 @@ export class Executor {
   private async startSession(sessionId: string, snapshots: SessionSnapshot[] = []): Promise<ActionLogEntry> {
     const resolvedId = this.resolveSessionId(sessionId, snapshots);
     const result = await exec("aoe", ["session", "start", resolvedId]);
-    this.markAction(resolvedId);
+
+    // only mark action (trigger cooldown) on success — failed starts should be retryable
+    if (result.exitCode === 0) this.markAction(resolvedId);
 
     return this.logAction(
       { action: "start_session", session: sessionId },
@@ -156,7 +158,9 @@ export class Executor {
   private async stopSession(sessionId: string, snapshots: SessionSnapshot[] = []): Promise<ActionLogEntry> {
     const resolvedId = this.resolveSessionId(sessionId, snapshots);
     const result = await exec("aoe", ["session", "stop", resolvedId]);
-    this.markAction(resolvedId);
+
+    // only mark action (trigger cooldown) on success — failed stops should be retryable
+    if (result.exitCode === 0) this.markAction(resolvedId);
 
     return this.logAction(
       { action: "stop_session", session: sessionId },
@@ -206,8 +210,8 @@ export class Executor {
     const args = ["add", path, "-t", title, "-c", tool, "-y"]; // -y for yolo mode
     const result = await exec("aoe", args);
 
-    // mark rate limit under title bucket
-    this.markAction(`create:${title.toLowerCase()}`);
+    // only mark rate limit on success — failed creates should be retryable
+    if (result.exitCode === 0) this.markAction(`create:${title.toLowerCase()}`);
 
     return this.logAction(
       { action: "create_agent", path, title, tool },
@@ -219,7 +223,9 @@ export class Executor {
   private async removeAgent(sessionId: string, snapshots: SessionSnapshot[] = []): Promise<ActionLogEntry> {
     const resolvedId = this.resolveSessionId(sessionId, snapshots);
     const result = await exec("aoe", ["remove", resolvedId, "-y"]);
-    this.markAction(resolvedId);
+
+    // only mark action (trigger cooldown) on success — failed removes should be retryable
+    if (result.exitCode === 0) this.markAction(resolvedId);
 
     return this.logAction(
       { action: "remove_agent", session: sessionId },

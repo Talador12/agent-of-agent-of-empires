@@ -365,4 +365,50 @@ describe("formatObservation total prompt budget (MAX_PROMPT_BYTES)", () => {
     assert.ok(result.includes("Sessions:"));
     assert.ok(result.includes("Active sessions: 4"));
   });
+
+  it("preserves operator message when truncating (truncates context, not changes)", () => {
+    // build a prompt where project context is large but operator message + changes exist
+    const bigContext = "x".repeat(80_000);
+    const sessions = [
+      { ...makeSnap("abc12345678901", "agent-1"), projectContext: bigContext },
+    ];
+    const changes = [{
+      sessionId: "abc12345678901",
+      title: "agent-1",
+      tool: "opencode",
+      status: "working",
+      newLines: "IMPORTANT: test failure detected",
+    }];
+    const obs = makeObs({
+      sessions,
+      changes,
+      userMessage: "fix the tests please",
+    });
+    const result = formatObservation(obs);
+    const totalBytes = Buffer.byteLength(result, "utf-8");
+    assert.ok(totalBytes <= 100_200, `expected <= ~100KB, got ${totalBytes}`);
+    // operator message and changes should survive truncation
+    assert.ok(result.includes("fix the tests please"), "operator message was truncated");
+    assert.ok(result.includes("IMPORTANT: test failure detected"), "changes were truncated");
+    // project context should be trimmed
+    assert.ok(result.includes("truncated") || result.includes("omitted"), "should indicate context was trimmed");
+  });
+
+  it("preserves changes when only project context causes overflow", () => {
+    const bigContext = "z".repeat(90_000);
+    const sessions = [
+      { ...makeSnap("def12345678901", "agent-2"), projectContext: bigContext },
+    ];
+    const changes = [{
+      sessionId: "def12345678901",
+      title: "agent-2",
+      tool: "opencode",
+      status: "working",
+      newLines: "UNIQUE_CHANGE_MARKER_12345",
+    }];
+    const obs = makeObs({ sessions, changes });
+    const result = formatObservation(obs);
+    // changes should survive even when context is huge
+    assert.ok(result.includes("UNIQUE_CHANGE_MARKER_12345"), "changes were lost during truncation");
+  });
 });

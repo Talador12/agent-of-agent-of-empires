@@ -131,7 +131,8 @@ export function deepMerge(...objects: Record<string, unknown>[]): AoaoeConfig {
   for (const obj of objects) {
     for (const [key, val] of Object.entries(obj)) {
       if (val !== undefined && val !== null) {
-        if (typeof val === "object" && !Array.isArray(val) && typeof result[key] === "object") {
+        // empty objects ({}) replace rather than merge — allows clearing sessionDirs etc.
+        if (typeof val === "object" && !Array.isArray(val) && Object.keys(val as object).length > 0 && typeof result[key] === "object") {
           result[key] = deepMerge(result[key] as Record<string, unknown>, val as Record<string, unknown>);
         } else {
           result[key] = val;

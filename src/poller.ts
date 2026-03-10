@@ -278,24 +278,43 @@ export async function listAoeSessionsShared(timeoutMs = 10_000): Promise<BasicSe
     .map((r) => r.value);
 }
 
-// extract lines in `current` that weren't in `previous`
+// extract lines in `current` that weren't in `previous`.
+// uses a line-by-line backward scan to find the overlap point,
+// which handles repeated lines correctly (unlike the old lastIndexOf approach).
 export function extractNewLines(previous: string, current: string): string {
   const prevLines = previous.split("\n");
   const currLines = current.split("\n");
 
-  if (prevLines.length === 0) return current;
-
-  // look for the last few non-empty lines of previous in current to find the overlap point
+  // get the last non-empty lines of previous as anchors
   const anchorLines = prevLines.filter((l) => l.trim()).slice(-5);
   if (anchorLines.length === 0) return current;
 
-  const anchor = anchorLines.join("\n");
-  const currJoined = currLines.join("\n");
-  const anchorIdx = currJoined.lastIndexOf(anchor);
-
-  if (anchorIdx >= 0) {
-    const after = currJoined.slice(anchorIdx + anchor.length);
-    return after.replace(/^\n/, "");
+  // scan backward through current to find where the anchor sequence starts.
+  // this avoids the lastIndexOf false negative when repeated lines appear
+  // multiple times — we find the match closest to the end of current.
+  const anchorLen = anchorLines.length;
+  for (let i = currLines.length - anchorLen; i >= 0; i--) {
+    // check if anchorLines match at position i (filtering empties in current)
+    let match = true;
+    let ai = 0;
+    let ci = i;
+    while (ai < anchorLen && ci < currLines.length) {
+      if (!currLines[ci].trim()) {
+        ci++;
+        continue;
+      }
+      if (currLines[ci] !== anchorLines[ai]) {
+        match = false;
+        break;
+      }
+      ai++;
+      ci++;
+    }
+    if (match && ai === anchorLen) {
+      // found the anchor ending at ci — everything after is new
+      const after = currLines.slice(ci).join("\n");
+      return after.replace(/^\n/, "");
+    }
   }
 
   // no overlap found (screen clear, etc) -- return last 20 lines

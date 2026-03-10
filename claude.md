@@ -5,13 +5,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.23.0
+## Version: v0.24.0
 
 ## Current Focus
 
-Code quality and DRY improvements. 442 tests across 19 files. Shared session
-listing, LRU cache eviction, testable CLI args, path escaping fix.
-Next: meta-level UX improvements or feature work.
+Correctness fixes for real-world reliability. 451 tests across 19 files. Fixed
+repeated-line false negatives, prompt truncation direction, rate limit on failure,
+deepMerge clearing. Next: meta-level UX improvements or feature work.
 
 ## Working Items
 
@@ -26,55 +26,41 @@ Next: meta-level UX improvements or feature work.
 - Better onboarding for users who run `aoe` from a parent directory
 
 ### Remaining backlog
-- `deepMerge` doesn't handle clearing `sessionDirs` to `{}`
 - `waitForInput` busy-loops with 500ms sleep (could use fs.watch)
-- `poller.ts` `extractNewLines` lastIndexOf can produce false negatives with repeated lines
+- `formatObservation` byte/char budget mismatch (ctx.slice vs Buffer.byteLength)
+- `OpencodeReasoner.shutdown()` doesn't clean up orphaned servers from prior runs
+- `daemon-state.ts` does sync mkdirSync+writeFileSync on every phase change (could cache/debounce)
+- `ClaudeCodeReasoner.tryExtractSessionId` regex is fragile (could match git hashes)
 
 ## Completed
 
+- v0.24.0: Correctness — 7 fixes, 9 new tests (451 total):
+  - HIGH: poller.ts — rewrote `extractNewLines` algorithm. Old approach used
+    `lastIndexOf` on joined anchor string, causing false negatives when repeated
+    lines (build progress, test output) appeared multiple times. New algorithm
+    does line-by-line backward scan, skipping blank lines, finding the true
+    overlap boundary. 4 new regression tests for repeated-line scenarios.
+  - HIGH: prompt.ts — fixed `formatObservation` truncation direction. Previously
+    truncated from the end (losing operator message + changes = most important
+    real-time data). Now identifies the project context section and trims it first,
+    preserving changes and operator messages. 2 new tests.
+  - HIGH: config.ts — fixed `deepMerge` not handling empty objects. Overriding
+    `sessionDirs: {}` was silently ignored because recursive merge kept existing
+    keys. Now empty objects replace rather than merge. 3 new tests.
+  - MEDIUM: executor.ts — fixed `markAction` called on failure for start/stop/
+    restart/remove/create_agent. Failed actions triggered 30s cooldown, blocking
+    retries. Now only marks on success (consistent with send_input fix in v0.22.0).
+  - LOW: index.ts — `InterruptError` now sets `this.name = "InterruptError"` for
+    proper error serialization.
+  - LOW: index.ts — removed unused `ActionLogEntry` type import.
+  - LOW: poller.ts — `extractNewLines` dead branch removed (unreachable
+    `prevLines.length === 0` check since `"".split("\n")` returns `[""]`).
 - v0.23.0: Code quality — 6 improvements, 8 new tests (442 total):
-  - MEDIUM: context.ts — LRU cache eviction. `MAX_CACHE_SIZE = 200`, `accessedAt`
-    field on `CachedContext`, `evictCache()` sorts by `accessedAt` and removes
-    oldest entries. Called after each `cache.set()`. Prevents unbounded growth.
-  - MEDIUM: chat.ts — replaced duplicated `listAoeSessions()` (30 lines) with
-    `listAoeSessionsShared()` from poller.ts. Single source of truth for session
-    listing logic (aoe list + session show + computeTmuxName + allSettled).
-  - MEDIUM: config.ts — replaced `process.exit(1)` in `nextArg` with
-    `throw new Error()`. CLI arg parsing is now testable without killing the
-    test runner. 6 new tests for missing flag value errors.
-  - LOW: console.ts — fixed `INPUT_LOOP_SCRIPT` path interpolation. Changed
-    `"${INPUT_FILE}"` (double quotes, vulnerable to bash expansion) to
-    `'${INPUT_FILE}'` (single quotes, literal). Prevents breakage if path
-    contains bash-special characters.
-  - LOW: poller.ts — added `listAoeSessionsShared()` exported function and
-    `BasicSessionInfo` interface. Uses `Promise.allSettled`, `computeTmuxName`.
-  - TEST: context.test.ts — 2 tests for LRU cache eviction behavior (eviction
-    at MAX_CACHE_SIZE, accessedAt bump on cache hit).
-  - TEST: config.test.ts — 6 tests for `parseCliArgs` missing flag value errors
-    (--reasoner, --poll-interval, --port, --model, --profile, trailing flag).
+  - LRU cache eviction, shared session listing, testable CLI args, path escaping
 - v0.22.0: Reliability + resilience — 8 fixes, 8 new tests (434 total):
-  - HIGH: parse.ts — string-literal-aware brace counting in `extractFirstValidJson`.
-    Braces inside JSON strings (e.g. `{"text": "use { and }"}`) no longer break
-    the balanced-brace scanner. Handles escaped quotes too.
-  - HIGH: chat.ts — `listAoeSessions` `Promise.all` -> `Promise.allSettled` so one
-    failing session status fetch doesn't lose all sessions in /overview
-  - HIGH: opencode.ts — added `error`/`exit` event listeners on spawned server process.
-    On unexpected death: nulls client + sessionId, logs the event. Next `decide()`
-    attempts reconnect before falling back to CLI.
-  - MEDIUM: opencode.ts — PID file only deleted in `shutdown()` if we started the server
-    (prevents deleting another instance's PID file)
-  - MEDIUM: daemon-state.ts — `buildSessionStates` prunes `sessionTasks` Map entries
-    for sessions that no longer exist (prevents unbounded memory growth)
-  - MEDIUM: chat.ts — `onLogChange` resets `lastSize` to 0 on file error/delete so
-    new content isn't missed after daemon restart clears conversation.log
-  - MEDIUM: executor.ts — `sendInput` only calls `markAction` (triggers cooldown) on
-    success. Failed sends are immediately retryable instead of blocked for 30s.
-  - LOW: index.ts — removed dead `loadSessionContext` import
+  - String-aware JSON parser, server health monitoring, resource leak fixes
 - v0.21.0: Hardening — 10 fixes, 6 new tests (426 total):
-  - orphan prevention (opencode.ts), prompt budget (prompt.ts), shutdown handler
-    (index.ts), TOCTOU race (console.ts), stale threshold (chat.ts), noisy log
-    (claude-code.ts), command re-injection (index.ts), unknown flag warning
-    (config.ts), parameter mutation (executor.ts)
+  - Orphan prevention, prompt budget, shutdown handler, race fixes
 - v0.20.0: Code audit fixes — 8 issues resolved, 21 new tests (420 total)
 - v0.19.0: shell.ts test coverage — 18 tests. 399 tests across 19 files.
 - v0.18.0: Chat + IPC test coverage — chat.test.ts (36 tests), ipc.test.ts (12
@@ -90,7 +76,7 @@ Next: meta-level UX improvements or feature work.
 - v0.11.0: sessionDirs, daemonTick refactor. 193 tests.
 - v0.10.0: E2e loop tests, CI test glob fix.
 - v0.9.0: Auto-discovery, resolveProjectDir, test-context.
-- 442 tests across 19 files, all passing
+- 451 tests across 19 files, all passing
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases

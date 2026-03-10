@@ -341,6 +341,28 @@ describe("deepMerge", () => {
     );
     assert.equal(result.pollIntervalMs, 2000);
   });
+
+  it("clears nested object when override is empty {}", () => {
+    const base = { sessionDirs: { foo: "/bar", baz: "/qux" } } as unknown as Record<string, unknown>;
+    const override = { sessionDirs: {} } as unknown as Record<string, unknown>;
+    const result = deepMerge(base, override);
+    assert.deepEqual(result.sessionDirs, {});
+  });
+
+  it("replaces nested object when override is empty {}", () => {
+    const base = { policies: { maxIdleBeforeNudgeMs: 120000, maxErrorsBeforeRestart: 3 } } as unknown as Record<string, unknown>;
+    const override = { policies: {} } as unknown as Record<string, unknown>;
+    const result = deepMerge(base, override);
+    assert.deepEqual(result.policies, {});
+  });
+
+  it("still deep merges non-empty objects", () => {
+    const base = { opencode: { port: 4097, model: "old" } } as unknown as Record<string, unknown>;
+    const override = { opencode: { model: "new" } } as unknown as Record<string, unknown>;
+    const result = deepMerge(base, override);
+    assert.equal(result.opencode.port, 4097);
+    assert.equal(result.opencode.model, "new");
+  });
 });
 
 describe("parseCliArgs missing flag values", () => {

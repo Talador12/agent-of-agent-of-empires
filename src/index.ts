@@ -2,7 +2,7 @@
 import { loadConfig, validateEnvironment, parseCliArgs, printHelp } from "./config.js";
 import { Poller } from "./poller.js";
 import { createReasoner } from "./reasoner/index.js";
-import { Executor, type ActionLogEntry } from "./executor.js";
+import { Executor } from "./executor.js";
 import { printDashboard } from "./dashboard.js";
 import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
@@ -317,7 +317,7 @@ async function daemonTick(
   return false;
 }
 
-class InterruptError extends Error { constructor() { super("interrupted"); } }
+class InterruptError extends Error { constructor() { super("interrupted"); this.name = "InterruptError"; } }
 
 function summarizeStatuses(obs: Observation): string {
   const counts = new Map<string, number>();
