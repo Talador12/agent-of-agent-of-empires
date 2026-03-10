@@ -127,10 +127,12 @@ export class Executor {
     const enterOk = textOk ? await execQuiet("tmux", ["send-keys", "-t", tmuxName, "Enter"]) : false;
     const ok = textOk && enterOk;
     const resolvedId = this.resolveSessionId(sessionId, snapshots);
-    this.markAction(resolvedId);
 
-    // track as current task for this session
-    if (ok) setSessionTask(resolvedId, sendText);
+    // only mark action (trigger cooldown) on success — failed sends should be retryable
+    if (ok) {
+      this.markAction(resolvedId);
+      setSessionTask(resolvedId, sendText);
+    }
 
     return this.logAction(
       { action: "send_input", session: sessionId, text },

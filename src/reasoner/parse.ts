@@ -98,15 +98,32 @@ export function parseReasonerResponse(raw: string): ReasonerResult {
 }
 
 // scan for balanced { ... } substrings and try to JSON.parse each one
+// string-literal-aware: skips braces inside "..." to avoid miscounting
 // returns the first successfully parsed object, or null
-function extractFirstValidJson(text: string): unknown {
+export function extractFirstValidJson(text: string): unknown {
   let depth = 0;
   let start = -1;
   for (let i = 0; i < text.length; i++) {
-    if (text[i] === "{") {
+    const ch = text[i];
+
+    // skip string literals (handles \" escapes inside strings)
+    if (ch === '"' && depth > 0) {
+      i++; // advance past opening quote
+      while (i < text.length) {
+        if (text[i] === "\\") {
+          i++; // skip escaped char
+        } else if (text[i] === '"') {
+          break; // closing quote
+        }
+        i++;
+      }
+      continue;
+    }
+
+    if (ch === "{") {
       if (depth === 0) start = i;
       depth++;
-    } else if (text[i] === "}") {
+    } else if (ch === "}") {
       depth--;
       if (depth === 0 && start >= 0) {
         try {

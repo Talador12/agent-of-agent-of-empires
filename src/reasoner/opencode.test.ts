@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { parseReasonerResponse, validateResult } from "./opencode.js";
+import { extractFirstValidJson } from "./parse.js";
 
 describe("validateResult", () => {
   it("accepts valid action array", () => {
@@ -208,5 +209,54 @@ describe("parseReasonerResponse", () => {
     const raw = `{invalid json here} then {"actions": [{"action": "wait", "reason": "found it"}]}`;
     const result = parseReasonerResponse(raw);
     assert.equal(result.actions[0].action, "wait");
+  });
+
+  it("handles braces inside JSON string values", () => {
+    // LLM explains code with braces in the reasoning string
+    const raw = `{"reasoning": "use { and } in code like function() { return 1; }", "actions": [{"action": "wait"}]}`;
+    const result = parseReasonerResponse(raw);
+    assert.equal(result.actions[0].action, "wait");
+    assert.ok(result.reasoning?.includes("function()"));
+  });
+
+  it("handles escaped quotes inside JSON strings with braces", () => {
+    const raw = `{"reasoning": "he said \\"use {braces}\\"", "actions": [{"action": "wait"}]}`;
+    const result = parseReasonerResponse(raw);
+    assert.equal(result.actions[0].action, "wait");
+  });
+});
+
+describe("extractFirstValidJson (string-aware)", () => {
+  it("extracts JSON with braces in string values", () => {
+    const text = `blah {"key": "val with { and } inside"} blah`;
+    const result = extractFirstValidJson(text) as Record<string, string>;
+    assert.ok(result !== null);
+    assert.equal(result.key, "val with { and } inside");
+  });
+
+  it("handles escaped quotes within strings", () => {
+    const text = `prefix {"msg": "say \\"hello\\""} suffix`;
+    const result = extractFirstValidJson(text) as Record<string, string>;
+    assert.ok(result !== null);
+    assert.equal(result.msg, 'say "hello"');
+  });
+
+  it("returns null for no valid JSON", () => {
+    assert.equal(extractFirstValidJson("no json here"), null);
+  });
+
+  it("skips braces in strings and finds correct closing brace", () => {
+    const text = `{"a": "}{}{", "b": 1}`;
+    const result = extractFirstValidJson(text) as Record<string, unknown>;
+    assert.ok(result !== null);
+    assert.equal(result.a, "}{}{");
+    assert.equal(result.b, 1);
+  });
+
+  it("handles deeply nested objects with string braces", () => {
+    const text = `output: {"outer": {"inner": "has {braces}", "num": 42}}`;
+    const result = extractFirstValidJson(text) as Record<string, unknown>;
+    assert.ok(result !== null);
+    assert.equal((result.outer as Record<string, unknown>).num, 42);
   });
 });

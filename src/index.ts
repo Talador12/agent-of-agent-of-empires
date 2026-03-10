@@ -8,7 +8,7 @@ import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
 import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState } from "./daemon-state.js";
 import { type SessionPolicyState } from "./reasoner/prompt.js";
-import { loadGlobalContext, loadSessionContext } from "./context.js";
+import { loadGlobalContext } from "./context.js";
 import { tick as loopTick } from "./loop.js";
 import { sleep } from "./shell.js";
 import type { AoaoeConfig, Observation, ReasonerResult } from "./types.js";

@@ -52,6 +52,13 @@ export function writeState(
 
 // build session state list from an observation, merging in tracked tasks + parsed TODOs
 export function buildSessionStates(obs: Observation): DaemonSessionState[] {
+  const currentIds = new Set(obs.sessions.map((s) => s.session.id));
+
+  // prune stale entries for sessions that no longer exist
+  for (const id of sessionTasks.keys()) {
+    if (!currentIds.has(id)) sessionTasks.delete(id);
+  }
+
   return obs.sessions.map((snap) => {
     const s = snap.session;
     // extract last non-empty line from output as "last activity"

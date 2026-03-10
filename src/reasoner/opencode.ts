@@ -55,6 +55,14 @@ export class OpencodeReasoner implements Reasoner {
   async decide(observation: Observation, signal?: AbortSignal): Promise<ReasonerResult> {
     const prompt = formatObservation(observation);
 
+    // if the server died, attempt to reconnect before falling back to CLI
+    if (!this.client) {
+      const port = this.config.opencode.port;
+      if (await this.tryConnect(port)) {
+        this.log("reconnected to opencode server");
+      }
+    }
+
     // prefer SDK if connected
     if (this.client) {
       return this.decideViaSDK(prompt, signal);
@@ -66,11 +74,13 @@ export class OpencodeReasoner implements Reasoner {
 
   async shutdown(): Promise<void> {
     if (this.serverProcess) {
-      this.serverProcess.kill("SIGTERM");
-      this.serverProcess = null;
+      const proc = this.serverProcess;
+      this.serverProcess = null; // null first so exit handler doesn't log "unexpected"
+      proc.kill("SIGTERM");
+      // only clean up PID file if we started the server — if we connected
+      // to an existing server, leave its PID file alone
+      try { unlinkSync(OPENCODE_PID_FILE); } catch {}
     }
-    // clean up PID file
-    try { unlinkSync(OPENCODE_PID_FILE); } catch {}
   }
 
   private async decideViaSDK(prompt: string, signal?: AbortSignal): Promise<ReasonerResult> {
@@ -140,6 +150,23 @@ export class OpencodeReasoner implements Reasoner {
     // PID file + killOrphanedServer handles cleanup across normal restarts.
     this.serverProcess = spawn("opencode", ["serve", "--port", String(port)], {
       stdio: "ignore",
+    });
+
+    // monitor for unexpected death — if the server crashes, null out the client
+    // so the next decide() call either reconnects or falls back to CLI
+    this.serverProcess.on("error", (err) => {
+      this.log(`server process error: ${err.message}`);
+      this.client = null;
+      this.sessionId = null;
+    });
+    this.serverProcess.on("exit", (code, signal) => {
+      // only log if unexpected (shutdown() sets serverProcess to null first)
+      if (this.serverProcess) {
+        this.log(`server process exited unexpectedly (code=${code}, signal=${signal})`);
+        this.client = null;
+        this.sessionId = null;
+        this.serverProcess = null;
+      }
     });
 
     // write PID file so orphans can be found/killed later

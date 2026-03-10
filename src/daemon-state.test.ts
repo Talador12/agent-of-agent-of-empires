@@ -197,6 +197,57 @@ describe("setSessionTask", () => {
     assert.ok(states[0].currentTask!.length <= 80);
     assert.ok(states[0].currentTask!.endsWith("..."));
   });
+
+  it("prunes sessionTasks for removed sessions", async () => {
+    const { setSessionTask, buildSessionStates } = await import("./daemon-state.js");
+    // set tasks for two sessions
+    setSessionTask("session-alive", "doing work");
+    setSessionTask("session-gone", "also doing work");
+
+    // observation only includes session-alive — session-gone was removed
+    const obs: Observation = {
+      timestamp: Date.now(),
+      sessions: [{
+        session: {
+          id: "session-alive",
+          title: "alive",
+          path: "/tmp",
+          tool: "opencode",
+          status: "working",
+          tmux_name: "aoe_alive_session-",
+        },
+        output: "output\n",
+        outputHash: "h",
+        capturedAt: Date.now(),
+      }],
+      changes: [],
+    };
+    const states = buildSessionStates(obs);
+    assert.equal(states.length, 1);
+    assert.equal(states[0].currentTask, "doing work");
+
+    // now build again — session-gone should not reappear even if we add it back
+    const obs2: Observation = {
+      timestamp: Date.now(),
+      sessions: [{
+        session: {
+          id: "session-gone",
+          title: "gone",
+          path: "/tmp",
+          tool: "opencode",
+          status: "working",
+          tmux_name: "aoe_gone_session-g",
+        },
+        output: "output\n",
+        outputHash: "h",
+        capturedAt: Date.now(),
+      }],
+      changes: [],
+    };
+    const states2 = buildSessionStates(obs2);
+    // session-gone's task was pruned, so it should be undefined now
+    assert.equal(states2[0].currentTask, undefined);
+  });
 });
 
 describe("interrupt flag logic", () => {

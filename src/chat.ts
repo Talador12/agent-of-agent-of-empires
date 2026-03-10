@@ -73,7 +73,8 @@ function main() {
         lastSize = currSize;
       }
     } catch {
-      // file may be truncated or removed
+      // file may be truncated or removed — reset so we pick up from start of new file
+      lastSize = 0;
     }
   };
 
@@ -323,8 +324,8 @@ async function listAoeSessions(): Promise<AoeSessionInfo[]> {
     const result = await exec("aoe", ["list", "--json"], 10_000);
     if (result.exitCode !== 0) return [];
     const raw = JSON.parse(result.stdout) as Array<Record<string, string>>;
-    // get status for each session in parallel
-    const sessions = await Promise.all(
+    // get status for each session in parallel (allSettled so one failure doesn't lose all)
+    const results = await Promise.allSettled(
       raw.map(async (s) => {
         const id = s.id ?? "";
         const title = s.title ?? "";
@@ -339,6 +340,9 @@ async function listAoeSessions(): Promise<AoeSessionInfo[]> {
         return { id, title, tool: s.tool ?? "", status, tmuxName };
       }),
     );
+    const sessions = results
+      .filter((r): r is PromiseFulfilledResult<AoeSessionInfo> => r.status === "fulfilled")
+      .map((r) => r.value);
     return sessions.filter((s) => s.title !== "aoaoe"); // exclude ourselves
   } catch {
     return [];
