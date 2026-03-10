@@ -71,6 +71,25 @@ export function detectPermissionPrompt(output: string): boolean {
 // context is prioritized: changes > policy alerts > project context (trimmed last)
 const MAX_PROMPT_BYTES = 100_000; // ~100KB
 
+// slice a string to fit within a byte budget (UTF-8). String.slice() operates
+// on UTF-16 code units, not bytes — multi-byte chars (emoji, CJK, accents)
+// would overshoot a byte budget if we used .slice(0, byteLimit) directly.
+export function sliceToByteLimit(s: string, maxBytes: number): string {
+  if (Buffer.byteLength(s, "utf-8") <= maxBytes) return s;
+  // binary search for the character index that fits within the byte limit
+  let lo = 0;
+  let hi = s.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >>> 1;
+    if (Buffer.byteLength(s.slice(0, mid), "utf-8") <= maxBytes) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return s.slice(0, lo);
+}
+
 // format an observation into a user prompt, with optional policy annotations
 export function formatObservation(obs: Observation): string {
   const parts: string[] = [];
@@ -106,7 +125,7 @@ export function formatObservation(obs: Observation): string {
         // truncate this context to fit remaining budget
         if (contextBudget > 200) {
           parts.push(`--- ${snap.session.title} [${snap.session.id.slice(0, 8)}] project context (truncated) ---`);
-          parts.push(ctx.slice(0, contextBudget) + "\n[...truncated to fit prompt budget]");
+          parts.push(sliceToByteLimit(ctx, contextBudget) + "\n[...truncated to fit prompt budget]");
           parts.push("");
         }
         break; // no budget left for remaining sessions
@@ -208,14 +227,14 @@ export function formatObservation(obs: Observation): string {
       const availableForCtx = MAX_PROMPT_BYTES - headerBytes - tailBytes - 100;
       if (availableForCtx > 200) {
         const ctxSection = assembled.slice(ctxStart, changesMarker2);
-        assembled = header + ctxSection.slice(0, availableForCtx) + "\n[...project context truncated]\n\n" + tail;
+        assembled = header + sliceToByteLimit(ctxSection, availableForCtx) + "\n[...project context truncated]\n\n" + tail;
       } else {
         // no room for context at all — drop it entirely
         assembled = header + "[project context omitted — prompt budget exceeded]\n\n" + tail;
       }
     } else {
       // no project context section — truncate from end as fallback
-      assembled = assembled.slice(0, MAX_PROMPT_BYTES - 100) + "\n\n[...prompt truncated to fit context budget]";
+      assembled = sliceToByteLimit(assembled, MAX_PROMPT_BYTES - 100) + "\n\n[...prompt truncated to fit context budget]";
     }
   }
 

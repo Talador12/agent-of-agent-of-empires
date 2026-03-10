@@ -5,30 +5,47 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.24.0
+## Version: v0.25.0
 
 ## Current Focus
 
-Correctness fixes for real-world reliability. 451 tests across 19 files. Fixed
-repeated-line false negatives, prompt truncation direction, rate limit on failure,
-deepMerge clearing. Next: meta-level UX improvements or feature work.
+Reliability and correctness fixes. 464 tests across 19 files. Fixed byte/char
+budget mismatch, first-poll blindness, session ID regex, mkdirSync redundancy.
+Next: start daemon in full autonomous mode.
 
 ## Working Items
 
-### Meta-level UX improvements
-- **Status:** Todo
-- Auto session naming (match session titles to project directories)
-- Better onboarding for users who run `aoe` from a parent directory
+### Start daemon in full autonomous mode
+- **Status:** Next
+- Run from `/Users/kadler/Documents/repos` for project dir resolution
+- Command: `node /Users/kadler/Documents/repos/github/agent-of-agent-of-empires/dist/index.js --verbose`
 
 ### Remaining backlog
-- `waitForInput` busy-loops with 500ms sleep (could use fs.watch)
-- `formatObservation` byte/char budget mismatch (ctx.slice vs Buffer.byteLength)
 - `OpencodeReasoner.shutdown()` doesn't clean up orphaned servers from prior runs
-- `daemon-state.ts` does sync mkdirSync+writeFileSync on every phase change (could cache/debounce)
-- `ClaudeCodeReasoner.tryExtractSessionId` regex is fragile (could match git hashes)
+- `Poller.diffSnapshots` first-poll initial capture could be configurable (lines count)
+- `index.ts` dynamic imports in `testContext` that could be static
+- `types.ts` `AoeSession.status` is `string` instead of union type
+- Meta-level UX improvements (auto session naming, onboarding)
 
 ## Completed
 
+- v0.25.0: Reliability — 4 fixes, 13 new tests (464 total):
+  - HIGH: prompt.ts — fixed byte/char budget mismatch. `ctx.slice(0, budget)`
+    used character index but budget was in bytes. Multi-byte chars (emoji, CJK)
+    would overshoot the byte limit. Added `sliceToByteLimit()` using binary search
+    to find the character boundary that fits within the byte budget. Applied to all
+    3 truncation sites in formatObservation. 9 new tests.
+  - MEDIUM: poller.ts — fixed first-poll blindness. `diffSnapshots()` skipped all
+    sessions on first poll (no previous snapshot = continue). Reasoner never saw
+    initial agent state. Now reports last 20 lines of each session's output as
+    `[initial capture]` on first poll.
+  - LOW: daemon-state.ts — cached `mkdirSync` call. Previously called
+    `mkdirSync(AOAOE_DIR, { recursive: true })` on every `writeState()` and
+    `requestInterrupt()`. Now only calls once per process via `ensureDir()`.
+  - LOW: claude-code.ts — widened `tryExtractSessionId` regex. Old pattern
+    `([a-f0-9-]+)` only matched hex + hyphens. New pattern `([a-zA-Z0-9_-]{8,})`
+    accepts alphanumeric + underscores with 8-char minimum to avoid git hash
+    false positives. 4 new tests.
 - v0.24.0: Correctness — 7 fixes, 9 new tests (451 total):
   - HIGH: poller.ts — rewrote `extractNewLines` algorithm. Old approach used
     `lastIndexOf` on joined anchor string, causing false negatives when repeated
@@ -71,7 +88,7 @@ deepMerge clearing. Next: meta-level UX improvements or feature work.
 - v0.11.0: sessionDirs, daemonTick refactor. 193 tests.
 - v0.10.0: E2e loop tests, CI test glob fix.
 - v0.9.0: Auto-discovery, resolveProjectDir, test-context.
-- 451 tests across 19 files, all passing
+- 464 tests across 19 files, all passing
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases

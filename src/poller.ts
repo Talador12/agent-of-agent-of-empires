@@ -176,9 +176,22 @@ export class Poller {
     for (const snap of current) {
       const prev = this.previousSnapshots.get(snap.session.id);
 
-      // no previous snapshot = first poll, skip to avoid spamming the reasoner
-      // with all existing output on startup
-      if (!prev) continue;
+      if (!prev) {
+        // first poll for this session — show last 20 lines so the reasoner
+        // can assess initial agent state instead of seeing "no changes"
+        const lines = snap.output.split("\n");
+        const tail = lines.slice(-20).join("\n").trim();
+        if (tail) {
+          changes.push({
+            sessionId: snap.session.id,
+            title: snap.session.title,
+            tool: snap.session.tool,
+            status: snap.session.status,
+            newLines: `[initial capture, last ${Math.min(lines.length, 20)} lines]\n${tail}`,
+          });
+        }
+        continue;
+      }
 
       // same hash = no change
       if (snap.outputHash === prev.outputHash) continue;

@@ -77,9 +77,12 @@ export class ClaudeCodeReasoner implements Reasoner {
   }
 
   private tryExtractSessionId(output: string) {
-    // claude prints session info to stderr, try to capture it
-    // format varies by version, look for common patterns
-    const match = output.match(/session[_\s]?(?:id)?[:\s]+([a-f0-9-]+)/i);
+    // claude prints session info to stderr, try to capture it.
+    // format varies by version: "session_id: xxx", "Session: xxx", etc.
+    // capture group accepts hex, alphanumeric, hyphens, underscores (covers UUIDs,
+    // base62, and other ID formats). minimum 8 chars to avoid matching short
+    // hex fragments like git short-hashes.
+    const match = output.match(/session[_\s]?(?:id)?[:\s]+([a-zA-Z0-9_-]{8,})/i);
     if (match) {
       this.sessionId = match[1];
     }

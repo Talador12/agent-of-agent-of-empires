@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatObservation, detectPermissionPrompt, buildSystemPrompt } from "./prompt.js";
+import { formatObservation, detectPermissionPrompt, buildSystemPrompt, sliceToByteLimit } from "./prompt.js";
 import type { Observation, SessionSnapshot } from "../types.js";
 
 // helper to build a minimal observation
@@ -311,6 +311,57 @@ describe("formatObservation with project context", () => {
   });
 });
 
+describe("sliceToByteLimit", () => {
+  it("returns string unchanged when within byte limit", () => {
+    assert.equal(sliceToByteLimit("hello", 100), "hello");
+  });
+
+  it("truncates ASCII string to byte limit", () => {
+    const result = sliceToByteLimit("abcdefghij", 5);
+    assert.equal(result, "abcde");
+    assert.ok(Buffer.byteLength(result, "utf-8") <= 5);
+  });
+
+  it("handles multi-byte UTF-8 characters (emoji)", () => {
+    // Each emoji is 4 bytes in UTF-8
+    const emoji = "🚀🚀🚀🚀🚀"; // 20 bytes
+    const result = sliceToByteLimit(emoji, 8);
+    assert.ok(Buffer.byteLength(result, "utf-8") <= 8);
+    assert.equal(result, "🚀🚀"); // exactly 8 bytes = 2 emoji
+  });
+
+  it("handles multi-byte UTF-8 characters (CJK)", () => {
+    // Each CJK char is 3 bytes in UTF-8
+    const cjk = "你好世界测试"; // 18 bytes
+    const result = sliceToByteLimit(cjk, 9);
+    assert.ok(Buffer.byteLength(result, "utf-8") <= 9);
+    assert.equal(result, "你好世"); // exactly 9 bytes = 3 chars
+  });
+
+  it("does not split multi-byte characters", () => {
+    const emoji = "🚀abc"; // 4 + 3 = 7 bytes
+    const result = sliceToByteLimit(emoji, 5);
+    // can't fit emoji (4 bytes) + 2 chars, should keep emoji + 'a'
+    assert.ok(Buffer.byteLength(result, "utf-8") <= 5);
+    assert.equal(result, "🚀a");
+  });
+
+  it("returns empty string when limit is 0", () => {
+    assert.equal(sliceToByteLimit("hello", 0), "");
+  });
+
+  it("handles empty string", () => {
+    assert.equal(sliceToByteLimit("", 100), "");
+  });
+
+  it("handles mixed ASCII and multi-byte", () => {
+    const mixed = "abc🚀def"; // 3 + 4 + 3 = 10 bytes
+    const result = sliceToByteLimit(mixed, 7);
+    assert.ok(Buffer.byteLength(result, "utf-8") <= 7);
+    assert.equal(result, "abc🚀"); // 3 + 4 = 7 bytes exactly
+  });
+});
+
 describe("formatObservation total prompt budget (MAX_PROMPT_BYTES)", () => {
   it("truncates assembled prompt when it exceeds 100KB", () => {
     // use changes (not context) to exceed 100KB, since per-session context budget is 50KB
@@ -392,6 +443,18 @@ describe("formatObservation total prompt budget (MAX_PROMPT_BYTES)", () => {
     assert.ok(result.includes("IMPORTANT: test failure detected"), "changes were truncated");
     // project context should be trimmed
     assert.ok(result.includes("truncated") || result.includes("omitted"), "should indicate context was trimmed");
+  });
+
+  it("respects byte budget with multi-byte context (emoji/CJK)", () => {
+    // each emoji is 4 bytes but 1 .length char — old .slice() would overshoot
+    const emojiContext = "🚀".repeat(15_000); // 60,000 bytes but only 15,000 chars
+    const sessions = [
+      { ...makeSnap("abc12345678901", "agent-1"), projectContext: emojiContext },
+    ];
+    const obs = makeObs({ sessions });
+    const result = formatObservation(obs);
+    const totalBytes = Buffer.byteLength(result, "utf-8");
+    assert.ok(totalBytes <= 100_200, `expected <= ~100KB, got ${totalBytes}`);
   });
 
   it("preserves changes when only project context causes overflow", () => {

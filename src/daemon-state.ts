@@ -11,6 +11,14 @@ const AOAOE_DIR = join(homedir(), ".aoaoe");
 const STATE_FILE = join(AOAOE_DIR, "daemon-state.json");
 const INTERRUPT_FILE = join(AOAOE_DIR, "interrupt");
 
+// cache: only mkdirSync once per process (no need to stat the dir on every phase change)
+let dirEnsured = false;
+function ensureDir(): void {
+  if (dirEnsured) return;
+  mkdirSync(AOAOE_DIR, { recursive: true });
+  dirEnsured = true;
+}
+
 let currentState: DaemonState = {
   tickStartedAt: 0,
   nextTickAt: 0,
@@ -43,7 +51,7 @@ export function writeState(
     phaseStartedAt: Date.now(),
   };
   try {
-    mkdirSync(AOAOE_DIR, { recursive: true });
+    ensureDir();
     writeFileSync(STATE_FILE, JSON.stringify(currentState) + "\n");
   } catch {
     // best-effort, don't crash the daemon
@@ -93,7 +101,7 @@ export function readState(): DaemonState | null {
 // interrupt flag file -- chat.ts creates this, daemon checks + removes it
 export function requestInterrupt(): void {
   try {
-    mkdirSync(AOAOE_DIR, { recursive: true });
+    ensureDir();
     writeFileSync(INTERRUPT_FILE, String(Date.now()));
   } catch {
     // best-effort

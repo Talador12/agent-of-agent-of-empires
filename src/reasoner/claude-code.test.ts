@@ -52,7 +52,7 @@ function buildArgs(
 
 // replicated from claude-code.ts tryExtractSessionId (private method)
 function tryExtractSessionId(output: string): string | null {
-  const match = output.match(/session[_\s]?(?:id)?[:\s]+([a-f0-9-]+)/i);
+  const match = output.match(/session[_\s]?(?:id)?[:\s]+([a-zA-Z0-9_-]{8,})/i);
   return match ? match[1] : null;
 }
 
@@ -161,7 +161,7 @@ describe("tryExtractSessionId", () => {
 
   it("is case-insensitive", () => {
     assert.equal(tryExtractSessionId("SESSION_ID: aabbccdd"), "aabbccdd");
-    assert.equal(tryExtractSessionId("Session: 112233"), "112233");
+    assert.equal(tryExtractSessionId("Session: 11223344"), "11223344");
   });
 
   it("returns null when no session ID found", () => {
@@ -180,5 +180,21 @@ describe("tryExtractSessionId", () => {
   it("extracts from stderr + stdout combined output", () => {
     const output = "Loading model...\nsession_id: beef1234\n{\"action\":\"wait\"}";
     assert.equal(tryExtractSessionId(output), "beef1234");
+  });
+
+  it("extracts alphanumeric session IDs (base62)", () => {
+    assert.equal(tryExtractSessionId("session: AbCdEf12GhIj"), "AbCdEf12GhIj");
+  });
+
+  it("extracts IDs with underscores", () => {
+    assert.equal(tryExtractSessionId("session_id: sess_abc_12345678"), "sess_abc_12345678");
+  });
+
+  it("rejects short IDs (< 8 chars) to avoid git hash false matches", () => {
+    assert.equal(tryExtractSessionId("session: abc1234"), null);
+  });
+
+  it("accepts exactly 8 char IDs", () => {
+    assert.equal(tryExtractSessionId("session: abcd1234"), "abcd1234");
   });
 });
