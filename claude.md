@@ -15,11 +15,6 @@ deepMerge clearing. Next: meta-level UX improvements or feature work.
 
 ## Working Items
 
-### Fix Homebrew tap PAT
-- **Status:** Todo
-- `HOMEBREW_TAP_TOKEN` PAT needs `repo` scope for `peter-evans/repository-dispatch`
-- Once fixed, re-run release workflow to trigger tap update
-
 ### Meta-level UX improvements
 - **Status:** Todo
 - Auto session naming (match session titles to project directories)
