@@ -12,6 +12,7 @@ tmux, decides when to intervene, acts.
 ```bash
 npm run build            # tsc -> dist/
 npm test                 # build + node --test (477 tests, node:test stdlib)
+npm run integration-test # end-to-end test with real aoe sessions (~30s)
 npm start                # run daemon
 aoaoe --dry-run          # observe + reason, don't execute
 aoaoe --verbose          # verbose logging
@@ -60,6 +61,7 @@ The main loop is split into two layers:
 | `src/console.ts` | Conversation log + file-based IPC |
 | `src/input.ts` | Stdin listener with inject() for post-interrupt text |
 | `src/shell.ts` | Child process helpers |
+| `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
 ## Key Design Decisions
 
@@ -85,9 +87,12 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Testing
-- 477 tests across 19 files, `node:test` (stdlib, zero deps)
+- 477 unit tests across 19 files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
-- Run: `npm test`
+- Integration test (`npm run integration-test`): creates real AoE sessions,
+  starts daemon, verifies observation + send-keys + context discovery, cleans up.
+  Requires aoe, opencode, tmux on PATH. ~30s.
+- Run: `npm test` (unit) or `npm run integration-test` (e2e)
 
 ## Dependencies
 - `@opencode-ai/sdk` — only runtime dep (for OpenCode backend)

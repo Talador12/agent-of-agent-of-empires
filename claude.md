@@ -5,17 +5,16 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.25.3
+## Version: v0.26.0
 
 ## Current Focus
 
-Fast permission approval cooldown. 477 tests across 19 files. Permission
-approvals (Enter-only actions) now use a 1.5s cooldown instead of 30s. OpenCode
-has multi-step permission flows (mkdir → dir access → edit → run) that each need
-a separate Enter — at 30s between steps that took 2+ minutes per agent. Now
-completes in ~6s. Session rotation (v0.25.2) and permission approval (v0.25.1)
-also working. Daemon is live supervising FizzBuzz collaboration across 2 test
-sessions.
+Integration test. 477 unit tests across 19 files + 7-step integration test.
+The integration test (`npm run integration-test`) creates two real AoE sessions,
+starts the daemon in a tmux session, verifies daemon state IPC, tmux capture,
+session observation, send-keys round-trip, context discovery, and session
+removal. Runs in ~30s. All previous features (permission fast cooldown, session
+rotation, abort-reset) working.
 
 ## Working Items
 
@@ -24,9 +23,22 @@ sessions.
 - `index.ts` dynamic imports in `testContext` that could be static
 - `types.ts` `AoeSession.status` is `string` instead of union type
 - Meta-level UX improvements (auto session naming, onboarding)
+- IPC test isolation (make state dir configurable to prevent daemon race)
 
 ## Completed
 
+- v0.26.0: Integration test — 7 end-to-end tests with real AoE sessions:
+  - Prerequisites check (aoe, opencode, tmux availability)
+  - Session creation/start via `aoe add` + `aoe session start`
+  - Daemon startup in tmux, verifies daemon-state.json IPC
+  - tmux capture-pane for both test sessions
+  - Daemon observation of test sessions (dashboard + log)
+  - send-keys round-trip (ITEST_PING literal text + Enter)
+  - Context file discovery via `aoaoe test-context`
+  - Daemon log timeout check (0 timeouts)
+  - Session removal via `aoe remove`
+  - Full cleanup (daemon tmux kill, session removal, /tmp cleanup)
+  - Runs in ~30s, self-contained, no manual intervention needed
 - v0.25.3: Fast permission cooldown — 3 new tests (477 total):
   - Permission approvals (Enter-only) now use PERMISSION_COOLDOWN_MS (1.5s)
     instead of the default 30s actionCooldownMs. Multi-step permission flows
