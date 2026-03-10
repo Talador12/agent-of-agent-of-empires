@@ -5,21 +5,14 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.11.1
+## Version: v0.12.0
 
 ## Current Focus
 
-Post v0.11.1: address audit findings — greedy regex in parse.ts, unbounded
-action log, rate limiting normalization, TOCTOU race in daemon-state.
+Post v0.12.0: address remaining low-priority audit findings and UX improvements.
+200 tests.
 
 ## Working Items
-
-### Audit findings (medium priority)
-- **Status:** Todo
-- Greedy regex `\{[\s\S]*\}` in parse.ts could match wrong JSON block — use non-greedy or iterate
-- Rate limiting uses raw session ID but LLM may send title — normalize through resolver
-- Unbounded `~/.aoaoe/actions.log` — needs rotation
-- `daemon-state.ts` TOCTOU race on interrupt file — just try unlink and catch ENOENT
 
 ### Audit findings (low priority)
 - **Status:** Todo
@@ -41,6 +34,9 @@ action log, rate limiting normalization, TOCTOU race in daemon-state.
 
 ## Completed
 
+- v0.12.0: audit fixes — balanced-brace JSON extraction (replaces greedy regex),
+  action log rotation (1MB cap), TOCTOU race fix in daemon-state cleanup,
+  rate limiting normalizes session refs through resolver, 200 tests
 - v0.11.1: reliability hardening — per-action-type field validation, tmux literal
   mode (injection prevention), config validation at startup, CLI bounds checking,
   error logging in withTimeoutAndInterrupt, orphan process cleanup, Promise.allSettled
@@ -52,7 +48,7 @@ action log, rate limiting normalization, TOCTOU race in daemon-state.
 - v0.9.0: Auto-discovery of AI instruction files, `resolveProjectDir`, cross-platform inode de-dupe, `test-context` subcommand
 - v0.8.0: Title-based project directory resolution for meta-level aoe usage
 - v0.7.0: AGENTS.md + claude.md context loading, global + per-session context
-- 193 tests across 9 files, all passing
+- 200 tests across 9 files, all passing
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases

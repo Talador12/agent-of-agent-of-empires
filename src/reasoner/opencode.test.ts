@@ -188,4 +188,25 @@ describe("parseReasonerResponse", () => {
     const result = parseReasonerResponse(raw);
     assert.equal(result.actions[0].action, "wait");
   });
+
+  it("picks first valid JSON when multiple objects exist in text", () => {
+    // the old greedy regex would match from first { to last }, grabbing invalid combined text
+    const raw = `Here: {"actions": [{"action": "wait"}]} and also {"actions": [{"action": "send_input", "session": "s1", "text": "hi"}]}`;
+    const result = parseReasonerResponse(raw);
+    // should parse the first valid JSON object, not a greedy match spanning both
+    assert.equal(result.actions[0].action, "wait");
+  });
+
+  it("handles nested braces in JSON values correctly", () => {
+    const raw = `Response: {"reasoning": "obj = {x: 1}", "actions": [{"action": "wait"}]}`;
+    const result = parseReasonerResponse(raw);
+    assert.equal(result.actions[0].action, "wait");
+    assert.equal(result.reasoning, "obj = {x: 1}");
+  });
+
+  it("skips invalid JSON objects and finds the valid one", () => {
+    const raw = `{invalid json here} then {"actions": [{"action": "wait", "reason": "found it"}]}`;
+    const result = parseReasonerResponse(raw);
+    assert.equal(result.actions[0].action, "wait");
+  });
 });

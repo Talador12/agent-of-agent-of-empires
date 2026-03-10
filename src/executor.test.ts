@@ -70,6 +70,43 @@ describe("resolveTmuxName (logic)", () => {
   });
 });
 
+// replicated from executor.ts -- resolves a session reference (ID, prefix, title) to canonical ID
+function resolveSessionId(ref: string, snapshots: SessionSnapshot[]): string {
+  const exact = snapshots.find((s) => s.session.id === ref);
+  if (exact) return exact.session.id;
+  const prefix = snapshots.find((s) => s.session.id.startsWith(ref));
+  if (prefix) return prefix.session.id;
+  const byTitle = snapshots.find(
+    (s) => s.session.title.toLowerCase() === ref.toLowerCase(),
+  );
+  if (byTitle) return byTitle.session.id;
+  return ref;
+}
+
+describe("resolveSessionId (normalization)", () => {
+  const snaps = [
+    makeSnap("abcdef1234567890", "my-agent", "aoe_my-agent_abcdef12"),
+    makeSnap("99887766aabbccdd", "worker-2", "aoe_worker-2_99887766"),
+  ];
+
+  it("resolves exact ID to itself", () => {
+    assert.equal(resolveSessionId("abcdef1234567890", snaps), "abcdef1234567890");
+  });
+
+  it("resolves ID prefix to full ID", () => {
+    assert.equal(resolveSessionId("abcdef12", snaps), "abcdef1234567890");
+  });
+
+  it("resolves title to canonical ID", () => {
+    assert.equal(resolveSessionId("My-Agent", snaps), "abcdef1234567890");
+    assert.equal(resolveSessionId("WORKER-2", snaps), "99887766aabbccdd");
+  });
+
+  it("returns ref as-is when not found", () => {
+    assert.equal(resolveSessionId("nonexistent", snaps), "nonexistent");
+  });
+});
+
 describe("rate limiting (logic)", () => {
   it("tracks last action time per session", () => {
     const recentActions = new Map<string, number>();

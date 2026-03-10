@@ -1,5 +1,5 @@
 import { exec, execQuiet } from "./shell.js";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, statSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { Action, AoaoeConfig, SessionSnapshot } from "./types.js";
@@ -7,6 +7,7 @@ import { setSessionTask } from "./daemon-state.js";
 
 const LOG_DIR = join(homedir(), ".aoaoe");
 const LOG_FILE = join(LOG_DIR, "actions.log");
+const LOG_MAX_BYTES = 1_048_576; // 1 MB — rotate when exceeded
 
 export class Executor {
   private config: AoaoeConfig;
@@ -27,8 +28,11 @@ export class Executor {
 
     for (const action of actions) {
       // rate limit: don't hammer the same session
+      // normalize through resolver so title-based and ID-based references
+      // hit the same rate limit bucket
       if ("session" in action && action.session) {
-        if (this.isRateLimited(action.session)) {
+        const resolvedId = this.resolveSessionId(action.session, snapshots);
+        if (this.isRateLimited(resolvedId)) {
           const entry = this.logAction(action, false, "rate limited (too soon)");
           results.push(entry);
           continue;
@@ -99,10 +103,11 @@ export class Executor {
     const textOk = await execQuiet("tmux", ["send-keys", "-t", tmuxName, "-l", text]);
     const enterOk = textOk ? await execQuiet("tmux", ["send-keys", "-t", tmuxName, "Enter"]) : false;
     const ok = textOk && enterOk;
-    this.markAction(sessionId);
+    const resolvedId = this.resolveSessionId(sessionId, snapshots);
+    this.markAction(resolvedId);
 
     // track as current task for this session
-    if (ok) setSessionTask(sessionId, text);
+    if (ok) setSessionTask(resolvedId, text);
 
     return this.logAction(
       { action: "send_input", session: sessionId, text },
@@ -180,6 +185,23 @@ export class Executor {
     return null;
   }
 
+  // normalize a session reference (could be ID, prefix, or title) to the
+  // canonical session ID so rate limiting uses consistent keys
+  private resolveSessionId(ref: string, snapshots: SessionSnapshot[]): string {
+    const exact = snapshots.find((s) => s.session.id === ref);
+    if (exact) return exact.session.id;
+
+    const prefix = snapshots.find((s) => s.session.id.startsWith(ref));
+    if (prefix) return prefix.session.id;
+
+    const byTitle = snapshots.find(
+      (s) => s.session.title.toLowerCase() === ref.toLowerCase()
+    );
+    if (byTitle) return byTitle.session.id;
+
+    return ref; // fallback: use as-is
+  }
+
   // rate limiting: don't act on the same session more than once per 30s
   private isRateLimited(sessionId: string): boolean {
     const last = this.recentActions.get(sessionId);
@@ -206,13 +228,27 @@ export class Executor {
     }
 
     // persist to ~/.aoaoe/actions.log (JSONL, one entry per line)
+    // rotate when file exceeds LOG_MAX_BYTES (rename to .log.old, start fresh)
     if (action.action !== "wait") {
       try {
+        this.rotateLogIfNeeded();
         appendFileSync(LOG_FILE, JSON.stringify(entry) + "\n");
       } catch {} // best-effort, don't crash the daemon
     }
 
     return entry;
+  }
+
+  // rotate actions.log when it exceeds 1MB — rename to .log.old and start fresh
+  private rotateLogIfNeeded(): void {
+    try {
+      const st = statSync(LOG_FILE);
+      if (st.size > LOG_MAX_BYTES) {
+        renameSync(LOG_FILE, LOG_FILE + ".old");
+      }
+    } catch {
+      // file doesn't exist yet or stat failed — nothing to rotate
+    }
   }
 
   getRecentLog(n = 20): ActionLogEntry[] {

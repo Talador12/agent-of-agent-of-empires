@@ -87,15 +87,37 @@ export function parseReasonerResponse(raw: string): ReasonerResult {
     }
   }
 
-  // last resort: find first { ... } block
-  const braceMatch = trimmed.match(/\{[\s\S]*\}/);
-  if (braceMatch) {
-    try {
-      return validateResult(JSON.parse(braceMatch[0]));
-    } catch {
-      // give up
-    }
+  // last resort: find JSON objects by scanning for balanced braces
+  // (greedy regex could match the wrong block when multiple objects exist)
+  const jsonObj = extractFirstValidJson(trimmed);
+  if (jsonObj !== null) {
+    return validateResult(jsonObj);
   }
 
   return { actions: [{ action: "wait", reason: "failed to parse reasoner response" }] };
+}
+
+// scan for balanced { ... } substrings and try to JSON.parse each one
+// returns the first successfully parsed object, or null
+function extractFirstValidJson(text: string): unknown {
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (text[i] === "}") {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        try {
+          return JSON.parse(text.slice(start, i + 1));
+        } catch {
+          // not valid JSON at this range, keep scanning
+          start = -1;
+        }
+      }
+      if (depth < 0) depth = 0; // reset on stray closing brace
+    }
+  }
+  return null;
 }

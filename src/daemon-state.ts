@@ -103,15 +103,17 @@ export function checkInterrupt(): boolean {
 
 export function clearInterrupt(): void {
   try {
-    if (existsSync(INTERRUPT_FILE)) unlinkSync(INTERRUPT_FILE);
+    unlinkSync(INTERRUPT_FILE);
   } catch {
-    // best-effort
+    // ENOENT is expected (file already gone), other errors are best-effort
   }
 }
 
 export function cleanupState(): void {
   try {
-    if (existsSync(STATE_FILE)) unlinkSync(STATE_FILE);
-  } catch {}
+    unlinkSync(STATE_FILE);
+  } catch {
+    // ENOENT is expected
+  }
   clearInterrupt();
 }
