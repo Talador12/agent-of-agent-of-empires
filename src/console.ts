@@ -54,12 +54,14 @@ export class ReasonerConsole {
       `tail -f ${CONVO_LOG}`,
     ]);
 
+    // write the input-loop script BEFORE starting the tmux pane that uses it
+    // to avoid a race where bash tries to read the script before it exists
+    writeFileSync(join(AOAOE_DIR, "input-loop.sh"), INPUT_LOOP_SCRIPT);
+
     await exec("tmux", [
       "split-window", "-t", SESSION_NAME, "-v", "-l", "4",
       `bash ${join(AOAOE_DIR, "input-loop.sh")}`,
     ]);
-
-    writeFileSync(join(AOAOE_DIR, "input-loop.sh"), INPUT_LOOP_SCRIPT);
 
     await execQuiet("tmux", ["select-pane", "-t", `${SESSION_NAME}:.0`]);
     await execQuiet("tmux", [
@@ -107,16 +109,15 @@ export class ReasonerConsole {
   // read and clear pending user input from the input pane.
   // uses atomic rename to avoid race where input written between read and clear is lost.
   drainInput(): string[] {
-    if (!existsSync(INPUT_FILE)) return [];
-
     // atomic swap: rename to temp file, then read the temp.
     // if chat.ts appends between rename and read, those writes go to a new INPUT_FILE
     // (the old one is now at drainPath) so nothing is lost.
+    // no existsSync check — just try the rename; ENOENT is handled in the catch.
     const drainPath = INPUT_FILE + ".drain";
     try {
       renameSync(INPUT_FILE, drainPath);
     } catch {
-      // file may have been removed between existsSync and rename
+      // ENOENT or concurrent drain — both fine
       return [];
     }
 

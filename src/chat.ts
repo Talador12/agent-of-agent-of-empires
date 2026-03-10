@@ -368,8 +368,11 @@ function getCountdown(): number | null {
 // pure logic extracted for testing — accepts state + current time
 export function isDaemonRunningFromState(state: DaemonState | null, now = Date.now()): boolean {
   if (!state) return false;
-  // state file exists -- check if it's recent (within 2x poll interval or 30s max)
-  const staleMs = Math.max(state.pollIntervalMs * 2, 30_000);
+  // state file exists -- check if it's recent.
+  // reasoning phase can take up to 90s+ (LLM call), so the stale threshold
+  // must account for that, not just 2x poll interval.
+  // use 2x poll interval as a minimum, but at least 120s to cover long reasoning calls.
+  const staleMs = Math.max(state.pollIntervalMs * 2, 120_000);
   const age = now - state.phaseStartedAt;
   return age < staleMs;
 }

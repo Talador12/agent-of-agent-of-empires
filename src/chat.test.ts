@@ -95,30 +95,37 @@ describe("isDaemonRunningFromState", () => {
 
   it("returns false when state is stale (beyond stale threshold)", () => {
     const now = Date.now();
-    // pollIntervalMs=10_000 -> staleMs = max(20_000, 30_000) = 30_000
-    // 35s > 30s -> stale
-    const state = makeState({ phaseStartedAt: now - 35_000, pollIntervalMs: 10_000 });
+    // pollIntervalMs=10_000 -> staleMs = max(20_000, 120_000) = 120_000
+    // 125s > 120s -> stale
+    const state = makeState({ phaseStartedAt: now - 125_000, pollIntervalMs: 10_000 });
     assert.equal(isDaemonRunningFromState(state, now), false);
   });
 
-  it("uses 30s minimum staleness threshold", () => {
+  it("uses 120s minimum staleness threshold (covers reasoning phase)", () => {
     const now = Date.now();
-    // pollInterval is 5s -> 2x = 10s, but minimum is 30s
-    const state = makeState({ phaseStartedAt: now - 15_000, pollIntervalMs: 5_000 });
-    assert.equal(isDaemonRunningFromState(state, now), true, "15s should be within 30s minimum");
+    // pollInterval is 5s -> 2x = 10s, but minimum is 120s to cover 90s+ reasoning calls
+    const state = makeState({ phaseStartedAt: now - 90_000, pollIntervalMs: 5_000 });
+    assert.equal(isDaemonRunningFromState(state, now), true, "90s should be within 120s minimum");
   });
 
-  it("returns false when beyond 30s minimum threshold", () => {
+  it("returns false when beyond 120s minimum threshold", () => {
     const now = Date.now();
-    const state = makeState({ phaseStartedAt: now - 35_000, pollIntervalMs: 5_000 });
-    assert.equal(isDaemonRunningFromState(state, now), false, "35s exceeds 30s minimum");
+    const state = makeState({ phaseStartedAt: now - 125_000, pollIntervalMs: 5_000 });
+    assert.equal(isDaemonRunningFromState(state, now), false, "125s exceeds 120s minimum");
   });
 
   it("handles high poll intervals correctly", () => {
     const now = Date.now();
-    // pollInterval is 60s -> staleMs = 120s
-    const state = makeState({ phaseStartedAt: now - 100_000, pollIntervalMs: 60_000 });
-    assert.equal(isDaemonRunningFromState(state, now), true, "100s within 120s threshold");
+    // pollInterval is 120s -> staleMs = max(240_000, 120_000) = 240_000
+    const state = makeState({ phaseStartedAt: now - 200_000, pollIntervalMs: 120_000 });
+    assert.equal(isDaemonRunningFromState(state, now), true, "200s within 240s threshold");
+  });
+
+  it("does not false-positive stale during long reasoning calls", () => {
+    const now = Date.now();
+    // reasoning can take 90s — daemon at 85s into reasoning should still be "running"
+    const state = makeState({ phaseStartedAt: now - 85_000, pollIntervalMs: 10_000, phase: "reasoning" });
+    assert.equal(isDaemonRunningFromState(state, now), true, "85s reasoning should not be stale");
   });
 
   it("edge case: phaseStartedAt equals now", () => {

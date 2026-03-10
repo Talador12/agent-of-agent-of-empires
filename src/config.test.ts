@@ -112,6 +112,34 @@ describe("parseCliArgs", () => {
     assert.deepEqual(result.overrides, {});
   });
 
+  it("warns on unknown flags", () => {
+    // capture stderr to check for warning
+    const originalStderr = console.error;
+    const warnings: string[] = [];
+    console.error = (msg: string) => warnings.push(msg);
+    try {
+      const result = parseCliArgs(argv("--unknown-flag"));
+      assert.ok(warnings.some(w => w.includes("unknown flag") && w.includes("--unknown-flag")));
+      // should still return valid defaults (flag is ignored)
+      assert.equal(result.help, false);
+      assert.equal(result.version, false);
+    } finally {
+      console.error = originalStderr;
+    }
+  });
+
+  it("does not warn on known flags", () => {
+    const originalStderr = console.error;
+    const warnings: string[] = [];
+    console.error = (msg: string) => warnings.push(msg);
+    try {
+      parseCliArgs(argv("--verbose", "--dry-run"));
+      assert.ok(!warnings.some(w => w.includes("unknown flag")));
+    } finally {
+      console.error = originalStderr;
+    }
+  });
+
   it("subcommands are mutually exclusive", () => {
     const attachResult = parseCliArgs(argv("attach"));
     assert.equal(attachResult.attach, true);

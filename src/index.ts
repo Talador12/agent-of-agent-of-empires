@@ -86,17 +86,22 @@ async function main() {
   await reasonerConsole.start();
   log(`reasoner console ready -- run 'aoaoe attach' to enter`);
 
-  // graceful shutdown
+  // graceful shutdown — wrap in .catch so unhandled rejections from
+  // reasoner.shutdown() or reasonerConsole.stop() don't get swallowed
   let running = true;
-  const shutdown = async () => {
+  const shutdown = () => {
     if (!running) return;
     running = false;
     log("shutting down...");
     input.stop();
-    await reasonerConsole.stop();
-    await reasoner.shutdown();
-    cleanupState();
-    process.exit(0);
+    Promise.resolve()
+      .then(() => reasonerConsole.stop())
+      .then(() => reasoner.shutdown())
+      .catch((err) => console.error(`[shutdown] error during cleanup: ${err}`))
+      .finally(() => {
+        cleanupState();
+        process.exit(0);
+      });
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
@@ -379,7 +384,8 @@ function withTimeoutAndInterrupt<T>(
   });
 }
 
-// after an interrupt, wait for user input before resuming the main loop
+// after an interrupt, wait for user input before resuming the main loop.
+// re-injects command messages back into the input queue so /pause etc. aren't lost.
 async function waitForInput(
   input: InputReader,
   reasonerConsole: ReasonerConsole,
@@ -390,10 +396,18 @@ async function waitForInput(
     // check stdin input
     const stdinMsgs = input.drain();
     const consoleMsgs = reasonerConsole.drainInput();
-    const msgs = [...stdinMsgs, ...consoleMsgs].filter(
-      (m) => !m.startsWith("__CMD_")
-    );
-    if (msgs.length > 0) return msgs.join("\n");
+    const allMsgs = [...stdinMsgs, ...consoleMsgs];
+
+    const userMsgs: string[] = [];
+    for (const m of allMsgs) {
+      if (m.startsWith("__CMD_")) {
+        // re-inject command messages so they're processed in the main loop
+        input.inject(m);
+      } else {
+        userMsgs.push(m);
+      }
+    }
+    if (userMsgs.length > 0) return userMsgs.join("\n");
     await sleep(500);
   }
   return null;

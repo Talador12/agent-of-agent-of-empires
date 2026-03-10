@@ -136,11 +136,11 @@ export class OpencodeReasoner implements Reasoner {
     this.killOrphanedServer();
 
     const { spawn } = await import("node:child_process");
+    // no detached+unref: child should die with parent on crash/SIGKILL.
+    // PID file + killOrphanedServer handles cleanup across normal restarts.
     this.serverProcess = spawn("opencode", ["serve", "--port", String(port)], {
       stdio: "ignore",
-      detached: true,
     });
-    this.serverProcess.unref();
 
     // write PID file so orphans can be found/killed later
     if (this.serverProcess.pid) {

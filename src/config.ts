@@ -190,6 +190,11 @@ export function parseCliArgs(argv: string[]): {
     return argv[i + 1];
   };
 
+  const knownFlags = new Set([
+    "--reasoner", "--poll-interval", "--port", "--model", "--profile",
+    "--verbose", "-v", "--dry-run", "--help", "-h", "--version",
+  ]);
+
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     switch (arg) {
@@ -230,6 +235,13 @@ export function parseCliArgs(argv: string[]): {
         break;
       case "--version":
         version = true;
+        break;
+      default:
+        if (arg.startsWith("--") || (arg.startsWith("-") && arg.length === 2)) {
+          if (!knownFlags.has(arg)) {
+            console.error(`warning: unknown flag '${arg}' (ignored)`);
+          }
+        }
         break;
     }
   }

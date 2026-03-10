@@ -310,3 +310,59 @@ describe("formatObservation with project context", () => {
     assert.ok(changedCtxIdx < unchangedCtxIdx, "changed session context should appear first");
   });
 });
+
+describe("formatObservation total prompt budget (MAX_PROMPT_BYTES)", () => {
+  it("truncates assembled prompt when it exceeds 100KB", () => {
+    // use changes (not context) to exceed 100KB, since per-session context budget is 50KB
+    // each change with ~30KB of newLines * 4 = ~120KB of change data alone
+    const sessions = Array.from({ length: 4 }, (_, i) =>
+      makeSnap(`id${i}pad1234567890`, `agent-${i}`),
+    );
+    const changes = Array.from({ length: 4 }, (_, i) => ({
+      sessionId: `id${i}pad1234567890`,
+      title: `agent-${i}`,
+      tool: "opencode",
+      status: "working",
+      newLines: "x".repeat(30_000),
+    }));
+    const obs = makeObs({ sessions, changes });
+    const result = formatObservation(obs);
+    const totalBytes = Buffer.byteLength(result, "utf-8");
+    // should be capped near 100KB (MAX_PROMPT_BYTES)
+    assert.ok(totalBytes <= 100_200, `expected <= ~100KB, got ${totalBytes}`);
+    assert.ok(result.includes("[...prompt truncated to fit context budget]"));
+  });
+
+  it("does not truncate prompt under 100KB", () => {
+    const obs = makeObs({
+      sessions: [makeSnap("abc12345", "agent-1")],
+      changes: [{
+        sessionId: "abc12345",
+        title: "agent-1",
+        tool: "opencode",
+        status: "working",
+        newLines: "small output",
+      }],
+    });
+    const result = formatObservation(obs);
+    assert.ok(!result.includes("[...prompt truncated to fit context budget]"));
+  });
+
+  it("preserves beginning of prompt (session table) when truncating", () => {
+    const sessions = Array.from({ length: 4 }, (_, i) =>
+      makeSnap(`id${i}pad1234567890`, `agent-${i}`),
+    );
+    const changes = Array.from({ length: 4 }, (_, i) => ({
+      sessionId: `id${i}pad1234567890`,
+      title: `agent-${i}`,
+      tool: "opencode",
+      status: "working",
+      newLines: "y".repeat(30_000),
+    }));
+    const obs = makeObs({ sessions, changes });
+    const result = formatObservation(obs);
+    // session table is at the start of the prompt — should survive truncation
+    assert.ok(result.includes("Sessions:"));
+    assert.ok(result.includes("Active sessions: 4"));
+  });
+});

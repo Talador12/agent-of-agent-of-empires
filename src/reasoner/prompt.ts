@@ -185,5 +185,15 @@ export function formatObservation(obs: Observation): string {
     parts.push("IMPORTANT: The operator message above takes priority. Factor it into your decision.");
   }
 
-  return parts.join("\n");
+  let assembled = parts.join("\n");
+
+  // enforce total prompt budget to prevent blowing LLM context windows
+  const totalBytes = Buffer.byteLength(assembled, "utf-8");
+  if (totalBytes > MAX_PROMPT_BYTES) {
+    // truncate from the end (project context is at the front, changes at the back)
+    // preserve the last 1KB for user message/policy alerts
+    assembled = assembled.slice(0, MAX_PROMPT_BYTES - 100) + "\n\n[...prompt truncated to fit context budget]";
+  }
+
+  return assembled;
 }
