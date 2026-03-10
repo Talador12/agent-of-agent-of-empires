@@ -63,6 +63,40 @@ Verify:
 aoaoe --version
 ```
 
+## Try It Alongside Running Sessions
+
+Already have AoE sessions running? aoaoe is designed to run safely alongside them. Start with zero-risk commands and work your way up:
+
+### 1. See what aoaoe sees (read-only, no LLM)
+
+```bash
+aoaoe test-context
+```
+
+Lists all your AoE sessions, resolves project directories, discovers context files (AGENTS.md, claude.md, etc.), and reports sizes. **No LLM calls, no tmux writes, no side effects.** This is just a diagnostic scan.
+
+### 2. Full loop, actions only logged (costs LLM tokens)
+
+```bash
+aoaoe --dry-run
+```
+
+Runs the complete observe-reason-execute pipeline -- polls sessions, captures tmux output, calls the LLM for decisions -- but **never executes actions**. Instead of typing into your agents' tmux panes, it logs what it *would* do. Use this to verify the supervisor makes reasonable decisions before letting it act.
+
+### 3. Full autonomous mode
+
+```bash
+aoaoe
+```
+
+The real deal. Polls, reasons, and executes -- sending keystrokes to agents, restarting crashed sessions, etc. You can still interrupt at any time with ESC ESC in the chat UI.
+
+| Mode | Reads sessions? | Calls LLM? | Touches agents? |
+|------|:-:|:-:|:-:|
+| `test-context` | Yes | No | No |
+| `--dry-run` | Yes | Yes | No |
+| `aoaoe` | Yes | Yes | Yes |
+
 ## Quick Start
 
 aoaoe has two parts: a **daemon** (the brain) and a **chat UI** (your window into it). Here's how to get both running.
@@ -168,7 +202,8 @@ When the daemon is reasoning, press **ESC ESC** (or type `/interrupt`) to stop t
 aoaoe [command] [options]
 
 commands:
-  (none)         start the supervisor daemon
+  (none)         start the supervisor daemon (polls, reasons, executes)
+  test-context   scan sessions + context files (read-only, no LLM, safe)
   register       register aoaoe as an AoE session (one-time setup)
   attach         enter the reasoner console (Ctrl+B D to detach)
 
@@ -178,7 +213,8 @@ daemon options:
   --port <number>                    opencode server port (default: 4097)
   --model <model>                    model to use
   --profile <name>                   aoe profile (default: default)
-  --dry-run                          observe + reason but don't execute
+  --dry-run                          run full loop but only log actions (costs
+                                     LLM tokens, but never touches sessions)
   --verbose, -v                      verbose logging
   --help, -h                         show help
   --version                          show version

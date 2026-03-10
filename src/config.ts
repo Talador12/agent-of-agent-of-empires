@@ -179,10 +179,15 @@ export function printHelp() {
 usage: aoaoe [command] [options]
 
 commands:
-  (none)         start the daemon
+  (none)         start the supervisor daemon (polls, reasons, executes)
+  test-context   scan sessions + context files (read-only, no LLM, safe)
+  register       register aoaoe as an AoE session (one-time setup)
   attach         enter the reasoner console (Ctrl+B D to detach)
-  register       register aoaoe as an AoE session (appears in aoe list)
-  test-context   safe read-only scan of sessions + context file discovery
+
+try it alongside running sessions:
+  aoaoe test-context           # see what aoaoe sees (zero side effects)
+  aoaoe --dry-run              # full loop but actions are only logged
+  aoaoe                        # full autonomous mode
 
 options:
   --reasoner <opencode|claude-code>  reasoning backend (default: opencode)
@@ -190,7 +195,8 @@ options:
   --port <number>                    opencode server port (default: 4097)
   --model <model>                    model to use
   --profile <name>                   aoe profile (default: default)
-  --dry-run                          observe + reason but don't execute
+  --dry-run                          run full loop but only log actions (costs
+                                     LLM tokens, but never touches sessions)
   --verbose, -v                      verbose logging
   --help, -h                         show this help
   --version                          show version

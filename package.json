@@ -18,7 +18,7 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "lint": "tsc --noEmit",
-    "test": "npm run build && node --test --test-reporter spec dist/**/*.test.js",
+    "test": "npm run build && node --test --test-reporter spec dist/*.test.js dist/**/*.test.js",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run build"
   },

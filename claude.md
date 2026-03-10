@@ -9,9 +9,18 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 
 ## Current Focus
 
-Context system finalized (two-file AI Working Context), test suite stable at 158 tests. Next up: fix distribution, add e2e tests, improve meta-level UX.
+UX improvements for safely running alongside active sessions. CLI help and README
+now clearly document the test-context -> dry-run -> full mode progression.
 
 ## Working Items
+
+### CLI/README onboarding UX
+- **Status:** Done
+- Added "Try It Safely" section to README with comparison table
+- Improved --help: shows progression (test-context -> --dry-run -> full mode)
+- Added test-context to README Daemon CLI section (was missing)
+- Improved --dry-run description (clarifies: costs tokens, never touches sessions)
+- Fixed npm test glob (was missing root-level test files, only ran 43/158)
 
 ### Fix Homebrew tap PAT
 - **Status:** Todo
