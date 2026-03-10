@@ -5,12 +5,12 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.9.0
+## Version: v0.10.0
 
 ## Current Focus
 
-UX improvements for safely running alongside active sessions. CLI help and README
-now clearly document the test-context -> dry-run -> full mode progression.
+Release v0.10.0: e2e test infrastructure, CLI UX for running safely alongside
+active sessions, CI fixes.
 
 ## Working Items
 
@@ -44,6 +44,8 @@ now clearly document the test-context -> dry-run -> full mode progression.
 
 ## Completed
 
+- v0.10.0: E2e loop tests with mock infrastructure, "Try It Safely" README section,
+  CLI help improvements, CI test glob fix, two-file AI Working Context propagation
 - v0.9.0: Auto-discovery of AI instruction files, `resolveProjectDir`, cross-platform inode de-dupe, `test-context` subcommand
 - v0.8.0: Title-based project directory resolution for meta-level aoe usage
 - v0.7.0: AGENTS.md + claude.md context loading, global + per-session context
