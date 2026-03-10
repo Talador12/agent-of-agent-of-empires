@@ -1,5 +1,5 @@
 import type { AoaoeConfig, Reasoner, Observation, ReasonerResult } from "../types.js";
-import { exec } from "../shell.js";
+import { exec, sleep } from "../shell.js";
 import { buildSystemPrompt, formatObservation } from "./prompt.js";
 import { parseReasonerResponse, validateResult } from "./parse.js";
 
@@ -188,7 +188,3 @@ class OpencodeClient {
 
 // re-export from shared parse module for backward compat (tests import from here)
 export { parseReasonerResponse, validateResult } from "./parse.js";
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}

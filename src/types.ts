@@ -85,6 +85,7 @@ export interface AoaoeConfig {
     maxIdleBeforeNudgeMs: number;
     maxErrorsBeforeRestart: number;
     autoAnswerPermissions: boolean;
+    actionCooldownMs?: number; // rate limit cooldown per session (default: 30000)
   };
   contextFiles: string[]; // extra AI instruction file paths to load (relative to project root)
   sessionDirs: Record<string, string>; // explicit session title -> project directory mapping (absolute or relative to cwd)

@@ -62,3 +62,8 @@ export async function execQuiet(cmd: string, args: string[]): Promise<boolean> {
   const result = await exec(cmd, args, 5_000);
   return result.exitCode === 0;
 }
+
+// shared async sleep utility — avoids duplicate definitions across modules
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

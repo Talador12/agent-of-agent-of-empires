@@ -98,6 +98,13 @@ export class Executor {
       );
     }
 
+    // safety: cap text length to prevent overwhelming the target agent's input buffer
+    const MAX_INPUT_LENGTH = 4096;
+    if (text.length > MAX_INPUT_LENGTH) {
+      text = text.slice(0, MAX_INPUT_LENGTH);
+      this.log(`truncated send_input text to ${MAX_INPUT_LENGTH} chars for session ${sessionId}`);
+    }
+
     // tmux send-keys: -l for literal text (prevents control sequence injection from LLM),
     // then a separate send-keys for Enter (which must NOT be literal)
     const textOk = await execQuiet("tmux", ["send-keys", "-t", tmuxName, "-l", text]);
@@ -164,53 +171,56 @@ export class Executor {
     );
   }
 
-  private resolveTmuxName(
-    sessionId: string,
-    snapshots: SessionSnapshot[]
-  ): string | null {
-    // try exact match first
-    const exact = snapshots.find((s) => s.session.id === sessionId);
-    if (exact?.session.tmux_name) return exact.session.tmux_name;
+  // resolve a session reference (exact ID, prefix, or title) to the matching snapshot
+  // single source of truth for session resolution — both tmux name and ID derive from this
+  private resolveSession(ref: string, snapshots: SessionSnapshot[]): SessionSnapshot | null {
+    // try exact ID match first
+    const exact = snapshots.find((s) => s.session.id === ref);
+    if (exact) return exact;
 
     // try prefix match (reasoner might return truncated IDs)
-    const prefix = snapshots.find((s) => s.session.id.startsWith(sessionId));
-    if (prefix?.session.tmux_name) return prefix.session.tmux_name;
+    const prefix = snapshots.find((s) => s.session.id.startsWith(ref));
+    if (prefix) return prefix;
 
-    // try title match
+    // try title match (case-insensitive)
     const byTitle = snapshots.find(
-      (s) => s.session.title.toLowerCase() === sessionId.toLowerCase()
+      (s) => s.session.title.toLowerCase() === ref.toLowerCase()
     );
-    if (byTitle?.session.tmux_name) return byTitle.session.tmux_name;
+    if (byTitle) return byTitle;
 
     return null;
   }
 
-  // normalize a session reference (could be ID, prefix, or title) to the
-  // canonical session ID so rate limiting uses consistent keys
-  private resolveSessionId(ref: string, snapshots: SessionSnapshot[]): string {
-    const exact = snapshots.find((s) => s.session.id === ref);
-    if (exact) return exact.session.id;
-
-    const prefix = snapshots.find((s) => s.session.id.startsWith(ref));
-    if (prefix) return prefix.session.id;
-
-    const byTitle = snapshots.find(
-      (s) => s.session.title.toLowerCase() === ref.toLowerCase()
-    );
-    if (byTitle) return byTitle.session.id;
-
-    return ref; // fallback: use as-is
+  private resolveTmuxName(sessionId: string, snapshots: SessionSnapshot[]): string | null {
+    return this.resolveSession(sessionId, snapshots)?.session.tmux_name ?? null;
   }
 
-  // rate limiting: don't act on the same session more than once per 30s
+  private resolveSessionId(ref: string, snapshots: SessionSnapshot[]): string {
+    return this.resolveSession(ref, snapshots)?.session.id ?? ref;
+  }
+
+  private get cooldownMs(): number {
+    return this.config.policies.actionCooldownMs ?? 30_000;
+  }
+
+  // rate limiting: don't act on the same session within the cooldown window
   private isRateLimited(sessionId: string): boolean {
     const last = this.recentActions.get(sessionId);
     if (!last) return false;
-    return Date.now() - last < 30_000;
+    return Date.now() - last < this.cooldownMs;
   }
 
   private markAction(sessionId: string) {
     this.recentActions.set(sessionId, Date.now());
+    this.pruneStaleActions();
+  }
+
+  // remove entries older than 2x cooldown to prevent unbounded growth
+  private pruneStaleActions() {
+    const cutoff = Date.now() - this.cooldownMs * 2;
+    for (const [key, ts] of this.recentActions) {
+      if (ts < cutoff) this.recentActions.delete(key);
+    }
   }
 
   private logAction(action: Action, success: boolean, detail: string): ActionLogEntry {
@@ -253,6 +263,10 @@ export class Executor {
 
   getRecentLog(n = 20): ActionLogEntry[] {
     return this.actionLog.slice(-n);
+  }
+
+  private log(msg: string) {
+    console.error(`[executor] ${msg}`);
   }
 }
 

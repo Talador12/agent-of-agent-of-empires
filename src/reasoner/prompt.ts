@@ -67,6 +67,10 @@ export function detectPermissionPrompt(output: string): boolean {
   return PERMISSION_PATTERNS.some((p) => p.test(lastLines));
 }
 
+// total prompt budget — prevents blowing through LLM context windows
+// context is prioritized: changes > policy alerts > project context (trimmed last)
+const MAX_PROMPT_BYTES = 100_000; // ~100KB
+
 // format an observation into a user prompt, with optional policy annotations
 export function formatObservation(obs: Observation): string {
   const parts: string[] = [];
@@ -84,13 +88,33 @@ export function formatObservation(obs: Observation): string {
   parts.push("");
 
   // per-session project context (AGENTS.md / claude.md from each session's path)
+  // only include context for sessions with changes to stay within budget
+  const changedIds = new Set(obs.changes.map((c) => c.sessionId));
   const sessionsWithContext = obs.sessions.filter((s) => s.projectContext);
-  if (sessionsWithContext.length > 0) {
+  // prioritize: sessions with changes first, then others
+  const sortedContextSessions = [
+    ...sessionsWithContext.filter((s) => changedIds.has(s.session.id)),
+    ...sessionsWithContext.filter((s) => !changedIds.has(s.session.id)),
+  ];
+  if (sortedContextSessions.length > 0) {
     parts.push("Project context for sessions:");
-    for (const snap of sessionsWithContext) {
+    let contextBudget = 50_000; // max bytes for all project context combined
+    for (const snap of sortedContextSessions) {
+      const ctx = snap.projectContext!;
+      const ctxBytes = Buffer.byteLength(ctx, "utf-8");
+      if (ctxBytes > contextBudget) {
+        // truncate this context to fit remaining budget
+        if (contextBudget > 200) {
+          parts.push(`--- ${snap.session.title} [${snap.session.id.slice(0, 8)}] project context (truncated) ---`);
+          parts.push(ctx.slice(0, contextBudget) + "\n[...truncated to fit prompt budget]");
+          parts.push("");
+        }
+        break; // no budget left for remaining sessions
+      }
       parts.push(`--- ${snap.session.title} [${snap.session.id.slice(0, 8)}] project context ---`);
-      parts.push(snap.projectContext!);
+      parts.push(ctx);
       parts.push("");
+      contextBudget -= ctxBytes;
     }
   }
 

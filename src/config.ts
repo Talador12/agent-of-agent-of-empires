@@ -1,6 +1,10 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
 import type { AoaoeConfig, ReasonerBackend } from "./types.js";
+
+const execFileAsync = promisify(execFileCb);
 
 const DEFAULTS: AoaoeConfig = {
   reasoner: "opencode",
@@ -99,11 +103,8 @@ export async function validateEnvironment(config: AoaoeConfig): Promise<void> {
 }
 
 async function which(cmd: string): Promise<boolean> {
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
-  const exec = promisify(execFile);
   try {
-    await exec("which", [cmd]);
+    await execFileAsync("which", [cmd]);
     return true;
   } catch {
     return false;

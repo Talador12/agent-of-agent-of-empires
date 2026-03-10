@@ -5,11 +5,12 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.13.0
+## Version: v0.14.0
 
 ## Current Focus
 
-All audit findings addressed. 213 tests. Looking at UX and feature improvements next.
+Robustness + code quality round. 215 tests. Next: IPC hardening, missing test
+coverage for daemon infrastructure (console, chat, dashboard, daemon-state).
 
 ## Working Items
 
@@ -25,6 +26,11 @@ All audit findings addressed. 213 tests. Looking at UX and feature improvements 
 
 ## Completed
 
+- v0.14.0: robustness — prompt budget (50KB context cap, changed sessions prioritized),
+  send_input text length cap (4KB), DRY session resolution (single resolveSession method),
+  configurable rate limit cooldown (policies.actionCooldownMs), auto-prune stale rate
+  limit entries, shared sleep() utility (deduplicated from 2 files), hoisted config.ts
+  imports, 215 tests
 - v0.13.0: remaining audit fixes — test-context parsed in parseCliArgs (consistent
   with attach/register), hoisted dynamic imports out of testContext loop, stale
   OpenCode SDK session auto-recovery (retry with fresh session), shell.ts captures
@@ -44,7 +50,7 @@ All audit findings addressed. 213 tests. Looking at UX and feature improvements 
 - v0.9.0: Auto-discovery of AI instruction files, `resolveProjectDir`, cross-platform inode de-dupe, `test-context` subcommand
 - v0.8.0: Title-based project directory resolution for meta-level aoe usage
 - v0.7.0: AGENTS.md + claude.md context loading, global + per-session context
-- 213 tests across 9 files, all passing
+- 215 tests across 9 files, all passing
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases

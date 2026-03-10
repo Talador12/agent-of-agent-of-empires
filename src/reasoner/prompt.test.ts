@@ -273,4 +273,40 @@ describe("formatObservation with project context", () => {
     // agent-1 shouldn't appear in context section
     assert.ok(!result.includes("agent-1 [abc12345] project context"));
   });
+
+  it("truncates project context when total exceeds budget", () => {
+    // create sessions with large context — 60KB each, budget is 50KB
+    const bigContext = "x".repeat(60_000);
+    const obs = makeObs({
+      sessions: [
+        { ...makeSnap("abc12345", "agent-1"), projectContext: bigContext },
+        { ...makeSnap("def67890", "agent-2"), projectContext: "# Small context" },
+      ],
+    });
+    const result = formatObservation(obs);
+    // first session's context should be truncated
+    assert.ok(result.includes("truncated"), "should indicate truncation");
+    // second session's project context should not appear (no budget left)
+    // (note: agent-2 still appears in the session summary table, just not in context)
+    assert.ok(!result.includes("# Small context"), "second session context should be omitted");
+  });
+
+  it("prioritizes changed sessions for context budget", () => {
+    const obs = makeObs({
+      sessions: [
+        { ...makeSnap("abc12345", "unchanged-agent"), projectContext: "# Unchanged context" },
+        { ...makeSnap("def67890", "changed-agent"), projectContext: "# Changed context" },
+      ],
+      changes: [{ sessionId: "def67890", title: "changed-agent", tool: "opencode", status: "working", newLines: "new output" }],
+    });
+    const result = formatObservation(obs);
+    // changed session should appear before unchanged in context section
+    const changedIdx = result.indexOf("changed-agent");
+    const unchangedIdx = result.indexOf("unchanged-agent");
+    // both should appear, but in the context section, changed should be first
+    const contextSection = result.slice(result.indexOf("Project context"));
+    const changedCtxIdx = contextSection.indexOf("changed-agent");
+    const unchangedCtxIdx = contextSection.indexOf("unchanged-agent");
+    assert.ok(changedCtxIdx < unchangedCtxIdx, "changed session context should appear first");
+  });
 });

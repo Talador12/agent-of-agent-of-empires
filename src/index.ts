@@ -10,6 +10,7 @@ import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanup
 import { type SessionPolicyState } from "./reasoner/prompt.js";
 import { loadGlobalContext, loadSessionContext } from "./context.js";
 import { tick as loopTick } from "./loop.js";
+import { sleep } from "./shell.js";
 import type { AoaoeConfig, Observation, ReasonerResult } from "./types.js";
 import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -325,10 +326,6 @@ function summarizeStatuses(obs: Observation): string {
 function log(msg: string) {
   const ts = new Date().toLocaleTimeString();
   console.error(`[${ts}] ${msg}`);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // race the reasoner against both a timeout and the interrupt flag file
