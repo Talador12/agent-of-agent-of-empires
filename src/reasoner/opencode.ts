@@ -1,6 +1,7 @@
-import type { AoaoeConfig, Reasoner, Observation, ReasonerResult, Action } from "../types.js";
+import type { AoaoeConfig, Reasoner, Observation, ReasonerResult } from "../types.js";
 import { exec } from "../shell.js";
 import { buildSystemPrompt, formatObservation } from "./prompt.js";
+import { parseReasonerResponse, validateResult } from "./parse.js";
 
 // OpenCode backend: uses `opencode serve` + SDK for long-running sessions.
 // Falls back to `opencode run` if SDK is not available.
@@ -37,6 +38,11 @@ export class OpencodeReasoner implements Reasoner {
       await sleep(1000);
     }
 
+    // kill orphaned server process before throwing
+    if (this.serverProcess) {
+      this.serverProcess.kill("SIGTERM");
+      this.serverProcess = null;
+    }
     throw new Error("opencode server failed to start within 30s");
   }
 
@@ -160,66 +166,8 @@ class OpencodeClient {
   }
 }
 
-// exported for testing
-export function parseReasonerResponse(raw: string): ReasonerResult {
-  const trimmed = raw.trim();
-
-  // try direct JSON parse
-  try {
-    const parsed = JSON.parse(trimmed);
-    return validateResult(parsed);
-  } catch {
-    // might have markdown fences or other wrapping
-  }
-
-  // extract JSON from markdown code blocks
-  const jsonMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-  if (jsonMatch) {
-    try {
-      const parsed = JSON.parse(jsonMatch[1]);
-      return validateResult(parsed);
-    } catch {
-      // fall through
-    }
-  }
-
-  // last resort: find first { ... } block
-  const braceMatch = trimmed.match(/\{[\s\S]*\}/);
-  if (braceMatch) {
-    try {
-      const parsed = JSON.parse(braceMatch[0]);
-      return validateResult(parsed);
-    } catch {
-      // give up
-    }
-  }
-
-  console.error(`[reasoner:opencode] failed to parse response: ${trimmed.slice(0, 200)}`);
-  return { actions: [{ action: "wait", reason: "failed to parse reasoner response" }] };
-}
-
-export function validateResult(parsed: unknown): ReasonerResult {
-  if (typeof parsed !== "object" || parsed === null) {
-    return { actions: [{ action: "wait", reason: "invalid response shape" }] };
-  }
-
-  const obj = parsed as Record<string, unknown>;
-  const actions = Array.isArray(obj.actions) ? obj.actions : [];
-
-  // validate each action has at minimum an "action" field
-  const validActions: Action[] = actions
-    .filter((a: unknown) => typeof a === "object" && a !== null && "action" in (a as Record<string, unknown>))
-    .map((a: unknown) => a as Action);
-
-  if (validActions.length === 0) {
-    validActions.push({ action: "wait", reason: "no valid actions in response" });
-  }
-
-  return {
-    actions: validActions,
-    reasoning: typeof obj.reasoning === "string" ? obj.reasoning : undefined,
-  };
-}
+// re-export from shared parse module for backward compat (tests import from here)
+export { parseReasonerResponse, validateResult } from "./parse.js";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

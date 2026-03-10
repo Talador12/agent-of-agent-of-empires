@@ -1,6 +1,7 @@
-import type { AoaoeConfig, Reasoner, Observation, ReasonerResult, Action } from "../types.js";
+import type { AoaoeConfig, Reasoner, Observation, ReasonerResult } from "../types.js";
 import { exec } from "../shell.js";
 import { buildSystemPrompt, formatObservation } from "./prompt.js";
+import { parseReasonerResponse, validateResult } from "./parse.js";
 
 // Claude Code backend: uses `claude --print` subprocess for each decision.
 // Optionally stateful via `--resume`.
@@ -38,7 +39,7 @@ export class ClaudeCodeReasoner implements Reasoner {
       this.tryExtractSessionId(result.stderr + result.stdout);
     }
 
-    return this.parseResponse(result.stdout);
+    return parseReasonerResponse(result.stdout);
   }
 
   async shutdown(): Promise<void> {
@@ -82,62 +83,6 @@ export class ClaudeCodeReasoner implements Reasoner {
     if (match) {
       this.sessionId = match[1];
     }
-  }
-
-  private parseResponse(raw: string): ReasonerResult {
-    const trimmed = raw.trim();
-
-    // try direct JSON parse
-    try {
-      return this.validateResult(JSON.parse(trimmed));
-    } catch {
-      // not direct JSON
-    }
-
-    // extract from markdown code blocks
-    const jsonMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (jsonMatch) {
-      try {
-        return this.validateResult(JSON.parse(jsonMatch[1]));
-      } catch {
-        // fall through
-      }
-    }
-
-    // find first { ... } block
-    const braceMatch = trimmed.match(/\{[\s\S]*\}/);
-    if (braceMatch) {
-      try {
-        return this.validateResult(JSON.parse(braceMatch[0]));
-      } catch {
-        // give up
-      }
-    }
-
-    this.log(`failed to parse: ${trimmed.slice(0, 200)}`);
-    return { actions: [{ action: "wait", reason: "failed to parse reasoner response" }] };
-  }
-
-  private validateResult(parsed: unknown): ReasonerResult {
-    if (typeof parsed !== "object" || parsed === null) {
-      return { actions: [{ action: "wait", reason: "invalid response" }] };
-    }
-
-    const obj = parsed as Record<string, unknown>;
-    const actions = Array.isArray(obj.actions) ? obj.actions : [];
-
-    const validActions: Action[] = actions
-      .filter((a: unknown) => typeof a === "object" && a !== null && "action" in (a as Record<string, unknown>))
-      .map((a: unknown) => a as Action);
-
-    if (validActions.length === 0) {
-      validActions.push({ action: "wait", reason: "no valid actions" });
-    }
-
-    return {
-      actions: validActions,
-      reasoning: typeof obj.reasoning === "string" ? obj.reasoning : undefined,
-    };
   }
 
   private log(msg: string) {

@@ -115,6 +115,6 @@ export async function tick(opts: {
     return { observation, result, executed: [], dryRunActions: nonWaitActions };
   }
 
-  const executed = await executor.execute(result.actions, observation.sessions);
+  const executed = await executor.execute(nonWaitActions, observation.sessions);
   return { observation, result, executed };
 }

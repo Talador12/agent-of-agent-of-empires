@@ -94,8 +94,11 @@ export class Executor {
       );
     }
 
-    // tmux send-keys sends literal text then Enter
-    const ok = await execQuiet("tmux", ["send-keys", "-t", tmuxName, text, "Enter"]);
+    // tmux send-keys: -l for literal text (prevents control sequence injection from LLM),
+    // then a separate send-keys for Enter (which must NOT be literal)
+    const textOk = await execQuiet("tmux", ["send-keys", "-t", tmuxName, "-l", text]);
+    const enterOk = textOk ? await execQuiet("tmux", ["send-keys", "-t", tmuxName, "Enter"]) : false;
+    const ok = textOk && enterOk;
     this.markAction(sessionId);
 
     // track as current task for this session

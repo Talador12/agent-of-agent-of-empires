@@ -45,11 +45,38 @@ export function loadConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig {
     }
   }
 
-  return deepMerge(
+  const config = deepMerge(
     DEFAULTS as unknown as Record<string, unknown>,
     fileConfig as Record<string, unknown>,
     (overrides ?? {}) as Record<string, unknown>,
   );
+  validateConfig(config);
+  return config;
+}
+
+// validate config values to catch bad configs at startup rather than runtime
+export function validateConfig(config: AoaoeConfig): void {
+  const errors: string[] = [];
+
+  if (config.reasoner !== "opencode" && config.reasoner !== "claude-code") {
+    errors.push(`reasoner must be "opencode" or "claude-code", got "${config.reasoner}"`);
+  }
+  if (typeof config.pollIntervalMs !== "number" || config.pollIntervalMs < 1000 || !isFinite(config.pollIntervalMs)) {
+    errors.push(`pollIntervalMs must be a number >= 1000, got ${config.pollIntervalMs}`);
+  }
+  if (typeof config.captureLinesCount !== "number" || config.captureLinesCount < 1 || !isFinite(config.captureLinesCount)) {
+    errors.push(`captureLinesCount must be a positive number, got ${config.captureLinesCount}`);
+  }
+  if (typeof config.opencode?.port !== "number" || config.opencode.port < 1 || config.opencode.port > 65535) {
+    errors.push(`opencode.port must be 1-65535, got ${config.opencode?.port}`);
+  }
+  if (typeof config.policies?.maxErrorsBeforeRestart !== "number" || config.policies.maxErrorsBeforeRestart < 1) {
+    errors.push(`policies.maxErrorsBeforeRestart must be >= 1, got ${config.policies?.maxErrorsBeforeRestart}`);
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`invalid config:\n  ${errors.join("\n  ")}`);
+  }
 }
 
 // validate that required tools are on PATH
@@ -134,25 +161,41 @@ export function parseCliArgs(argv: string[]): {
     return { overrides, help: false, version: false, attach: false, register, registerTitle };
   }
 
+  // helper: consume next arg with bounds check
+  const nextArg = (i: number, flag: string): string => {
+    if (i + 1 >= argv.length) {
+      console.error(`error: ${flag} requires a value`);
+      process.exit(1);
+    }
+    return argv[i + 1];
+  };
+
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     switch (arg) {
       case "--reasoner":
-        overrides.reasoner = argv[++i] as ReasonerBackend;
+        overrides.reasoner = nextArg(i, arg) as ReasonerBackend;
+        i++;
         break;
       case "--poll-interval":
-        overrides.pollIntervalMs = parseInt(argv[++i], 10);
+        overrides.pollIntervalMs = parseInt(nextArg(i, arg), 10);
+        i++;
         break;
       case "--port":
-        overrides.opencode = { ...overrides.opencode, port: parseInt(argv[++i], 10) } as AoaoeConfig["opencode"];
+        overrides.opencode = { ...overrides.opencode, port: parseInt(nextArg(i, arg), 10) } as AoaoeConfig["opencode"];
+        i++;
         break;
-      case "--model":
+      case "--model": {
         // applies to whichever backend is selected
-        overrides.opencode = { ...overrides.opencode, model: argv[++i] } as AoaoeConfig["opencode"];
-        overrides.claudeCode = { ...overrides.claudeCode, model: argv[i] } as AoaoeConfig["claudeCode"];
+        const model = nextArg(i, arg);
+        overrides.opencode = { ...overrides.opencode, model } as AoaoeConfig["opencode"];
+        overrides.claudeCode = { ...overrides.claudeCode, model } as AoaoeConfig["claudeCode"];
+        i++;
         break;
+      }
       case "--profile":
-        overrides.aoe = { profile: argv[++i] };
+        overrides.aoe = { profile: nextArg(i, arg) };
+        i++;
         break;
       case "--verbose":
       case "-v":

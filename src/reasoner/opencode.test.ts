@@ -87,6 +87,52 @@ describe("validateResult", () => {
     });
     assert.equal(result.actions.length, 3);
   });
+
+  it("rejects send_input missing text field", () => {
+    const result = validateResult({
+      actions: [{ action: "send_input", session: "abc123" }],
+    });
+    // should fall back to wait since send_input without text is invalid
+    assert.equal(result.actions.length, 1);
+    assert.equal(result.actions[0].action, "wait");
+  });
+
+  it("rejects send_input missing session field", () => {
+    const result = validateResult({
+      actions: [{ action: "send_input", text: "hello" }],
+    });
+    assert.equal(result.actions.length, 1);
+    assert.equal(result.actions[0].action, "wait");
+  });
+
+  it("rejects create_agent missing required fields", () => {
+    const result = validateResult({
+      actions: [{ action: "create_agent", path: "/foo" }],
+    });
+    assert.equal(result.actions.length, 1);
+    assert.equal(result.actions[0].action, "wait");
+  });
+
+  it("rejects unknown action types", () => {
+    const result = validateResult({
+      actions: [{ action: "delete_everything", session: "s1" }],
+    });
+    assert.equal(result.actions.length, 1);
+    assert.equal(result.actions[0].action, "wait");
+  });
+
+  it("keeps valid actions and discards malformed ones", () => {
+    const result = validateResult({
+      actions: [
+        { action: "send_input", session: "s1", text: "hello" },
+        { action: "send_input", session: "s2" }, // missing text
+        { action: "wait", reason: "done" },
+      ],
+    });
+    assert.equal(result.actions.length, 2);
+    assert.equal(result.actions[0].action, "send_input");
+    assert.equal(result.actions[1].action, "wait");
+  });
 });
 
 describe("parseReasonerResponse", () => {

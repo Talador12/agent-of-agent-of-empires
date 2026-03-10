@@ -9,25 +9,23 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 
 ## Current Focus
 
-v0.11.0 released. Post-release improvements: resolveProjectDirWithSource for
-diagnostics, test-context shows resolution source, AGENTS.md updated, 188 tests.
+Post v0.11.0: reliability hardening — action validation, tmux injection prevention,
+config validation, error logging, shared parse module. 193 tests.
 
 ## Working Items
 
-### sessionDirs config
+### Reliability hardening
 - **Status:** Done
-- Added `sessionDirs: Record<string, string>` to AoaoeConfig
-- Wired through: resolveProjectDir() -> loadSessionContext() -> poller.ts -> index.ts test-context
-- Supports absolute and relative paths, case-insensitive title matching
-- Falls back to heuristic search when mapping not found or path doesn't exist
-- 10 new tests (8 resolveProjectDir + 2 loadSessionContext)
-- README: config table, dedicated section with examples, `test-context` usage
-
-### daemonTick refactor
-- **Status:** Done
-- index.ts now wraps loop.ts tick() via daemonTick() for UI/IPC side effects
-- Core logic in loop.ts is what tests exercise — same code path as production
-- Dashboard, status line, state file, console output, interrupt support all in daemonTick()
+- Per-action-type field validation (send_input requires session+text, etc.)
+- Extracted shared `reasoner/parse.ts` — both backends use it, no more duplication
+- tmux send-keys uses `-l` (literal) flag to prevent LLM control sequence injection
+- Config validation at startup (reasoner, pollIntervalMs, port, policies)
+- CLI arg bounds checking (--reasoner without value no longer crashes)
+- `withTimeoutAndInterrupt` logs errors instead of silently swallowing
+- OpenCode server process killed on init timeout (no more orphans)
+- Poller uses `Promise.allSettled` (one session failure doesn't lose all captures)
+- Loop passes only non-wait actions to executor
+- 5 new action validation tests
 
 ### Fix Homebrew tap PAT
 - **Status:** Todo
@@ -42,13 +40,13 @@ diagnostics, test-context shows resolution source, AGENTS.md updated, 188 tests.
 ## Completed
 
 - v0.11.0: sessionDirs config, daemonTick refactor using loop.ts,
-  resolveProjectDirWithSource diagnostics, 188 tests
+  resolveProjectDirWithSource diagnostics, reliability hardening, 193 tests
 - v0.10.0: E2e loop tests with mock infrastructure, "Try It Safely" README section,
   CLI help improvements, CI test glob fix, two-file AI Working Context propagation
 - v0.9.0: Auto-discovery of AI instruction files, `resolveProjectDir`, cross-platform inode de-dupe, `test-context` subcommand
 - v0.8.0: Title-based project directory resolution for meta-level aoe usage
 - v0.7.0: AGENTS.md + claude.md context loading, global + per-session context
-- 188 tests across 8 files, all passing
+- 193 tests across 9 files, all passing
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases

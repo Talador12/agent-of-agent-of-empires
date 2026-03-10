@@ -19,9 +19,17 @@ export class Poller {
 
   async poll(): Promise<Observation> {
     const sessions = await this.listSessions();
-    const snapshots = await Promise.all(
+    // use allSettled so one failing session doesn't lose all captures
+    const results = await Promise.allSettled(
       sessions.map((s) => this.captureSession(s))
     );
+    const snapshots = results
+      .filter((r): r is PromiseFulfilledResult<SessionSnapshot> => r.status === "fulfilled")
+      .map((r) => r.value);
+    const failedCount = results.filter((r) => r.status === "rejected").length;
+    if (failedCount > 0) {
+      this.log(`${failedCount} session capture(s) failed, proceeding with ${snapshots.length}`);
+    }
 
     const changes = this.diffSnapshots(snapshots);
     const observation: Observation = {

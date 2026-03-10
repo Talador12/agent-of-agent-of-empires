@@ -366,11 +366,12 @@ function withTimeoutAndInterrupt<T>(
       clearInterval(interruptInterval);
       clearTimeout(timer);
       resolve({ result, interrupted: false });
-    }).catch(() => {
+    }).catch((err) => {
       if (settled) return;
       settled = true;
       clearInterval(interruptInterval);
       clearTimeout(timer);
+      log(`reasoner error (using fallback): ${err}`);
       resolve({ result: fallback, interrupted: false });
     });
   });
