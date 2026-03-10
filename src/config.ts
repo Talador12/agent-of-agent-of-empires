@@ -154,6 +154,8 @@ export function parseCliArgs(argv: string[]): {
   attach: boolean;
   register: boolean;
   testContext: boolean;
+  runTest: boolean;
+  showTasks: boolean;
   registerTitle?: string;
 } {
   const overrides: Partial<AoaoeConfig> = {};
@@ -162,14 +164,22 @@ export function parseCliArgs(argv: string[]): {
   let attach = false;
   let register = false;
   let testContext = false;
+  let runTest = false;
+  let showTasks = false;
   let registerTitle: string | undefined;
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "attach") {
-    return { overrides, help: false, version: false, attach: true, register: false, testContext: false };
+    return { overrides, help: false, version: false, attach: true, register: false, testContext: false, runTest: false, showTasks: false };
   }
   if (argv[2] === "test-context") {
-    return { overrides, help: false, version: false, attach: false, register: false, testContext: true };
+    return { overrides, help: false, version: false, attach: false, register: false, testContext: true, runTest: false, showTasks: false };
+  }
+  if (argv[2] === "test") {
+    return { overrides, help: false, version: false, attach: false, register: false, testContext: false, runTest: true, showTasks: false };
+  }
+  if (argv[2] === "tasks") {
+    return { overrides, help: false, version: false, attach: false, register: false, testContext: false, runTest: false, showTasks: true };
   }
   if (argv[2] === "register") {
     register = true;
@@ -179,7 +189,7 @@ export function parseCliArgs(argv: string[]): {
         registerTitle = argv[++i];
       }
     }
-    return { overrides, help: false, version: false, attach: false, register, testContext: false, registerTitle };
+    return { overrides, help: false, version: false, attach: false, register, testContext: false, runTest: false, showTasks: false, registerTitle };
   }
 
   // helper: consume next arg with bounds check
@@ -246,7 +256,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, attach, register: false, testContext: false };
+  return { overrides, help, version, attach, register: false, testContext: false, runTest: false, showTasks: false };
 }
 
 export function printHelp() {
@@ -256,6 +266,8 @@ usage: aoaoe [command] [options]
 
 commands:
   (none)         start the supervisor daemon (polls, reasons, executes)
+  tasks          show task progress (from aoaoe.tasks.json)
+  test           run integration test (creates sessions, tests, cleans up)
   test-context   scan sessions + context files (read-only, no LLM, safe)
   register       register aoaoe as an AoE session (one-time setup)
   attach         enter the reasoner console (Ctrl+B D to detach)
@@ -264,6 +276,7 @@ try it alongside running sessions:
   aoaoe test-context           # see what aoaoe sees (zero side effects)
   aoaoe --dry-run              # full loop but actions are only logged
   aoaoe                        # full autonomous mode
+  aoaoe test                   # end-to-end integration test (~30s)
 
 options:
   --reasoner <opencode|claude-code>  reasoning backend (default: opencode)

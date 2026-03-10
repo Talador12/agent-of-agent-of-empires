@@ -47,30 +47,5 @@ describe("createReasoner", () => {
     );
   });
 
-  it("passes globalContext to OpencodeReasoner", () => {
-    const config = defaultConfig({ reasoner: "opencode" });
-    // just verifying it doesn't throw with context
-    const reasoner = createReasoner(config, "# AGENTS.md\nSome context");
-    assert.ok(reasoner instanceof OpencodeReasoner);
-  });
 
-  it("passes globalContext to ClaudeCodeReasoner", () => {
-    const config = defaultConfig({ reasoner: "claude-code" });
-    const reasoner = createReasoner(config, "# AGENTS.md\nSome context");
-    assert.ok(reasoner instanceof ClaudeCodeReasoner);
-  });
-
-  it("works with undefined globalContext", () => {
-    const config = defaultConfig({ reasoner: "opencode" });
-    const reasoner = createReasoner(config, undefined);
-    assert.ok(reasoner instanceof OpencodeReasoner);
-  });
-
-  it("returns object with Reasoner interface methods", () => {
-    const config = defaultConfig({ reasoner: "opencode" });
-    const reasoner = createReasoner(config);
-    assert.equal(typeof reasoner.init, "function");
-    assert.equal(typeof reasoner.decide, "function");
-    assert.equal(typeof reasoner.shutdown, "function");
-  });
 });

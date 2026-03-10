@@ -3,7 +3,7 @@
 // tests wire it up with mocks.
 
 import { detectPermissionPrompt, type SessionPolicyState } from "./reasoner/prompt.js";
-import type { AoaoeConfig, Observation, Reasoner, ReasonerResult, Action, SessionSnapshot } from "./types.js";
+import type { AoaoeConfig, Observation, Reasoner, ReasonerResult, Action, SessionSnapshot, TaskState } from "./types.js";
 
 // minimal interfaces so tick() doesn't depend on concrete classes
 export interface PollerLike {
@@ -40,8 +40,9 @@ export async function tick(opts: {
   policyStates: Map<string, SessionPolicyState>;
   pollCount: number;
   userMessage?: string;
+  taskContext?: TaskState[];
 }): Promise<TickResult> {
-  const { config, poller, reasoner, executor, policyStates, pollCount, userMessage } = opts;
+  const { config, poller, reasoner, executor, policyStates, pollCount, userMessage, taskContext } = opts;
 
   // 1. poll
   const observation = await poller.poll();
@@ -73,9 +74,12 @@ export async function tick(opts: {
     if (!activeIds.has(key)) policyStates.delete(key);
   }
 
-  // attach user message
+  // attach user message and task context
   if (userMessage) {
     observation.userMessage = userMessage;
+  }
+  if (taskContext && taskContext.length > 0) {
+    observation.taskContext = taskContext;
   }
 
   // no sessions and no user message -> skip

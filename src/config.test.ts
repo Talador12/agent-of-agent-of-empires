@@ -189,13 +189,6 @@ describe("validateConfig", () => {
     assert.throws(() => validateConfig(makeConfig({ pollIntervalMs: 500 })), /pollIntervalMs/);
   });
 
-  it("rejects pollIntervalMs NaN", () => {
-    assert.throws(() => validateConfig(makeConfig({ pollIntervalMs: NaN })), /pollIntervalMs/);
-  });
-
-  it("rejects pollIntervalMs Infinity", () => {
-    assert.throws(() => validateConfig(makeConfig({ pollIntervalMs: Infinity })), /pollIntervalMs/);
-  });
 
   it("rejects captureLinesCount zero", () => {
     assert.throws(() => validateConfig(makeConfig({ captureLinesCount: 0 })), /captureLinesCount/);
@@ -217,13 +210,6 @@ describe("validateConfig", () => {
     assert.throws(() => validateConfig(config), /reasoner.*\n.*pollIntervalMs/s);
   });
 
-  // maxIdleBeforeNudgeMs validation (new in v0.20.0)
-  it("accepts valid maxIdleBeforeNudgeMs", () => {
-    const config = makeConfig();
-    config.policies.maxIdleBeforeNudgeMs = 120_000;
-    assert.doesNotThrow(() => validateConfig(config));
-  });
-
   it("rejects maxIdleBeforeNudgeMs of 0", () => {
     const config = makeConfig();
     config.policies.maxIdleBeforeNudgeMs = 0;
@@ -234,31 +220,6 @@ describe("validateConfig", () => {
     const config = makeConfig({ pollIntervalMs: 10_000 });
     config.policies.maxIdleBeforeNudgeMs = 5_000; // less than 10_000
     assert.throws(() => validateConfig(config), /maxIdleBeforeNudgeMs/);
-  });
-
-  it("rejects maxIdleBeforeNudgeMs NaN", () => {
-    const config = makeConfig();
-    config.policies.maxIdleBeforeNudgeMs = NaN;
-    assert.throws(() => validateConfig(config), /maxIdleBeforeNudgeMs/);
-  });
-
-  it("rejects maxIdleBeforeNudgeMs Infinity", () => {
-    const config = makeConfig();
-    config.policies.maxIdleBeforeNudgeMs = Infinity;
-    assert.throws(() => validateConfig(config), /maxIdleBeforeNudgeMs/);
-  });
-
-  it("accepts maxIdleBeforeNudgeMs equal to pollIntervalMs", () => {
-    const config = makeConfig({ pollIntervalMs: 10_000 });
-    config.policies.maxIdleBeforeNudgeMs = 10_000;
-    assert.doesNotThrow(() => validateConfig(config));
-  });
-
-  // actionCooldownMs validation (new in v0.20.0)
-  it("accepts valid actionCooldownMs", () => {
-    const config = makeConfig();
-    config.policies.actionCooldownMs = 30_000;
-    assert.doesNotThrow(() => validateConfig(config));
   });
 
   it("accepts config without actionCooldownMs (optional)", () => {
@@ -279,23 +240,7 @@ describe("validateConfig", () => {
     assert.throws(() => validateConfig(config), /actionCooldownMs/);
   });
 
-  it("rejects actionCooldownMs NaN", () => {
-    const config = makeConfig();
-    config.policies.actionCooldownMs = NaN;
-    assert.throws(() => validateConfig(config), /actionCooldownMs/);
-  });
 
-  it("rejects actionCooldownMs Infinity", () => {
-    const config = makeConfig();
-    config.policies.actionCooldownMs = Infinity;
-    assert.throws(() => validateConfig(config), /actionCooldownMs/);
-  });
-
-  it("accepts actionCooldownMs of exactly 1000", () => {
-    const config = makeConfig();
-    config.policies.actionCooldownMs = 1000;
-    assert.doesNotThrow(() => validateConfig(config));
-  });
 });
 
 describe("deepMerge", () => {

@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { existsSync } from "node:fs";
 import type { Action, AoaoeConfig, SessionSnapshot } from "./types.js";
 import { setSessionTask } from "./daemon-state.js";
+import type { TaskManager } from "./task-manager.js";
 
 // known valid AoE tool names — used to validate create_agent tool field
 export const VALID_TOOLS = new Set([
@@ -25,11 +26,16 @@ export class Executor {
   private actionLog: ActionLogEntry[] = [];
   private recentActions: Map<string, number> = new Map(); // session -> last action timestamp
   private lastActionWasPermission: Map<string, boolean> = new Map(); // session -> was last action a permission approval
+  private taskManager?: TaskManager; // optional — set when tasks are loaded
 
   constructor(config: AoaoeConfig) {
     this.config = config;
     // ensure log dir exists
     try { mkdirSync(LOG_DIR, { recursive: true }); } catch {}
+  }
+
+  setTaskManager(tm: TaskManager): void {
+    this.taskManager = tm;
   }
 
   async execute(
@@ -86,6 +92,12 @@ export class Executor {
 
       case "remove_agent":
         return this.removeAgent(action.session, snapshots);
+
+      case "report_progress":
+        return this.reportProgress(action.session, action.summary, snapshots);
+
+      case "complete_task":
+        return this.completeTask(action.session, action.summary, snapshots);
 
       case "wait":
         return this.logAction(action, true, action.reason ?? "no action needed");
@@ -248,6 +260,50 @@ export class Executor {
       { action: "remove_agent", session: sessionId },
       result.exitCode === 0,
       result.exitCode === 0 ? "removed" : result.stderr.trim()
+    );
+  }
+
+  private async reportProgress(
+    sessionId: string,
+    summary: string,
+    snapshots: SessionSnapshot[]
+  ): Promise<ActionLogEntry> {
+    if (!this.taskManager) {
+      return this.logAction(
+        { action: "report_progress", session: sessionId, summary },
+        false,
+        "no task manager configured"
+      );
+    }
+    const snap = this.resolveSession(sessionId, snapshots);
+    const title = snap?.session.title ?? sessionId;
+    this.taskManager.reportProgress(title, summary);
+    return this.logAction(
+      { action: "report_progress", session: sessionId, summary },
+      true,
+      `progress recorded for ${title}`
+    );
+  }
+
+  private async completeTask(
+    sessionId: string,
+    summary: string,
+    snapshots: SessionSnapshot[]
+  ): Promise<ActionLogEntry> {
+    if (!this.taskManager) {
+      return this.logAction(
+        { action: "complete_task", session: sessionId, summary },
+        false,
+        "no task manager configured"
+      );
+    }
+    const snap = this.resolveSession(sessionId, snapshots);
+    const title = snap?.session.title ?? sessionId;
+    await this.taskManager.completeTask(title, summary);
+    return this.logAction(
+      { action: "complete_task", session: sessionId, summary },
+      true,
+      `task completed for ${title}: ${summary}`
     );
   }
 

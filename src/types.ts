@@ -23,6 +23,7 @@ export interface Observation {
   sessions: SessionSnapshot[];
   changes: SessionChange[]; // only sessions with new output since last poll
   userMessage?: string; // optional human operator message injected via stdin
+  taskContext?: TaskState[]; // active tasks with goals + progress (for reasoner)
   // policy enforcement context (attached by main loop, consumed by formatObservation)
   policyContext?: {
     policies: AoaoeConfig["policies"];
@@ -50,6 +51,8 @@ export type Action =
   | { action: "stop_session"; session: string }
   | { action: "create_agent"; path: string; title: string; tool: string }
   | { action: "remove_agent"; session: string }
+  | { action: "report_progress"; session: string; summary: string }
+  | { action: "complete_task"; session: string; summary: string }
   | { action: "wait"; reason?: string };
 
 export interface ReasonerResult {
@@ -118,4 +121,36 @@ export interface DaemonState {
   sessionCount: number;
   changeCount: number;
   sessions: DaemonSessionState[];
+  tasks?: TaskState[]; // persistent task progress for dashboard/chat
+}
+
+// ── Task system ─────────────────────────────────────────────────────────────
+
+// user-defined task: "work on this repo"
+export interface TaskDefinition {
+  repo: string;          // relative path from cwd (e.g. "github/adventure")
+  tool?: string;         // AoE tool name (default: "opencode")
+  goal?: string;         // what to accomplish (default: read from claude.md roadmap)
+}
+
+// a single progress entry (persists even after session cleanup)
+export interface TaskProgress {
+  at: number;            // timestamp
+  summary: string;       // what was accomplished
+}
+
+export type TaskStatus = "pending" | "active" | "completed" | "paused" | "failed";
+
+// persistent state for a task — survives session creation and teardown
+export interface TaskState {
+  repo: string;
+  sessionTitle: string;
+  tool: string;
+  goal: string;
+  status: TaskStatus;
+  sessionId?: string;     // AoE session ID (set when session is created)
+  createdAt?: number;
+  lastProgressAt?: number;
+  completedAt?: number;
+  progress: TaskProgress[];
 }

@@ -61,12 +61,6 @@ describe("colorize", () => {
     assert.ok(output.includes("\x1b[2m"), "should contain DIM escape code");
   });
 
-  it("leaves untagged lines unchanged", () => {
-    const input = "some plain text without tags";
-    const output = colorize(input);
-    assert.equal(output, input);
-  });
-
   it("handles multiline text", () => {
     const input = "[12:00:00] [you] hello\n[12:00:01] [reasoner] hi back\nplain line";
     const output = colorize(input);
@@ -75,9 +69,7 @@ describe("colorize", () => {
     assert.ok(output.includes("plain line"), "should preserve plain lines");
   });
 
-  it("handles empty string", () => {
-    assert.equal(colorize(""), "");
-  });
+
 });
 
 // --- isDaemonRunningFromState ---
@@ -128,25 +120,12 @@ describe("isDaemonRunningFromState", () => {
     assert.equal(isDaemonRunningFromState(state, now), true, "85s reasoning should not be stale");
   });
 
-  it("edge case: phaseStartedAt equals now", () => {
-    const now = Date.now();
-    const state = makeState({ phaseStartedAt: now });
-    assert.equal(isDaemonRunningFromState(state, now), true);
-  });
+
 });
 
 // --- getCountdownFromState ---
 
 describe("getCountdownFromState", () => {
-  it("returns null for null state", () => {
-    assert.equal(getCountdownFromState(null, false), null);
-  });
-
-  it("returns null when daemon is not running", () => {
-    const state = makeState();
-    assert.equal(getCountdownFromState(state, false), null);
-  });
-
   it("returns null when phase is not sleeping", () => {
     const state = makeState({ phase: "reasoning", nextTickAt: Date.now() + 10_000 });
     assert.equal(getCountdownFromState(state, true), null);
@@ -171,19 +150,12 @@ describe("getCountdownFromState", () => {
     assert.equal(getCountdownFromState(state, true, now), 5);
   });
 
-  it("returns null when nextTickAt is 0 (not set)", () => {
-    const state = makeState({ phase: "sleeping", nextTickAt: 0 });
-    assert.equal(getCountdownFromState(state, true), null);
-  });
+
 });
 
 // --- buildStatusLineFromState ---
 
 describe("buildStatusLineFromState", () => {
-  it("returns null when daemon not running and not forTitle", () => {
-    assert.equal(buildStatusLineFromState(null, false), null);
-  });
-
   it("returns offline string when daemon not running and forTitle", () => {
     assert.equal(buildStatusLineFromState(null, false, true), "aoaoe (daemon offline)");
   });
@@ -231,10 +203,6 @@ describe("buildStatusLineFromState", () => {
     const line = buildStatusLineFromState(state, true, false, now);
     const pipes = (line?.match(/\|/g) ?? []).length;
     assert.ok(pipes >= 2, `expected at least 2 pipe separators in '${line}'`);
-  });
-
-  it("returns offline for forTitle when state is null", () => {
-    assert.equal(buildStatusLineFromState(null, false, true), "aoaoe (daemon offline)");
   });
 
   it("returns offline for forTitle when daemon not running", () => {

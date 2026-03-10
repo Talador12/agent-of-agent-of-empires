@@ -11,11 +11,12 @@ tmux, decides when to intervene, acts.
 
 ```bash
 npm run build            # tsc -> dist/
-npm test                 # build + node --test (477 tests, node:test stdlib)
+npm test                 # build + node --test (369 tests, node:test stdlib)
 npm run integration-test # end-to-end test with real aoe sessions (~30s)
 npm start                # run daemon
 aoaoe --dry-run          # observe + reason, don't execute
 aoaoe --verbose          # verbose logging
+aoaoe tasks              # show task progress from persistent state
 aoaoe test-context       # safe read-only scan of sessions + context discovery
 aoaoe-chat               # interactive chat UI
 ```
@@ -43,13 +44,14 @@ The main loop is split into two layers:
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Main daemon loop, `daemonTick()` wrapper, subcommands (attach, register, test-context) |
+| `src/index.ts` | Main daemon loop, `daemonTick()` wrapper, subcommands (attach, register, tasks, test-context) |
 | `src/loop.ts` | Extracted tick logic (poll -> reason -> execute), testable with mocks |
 | `src/config.ts` | Config loader, CLI arg parser, env validation |
 | `src/types.ts` | All interfaces — SessionSnapshot, Observation, Action, Reasoner, AoaoeConfig |
 | `src/poller.ts` | `aoe list --json` + `tmux capture-pane`, SHA-256 diff detection |
 | `src/context.ts` | `discoverContextFiles`, `resolveProjectDir`, `loadSessionContext`, caching |
-| `src/executor.ts` | Action dispatch — send_input, start/stop/restart, create/remove agent |
+| `src/task-manager.ts` | Task orchestration: load definitions, persistent state, session reconciliation |
+| `src/executor.ts` | Action dispatch — send_input, start/stop/restart, create/remove, report_progress, complete_task |
 | `src/reasoner/index.ts` | `createReasoner()` factory |
 | `src/reasoner/prompt.ts` | `buildSystemPrompt()`, `formatObservation()`, `detectPermissionPrompt()` |
 | `src/reasoner/opencode.ts` | OpenCode SDK backend (HTTP to `opencode serve`) |
@@ -87,7 +89,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Testing
-- 477 unit tests across 19 files, `node:test` (stdlib, zero deps)
+- 369 unit tests across 18 files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

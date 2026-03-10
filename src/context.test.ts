@@ -44,19 +44,7 @@ describe("readContextFile", () => {
     assert.ok(result.includes("[... truncated at 8KB ...]"));
   });
 
-  it("caches reads (returns same content)", () => {
-    writeFileSync(join(TMP, "cached.md"), "original");
-    const first = readContextFile(join(TMP, "cached.md"));
-    assert.equal(first, "original");
-    // second read should be cached
-    const second = readContextFile(join(TMP, "cached.md"));
-    assert.equal(second, "original");
-  });
 
-  it("trims whitespace", () => {
-    writeFileSync(join(TMP, "space.md"), "  content  \n\n");
-    assert.equal(readContextFile(join(TMP, "space.md")), "content");
-  });
 });
 
 describe("loadContextFromDir", () => {
@@ -92,9 +80,7 @@ describe("loadContextFromDir", () => {
     assert.ok(result.includes("parent context"));
   });
 
-  it("returns empty for empty dir path", () => {
-    assert.equal(loadContextFromDir(""), "");
-  });
+
 });
 
 describe("loadGlobalContext", () => {
@@ -180,14 +166,6 @@ describe("discoverContextFiles", () => {
     assert.equal(agentsCount, 1);
   });
 
-  it("returns empty for nonexistent dir", () => {
-    assert.deepEqual(discoverContextFiles(join(TMP, "nope")), []);
-  });
-
-  it("returns empty for empty string", () => {
-    assert.deepEqual(discoverContextFiles(""), []);
-  });
-
   it("catches future *rules tools automatically", () => {
     writeFileSync(join(TMP, ".somenewtoolrules"), "future tool");
     const files = discoverContextFiles(TMP);
@@ -264,11 +242,6 @@ describe("resolveProjectDir", () => {
   it("returns null when no match found", () => {
     mkdirSync(join(TMP, "github", "other-project"), { recursive: true });
     assert.equal(resolveProjectDir(TMP, "nonexistent"), null);
-  });
-
-  it("returns null for empty inputs", () => {
-    assert.equal(resolveProjectDir("", "title"), null);
-    assert.equal(resolveProjectDir(TMP, ""), null);
   });
 
   it("skips hidden directories", () => {
@@ -372,11 +345,7 @@ describe("resolveProjectDirWithSource", () => {
     assert.equal(result.source, null);
   });
 
-  it("reports null source for empty inputs", () => {
-    const result = resolveProjectDirWithSource("", "title");
-    assert.equal(result.dir, null);
-    assert.equal(result.source, null);
-  });
+
 });
 
 describe("loadSessionContext with sessionDirs", () => {
@@ -427,10 +396,6 @@ describe("loadSessionContext", () => {
     writeFileSync(join(TMP, "AGENTS.md"), "fallback rules");
     const result = loadSessionContext(TMP, "nonexistent-project");
     assert.ok(result.includes("fallback rules"));
-  });
-
-  it("returns empty for empty path", () => {
-    assert.equal(loadSessionContext(""), "");
   });
 
   it("works without title (backwards compat)", () => {

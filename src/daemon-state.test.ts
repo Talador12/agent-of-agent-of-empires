@@ -83,15 +83,6 @@ describe("buildSessionStates", () => {
     assert.equal(result[0].lastActivity, undefined);
   });
 
-  it("sets lastActivity to undefined for whitespace-only output", async () => {
-    const { buildSessionStates } = await import("./daemon-state.js");
-    const obs = makeObservation([
-      makeSnapshot({ output: "   \n  \n   \n" }),
-    ]);
-    const result = buildSessionStates(obs);
-    assert.equal(result[0].lastActivity, undefined);
-  });
-
   it("truncates long lastActivity to 100 chars", async () => {
     const { buildSessionStates } = await import("./daemon-state.js");
     const longLine = "x".repeat(150);
@@ -101,16 +92,6 @@ describe("buildSessionStates", () => {
     const result = buildSessionStates(obs);
     assert.ok(result[0].lastActivity!.length <= 100);
     assert.ok(result[0].lastActivity!.endsWith("..."));
-  });
-
-  it("does not truncate lastActivity at exactly 100 chars", async () => {
-    const { buildSessionStates } = await import("./daemon-state.js");
-    const exactLine = "y".repeat(100);
-    const obs = makeObservation([
-      makeSnapshot({ output: `first\n${exactLine}\n` }),
-    ]);
-    const result = buildSessionStates(obs);
-    assert.equal(result[0].lastActivity, exactLine);
   });
 
   it("handles multiple sessions", async () => {

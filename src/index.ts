@@ -11,7 +11,8 @@ import { type SessionPolicyState } from "./reasoner/prompt.js";
 import { loadGlobalContext } from "./context.js";
 import { tick as loopTick } from "./loop.js";
 import { sleep } from "./shell.js";
-import type { AoaoeConfig, Observation, ReasonerResult } from "./types.js";
+import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
+import type { AoaoeConfig, Observation, ReasonerResult, TaskState } from "./types.js";
 import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,7 +21,7 @@ import { homedir } from "node:os";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 async function main() {
-  const { overrides, help, version, attach, register, testContext: isTestContext, registerTitle } = parseCliArgs(process.argv);
+  const { overrides, help, version, attach, register, testContext: isTestContext, runTest, showTasks, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -55,11 +56,27 @@ async function main() {
     return;
   }
 
+  // `aoaoe test` -- run the integration test (create sessions, test, clean up)
+  if (runTest) {
+    await runIntegrationTest();
+    return;
+  }
+
+  // `aoaoe tasks` -- show current task state
+  if (showTasks) {
+    await showTaskStatus();
+    return;
+  }
+
   const config = loadConfig(overrides);
-  log("starting aoaoe supervisor");
-  log(`reasoner: ${config.reasoner}`);
-  log(`poll interval: ${config.pollIntervalMs}ms`);
-  if (config.dryRun) log("DRY RUN -- will observe and reason but not execute");
+
+  // startup banner
+  const pkg = readPkgVersion();
+  console.error("");
+  console.error("  aoaoe" + (pkg ? ` v${pkg}` : "") + "  —  autonomous supervisor");
+  console.error(`  reasoner: ${config.reasoner}  |  poll: ${config.pollIntervalMs / 1000}s`);
+  if (config.dryRun) console.error("  ** DRY RUN — will observe and reason but not execute **");
+  console.error("");
 
   // validate tools are installed
   await validateEnvironment(config);
@@ -70,9 +87,31 @@ async function main() {
     log("loaded global context (AGENTS.md / claude.md)");
   }
 
+  // load tasks from aoaoe.tasks.json or config
+  const basePath = process.cwd();
+  const taskDefs = loadTaskDefinitions(basePath);
+  let taskManager: TaskManager | undefined;
+
+  if (taskDefs.length > 0) {
+    taskManager = new TaskManager(basePath, taskDefs);
+    console.error(`  tasks: ${taskDefs.length} defined`);
+    for (const t of taskManager.tasks) {
+      const icon = t.status === "active" ? "~" : t.status === "completed" ? "+" : ".";
+      console.error(`    [${icon}] ${t.repo} — ${t.goal}`);
+    }
+    console.error("");
+
+    // reconcile: create missing AoE sessions, start them
+    log("reconciling task sessions...");
+    const { created, linked } = await taskManager.reconcileSessions();
+    if (created.length > 0) log(`created sessions: ${created.join(", ")}`);
+    if (linked.length > 0) log(`linked existing sessions: ${linked.join(", ")}`);
+  }
+
   const poller = new Poller(config);
   const reasoner = createReasoner(config, globalContext || undefined);
   const executor = new Executor(config);
+  if (taskManager) executor.setTaskManager(taskManager);
   const input = new InputReader();
   const reasonerConsole = new ReasonerConsole();
 
@@ -164,7 +203,8 @@ async function main() {
     }
 
     try {
-      const interrupted = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard);
+      const activeTaskContext = taskManager ? taskManager.tasks.filter((t) => t.status !== "completed") : undefined;
+      const interrupted = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager);
       forceDashboard = false;
 
       // if the reasoner was interrupted, wait for user input before continuing
@@ -205,7 +245,9 @@ async function daemonTick(
   pollCount: number,
   policyStates: Map<string, SessionPolicyState>,
   userMessage?: string,
-  forceDashboard?: boolean
+  forceDashboard?: boolean,
+  taskContext?: TaskState[],
+  taskManager?: TaskManager
 ): Promise<boolean> {
   // pre-tick: write IPC state
   writeState("polling", { pollCount, pollIntervalMs: config.pollIntervalMs, tickStartedAt: Date.now() });
@@ -241,7 +283,7 @@ async function daemonTick(
   let tickResult: import("./loop.js").TickResult;
   try {
     tickResult = await loopTick({
-      config, poller, reasoner: wrappedReasoner, executor, policyStates, pollCount, userMessage,
+      config, poller, reasoner: wrappedReasoner, executor, policyStates, pollCount, userMessage, taskContext,
     });
   } catch (err) {
     if (err instanceof InterruptError) return true;
@@ -252,9 +294,10 @@ async function daemonTick(
   const sessionCount = observation.sessions.length;
   const changeCount = observation.changes.length;
 
-  // update IPC state with session info
+  // update IPC state with session info + task progress
   const sessionStates = buildSessionStates(observation);
-  writeState("polling", { pollCount, sessionCount, changeCount, sessions: sessionStates });
+  const taskStates = taskManager ? taskManager.tasks : undefined;
+  writeState("polling", { pollCount, sessionCount, changeCount, sessions: sessionStates, tasks: taskStates });
 
   // skip cases
   if (skippedReason === "no sessions") {
@@ -619,6 +662,48 @@ async function attachToConsole(): Promise<void> {
   } catch {
     // normal exit when user detaches
   }
+}
+
+function readPkgVersion(): string | null {
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, "..", "package.json"), "utf-8"));
+    return pkg.version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// `aoaoe tasks` -- show current task progress
+async function showTaskStatus(): Promise<void> {
+  const basePath = process.cwd();
+  const defs = loadTaskDefinitions(basePath);
+  const states = loadTaskState();
+
+  if (defs.length === 0 && states.size === 0) {
+    console.log("no tasks defined.");
+    console.log("");
+    console.log("create aoaoe.tasks.json:");
+    console.log('  [{ "repo": "github/adventure", "goal": "Continue the roadmap" }]');
+    return;
+  }
+
+  // merge definitions into state for display
+  const tm = new TaskManager(basePath, defs);
+  console.log("");
+  console.log(formatTaskTable(tm.tasks));
+  console.log("");
+}
+
+// `aoaoe test` -- dynamically import and run the integration test
+async function runIntegrationTest(): Promise<void> {
+  const testModule = resolve(__dirname, "integration-test.js");
+  const { existsSync: exists } = await import("node:fs");
+  if (!exists(testModule)) {
+    console.error("error: integration-test.js not found (run 'npm run build' first)");
+    process.exit(1);
+  }
+  // the integration test is a self-contained script that runs main() on import
+  await import(testModule);
 }
 
 main().catch((err) => {

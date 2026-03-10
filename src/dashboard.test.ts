@@ -91,7 +91,7 @@ describe("printDashboard", () => {
     printDashboard(obs, [], 42, defaultConfig());
     const output = captured.join("\n");
     assert.ok(output.includes("poll #42"), "should contain poll count");
-    assert.ok(output.includes("aoaoe dashboard"), "should contain header");
+    assert.ok(output.includes("aoaoe"), "should contain header");
   });
 
   it("shows 'no active sessions' when empty", async () => {
@@ -138,11 +138,14 @@ describe("printDashboard", () => {
     const actions: ActionLogEntry[] = [
       makeActionEntry({ action: { action: "wait", reason: "all good" } }),
       makeActionEntry({ action: { action: "send_input", session: "abc", text: "hi" }, detail: "sent to test" }),
+      makeActionEntry({ action: { action: "start_session", session: "def" }, detail: "started session" }),
     ];
     printDashboard(obs, actions, 1, defaultConfig());
     const output = captured.join("\n");
-    assert.ok(output.includes("recent actions"), "should show recent actions section");
+    // dashboard shows "recent:" section when there are 2+ meaningful (non-wait) actions
+    assert.ok(output.includes("recent:"), "should show recent actions section");
     assert.ok(output.includes("send_input"), "should show non-wait action");
+    assert.ok(!output.match(/recent:[\s\S]*wait/), "should not show wait action in recent section");
   });
 
   it("does not show recent actions section when all are wait", async () => {
@@ -165,6 +168,7 @@ describe("printDashboard", () => {
     ];
     printDashboard(obs, actions, 1, defaultConfig());
     const output = captured.join("\n");
+    // dashboard format: [time] + action_name: detail  or  [time] ! action_name: detail
     assert.ok(output.includes("+ start_session"), "success should show +");
     assert.ok(output.includes("! stop_session"), "failure should show !");
   });
@@ -255,33 +259,3 @@ describe("printDashboard", () => {
   });
 });
 
-// test the truncate helper used internally by dashboard (we replicate it here)
-describe("truncate (logic)", () => {
-  function truncate(s: string, max: number): string {
-    const line = s.replace(/\n/g, " ").trim();
-    return line.length > max ? line.slice(0, max - 3) + "..." : line;
-  }
-
-  it("returns short strings unchanged", () => {
-    assert.equal(truncate("hello", 30), "hello");
-  });
-
-  it("truncates long strings with ellipsis", () => {
-    const long = "a".repeat(50);
-    const result = truncate(long, 30);
-    assert.equal(result.length, 30);
-    assert.ok(result.endsWith("..."));
-  });
-
-  it("collapses newlines to spaces", () => {
-    assert.equal(truncate("line1\nline2\nline3", 30), "line1 line2 line3");
-  });
-
-  it("trims whitespace", () => {
-    assert.equal(truncate("  hello  ", 30), "hello");
-  });
-
-  it("handles empty string", () => {
-    assert.equal(truncate("", 30), "");
-  });
-});

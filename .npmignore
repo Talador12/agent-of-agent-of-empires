@@ -14,3 +14,7 @@ dist/**/*.test.js
 dist/**/*.test.d.ts
 dist/**/*.test.js.map
 dist/**/*.test.d.ts.map
+dist/integration-test.js
+dist/integration-test.d.ts
+dist/integration-test.js.map
+dist/integration-test.d.ts.map

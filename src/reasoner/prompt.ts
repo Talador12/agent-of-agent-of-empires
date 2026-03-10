@@ -1,4 +1,4 @@
-import type { Observation, AoaoeConfig } from "../types.js";
+import type { Observation, AoaoeConfig, TaskState } from "../types.js";
 
 // base system prompt -- global context appended at runtime via buildSystemPrompt()
 const BASE_SYSTEM_PROMPT = `You are a supervisor managing multiple AI coding agents in an agent-of-empires (AoE) tmux session.
@@ -25,6 +25,8 @@ Respond with ONLY a JSON object matching this schema:
     { "action": "stop_session", "session": "<id>" },
     { "action": "create_agent", "path": "<dir>", "title": "<name>", "tool": "<claude|opencode|gemini|codex|vibe>" },
     { "action": "remove_agent", "session": "<id>" },
+    { "action": "report_progress", "session": "<id>", "summary": "brief description of what was accomplished" },
+    { "action": "complete_task", "session": "<id>", "summary": "final summary of completed work" },
     { "action": "wait", "reason": "why no action is needed" }
   ]
 }
@@ -34,7 +36,11 @@ Rules:
 - If no action is needed, return { "reasoning": "...", "actions": [{ "action": "wait", "reason": "..." }] }
 - When sending input, be concise and direct. You are typing into a terminal prompt.
 - Prefer "wait" over unnecessary intervention. Agents work best when left alone.
-- Never send empty or trivial messages to agents.`;
+- Never send empty or trivial messages to agents.
+- Use "report_progress" to log meaningful milestones (commits, tests passing, features completed).
+  Do NOT report trivial progress like "agent is working" -- only concrete accomplishments.
+- Use "complete_task" when a task's goal has been fully achieved and the agent has nothing left to do.
+  This will clean up the session. Only use when truly done, not just idle.`;
 
 // for backwards compat -- consumers that import SYSTEM_PROMPT get the base version
 export const SYSTEM_PROMPT = BASE_SYSTEM_PROMPT;
@@ -90,6 +96,32 @@ export function sliceToByteLimit(s: string, maxBytes: number): string {
   return s.slice(0, lo);
 }
 
+// format task context for the reasoner — tells it what each session is working on
+export function formatTaskContext(tasks: TaskState[]): string {
+  if (tasks.length === 0) return "";
+  const parts: string[] = [];
+  parts.push("Active tasks (each session is working toward a specific goal):");
+  for (const t of tasks) {
+    const statusTag = t.status === "completed" ? "COMPLETED" : t.status.toUpperCase();
+    parts.push(`  [${statusTag}] "${t.sessionTitle}" (${t.repo})`);
+    parts.push(`    Goal: ${t.goal}`);
+    if (t.progress.length > 0) {
+      const recent = t.progress.slice(-3);
+      parts.push(`    Recent progress:`);
+      for (const p of recent) {
+        const ago = Math.round((Date.now() - p.at) / 60_000);
+        const agoStr = ago < 1 ? "just now" : ago < 60 ? `${ago}m ago` : `${Math.round(ago / 60)}h ago`;
+        parts.push(`      - ${p.summary} (${agoStr})`);
+      }
+    }
+  }
+  parts.push("");
+  parts.push("Use report_progress when agents achieve concrete milestones.");
+  parts.push("Use complete_task when a task's goal is fully achieved.");
+  parts.push("");
+  return parts.join("\n");
+}
+
 // format an observation into a user prompt, with optional policy annotations
 export function formatObservation(obs: Observation): string {
   const parts: string[] = [];
@@ -105,6 +137,11 @@ export function formatObservation(obs: Observation): string {
     parts.push(`  [${s.id.slice(0, 8)}] "${s.title}" tool=${s.tool} status=${s.status} path=${s.path}`);
   }
   parts.push("");
+
+  // task context (goals, progress) — injected if tasks are defined
+  if (obs.taskContext && obs.taskContext.length > 0) {
+    parts.push(formatTaskContext(obs.taskContext));
+  }
 
   // per-session project context (AGENTS.md / claude.md from each session's path)
   // only include context for sessions with changes to stay within budget

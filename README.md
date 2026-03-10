@@ -163,6 +163,36 @@ aoaoe --reasoner opencode --model anthropic/claude-sonnet-4-20250514
 aoaoe --reasoner claude-code --model claude-sonnet-4-20250514
 ```
 
+## Task System
+
+aoaoe can automatically create and manage AoE sessions from a task list. Define repos you want to work on in `aoaoe.tasks.json` (next to your config file):
+
+```json
+[
+  { "repo": "github/adventure", "tool": "opencode", "goal": "Continue the roadmap in claude.md" },
+  { "repo": "github/cloud-hypervisor", "goal": "Address PR review feedback" },
+  { "repo": "cc/cloudchamber" }
+]
+```
+
+| Field | Required | Description |
+|-------|:--------:|-------------|
+| `repo` | Yes | Path to the project directory (relative to cwd or absolute) |
+| `tool` | No | Agent tool to use (`opencode`, `claude-code`, etc.). Default: `opencode` |
+| `goal` | No | Goal text injected into the supervisor's context for this task |
+
+When the daemon starts, it reconciles sessions automatically: creates new AoE sessions for tasks that don't have one, links existing sessions to matching tasks. Progress is tracked persistently in `~/.aoaoe/task-state.json` and survives session cleanup.
+
+The supervisor can report progress milestones and mark tasks complete via two special actions:
+- `report_progress` — logs a milestone summary to persistent state
+- `complete_task` — marks the task done and cleans up the session
+
+View task status:
+
+```bash
+aoaoe tasks    # show task progress table
+```
+
 ## Chat UI Commands
 
 Once inside the chat UI (via `aoe` -> select "aoaoe"):
@@ -203,7 +233,9 @@ aoaoe [command] [options]
 
 commands:
   (none)         start the supervisor daemon (polls, reasons, executes)
+  tasks          show task progress from persistent state
   test-context   scan sessions + context files (read-only, no LLM, safe)
+  test           run integration tests (requires aoe, opencode, tmux)
   register       register aoaoe as an AoE session (one-time setup)
   attach         enter the reasoner console (Ctrl+B D to detach)
 
@@ -360,6 +392,8 @@ The reasoner returns structured JSON decisions:
 { "action": "stop_session", "session": "<id>" }
 { "action": "create_agent", "path": "<dir>", "title": "<name>", "tool": "<agent>" }
 { "action": "remove_agent", "session": "<id>" }
+{ "action": "report_progress", "repo": "<path>", "summary": "<milestone>" }
+{ "action": "complete_task", "repo": "<path>", "summary": "<final status>" }
 { "action": "wait" }
 ```
 

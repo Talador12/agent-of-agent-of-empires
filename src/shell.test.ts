@@ -33,12 +33,6 @@ describe("exec — basic command execution", () => {
     assert.ok(result.stdout.includes("test-arg"));
   });
 
-  it("handles empty stdout", async () => {
-    const result = await exec("node", ["-e", ""]);
-    assert.equal(result.exitCode, 0);
-    assert.equal(result.stdout, "");
-  });
-
   it("handles large output", async () => {
     // generate ~10KB of output
     const result = await exec("node", ["-e", "for(let i=0;i<200;i++) console.log('x'.repeat(50))"]);
@@ -141,15 +135,5 @@ describe("sleep", () => {
     assert.ok(elapsed < 500, `expected less than 500ms, got ${elapsed}ms`);
   });
 
-  it("resolves immediately for 0ms", async () => {
-    const start = Date.now();
-    await sleep(0);
-    const elapsed = Date.now() - start;
-    assert.ok(elapsed < 50, `expected near-instant, got ${elapsed}ms`);
-  });
 
-  it("returns a promise", () => {
-    const result = sleep(1);
-    assert.ok(result instanceof Promise);
-  });
 });

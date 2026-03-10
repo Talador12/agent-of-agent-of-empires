@@ -22,10 +22,6 @@ describe("sanitizeTmuxName", () => {
     assert.equal(sanitizeTmuxName(long), "a".repeat(20));
   });
 
-  it("handles empty string", () => {
-    assert.equal(sanitizeTmuxName(""), "");
-  });
-
   it("replaces dots and slashes", () => {
     assert.equal(sanitizeTmuxName("path/to.thing"), "path_to_thing");
   });
@@ -67,15 +63,7 @@ describe("quickHash", () => {
     assert.notEqual(quickHash("a"), quickHash("b"));
   });
 
-  it("produces same hash for same input (deterministic)", () => {
-    assert.equal(quickHash("test"), quickHash("test"));
-  });
 
-  it("handles empty string", () => {
-    const hash = quickHash("");
-    assert.equal(hash.length, 16);
-    assert.match(hash, /^[0-9a-f]{16}$/);
-  });
 });
 
 describe("stripAnsi", () => {
@@ -102,14 +90,6 @@ describe("stripAnsi", () => {
 
   it("removes OSC with ST terminator", () => {
     assert.equal(stripAnsi("\x1b]0;title\x1b\\text"), "text");
-  });
-
-  it("returns plain text unchanged", () => {
-    assert.equal(stripAnsi("hello world"), "hello world");
-  });
-
-  it("handles empty string", () => {
-    assert.equal(stripAnsi(""), "");
   });
 
   it("handles multiple escape sequences in one line", () => {

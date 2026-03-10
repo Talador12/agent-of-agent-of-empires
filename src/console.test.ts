@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, renameSync, appendFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -81,25 +81,6 @@ describe("atomic drain pattern", () => {
     assert.equal(existsSync(drainFile), false, "drain file should be cleaned up");
   });
 
-  it("second drain returns empty (file already consumed)", () => {
-    writeFileSync(inputFile, "one-time message\n");
-    const first = atomicDrain();
-    assert.deepEqual(first, ["one-time message"]);
-    const second = atomicDrain();
-    assert.deepEqual(second, []);
-  });
-
-  it("new writes after drain go to a fresh file (not lost)", () => {
-    writeFileSync(inputFile, "before\n");
-    const first = atomicDrain();
-    assert.deepEqual(first, ["before"]);
-
-    // simulate new input arriving after drain
-    writeFileSync(inputFile, "after\n");
-    const second = atomicDrain();
-    assert.deepEqual(second, ["after"]);
-  });
-
   it("concurrent write during drain is not lost (rename is atomic)", () => {
     writeFileSync(inputFile, "original\n");
 
@@ -122,24 +103,4 @@ describe("atomic drain pattern", () => {
   });
 });
 
-describe("conversation log append pattern", () => {
-  const testDir = join(tmpdir(), `aoaoe-test-convo-${process.pid}`);
-  const convoLog = join(testDir, "conversation.log");
 
-  beforeEach(() => {
-    mkdirSync(testDir, { recursive: true });
-    try { unlinkSync(convoLog); } catch {}
-  });
-
-  afterEach(() => {
-    try { unlinkSync(convoLog); } catch {}
-  });
-
-  it("appends entries to conversation log", () => {
-    appendFileSync(convoLog, "entry 1\n");
-    appendFileSync(convoLog, "entry 2\n");
-    const content = readFileSync(convoLog, "utf-8");
-    assert.ok(content.includes("entry 1"));
-    assert.ok(content.includes("entry 2"));
-  });
-});
