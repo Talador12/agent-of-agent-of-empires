@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { readState, requestInterrupt } from "./daemon-state.js";
 import { parseTasks, parseModel, parseContext, parseCost, parseLastLine, formatTaskList } from "./task-parser.js";
-import { computeTmuxName } from "./poller.js";
+import { listAoeSessionsShared, type BasicSessionInfo } from "./poller.js";
 import { exec } from "./shell.js";
 import type { DaemonState } from "./types.js";
 
@@ -311,42 +311,10 @@ function printStatus() {
 
 // --- AoE session capture (works without daemon) ---
 
-interface AoeSessionInfo {
-  id: string;
-  title: string;
-  tool: string;
-  status: string;
-  tmuxName: string;
-}
-
-async function listAoeSessions(): Promise<AoeSessionInfo[]> {
-  try {
-    const result = await exec("aoe", ["list", "--json"], 10_000);
-    if (result.exitCode !== 0) return [];
-    const raw = JSON.parse(result.stdout) as Array<Record<string, string>>;
-    // get status for each session in parallel (allSettled so one failure doesn't lose all)
-    const results = await Promise.allSettled(
-      raw.map(async (s) => {
-        const id = s.id ?? "";
-        const title = s.title ?? "";
-        let status = "unknown";
-        try {
-          const showResult = await exec("aoe", ["session", "show", id, "--json"], 5_000);
-          if (showResult.exitCode === 0) {
-            status = (JSON.parse(showResult.stdout) as { status?: string }).status ?? "unknown";
-          }
-        } catch {}
-        const tmuxName = computeTmuxName(id, title);
-        return { id, title, tool: s.tool ?? "", status, tmuxName };
-      }),
-    );
-    const sessions = results
-      .filter((r): r is PromiseFulfilledResult<AoeSessionInfo> => r.status === "fulfilled")
-      .map((r) => r.value);
-    return sessions.filter((s) => s.title !== "aoaoe"); // exclude ourselves
-  } catch {
-    return [];
-  }
+// use shared session listing from poller.ts, then filter out ourselves
+async function listAoeSessions(): Promise<BasicSessionInfo[]> {
+  const sessions = await listAoeSessionsShared();
+  return sessions.filter((s) => s.title !== "aoaoe");
 }
 
 async function captureTmuxPane(tmuxName: string): Promise<string | null> {

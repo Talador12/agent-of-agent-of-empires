@@ -156,7 +156,7 @@ export class ReasonerConsole {
 
 // shell script that runs in the bottom tmux pane -- simple input loop
 const INPUT_LOOP_SCRIPT = `#!/usr/bin/env bash
-INPUT_FILE="${INPUT_FILE}"
+INPUT_FILE='${INPUT_FILE}'
 touch "$INPUT_FILE"
 
 # colors

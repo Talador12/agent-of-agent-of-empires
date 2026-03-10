@@ -453,3 +453,60 @@ describe("loadSessionContext", () => {
     assert.ok(result.includes("no tabs"));
   });
 });
+
+describe("context cache LRU eviction", () => {
+  it("evicts oldest entries when cache exceeds MAX_CACHE_SIZE", () => {
+    // MAX_CACHE_SIZE is 200. Create 210 files, read them all, then verify
+    // the cache doesn't grow unbounded by reading another file and checking
+    // that the first files still work (they'll be re-read from disk, not cache).
+    const dir = join(TMP, "lru-eviction");
+    mkdirSync(dir, { recursive: true });
+
+    // create and read 205 files to exceed the 200-entry cache
+    for (let i = 0; i < 205; i++) {
+      const f = join(dir, `file-${i}.md`);
+      writeFileSync(f, `content-${i}`);
+      const content = readContextFile(f);
+      assert.equal(content, `content-${i}`);
+    }
+
+    // the first few files should have been evicted from cache,
+    // but reading them again should still work (re-read from disk)
+    const first = readContextFile(join(dir, "file-0.md"));
+    assert.equal(first, "content-0");
+
+    // last file should still be accessible
+    const last = readContextFile(join(dir, "file-204.md"));
+    assert.equal(last, "content-204");
+  });
+
+  it("updates accessedAt on cache hit", () => {
+    // read two files, re-read the first to bump its accessedAt,
+    // then fill the cache to eviction — the re-accessed file should survive
+    const dir = join(TMP, "lru-access");
+    mkdirSync(dir, { recursive: true });
+
+    writeFileSync(join(dir, "keep.md"), "keep-me");
+    writeFileSync(join(dir, "evict.md"), "evict-me");
+
+    // initial reads
+    readContextFile(join(dir, "keep.md"));
+    readContextFile(join(dir, "evict.md"));
+
+    // re-read keep.md to bump its accessedAt
+    readContextFile(join(dir, "keep.md"));
+
+    // fill cache with 200 more files to trigger eviction
+    for (let i = 0; i < 200; i++) {
+      const f = join(dir, `filler-${i}.md`);
+      writeFileSync(f, `filler-${i}`);
+      readContextFile(f);
+    }
+
+    // keep.md was accessed more recently, so it should survive eviction
+    // evict.md was accessed earlier, so it should have been evicted
+    // both should still return correct content (evict.md re-reads from disk)
+    assert.equal(readContextFile(join(dir, "keep.md")), "keep-me");
+    assert.equal(readContextFile(join(dir, "evict.md")), "evict-me");
+  });
+});

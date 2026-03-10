@@ -342,3 +342,31 @@ describe("deepMerge", () => {
     assert.equal(result.pollIntervalMs, 2000);
   });
 });
+
+describe("parseCliArgs missing flag values", () => {
+  const argv = (...args: string[]) => ["node", "aoaoe", ...args];
+
+  it("throws when --reasoner has no value", () => {
+    assert.throws(() => parseCliArgs(argv("--reasoner")), /--reasoner requires a value/);
+  });
+
+  it("throws when --poll-interval has no value", () => {
+    assert.throws(() => parseCliArgs(argv("--poll-interval")), /--poll-interval requires a value/);
+  });
+
+  it("throws when --port has no value", () => {
+    assert.throws(() => parseCliArgs(argv("--port")), /--port requires a value/);
+  });
+
+  it("throws when --model has no value", () => {
+    assert.throws(() => parseCliArgs(argv("--model")), /--model requires a value/);
+  });
+
+  it("throws when --profile has no value", () => {
+    assert.throws(() => parseCliArgs(argv("--profile")), /--profile requires a value/);
+  });
+
+  it("throws when --reasoner is the last arg", () => {
+    assert.throws(() => parseCliArgs(argv("--verbose", "--reasoner")), /--reasoner requires a value/);
+  });
+});

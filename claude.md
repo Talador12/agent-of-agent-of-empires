@@ -5,12 +5,12 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.22.0
+## Version: v0.23.0
 
 ## Current Focus
 
-Reliability and resilience improvements. 434 tests across 19 files. JSON parser,
-server health monitoring, resource leak prevention, and rate limiting fixes.
+Code quality and DRY improvements. 442 tests across 19 files. Shared session
+listing, LRU cache eviction, testable CLI args, path escaping fix.
 Next: meta-level UX improvements or feature work.
 
 ## Working Items
@@ -27,15 +27,31 @@ Next: meta-level UX improvements or feature work.
 
 ### Remaining backlog
 - `deepMerge` doesn't handle clearing `sessionDirs` to `{}`
-- Duplicated session listing logic between `chat.ts` and `poller.ts`
-- Unbounded context cache growth (needs max size + eviction)
-- `parseCliArgs` calls `process.exit(1)` in `nextArg` (untestable)
 - `waitForInput` busy-loops with 500ms sleep (could use fs.watch)
-- `console.ts` INPUT_LOOP_SCRIPT has unescaped path interpolation
 - `poller.ts` `extractNewLines` lastIndexOf can produce false negatives with repeated lines
 
 ## Completed
 
+- v0.23.0: Code quality — 6 improvements, 8 new tests (442 total):
+  - MEDIUM: context.ts — LRU cache eviction. `MAX_CACHE_SIZE = 200`, `accessedAt`
+    field on `CachedContext`, `evictCache()` sorts by `accessedAt` and removes
+    oldest entries. Called after each `cache.set()`. Prevents unbounded growth.
+  - MEDIUM: chat.ts — replaced duplicated `listAoeSessions()` (30 lines) with
+    `listAoeSessionsShared()` from poller.ts. Single source of truth for session
+    listing logic (aoe list + session show + computeTmuxName + allSettled).
+  - MEDIUM: config.ts — replaced `process.exit(1)` in `nextArg` with
+    `throw new Error()`. CLI arg parsing is now testable without killing the
+    test runner. 6 new tests for missing flag value errors.
+  - LOW: console.ts — fixed `INPUT_LOOP_SCRIPT` path interpolation. Changed
+    `"${INPUT_FILE}"` (double quotes, vulnerable to bash expansion) to
+    `'${INPUT_FILE}'` (single quotes, literal). Prevents breakage if path
+    contains bash-special characters.
+  - LOW: poller.ts — added `listAoeSessionsShared()` exported function and
+    `BasicSessionInfo` interface. Uses `Promise.allSettled`, `computeTmuxName`.
+  - TEST: context.test.ts — 2 tests for LRU cache eviction behavior (eviction
+    at MAX_CACHE_SIZE, accessedAt bump on cache hit).
+  - TEST: config.test.ts — 6 tests for `parseCliArgs` missing flag value errors
+    (--reasoner, --poll-interval, --port, --model, --profile, trailing flag).
 - v0.22.0: Reliability + resilience — 8 fixes, 8 new tests (434 total):
   - HIGH: parse.ts — string-literal-aware brace counting in `extractFirstValidJson`.
     Braces inside JSON strings (e.g. `{"text": "use { and }"}`) no longer break
@@ -74,7 +90,7 @@ Next: meta-level UX improvements or feature work.
 - v0.11.0: sessionDirs, daemonTick refactor. 193 tests.
 - v0.10.0: E2e loop tests, CI test glob fix.
 - v0.9.0: Auto-discovery, resolveProjectDir, test-context.
-- 434 tests across 19 files, all passing
+- 442 tests across 19 files, all passing
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases

@@ -48,14 +48,27 @@ const NESTED_CONTEXT_PATHS = [
 const MAX_FILE_SIZE = 8_000; // truncate individual files to keep token budget sane
 const MAX_DIR_BUDGET = 24_000; // total budget per directory load (global or per-session)
 const CACHE_TTL_MS = 60_000; // re-read files at most every 60s
+const MAX_CACHE_SIZE = 200; // max entries in the context cache before LRU eviction
 
 interface CachedContext {
   content: string;
   readAt: number;
   mtime: number;
+  accessedAt: number; // for LRU eviction
 }
 
 const cache = new Map<string, CachedContext>();
+
+// evict least-recently-accessed entries when cache exceeds max size
+function evictCache(): void {
+  if (cache.size <= MAX_CACHE_SIZE) return;
+  // sort entries by accessedAt ascending (oldest first), remove excess
+  const entries = [...cache.entries()].sort((a, b) => a[1].accessedAt - b[1].accessedAt);
+  const toRemove = entries.slice(0, cache.size - MAX_CACHE_SIZE);
+  for (const [key] of toRemove) {
+    cache.delete(key);
+  }
+}
 
 // read a single context file, return its content or empty string
 export function readContextFile(filePath: string): string {
@@ -64,8 +77,10 @@ export function readContextFile(filePath: string): string {
     if (!stat.isFile()) return "";
 
     // check cache
+    const now = Date.now();
     const cached = cache.get(filePath);
-    if (cached && Date.now() - cached.readAt < CACHE_TTL_MS && cached.mtime === stat.mtimeMs) {
+    if (cached && now - cached.readAt < CACHE_TTL_MS && cached.mtime === stat.mtimeMs) {
+      cached.accessedAt = now; // touch for LRU
       return cached.content;
     }
 
@@ -74,7 +89,8 @@ export function readContextFile(filePath: string): string {
       content = content.slice(0, MAX_FILE_SIZE) + "\n\n[... truncated at 8KB ...]";
     }
 
-    cache.set(filePath, { content, readAt: Date.now(), mtime: stat.mtimeMs });
+    cache.set(filePath, { content, readAt: now, mtime: stat.mtimeMs, accessedAt: now });
+    evictCache();
     return content;
   } catch {
     return "";

@@ -184,8 +184,7 @@ export function parseCliArgs(argv: string[]): {
   // helper: consume next arg with bounds check
   const nextArg = (i: number, flag: string): string => {
     if (i + 1 >= argv.length) {
-      console.error(`error: ${flag} requires a value`);
-      process.exit(1);
+      throw new Error(`${flag} requires a value`);
     }
     return argv[i + 1];
   };

@@ -236,6 +236,48 @@ export function stripAnsi(s: string): string {
   return s.replace(/[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[^[\]()#;?0-9A-ORZcf-nqry=><~]/g, "");
 }
 
+// shared session listing function — used by both Poller.listSessions() and chat.ts
+// avoids duplicating the aoe list + session show + computeTmuxName logic
+export interface BasicSessionInfo {
+  id: string;
+  title: string;
+  tool: string;
+  status: string;
+  tmuxName: string;
+}
+
+export async function listAoeSessionsShared(timeoutMs = 10_000): Promise<BasicSessionInfo[]> {
+  const result = await exec("aoe", ["list", "--json"], timeoutMs);
+  if (result.exitCode !== 0) return [];
+
+  let raw: Array<Record<string, string>>;
+  try {
+    const parsed = JSON.parse(result.stdout);
+    raw = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+
+  const results = await Promise.allSettled(
+    raw.map(async (s) => {
+      const id = s.id ?? "";
+      const title = s.title ?? "";
+      let status = "unknown";
+      try {
+        const showResult = await exec("aoe", ["session", "show", id, "--json"], 5_000);
+        if (showResult.exitCode === 0) {
+          status = (JSON.parse(showResult.stdout) as { status?: string }).status ?? "unknown";
+        }
+      } catch {}
+      return { id, title, tool: s.tool ?? "", status, tmuxName: computeTmuxName(id, title) };
+    }),
+  );
+
+  return results
+    .filter((r): r is PromiseFulfilledResult<BasicSessionInfo> => r.status === "fulfilled")
+    .map((r) => r.value);
+}
+
 // extract lines in `current` that weren't in `previous`
 export function extractNewLines(previous: string, current: string): string {
   const prevLines = previous.split("\n");
