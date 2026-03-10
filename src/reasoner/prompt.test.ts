@@ -207,6 +207,20 @@ describe("detectPermissionPrompt", () => {
     const lines = [...Array.from({ length: 5 }, (_, i) => `output ${i}`), "Do you want to continue?"];
     assert.equal(detectPermissionPrompt(lines.join("\n")), true);
   });
+
+  it("detects opencode TUI 'Permission required'", () => {
+    const screen = [
+      "┃  △ Permission required",
+      "┃    → Edit hello.txt",
+      "┃",
+      "┃   Allow once   Allow always   Reject",
+    ].join("\n");
+    assert.equal(detectPermissionPrompt(screen), true);
+  });
+
+  it("detects opencode TUI 'Allow once' action row", () => {
+    assert.equal(detectPermissionPrompt("  Allow once   Allow always   Reject"), true);
+  });
 });
 
 describe("buildSystemPrompt", () => {

@@ -59,8 +59,18 @@ export interface SessionPolicyState {
   hasPermissionPrompt: boolean; // detected a permission/confirmation prompt
 }
 
-// detect permission prompts in tmux output
+// detect permission prompts in tmux output.
+// the prompt-watcher module (prompt-watcher.ts) handles these reactively via
+// pipe-pane for near-instant clearing. these patterns are kept here as a
+// fallback for the daemon's policy alerting (loop.ts reads hasPermissionPrompt).
 const PERMISSION_PATTERNS = [
+  // opencode TUI permission dialog:
+  //   ┃  △ Permission required
+  //   ┃    → Edit hello.txt
+  //   ┃   Allow once   Allow always   Reject
+  /Permission required/i,
+  /Allow once/i,
+  // generic permission patterns (Claude Code, other tools)
   /\b(?:allow|deny|permit)\b.*\?\s*$/im,
   /\b(?:y\/n|yes\/no)\b/im,
   /\bdo you want to (?:continue|proceed)\b/im,

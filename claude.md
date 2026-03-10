@@ -5,15 +5,17 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.27.0
+## Version: v0.28.0
 
 ## Current Focus
 
-Task orchestration system + test cleanup. 369 tests across 18 files.
-Users define repos in `aoaoe.tasks.json`, aoaoe creates AoE sessions
-automatically, tracks persistent progress, and cleans up when done.
-Test suite cut from 477 to 369 (removed 108 dead-weight tests — reimplements,
-duplicates, trivial guards). All features from v0.25–v0.26 still working.
+Reactive permission prompt clearing via `tmux pipe-pane`. 371 tests across
+19 files. The new `prompt-watcher` module hooks into tmux's pipe-pane to
+stream pane output to a Node.js subprocess that fires on ANY data (not just
+newlines — critical for TUI apps). On detection, it captures the rendered
+screen via `capture-pane`, pattern matches, and sends Enter within ~10-50ms.
+No polling. Integration test passes end-to-end: both sessions create files,
+3 permission prompts cleared reactively.
 
 ## Working Items
 
@@ -28,6 +30,19 @@ duplicates, trivial guards). All features from v0.25–v0.26 still working.
 
 ## Completed
 
+- v0.28.0: Reactive prompt-watcher + integration test (371 tests):
+  - **`prompt-watcher.ts`**: New module using `tmux pipe-pane` to reactively
+    detect and clear permission prompts. Spawns a Node.js subprocess per pane
+    that fires on any stdin data (not newlines — handles TUI cursor positioning),
+    `capture-pane` for clean rendered screen, regex match, immediate `send-keys
+    Enter`. ~10-50ms latency vs 2-10s polling. CommonJS (.cjs) since project is ESM.
+  - **Integration test rewritten**: No poll-based prompt detection. Pipe-pane
+    watchers handle prompts autonomously. Main loop only checks file creation
+    (success) and crashes (early fail). Both sessions pass: session 1 in 6s
+    (1 prompt), session 2 in 9s (2 prompts).
+  - **`reasoner/prompt.ts`**: Added opencode TUI patterns (`Permission required`,
+    `Allow once`) to `PERMISSION_PATTERNS`. Kept as daemon fallback/reporting.
+  - **2 new unit tests** for opencode TUI pattern detection.
 - v0.27.0: Task system + test cleanup (369 tests):
   - **Task orchestration**: `aoaoe.tasks.json` defines repos to work on,
     `TaskManager` creates AoE sessions, tracks persistent progress in

@@ -1,38 +1,56 @@
 #!/usr/bin/env node
 /**
- * Integration test for aoaoe — end-to-end test with real aoe sessions.
+ * Integration test for aoaoe — verifies agents execute real tasks.
  *
- * Creates two throwaway AoE sessions, starts the aoaoe daemon, verifies
- * that the daemon can observe and interact with the sessions, then cleans
- * everything up.
+ * Creates two AoE sessions with opencode (NO yolo mode), explicitly starts
+ * opencode in each tmux pane, sends real tasks, and handles permission
+ * prompts reactively via pipe-pane hooks — not polling.
  *
- * Prerequisites: aoe, opencode, tmux must be on $PATH.
+ *   Session 1 (basic): creates hello.txt — validates end-to-end execution
+ *   Session 2 (prompt-heavy): creates prompt-test.txt in a subdirectory —
+ *     exercises mkdir + write permission prompts
+ *
+ * Permission prompt clearing uses the prompt-watcher module which hooks
+ * into tmux pipe-pane. The watcher subprocess fires on ANY pane output
+ * (not just newlines), captures the rendered screen, pattern matches, and
+ * sends Enter within ~10-50ms. No polling for prompts.
+ *
+ * Prerequisites: aoe, opencode, tmux on $PATH
  * Run: npm run integration-test
- *
- * This is NOT part of `npm test` — it requires a live environment with
- * real CLI tools and takes 2-3 minutes to complete.
  */
 
 import { execFile as execFileCb } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
+import {
+  startPromptWatcher,
+  stopPromptWatcher,
+  readPromptStats,
+  cleanupWatchers,
+} from "./prompt-watcher.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const TEST_DIR = "/tmp/aoaoe-itest";
-const SESSION_1_TITLE = "aoaoe-itest-1";
-const SESSION_2_TITLE = "aoaoe-itest-2";
-const DAEMON_TMUX = "aoaoe_itest_daemon";
-const DAEMON_LOG = join(TEST_DIR, "daemon.log");
-const DAEMON_STATE = join(homedir(), ".aoaoe", "daemon-state.json");
+const SESSION_1_TITLE = "aoaoe-itest-basic";
+const SESSION_2_TITLE = "aoaoe-itest-prompt";
+
+// expected output files
+const S1_FILE = "hello.txt";
+const S1_CONTENT = "Hello from aoaoe";
+const S2_FILE = "subdir/prompt-test.txt";
+const S2_CONTENT = "Permission test passed";
 
 // timeouts
-const SESSION_START_WAIT_MS = 8_000; // wait for AoE session to fully start
-const DAEMON_START_WAIT_MS = 10_000; // wait for daemon to complete first tick
-const TASK_WAIT_MS = 90_000; // wait for agent to complete a task
-const POLL_INTERVAL_MS = 5_000; // how often to check for task completion
+const SHELL_PROMPT_TIMEOUT_MS = 30_000; // max wait for AoE shell prompt
+const OPENCODE_LOAD_WAIT_MS = 15_000;   // wait for opencode TUI after typing "opencode"
+const TASK_TIMEOUT_MS = 180_000;         // 3 min max for both tasks to complete
+const POLL_MS = 3_000;                   // file-existence check interval (prompts handled by watcher)
+
+// AoE shell prompt characters: λ (U+03BB) and → (U+2192)
+const LAMBDA = "\u03bb";
+const ARROW = "\u2192";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -61,328 +79,162 @@ function log(msg: string) {
   console.log(`[${ts}] ${msg}`);
 }
 
-function fail(msg: string): never {
-  console.error(`\n❌ FAIL: ${msg}\n`);
-  process.exit(1);
-}
-
 function pass(msg: string) {
-  console.log(`  ✅ ${msg}`);
+  console.log(`  \u2705 ${msg}`);
 }
 
-// ── Phase 0: Prerequisites ──────────────────────────────────────────────────
-
-async function checkPrerequisites(): Promise<void> {
-  log("Phase 0: Checking prerequisites...");
-
-  for (const tool of ["aoe", "opencode", "tmux"]) {
-    const result = await exec("which", [tool]);
-    if (result.exitCode !== 0) fail(`${tool} not found on PATH`);
-  }
-
-  // verify aoe is responsive
-  const aoeList = await exec("aoe", ["list", "--json"]);
-  if (aoeList.exitCode !== 0) fail("aoe list --json failed");
-
-  pass("aoe, opencode, tmux all available");
+// check if the last non-empty line is an AoE shell prompt (λ ... →)
+function hasShellPrompt(output: string): boolean {
+  const last = lastNonEmptyLine(output);
+  return last.includes(LAMBDA) && last.includes(ARROW);
 }
 
-// ── Phase 1: Create test sessions ───────────────────────────────────────────
+async function captureTmux(tmuxName: string): Promise<string> {
+  const cap = await exec("tmux", ["capture-pane", "-t", tmuxName, "-p", "-S", "-100"]);
+  return cap.stdout;
+}
+
+async function sendKeys(tmuxName: string, text: string): Promise<boolean> {
+  const textOk = await exec("tmux", ["send-keys", "-t", tmuxName, "-l", text]);
+  if (textOk.exitCode !== 0) return false;
+  const enterOk = await exec("tmux", ["send-keys", "-t", tmuxName, "Enter"]);
+  return enterOk.exitCode === 0;
+}
+
+function lastNonEmptyLine(output: string): string {
+  return output.split("\n").filter((l) => l.trim()).pop() ?? "(empty)";
+}
+
+function tailLines(output: string, n: number): string[] {
+  return output.split("\n").filter((l) => l.trim()).slice(-n);
+}
+
+// ── Session Management ──────────────────────────────────────────────────────
 
 interface TestSession {
   id: string;
   title: string;
   tmuxName: string;
   dir: string;
+  targetFile: string;
+  expectedContent: string;
+  watcherLogFile: string;
+  // tracking
+  completed: boolean;
+  completedAtMs: number;
 }
 
-async function createTestSessions(): Promise<[TestSession, TestSession]> {
-  log("Phase 1: Creating test sessions...");
+async function createSession(
+  dir: string,
+  title: string,
+  targetFile: string,
+  expectedContent: string
+): Promise<TestSession> {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "AGENTS.md"),
+    `# ${title}\nIntegration test. Do exactly what is asked, nothing more.\n`
+  );
 
-  // create project directories with simple test files
-  const dir1 = join(TEST_DIR, "project-1");
-  const dir2 = join(TEST_DIR, "project-2");
+  // init git repo — opencode expects a git context
+  await exec("git", ["init", dir]);
+  await exec("git", ["-C", dir, "add", "."]);
+  await exec("git", ["-C", dir, "commit", "-m", "init", "--allow-empty"]);
 
-  mkdirSync(dir1, { recursive: true });
-  mkdirSync(dir2, { recursive: true });
-
-  // write a simple AGENTS.md for each so context loading has something to find
-  writeFileSync(join(dir1, "AGENTS.md"), "# Project 1\nIntegration test project. Do whatever is asked.\n");
-  writeFileSync(join(dir2, "AGENTS.md"), "# Project 2\nIntegration test project. Do whatever is asked.\n");
-
-  // create sessions via aoe add
-  const s1 = await createOneSession(dir1, SESSION_1_TITLE);
-  const s2 = await createOneSession(dir2, SESSION_2_TITLE);
-
-  // start both sessions
-  await exec("aoe", ["session", "start", s1.id]);
-  await exec("aoe", ["session", "start", s2.id]);
-
-  log(`  Waiting ${SESSION_START_WAIT_MS / 1000}s for sessions to initialize...`);
-  await sleep(SESSION_START_WAIT_MS);
-
-  // verify both tmux sessions exist
-  for (const s of [s1, s2]) {
-    const check = await exec("tmux", ["has-session", "-t", s.tmuxName]);
-    if (check.exitCode !== 0) fail(`tmux session ${s.tmuxName} not found after start`);
+  // NO -y flag — prompt-watcher handles permission prompts reactively
+  const result = await exec("aoe", ["add", dir, "-t", title, "-c", "opencode"]);
+  if (result.exitCode !== 0) {
+    throw new Error(`aoe add failed for ${title}: ${result.stderr}`);
   }
 
-  pass(`Created sessions: ${s1.id.slice(0, 8)} (${s1.title}), ${s2.id.slice(0, 8)} (${s2.title})`);
-  return [s1, s2];
-}
-
-async function createOneSession(dir: string, title: string): Promise<TestSession> {
-  const result = await exec("aoe", ["add", dir, "-t", title, "-c", "opencode", "-y"]);
-  if (result.exitCode !== 0) fail(`aoe add failed for ${title}: ${result.stderr}`);
-
-  // parse ID from aoe list
   const list = await exec("aoe", ["list", "--json"]);
   const sessions = JSON.parse(list.stdout) as Array<{ id: string; title: string }>;
   const found = sessions.find((s) => s.title === title);
-  if (!found) fail(`session "${title}" not found in aoe list after creation`);
+  if (!found) throw new Error(`session "${title}" not found in aoe list`);
 
-  // tmux name format: aoe_<sanitized_title>_<first8_of_id>
   const sanitized = title.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 20);
   const tmuxName = `aoe_${sanitized}_${found.id.slice(0, 8)}`;
 
-  return { id: found.id, title, tmuxName, dir };
+  return {
+    id: found.id,
+    title,
+    tmuxName,
+    dir,
+    targetFile: join(dir, targetFile),
+    expectedContent,
+    watcherLogFile: "", // set when watcher starts
+    completed: false,
+    completedAtMs: 0,
+  };
 }
 
-// ── Phase 2: Start daemon ───────────────────────────────────────────────────
-
-async function startDaemon(): Promise<void> {
-  log("Phase 2: Starting daemon in tmux session...");
-
-  // kill any stale daemon tmux session
-  await exec("tmux", ["kill-session", "-t", DAEMON_TMUX]);
-
-  // start daemon in a detached tmux session, logging to file
-  // use --dry-run=false and a short poll interval for faster tests
-  const daemonCmd = `cd /Users/kadler/Documents/repos && npx aoaoe --verbose 2>&1 | tee ${DAEMON_LOG}`;
-  const result = await exec("tmux", [
-    "new-session", "-d", "-s", DAEMON_TMUX, "-x", "200", "-y", "50", daemonCmd,
-  ]);
-  if (result.exitCode !== 0) fail(`failed to start daemon tmux session: ${result.stderr}`);
-
-  log(`  Waiting ${DAEMON_START_WAIT_MS / 1000}s for daemon to complete first tick...`);
-  await sleep(DAEMON_START_WAIT_MS);
-
-  // verify daemon is running by checking tmux session exists
-  const check = await exec("tmux", ["has-session", "-t", DAEMON_TMUX]);
-  if (check.exitCode !== 0) fail("daemon tmux session died");
-
-  pass("Daemon started in tmux session");
-}
-
-// ── Phase 3: Test scenarios ─────────────────────────────────────────────────
-
-async function testDaemonStateFile(): Promise<void> {
-  log("Test 1: Daemon state file exists and has sessions...");
-
-  // daemon should have written state file after first tick
-  if (!existsSync(DAEMON_STATE)) {
-    // give it a few more seconds
-    await sleep(5_000);
-    if (!existsSync(DAEMON_STATE)) fail("daemon-state.json not found");
+// poll until the AoE shell prompt (λ ... →) is visible in the pane
+async function waitForShellPrompt(s: TestSession): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < SHELL_PROMPT_TIMEOUT_MS) {
+    const output = await captureTmux(s.tmuxName);
+    if (hasShellPrompt(output)) {
+      return;
+    }
+    await sleep(2_000);
   }
-
-  const state = JSON.parse(readFileSync(DAEMON_STATE, "utf-8"));
-  if (typeof state.pollCount !== "number") fail("daemon state missing pollCount");
-  if (!Array.isArray(state.sessions)) fail("daemon state missing sessions array");
-
-  // should see our test sessions (plus possibly the main aoaoe session)
-  const testSessions = state.sessions.filter(
-    (s: { title: string }) => s.title === SESSION_1_TITLE || s.title === SESSION_2_TITLE
+  // timeout — dump what we see for debugging
+  const output = await captureTmux(s.tmuxName);
+  const tail = tailLines(output, 5).join("\n    ");
+  throw new Error(
+    `Shell prompt did not appear in ${s.title} within ${SHELL_PROMPT_TIMEOUT_MS / 1000}s.\n` +
+    `  Last output:\n    ${tail}`
   );
-  if (testSessions.length < 2) {
-    fail(`expected 2 test sessions in daemon state, found ${testSessions.length}: ${JSON.stringify(state.sessions.map((s: { title: string }) => s.title))}`);
-  }
-
-  pass(`Daemon state has ${state.sessions.length} sessions, pollCount=${state.pollCount}`);
 }
 
-async function testTmuxCapture(sessions: TestSession[]): Promise<void> {
-  log("Test 2: tmux capture-pane works for test sessions...");
+// verify opencode took over the pane (shell prompt gone, no shell errors)
+async function verifyOpencodeRunning(s: TestSession): Promise<void> {
+  const output = await captureTmux(s.tmuxName);
 
+  // fatal: opencode binary not found
+  if (output.includes("command not found: opencode")) {
+    throw new Error(`opencode not found on PATH inside ${s.title} tmux pane`);
+  }
+
+  // if shell prompt is the last line, opencode either never started or exited
+  if (hasShellPrompt(output)) {
+    const tail = tailLines(output, 8).join("\n    ");
+    throw new Error(
+      `opencode not running in ${s.title} (shell prompt still visible after wait).\n` +
+      `  This usually means opencode started and exited immediately.\n` +
+      `  Last output:\n    ${tail}`
+    );
+  }
+}
+
+// ── Cleanup ─────────────────────────────────────────────────────────────────
+
+async function cleanup(titles: string[], sessions: TestSession[]): Promise<void> {
+  log("Cleanup...");
+
+  // stop prompt watchers first
   for (const s of sessions) {
-    const cap = await exec("tmux", ["capture-pane", "-t", s.tmuxName, "-p", "-S", "-50"]);
-    if (cap.exitCode !== 0) fail(`tmux capture failed for ${s.tmuxName}: ${cap.stderr}`);
-    // output should be non-empty (at minimum opencode shows its UI)
-    if (cap.stdout.trim().length === 0) {
-      log(`  Warning: empty capture for ${s.title} — agent may still be loading`);
+    if (s.tmuxName) {
+      try { stopPromptWatcher(s.tmuxName); } catch {}
     }
   }
 
-  pass("tmux capture-pane works for both test sessions");
-}
-
-async function testDaemonObservation(sessions: TestSession[]): Promise<void> {
-  log("Test 3: Daemon log shows observation of test sessions...");
-
-  // capture daemon pane to check for log lines
-  const cap = await exec("tmux", ["capture-pane", "-t", DAEMON_TMUX, "-p", "-S", "-200"]);
-  if (cap.exitCode !== 0) fail("cannot capture daemon pane");
-
-  const output = cap.stdout;
-
-  // daemon should show session names in its output
-  let foundSessions = 0;
-  for (const s of sessions) {
-    // the daemon dashboard shows session titles
-    if (output.includes(s.title) || output.includes(s.id.slice(0, 8))) {
-      foundSessions++;
-    }
-  }
-
-  if (foundSessions === 0) {
-    // check if daemon log file has the info instead
-    if (existsSync(DAEMON_LOG)) {
-      const logContent = readFileSync(DAEMON_LOG, "utf-8");
-      for (const s of sessions) {
-        if (logContent.includes(s.title) || logContent.includes(s.id.slice(0, 8))) {
-          foundSessions++;
-        }
-      }
-    }
-  }
-
-  if (foundSessions < 2) {
-    log(`  Warning: only found ${foundSessions}/2 test sessions in daemon output (may need more time)`);
-  }
-
-  pass(`Daemon observing ${foundSessions}/2 test sessions`);
-}
-
-async function testSendInput(session: TestSession): Promise<void> {
-  log("Test 4: Can send input via tmux send-keys...");
-
-  // send a simple echo command to verify tmux send-keys works
-  // we use -l for literal text, then Enter separately (matching executor pattern)
-  const textOk = await exec("tmux", ["send-keys", "-t", session.tmuxName, "-l", 'echo "ITEST_PING"']);
-  if (textOk.exitCode !== 0) fail(`send-keys text failed for ${session.tmuxName}`);
-
-  const enterOk = await exec("tmux", ["send-keys", "-t", session.tmuxName, "Enter"]);
-  if (enterOk.exitCode !== 0) fail(`send-keys Enter failed for ${session.tmuxName}`);
-
-  // wait a moment, then capture and look for our string
-  await sleep(3_000);
-
-  const cap = await exec("tmux", ["capture-pane", "-t", session.tmuxName, "-p", "-S", "-50"]);
-  if (cap.stdout.includes("ITEST_PING")) {
-    pass("send-keys round-trip verified (ITEST_PING found in output)");
-  } else {
-    // this is ok — the agent might have consumed the input before we captured
-    pass("send-keys completed (agent may have already processed the input)");
-  }
-}
-
-async function testContextDiscovery(sessions: TestSession[]): Promise<void> {
-  log("Test 5: Context files are discoverable for test projects...");
-
-  // run aoaoe test-context to verify context loading works
-  const result = await exec("npx", ["aoaoe", "test-context"], 30_000);
-
-  // test-context should mention our test session directories
-  let found = 0;
-  for (const s of sessions) {
-    if (result.stdout.includes(s.title) || result.stdout.includes("AGENTS.md")) {
-      found++;
-    }
-  }
-
-  // even if test-context doesn't find our sessions (they may not resolve to test dirs
-  // from /Users/kadler/Documents/repos), the command should succeed
-  if (result.exitCode !== 0) {
-    log(`  Warning: test-context exited with code ${result.exitCode}`);
-  }
-
-  pass(`Context discovery completed (test-context exit code: ${result.exitCode})`);
-}
-
-async function testDaemonLogNoTimeouts(): Promise<void> {
-  log("Test 6: No reasoner timeouts in daemon log...");
-
-  if (!existsSync(DAEMON_LOG)) {
-    pass("No daemon log file yet (daemon may not have reasoned yet)");
-    return;
-  }
-
-  const logContent = readFileSync(DAEMON_LOG, "utf-8");
-  const timeoutLines = logContent
-    .split("\n")
-    .filter((line) => line.includes("timed out") || line.includes("TIMEOUT"));
-
-  if (timeoutLines.length > 0) {
-    log(`  Warning: Found ${timeoutLines.length} timeout lines in daemon log`);
-    for (const line of timeoutLines.slice(0, 3)) {
-      log(`    ${line.slice(0, 120)}`);
-    }
-  }
-
-  pass(`Daemon log: ${timeoutLines.length} timeout(s) found`);
-}
-
-async function testSessionRemoval(): Promise<void> {
-  log("Test 7: Session removal via aoe remove...");
-
-  // list current sessions
-  const before = await exec("aoe", ["list", "--json"]);
-  const beforeSessions = JSON.parse(before.stdout) as Array<{ id: string; title: string }>;
-  const testBefore = beforeSessions.filter(
-    (s) => s.title === SESSION_1_TITLE || s.title === SESSION_2_TITLE
-  );
-
-  if (testBefore.length === 0) {
-    pass("No test sessions to remove (already cleaned up)");
-    return;
-  }
-
-  // remove test sessions
-  for (const s of testBefore) {
-    // aoe remove does NOT accept -y, pipe "y" to confirm
-    const result = await exec("bash", ["-c", `echo "y" | aoe remove ${s.id}`]);
-    if (result.exitCode !== 0) {
-      log(`  Warning: failed to remove session ${s.id}: ${result.stderr}`);
-    }
-  }
-
-  // verify removal
-  await sleep(2_000);
-  const after = await exec("aoe", ["list", "--json"]);
-  const afterSessions = JSON.parse(after.stdout) as Array<{ id: string; title: string }>;
-  const testAfter = afterSessions.filter(
-    (s) => s.title === SESSION_1_TITLE || s.title === SESSION_2_TITLE
-  );
-
-  if (testAfter.length > 0) {
-    log(`  Warning: ${testAfter.length} test session(s) still present after removal`);
-  } else {
-    pass("All test sessions removed successfully");
-  }
-}
-
-// ── Phase 4: Cleanup ────────────────────────────────────────────────────────
-
-async function cleanup(): Promise<void> {
-  log("Phase 4: Cleanup...");
-
-  // stop daemon tmux session
-  await exec("tmux", ["kill-session", "-t", DAEMON_TMUX]);
-
-  // remove any remaining test sessions
   const list = await exec("aoe", ["list", "--json"]);
   if (list.exitCode === 0) {
     try {
-      const sessions = JSON.parse(list.stdout) as Array<{ id: string; title: string }>;
-      for (const s of sessions) {
-        if (s.title === SESSION_1_TITLE || s.title === SESSION_2_TITLE) {
+      const aoeList = JSON.parse(list.stdout) as Array<{ id: string; title: string }>;
+      for (const s of aoeList) {
+        if (titles.includes(s.title)) {
           await exec("bash", ["-c", `echo "y" | aoe remove ${s.id}`]);
+          log(`  removed session: ${s.title}`);
         }
       }
     } catch {}
   }
 
-  // clean temp directory
+  // clean up watcher temp files
+  cleanupWatchers();
+
   try {
     rmSync(TEST_DIR, { recursive: true, force: true });
   } catch {}
@@ -393,46 +245,211 @@ async function cleanup(): Promise<void> {
 // ── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log("\n╔══════════════════════════════════════════════╗");
-  console.log("║   aoaoe Integration Test                     ║");
-  console.log("╚══════════════════════════════════════════════╝\n");
+  console.log("");
+  console.log("  aoaoe integration test");
+  console.log("  2 sessions, real tasks, reactive prompt clearing (pipe-pane hooks, no polling)");
+  console.log("  ──────────────────────────────────────────────────────────────────────────────");
+  console.log("");
 
   const startTime = Date.now();
+  const sessionTitles = [SESSION_1_TITLE, SESSION_2_TITLE];
   let sessions: TestSession[] = [];
+  let exitCode = 0;
 
   try {
-    // Phase 0
-    await checkPrerequisites();
+    // ── Phase 0: Prerequisites ────────────────────────────────────────────
+    log("Checking prerequisites...");
+    for (const tool of ["aoe", "opencode", "tmux"]) {
+      const r = await exec("which", [tool]);
+      if (r.exitCode !== 0) throw new Error(`${tool} not found on PATH`);
+    }
+    const aoeCheck = await exec("aoe", ["list", "--json"]);
+    if (aoeCheck.exitCode !== 0) throw new Error("aoe list --json failed");
+    pass("aoe, opencode, tmux available");
 
-    // Phase 1: Create test sessions
-    const [s1, s2] = await createTestSessions();
+    // clean up leftovers from a previous run
+    rmSync(TEST_DIR, { recursive: true, force: true });
+    cleanupWatchers();
+
+    // ── Phase 1: Create sessions (no YOLO) ────────────────────────────────
+    log("Creating sessions (no YOLO — pipe-pane watchers clear prompts)...");
+
+    const s1 = await createSession(
+      join(TEST_DIR, "project-basic"), SESSION_1_TITLE, S1_FILE, S1_CONTENT
+    );
+    const s2 = await createSession(
+      join(TEST_DIR, "project-prompt"), SESSION_2_TITLE, S2_FILE, S2_CONTENT
+    );
     sessions = [s1, s2];
 
-    // Phase 2: Start daemon
-    await startDaemon();
+    // start tmux panes
+    await exec("aoe", ["session", "start", s1.id]);
+    await exec("aoe", ["session", "start", s2.id]);
 
-    // Phase 3: Run tests
-    await testDaemonStateFile();
-    await testTmuxCapture(sessions);
-    await testDaemonObservation(sessions);
-    await testSendInput(s1);
-    await testContextDiscovery(sessions);
-    await testDaemonLogNoTimeouts();
+    for (const s of sessions) {
+      const check = await exec("tmux", ["has-session", "-t", s.tmuxName]);
+      if (check.exitCode !== 0) throw new Error(`tmux session ${s.tmuxName} not found`);
+    }
+    pass(`Sessions created: ${s1.title} (${s1.id.slice(0, 8)}), ${s2.title} (${s2.id.slice(0, 8)})`);
 
-    // Test 7 is destructive — does its own session removal
-    await testSessionRemoval();
+    // ── Phase 2: Start opencode in each pane ──────────────────────────────
+    // AoE opens a shell (not the tool). We must wait for the shell prompt,
+    // then type "opencode" to launch it. This takes ~11s for the shell to
+    // initialize (SSH agent, banner) plus ~15s for opencode to load.
+
+    log("Waiting for AoE shell prompts...");
+    await waitForShellPrompt(s1);
+    log(`  ${s1.title}: shell ready`);
+    await waitForShellPrompt(s2);
+    log(`  ${s2.title}: shell ready`);
+    pass("Both shell prompts visible");
+
+    log("Launching opencode in both panes...");
+    await sendKeys(s1.tmuxName, "opencode");
+    await sendKeys(s2.tmuxName, "opencode");
+    log(`  Waiting ${OPENCODE_LOAD_WAIT_MS / 1000}s for opencode TUI to load...`);
+    await sleep(OPENCODE_LOAD_WAIT_MS);
+
+    await verifyOpencodeRunning(s1);
+    log(`  ${s1.title}: opencode running`);
+    await verifyOpencodeRunning(s2);
+    log(`  ${s2.title}: opencode running`);
+    pass("opencode running in both panes");
+
+    // ── Phase 3: Start prompt watchers + send tasks ───────────────────────
+    // Attach pipe-pane watchers BEFORE sending tasks so they're ready to
+    // catch the very first permission prompt.
+    log("Starting pipe-pane prompt watchers...");
+    s1.watcherLogFile = startPromptWatcher(s1.tmuxName);
+    s2.watcherLogFile = startPromptWatcher(s2.tmuxName);
+    pass("Prompt watchers attached (reactive, no polling)");
+
+    log("Sending tasks to both agents...");
+
+    const task1 = `Create a file called ${S1_FILE} with exactly this content: ${S1_CONTENT}`;
+    log(`  -> ${s1.title}: "${task1}"`);
+    if (!await sendKeys(s1.tmuxName, task1)) throw new Error(`send-keys failed for ${s1.title}`);
+
+    await sleep(1_500);
+
+    const task2 = `Create the directory subdir/ then create a file called ${S2_FILE} with exactly this content: ${S2_CONTENT}`;
+    log(`  -> ${s2.title}: "${task2}"`);
+    if (!await sendKeys(s2.tmuxName, task2)) throw new Error(`send-keys failed for ${s2.title}`);
+
+    // ── Phase 4: Wait for task completion ─────────────────────────────────
+    // Prompt clearing is fully handled by the pipe-pane watchers.
+    // This loop only checks for file creation (success) and crashes (early fail).
+    log("");
+    log("Waiting for tasks to complete (prompts cleared reactively by watchers)...");
+    log("");
+
+    let elapsed = 0;
+
+    while (elapsed < TASK_TIMEOUT_MS) {
+      await sleep(POLL_MS);
+      elapsed += POLL_MS;
+
+      let allDone = true;
+
+      for (const s of sessions) {
+        if (s.completed) continue;
+        allDone = false;
+
+        // early fail: task went to shell instead of opencode
+        const output = await captureTmux(s.tmuxName);
+        if (output.includes("command not found")) {
+          const tail = tailLines(output, 5).join("\n    ");
+          throw new Error(
+            `${s.title}: "command not found" detected — task sent to shell, not opencode.\n` +
+            `  opencode likely crashed. Last output:\n    ${tail}`
+          );
+        }
+
+        // check for task completion (file exists with expected content)
+        if (existsSync(s.targetFile)) {
+          try {
+            const content = readFileSync(s.targetFile, "utf-8");
+            if (content.includes(s.expectedContent)) {
+              s.completed = true;
+              s.completedAtMs = elapsed;
+              const stats = readPromptStats(s.watcherLogFile);
+              log(`  [${s.title}] DONE in ${(elapsed / 1000).toFixed(0)}s ` +
+                `(${stats.count} prompts cleared by watcher)`);
+              continue;
+            }
+          } catch {}
+        }
+
+        // periodic progress (every ~15s)
+        if (elapsed % 15_000 < POLL_MS) {
+          const stats = readPromptStats(s.watcherLogFile);
+          log(`  [${s.title}] ${(elapsed / 1000).toFixed(0)}s elapsed, ` +
+            `${stats.count} prompts cleared, ` +
+            `last: ${lastNonEmptyLine(output).slice(0, 80)}`);
+        }
+      }
+
+      if (allDone) break;
+    }
+
+    // ── Phase 5: Results ──────────────────────────────────────────────────
+    log("");
+    log("Results");
+    log("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+
+    let totalPrompts = 0;
+
+    for (const s of sessions) {
+      const stats = readPromptStats(s.watcherLogFile);
+      totalPrompts += stats.count;
+
+      if (s.completed) {
+        pass(`${s.title}: file created in ${(s.completedAtMs / 1000).toFixed(0)}s, ` +
+          `${stats.count} prompts cleared by watcher`);
+        if (stats.lines.length > 0) {
+          for (const line of stats.lines) {
+            log(`    ${line}`);
+          }
+        }
+      } else {
+        const output = await captureTmux(s.tmuxName);
+        const tail = tailLines(output, 8);
+        console.error(`  \u274c ${s.title}: task did not complete in ${(TASK_TIMEOUT_MS / 1000).toFixed(0)}s`);
+        console.error(`     prompts cleared by watcher: ${stats.count}`);
+        console.error(`     file exists: ${existsSync(s.targetFile)}`);
+        console.error(`     last output:`);
+        for (const line of tail) {
+          console.error(`       ${line.slice(0, 120)}`);
+        }
+        if (stats.lines.length > 0) {
+          console.error(`     watcher log:`);
+          for (const line of stats.lines) {
+            console.error(`       ${line}`);
+          }
+        }
+        exitCode = 1;
+      }
+    }
+
+    if (totalPrompts > 0) {
+      pass(`Total: ${totalPrompts} permission prompts cleared reactively by pipe-pane watchers`);
+    } else {
+      log("  (no permission prompts appeared — check opencode permission settings)");
+    }
 
   } catch (err) {
-    console.error(`\n💥 Unexpected error: ${err}`);
+    console.error(`\n  error: ${err}`);
+    exitCode = 1;
   } finally {
-    // Always clean up
-    await cleanup();
+    log("");
+    await cleanup(sessionTitles, sessions);
   }
 
-  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`\n────────────────────────────────────────────────`);
-  console.log(`Integration test completed in ${elapsed}s`);
-  console.log(`────────────────────────────────────────────────\n`);
+  const totalSec = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log("");
+  console.log(`  ${exitCode === 0 ? "PASSED" : "FAILED"} in ${totalSec}s`);
+  console.log("");
+  process.exit(exitCode);
 }
 
 main().catch((err) => {
