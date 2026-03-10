@@ -16,6 +16,12 @@ export class OpencodeReasoner implements Reasoner {
   private serverProcess: ReturnType<typeof import("node:child_process").spawn> | null = null;
   private client: OpencodeClient | null = null;
   private sessionId: string | null = null;
+  private messageCount = 0;
+
+  // rotate to a fresh session after this many reasoning calls to prevent
+  // unbounded context accumulation that causes LLM timeouts (~15 messages
+  // was the observed breaking point; 7 gives a 2x safety margin)
+  static readonly MAX_SESSION_MESSAGES = 7;
 
   constructor(config: AoaoeConfig, globalContext?: string) {
     this.config = config;
@@ -86,10 +92,11 @@ export class OpencodeReasoner implements Reasoner {
   private async decideViaSDK(prompt: string, signal?: AbortSignal): Promise<ReasonerResult> {
     const client = this.client!;
 
-    // create session on first call (or recreate if previous session went stale)
+    // create session on first call, after rotation, or after error reset
     if (!this.sessionId) {
       const session = await client.createSession("aoaoe-supervisor");
       this.sessionId = session.id;
+      this.messageCount = 0;
 
       // inject system prompt (with global context) as context
       await client.sendMessage(this.sessionId, this.systemPrompt, true);
@@ -97,30 +104,64 @@ export class OpencodeReasoner implements Reasoner {
 
     try {
       const response = await client.sendMessage(this.sessionId, prompt, false, signal);
-      if (signal?.aborted) return { actions: [{ action: "wait", reason: "aborted" }] };
+      if (signal?.aborted) {
+        // timeout/interrupt — reset session so next call starts fresh
+        // (without this, the bloated session causes infinite timeouts)
+        this.resetSession("aborted");
+        return { actions: [{ action: "wait", reason: "aborted" }] };
+      }
+
+      this.messageCount++;
+
+      // proactive session rotation: prevent context from growing until it
+      // causes timeouts. each observation can be up to 100KB; after 7 calls
+      // the session history is ~1MB which is near the LLM's processing limit.
+      if (this.messageCount >= OpencodeReasoner.MAX_SESSION_MESSAGES) {
+        this.resetSession("rotation", `after ${this.messageCount} messages`);
+      }
+
       return parseReasonerResponse(response);
     } catch (err) {
-      if (signal?.aborted) return { actions: [{ action: "wait", reason: "aborted" }] };
+      if (signal?.aborted) {
+        this.resetSession("aborted");
+        return { actions: [{ action: "wait", reason: "aborted" }] };
+      }
       // session may be stale (server restarted, session expired, etc.)
-      // reset sessionId so the next call creates a fresh one
-      this.log(`SDK request failed (resetting session): ${err}`);
-      this.sessionId = null;
+      this.resetSession("error", String(err));
 
       // retry once with a fresh session
       try {
         const session = await client.createSession("aoaoe-supervisor");
         this.sessionId = session.id;
+        this.messageCount = 0;
         await client.sendMessage(this.sessionId, this.systemPrompt, true, signal);
-        if (signal?.aborted) return { actions: [{ action: "wait", reason: "aborted" }] };
+        if (signal?.aborted) {
+          this.resetSession("aborted");
+          return { actions: [{ action: "wait", reason: "aborted" }] };
+        }
         const response = await client.sendMessage(this.sessionId, prompt, false, signal);
-        if (signal?.aborted) return { actions: [{ action: "wait", reason: "aborted" }] };
+        if (signal?.aborted) {
+          this.resetSession("aborted");
+          return { actions: [{ action: "wait", reason: "aborted" }] };
+        }
+        this.messageCount = 1;
         return parseReasonerResponse(response);
       } catch (retryErr) {
         this.log(`SDK retry also failed: ${retryErr}`);
         this.sessionId = null;
+        this.messageCount = 0;
         return { actions: [{ action: "wait", reason: "SDK session error" }] };
       }
     }
+  }
+
+  private resetSession(reason: string, detail?: string): void {
+    const msg = detail ? `${reason}: ${detail}` : reason;
+    if (this.sessionId) {
+      this.log(`resetting session (${msg})`);
+    }
+    this.sessionId = null;
+    this.messageCount = 0;
   }
 
   private async decideViaCli(prompt: string, signal?: AbortSignal): Promise<ReasonerResult> {

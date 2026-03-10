@@ -11,7 +11,7 @@ tmux, decides when to intervene, acts.
 
 ```bash
 npm run build            # tsc -> dist/
-npm test                 # build + node --test (467 tests, node:test stdlib)
+npm test                 # build + node --test (474 tests, node:test stdlib)
 npm start                # run daemon
 aoaoe --dry-run          # observe + reason, don't execute
 aoaoe --verbose          # verbose logging
@@ -85,7 +85,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Testing
-- 467 tests across 19 files, `node:test` (stdlib, zero deps)
+- 474 tests across 19 files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Run: `npm test`
 
