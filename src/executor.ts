@@ -2,8 +2,14 @@ import { exec, execQuiet } from "./shell.js";
 import { appendFileSync, mkdirSync, statSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { existsSync } from "node:fs";
 import type { Action, AoaoeConfig, SessionSnapshot } from "./types.js";
 import { setSessionTask } from "./daemon-state.js";
+
+// known valid AoE tool names — used to validate create_agent tool field
+export const VALID_TOOLS = new Set([
+  "opencode", "claude-code", "cursor", "windsurf", "aider", "codex", "cline",
+]);
 
 const LOG_DIR = join(homedir(), ".aoaoe");
 const LOG_FILE = join(LOG_DIR, "actions.log");
@@ -27,13 +33,22 @@ export class Executor {
     const results: ActionLogEntry[] = [];
 
     for (const action of actions) {
-      // rate limit: don't hammer the same session
+      // rate limit: don't hammer the same session (or create_agent spam)
       // normalize through resolver so title-based and ID-based references
       // hit the same rate limit bucket
       if ("session" in action && action.session) {
         const resolvedId = this.resolveSessionId(action.session, snapshots);
         if (this.isRateLimited(resolvedId)) {
           const entry = this.logAction(action, false, "rate limited (too soon)");
+          results.push(entry);
+          continue;
+        }
+      }
+      // rate limit create_agent by title to prevent LLM from spamming agent creation
+      if (action.action === "create_agent") {
+        const bucket = `create:${action.title?.toLowerCase() ?? "unknown"}`;
+        if (this.isRateLimited(bucket)) {
+          const entry = this.logAction(action, false, "rate limited (create_agent too soon)");
           results.push(entry);
           continue;
         }
@@ -55,16 +70,16 @@ export class Executor {
         return this.sendInput(action.session, action.text, snapshots);
 
       case "start_session":
-        return this.startSession(action.session);
+        return this.startSession(action.session, snapshots);
 
       case "stop_session":
-        return this.stopSession(action.session);
+        return this.stopSession(action.session, snapshots);
 
       case "create_agent":
         return this.createAgent(action.path, action.title, action.tool);
 
       case "remove_agent":
-        return this.removeAgent(action.session);
+        return this.removeAgent(action.session, snapshots);
 
       case "wait":
         return this.logAction(action, true, action.reason ?? "no action needed");
@@ -123,9 +138,10 @@ export class Executor {
     );
   }
 
-  private async startSession(sessionId: string): Promise<ActionLogEntry> {
-    const result = await exec("aoe", ["session", "start", sessionId]);
-    this.markAction(sessionId);
+  private async startSession(sessionId: string, snapshots: SessionSnapshot[] = []): Promise<ActionLogEntry> {
+    const resolvedId = this.resolveSessionId(sessionId, snapshots);
+    const result = await exec("aoe", ["session", "start", resolvedId]);
+    this.markAction(resolvedId);
 
     return this.logAction(
       { action: "start_session", session: sessionId },
@@ -134,9 +150,10 @@ export class Executor {
     );
   }
 
-  private async stopSession(sessionId: string): Promise<ActionLogEntry> {
-    const result = await exec("aoe", ["session", "stop", sessionId]);
-    this.markAction(sessionId);
+  private async stopSession(sessionId: string, snapshots: SessionSnapshot[] = []): Promise<ActionLogEntry> {
+    const resolvedId = this.resolveSessionId(sessionId, snapshots);
+    const result = await exec("aoe", ["session", "stop", resolvedId]);
+    this.markAction(resolvedId);
 
     return this.logAction(
       { action: "stop_session", session: sessionId },
@@ -150,8 +167,44 @@ export class Executor {
     title: string,
     tool: string
   ): Promise<ActionLogEntry> {
+    // validate path exists as a directory
+    if (!path || !existsSync(path)) {
+      return this.logAction(
+        { action: "create_agent", path, title, tool },
+        false,
+        `path does not exist: ${path}`
+      );
+    }
+    try {
+      if (!statSync(path).isDirectory()) {
+        return this.logAction(
+          { action: "create_agent", path, title, tool },
+          false,
+          `path is not a directory: ${path}`
+        );
+      }
+    } catch {
+      return this.logAction(
+        { action: "create_agent", path, title, tool },
+        false,
+        `cannot stat path: ${path}`
+      );
+    }
+
+    // validate tool name
+    if (!tool || !VALID_TOOLS.has(tool.toLowerCase())) {
+      return this.logAction(
+        { action: "create_agent", path, title, tool },
+        false,
+        `unknown tool "${tool}", expected one of: ${[...VALID_TOOLS].join(", ")}`
+      );
+    }
+
     const args = ["add", path, "-t", title, "-c", tool, "-y"]; // -y for yolo mode
     const result = await exec("aoe", args);
+
+    // mark rate limit under title bucket
+    this.markAction(`create:${title.toLowerCase()}`);
 
     return this.logAction(
       { action: "create_agent", path, title, tool },
@@ -160,9 +213,10 @@ export class Executor {
     );
   }
 
-  private async removeAgent(sessionId: string): Promise<ActionLogEntry> {
-    const result = await exec("aoe", ["remove", sessionId, "-y"]);
-    this.markAction(sessionId);
+  private async removeAgent(sessionId: string, snapshots: SessionSnapshot[] = []): Promise<ActionLogEntry> {
+    const resolvedId = this.resolveSessionId(sessionId, snapshots);
+    const result = await exec("aoe", ["remove", resolvedId, "-y"]);
+    this.markAction(resolvedId);
 
     return this.logAction(
       { action: "remove_agent", session: sessionId },

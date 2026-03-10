@@ -77,6 +77,20 @@ export function validateConfig(config: AoaoeConfig): void {
   if (typeof config.policies?.maxErrorsBeforeRestart !== "number" || config.policies.maxErrorsBeforeRestart < 1) {
     errors.push(`policies.maxErrorsBeforeRestart must be >= 1, got ${config.policies?.maxErrorsBeforeRestart}`);
   }
+  // maxIdleBeforeNudgeMs: 0 would flag every session as idle every poll cycle
+  if (config.policies?.maxIdleBeforeNudgeMs !== undefined) {
+    const idle = config.policies.maxIdleBeforeNudgeMs;
+    if (typeof idle !== "number" || !isFinite(idle) || idle < config.pollIntervalMs) {
+      errors.push(`policies.maxIdleBeforeNudgeMs must be a finite number >= pollIntervalMs (${config.pollIntervalMs}), got ${idle}`);
+    }
+  }
+  // actionCooldownMs: 0 would disable rate limiting entirely
+  if (config.policies?.actionCooldownMs !== undefined) {
+    const cd = config.policies.actionCooldownMs;
+    if (typeof cd !== "number" || !isFinite(cd) || cd < 1000) {
+      errors.push(`policies.actionCooldownMs must be a finite number >= 1000, got ${cd}`);
+    }
+  }
 
   if (errors.length > 0) {
     throw new Error(`invalid config:\n  ${errors.join("\n  ")}`);

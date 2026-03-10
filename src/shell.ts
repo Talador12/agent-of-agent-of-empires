@@ -44,15 +44,17 @@ export async function exec(
     );
 
     // abort handler: kill the child process when signal fires
+    let sigkillTimer: ReturnType<typeof setTimeout> | undefined;
     const onAbort = () => {
       child.kill("SIGTERM");
-      // give it 2s to die, then SIGKILL
-      setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 2000);
+      // give it 2s to die, then SIGKILL — clear timer in cleanup to avoid leak
+      sigkillTimer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 2000);
     };
     signal?.addEventListener("abort", onAbort, { once: true });
 
     const cleanup = () => {
       signal?.removeEventListener("abort", onAbort);
+      if (sigkillTimer !== undefined) clearTimeout(sigkillTimer);
     };
   });
 }

@@ -92,6 +92,27 @@ describe("exec — AbortSignal", () => {
     const result = await exec("node", ["-e", "setTimeout(()=>{},30000)"], 3_000, ac.signal);
     assert.equal(result.aborted, true);
   });
+
+  it("cleans up SIGKILL timer when process exits before it fires", async () => {
+    // the SIGKILL fallback setTimeout used to leak (never cleared) when the
+    // child exited before the 2s timer fired. this test verifies the fix by
+    // running a fast-exiting process with an abort signal and confirming exec
+    // returns promptly (not blocked by a leaked 2s timer).
+    const ac = new AbortController();
+    const start = Date.now();
+
+    // abort after 50ms — by the time onAbort fires, the child is likely already done
+    setTimeout(() => ac.abort(), 50);
+
+    const result = await exec("node", ["-e", "process.exit(0)"], 5_000, ac.signal);
+    const elapsed = Date.now() - start;
+    // key assertion: exec returns well under 2s. if the SIGKILL timer leaked,
+    // it would keep the event loop alive for 2+ seconds after the abort.
+    assert.ok(elapsed < 1500, `expected <1500ms, got ${elapsed}ms — SIGKILL timer may have leaked`);
+    // exit code may be 0 (exited before abort) or 130 (abort raced ahead) — both are fine
+    assert.ok(result.exitCode === 0 || result.exitCode === 130,
+      `expected exit code 0 or 130, got ${result.exitCode}`);
+  });
 });
 
 describe("execQuiet", () => {

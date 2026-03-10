@@ -65,8 +65,9 @@ export class Poller {
       return [];
     }
 
-    // fetch per-session status in parallel
-    const sessions: AoeSession[] = await Promise.all(
+    // fetch per-session status in parallel — use allSettled so one failing
+    // getSessionStatus doesn't lose all sessions
+    const statusResults = await Promise.allSettled(
       raw.map(async (s) => {
         const id = String(s.id ?? "");
         const title = String(s.title ?? "");
@@ -83,6 +84,34 @@ export class Poller {
         };
       })
     );
+
+    const sessions: AoeSession[] = [];
+    let statusFailures = 0;
+    for (let i = 0; i < statusResults.length; i++) {
+      const r = statusResults[i];
+      if (r.status === "fulfilled") {
+        sessions.push(r.value);
+      } else {
+        statusFailures++;
+        // still include the session with "unknown" status so it's not invisible
+        const s = raw[i];
+        const id = String(s.id ?? "");
+        const title = String(s.title ?? "");
+        sessions.push({
+          id,
+          title,
+          path: String(s.path ?? ""),
+          tool: String(s.tool ?? ""),
+          status: "unknown",
+          tmux_name: computeTmuxName(id, title),
+          group: s.group ? String(s.group) : undefined,
+          created_at: s.created_at ? String(s.created_at) : undefined,
+        });
+      }
+    }
+    if (statusFailures > 0) {
+      this.log(`${statusFailures} session status fetch(es) failed, marked as "unknown"`);
+    }
 
     return sessions;
   }
@@ -133,6 +162,7 @@ export class Poller {
 
     if (result.exitCode !== 0) {
       // session might not exist in tmux (stopped, etc)
+      this.log(`tmux capture failed for ${tmuxName}: exit ${result.exitCode} ${result.stderr.trim()}`);
       return "";
     }
 

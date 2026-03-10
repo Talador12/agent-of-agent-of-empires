@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 // for resolveTmuxName logic, we replicate it here since it's pure:
 
 import type { SessionSnapshot } from "./types.js";
+import { VALID_TOOLS } from "./executor.js";
 
 // default cooldown from executor.ts (config.policies.actionCooldownMs ?? 30_000)
 const DEFAULT_COOLDOWN_MS = 30_000;
@@ -139,5 +140,72 @@ describe("rate limiting (logic)", () => {
     // s2 has no entry
     assert.equal(recentActions.has("s2"), false);
     assert.equal(recentActions.has("s1"), true);
+  });
+
+  it("create_agent rate limits by title bucket", () => {
+    // simulate the create:title bucket pattern from executor.ts
+    const recentActions = new Map<string, number>();
+    const now = Date.now();
+
+    const bucket = `create:${"my-agent".toLowerCase()}`;
+    recentActions.set(bucket, now);
+
+    // within cooldown
+    const last = recentActions.get(bucket)!;
+    assert.equal(now - last < DEFAULT_COOLDOWN_MS, true);
+
+    // different title = different bucket
+    const otherBucket = `create:${"other-agent".toLowerCase()}`;
+    assert.equal(recentActions.has(otherBucket), false);
+  });
+});
+
+describe("VALID_TOOLS", () => {
+  it("contains known AoE tools", () => {
+    assert.ok(VALID_TOOLS.has("opencode"));
+    assert.ok(VALID_TOOLS.has("claude-code"));
+    assert.ok(VALID_TOOLS.has("cursor"));
+    assert.ok(VALID_TOOLS.has("windsurf"));
+    assert.ok(VALID_TOOLS.has("aider"));
+    assert.ok(VALID_TOOLS.has("codex"));
+    assert.ok(VALID_TOOLS.has("cline"));
+  });
+
+  it("rejects unknown tools", () => {
+    assert.equal(VALID_TOOLS.has("gpt4"), false);
+    assert.equal(VALID_TOOLS.has("vscode"), false);
+    assert.equal(VALID_TOOLS.has(""), false);
+  });
+
+  it("is not empty", () => {
+    assert.ok(VALID_TOOLS.size > 0);
+  });
+});
+
+describe("session ID resolution for start/stop/remove", () => {
+  // tests that resolveSessionId (used by startSession, stopSession, removeAgent)
+  // correctly resolves titles and prefixes to full IDs
+  const snaps = [
+    makeSnap("abcdef1234567890", "my-agent", "aoe_my-agent_abcdef12"),
+    makeSnap("99887766aabbccdd", "worker-2", "aoe_worker-2_99887766"),
+  ];
+
+  it("resolves title to full ID for rate limit bucket", () => {
+    // this is the bug: start/stop/remove used raw sessionId in markAction,
+    // so title-based references would create separate rate limit buckets
+    const resolvedFromTitle = resolveSessionId("my-agent", snaps);
+    const resolvedFromId = resolveSessionId("abcdef1234567890", snaps);
+    assert.equal(resolvedFromTitle, resolvedFromId);
+  });
+
+  it("resolves prefix to full ID for rate limit bucket", () => {
+    const resolvedFromPrefix = resolveSessionId("abcdef12", snaps);
+    const resolvedFromId = resolveSessionId("abcdef1234567890", snaps);
+    assert.equal(resolvedFromPrefix, resolvedFromId);
+  });
+
+  it("falls back to raw ref when session not found", () => {
+    const resolved = resolveSessionId("unknown-session", snaps);
+    assert.equal(resolved, "unknown-session");
   });
 });

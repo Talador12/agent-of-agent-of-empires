@@ -60,7 +60,6 @@ const cache = new Map<string, CachedContext>();
 // read a single context file, return its content or empty string
 export function readContextFile(filePath: string): string {
   try {
-    if (!existsSync(filePath)) return "";
     const stat = statSync(filePath);
     if (!stat.isFile()) return "";
 
