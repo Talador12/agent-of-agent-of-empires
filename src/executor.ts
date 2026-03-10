@@ -104,12 +104,23 @@ export class Executor {
       );
     }
 
-    // safety: refuse empty or whitespace-only input
-    if (!text.trim()) {
+    // permission-approve shorthand: empty text or Enter-only means "press Enter"
+    // to confirm the default selection on OpenCode/Claude Code permission prompts.
+    // the LLM returns empty text when it wants to press Enter without typing anything.
+    const isEnterOnly = !text.trim();
+
+    if (isEnterOnly) {
+      // send bare Enter (no literal text) to confirm permission prompts
+      const enterOk = await execQuiet("tmux", ["send-keys", "-t", tmuxName, "Enter"]);
+      const resolvedId = this.resolveSessionId(sessionId, snapshots);
+      if (enterOk) {
+        this.markAction(resolvedId);
+        setSessionTask(resolvedId, "(approved permission prompt)");
+      }
       return this.logAction(
-        { action: "send_input", session: sessionId, text },
-        false,
-        "refusing to send empty input"
+        { action: "send_input", session: sessionId, text: "(Enter)" },
+        enterOk,
+        enterOk ? `sent Enter to ${tmuxName}` : `send-keys Enter failed for ${tmuxName}`
       );
     }
 

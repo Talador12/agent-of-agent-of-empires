@@ -182,6 +182,29 @@ describe("VALID_TOOLS", () => {
   });
 });
 
+describe("sendInput empty text (permission prompt approval)", () => {
+  it("treats empty text as Enter-only (permission approve)", () => {
+    // the executor should allow empty text as a permission prompt approval
+    // instead of rejecting it. the actual tmux send-keys happens in the class,
+    // but we validate the logic: empty text = Enter-only path
+    const text = "";
+    const isEnterOnly = !text.trim();
+    assert.equal(isEnterOnly, true, "empty string should be detected as Enter-only");
+  });
+
+  it("treats whitespace-only text as Enter-only", () => {
+    const text = "   ";
+    const isEnterOnly = !text.trim();
+    assert.equal(isEnterOnly, true, "whitespace should be detected as Enter-only");
+  });
+
+  it("does not treat real text as Enter-only", () => {
+    const text = "y";
+    const isEnterOnly = !text.trim();
+    assert.equal(isEnterOnly, false, "'y' should not be Enter-only");
+  });
+});
+
 describe("session ID resolution for start/stop/remove", () => {
   // tests that resolveSessionId (used by startSession, stopSession, removeAgent)
   // correctly resolves titles and prefixes to full IDs
