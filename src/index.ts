@@ -7,6 +7,7 @@ import { printDashboard } from "./dashboard.js";
 import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
 import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState } from "./daemon-state.js";
+import { formatSessionSummaries, formatActionDetail } from "./console.js";
 import { type SessionPolicyState } from "./reasoner/prompt.js";
 import { loadGlobalContext } from "./context.js";
 import { tick as loopTick } from "./loop.js";
@@ -245,7 +246,6 @@ async function main() {
       } else {
         const nextTickAt = Date.now() + config.pollIntervalMs;
         writeState("sleeping", { pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt, paused: false });
-        reasonerConsole.writeStatus(`sleeping (next tick in ${config.pollIntervalMs / 1000}s)`);
 
         const wake = await wakeableSleep(config.pollIntervalMs, AOAOE_DIR);
         if (wake.reason === "wake") {
@@ -271,8 +271,9 @@ async function daemonTick(
   taskContext?: TaskState[],
   taskManager?: TaskManager
 ): Promise<boolean> {
-  // pre-tick: write IPC state
+  // pre-tick: write IPC state + tick separator in conversation log
   writeState("polling", { pollCount, pollIntervalMs: config.pollIntervalMs, tickStartedAt: Date.now() });
+  reasonerConsole.writeTickSeparator(pollCount);
 
   // user message -> console
   if (userMessage) {
@@ -285,7 +286,6 @@ async function daemonTick(
     shutdown: () => reasoner.shutdown(),
     decide: async (obs) => {
       writeState("reasoning", { pollCount, pollIntervalMs: config.pollIntervalMs });
-      reasonerConsole.writeStatus("reasoning...");
       process.stdout.write(" | reasoning...");
 
       const { result: r, interrupted } = await withTimeoutAndInterrupt(
@@ -340,10 +340,24 @@ async function daemonTick(
     `\r[poll #${pollCount}] ${sessionCount} sessions (${statuses}) | ${changeCount} changed${userTag}`
   );
 
-  // console: observation summary
-  if (changeCount > 0) {
+  // console: observation summary with per-session activity
+  {
     const changeSummary = observation.changes.map((c) => `${c.title} (${c.tool}): ${c.status}`);
-    reasonerConsole.writeObservation(sessionCount, changeCount, changeSummary);
+    const changedTitles = new Set(observation.changes.map((c) => c.title));
+    const sessionInfos = observation.sessions.map((snap) => {
+      const lines = snap.output.split("\n").filter((l) => l.trim());
+      const lastLine = lines.length > 0 ? lines[lines.length - 1].trim() : undefined;
+      return {
+        title: snap.session.title,
+        tool: snap.session.tool,
+        status: snap.session.status,
+        lastActivity: lastLine,
+      };
+    });
+    const summaries = sessionInfos.length > 0
+      ? formatSessionSummaries(sessionInfos, changedTitles)
+      : undefined;
+    reasonerConsole.writeObservation(sessionCount, changeCount, changeSummary, summaries);
   }
 
   if (skippedReason === "no changes") {
@@ -372,17 +386,19 @@ async function daemonTick(
     return false;
   }
 
-  // execution results
+  // execution results — resolve session IDs to titles for display
   writeState("executing", { pollCount, sessionCount, changeCount, sessions: sessionStates });
-  if (executed.length > 0) {
-    const actionCount = executed.filter((e) => e.action.action !== "wait").length;
-    if (actionCount > 0) reasonerConsole.writeStatus(`executing ${actionCount} action${actionCount !== 1 ? "s" : ""}`);
-  }
+  const sessionTitleMap = new Map(observation.sessions.map((s) => [s.session.id, s.session.title]));
   for (const entry of executed) {
     if (entry.action.action === "wait") continue;
     const icon = entry.success ? "+" : "!";
-    log(`[${icon}] ${entry.action.action}: ${entry.detail}`);
-    reasonerConsole.writeAction(entry.action.action, entry.detail, entry.success);
+    // resolve session title for rich display
+    const sessionId = "session" in entry.action ? (entry.action as { session: string }).session : undefined;
+    const sessionTitle = sessionId ? (sessionTitleMap.get(sessionId) ?? sessionId) : undefined;
+    const actionText = "text" in entry.action ? (entry.action as { text: string }).text : entry.detail;
+    const richDetail = formatActionDetail(entry.action.action, sessionTitle, actionText);
+    log(`[${icon}] ${richDetail}`);
+    reasonerConsole.writeAction(entry.action.action, richDetail, entry.success);
   }
   return false;
 }

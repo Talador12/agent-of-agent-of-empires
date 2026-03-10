@@ -163,6 +163,7 @@ async function handleCommand(cmd: string, rl: ReturnType<typeof createInterface>
     case "/help": printHelp(); break;
     case "/overview": await printOverview(); break;
     case "/tasks": await printOverview(); break; // alias
+    case "/sessions": printSessions(); break;
     case "/status": printStatus(); break;
     case "/dashboard":
       appendToInput("__CMD_DASHBOARD__");
@@ -289,6 +290,39 @@ async function printOverview() {
   }
 }
 
+// --- /sessions: quick session list from daemon state (no tmux capture) ---
+
+export function formatSessionsList(state: DaemonState): string {
+  if (!state.sessions || state.sessions.length === 0) return "  (no sessions)";
+  const lines: string[] = [];
+  for (const s of state.sessions) {
+    const icon = s.status === "working" ? "~" : s.status === "idle" || s.status === "stopped" ? "." : s.status === "error" ? "!" : "?";
+    const task = s.currentTask ? ` | task: ${s.currentTask}` : "";
+    const activity = s.lastActivity
+      ? s.lastActivity.length > 50 ? s.lastActivity.slice(0, 47) + "..." : s.lastActivity
+      : "(no output)";
+    lines.push(`  ${icon} ${s.title} [${s.tool}] ${s.status}${task}`);
+    lines.push(`    > ${activity}`);
+  }
+  return lines.join("\n");
+}
+
+function printSessions() {
+  const state = readState();
+  if (!isDaemonRunning()) {
+    console.log(`${YELLOW}daemon is not running${RESET}`);
+    console.log(`${DIM}use /overview instead (captures panes directly)${RESET}`);
+    return;
+  }
+  if (!state?.sessions || state.sessions.length === 0) {
+    console.log(`${DIM}no sessions reported by daemon${RESET}`);
+    return;
+  }
+  console.log(`\n${BOLD}sessions:${RESET} (from daemon state, poll #${state.pollCount})`);
+  console.log(formatSessionsList(state));
+  console.log();
+}
+
 // --- /status: quick daemon status ---
 
 function printStatus() {
@@ -391,10 +425,25 @@ export function buildStatusLineFromState(state: DaemonState | null, daemonRunnin
   } else {
     parts.push(state.phase);
   }
-  parts.push(`${state.sessionCount} sessions`);
+  // compact session names + states (e.g. "adventure: working, chv: idle")
+  if (state.sessions && state.sessions.length > 0 && !forTitle) {
+    const sessionParts = formatCompactSessions(state.sessions);
+    parts.push(sessionParts);
+  } else {
+    parts.push(`${state.sessionCount} sessions`);
+  }
   parts.push(`poll #${state.pollCount}`);
   if (state.paused) parts.push("PAUSED");
   return parts.join(" | ");
+}
+
+/** Compact session summary for the status ticker. Truncates long titles. */
+export function formatCompactSessions(sessions: DaemonState["sessions"]): string {
+  if (!sessions || sessions.length === 0) return "0 sessions";
+  return sessions.map((s) => {
+    const name = s.title.length > 12 ? s.title.slice(0, 10) + ".." : s.title;
+    return `${name}: ${s.status}`;
+  }).join(", ");
 }
 
 // --- helpers ---
@@ -415,7 +464,12 @@ function replayLog() {
 }
 
 export function colorize(text: string): string {
-  return text.replace(/^(.*?\[)(observation|you|reasoner|action|\+ action|! action|system|status)(\].*$)/gm, (_, pre, tag, post) => {
+  // first pass: colorize tick separator lines (──── tick #N ────)
+  let result = text.replace(/^(─{2,}.*─{2,})$/gm, (line) => {
+    return `${DIM}${line}${RESET}`;
+  });
+  // second pass: colorize tagged entries ([tag] ...)
+  result = result.replace(/^(.*?\[)(observation|you|reasoner|action|\+ action|! action|system|status)(\].*$)/gm, (_, pre, tag, post) => {
     switch (tag) {
       case "observation": return `${DIM}${pre}${tag}${post}${RESET}`;
       case "you": return `${GREEN}${pre}${tag}${post}${RESET}`;
@@ -427,6 +481,7 @@ export function colorize(text: string): string {
       default: return `${pre}${tag}${post}`;
     }
   });
+  return result;
 }
 
 function printHelp() {
@@ -434,6 +489,7 @@ function printHelp() {
 ${BOLD}commands:${RESET}
   /overview    show all AoE sessions with tasks and status (works without daemon)
   /tasks       alias for /overview
+  /sessions    quick session list from daemon state (instant, no tmux capture)
   /status      daemon connection status + countdown
   /dashboard   request full dashboard from daemon
   /interrupt   interrupt the current reasoner call

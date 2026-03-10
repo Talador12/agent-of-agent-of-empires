@@ -80,17 +80,28 @@ export class ReasonerConsole {
     this.writeSystem("---");
   }
 
+  // visual tick boundary — groups observation -> reasoning -> actions
+  writeTickSeparator(pollCount: number): void {
+    this.append(`\n${formatTickSeparator(pollCount)}`);
+  }
+
   // write a formatted entry to the conversation log
-  writeObservation(sessionCount: number, changeCount: number, changes: string[]): void {
+  writeObservation(sessionCount: number, changeCount: number, changes: string[], sessionSummaries?: string[]): void {
     const ts = this.ts();
-    this.append(`\n${ts} [observation] ${sessionCount} sessions, ${changeCount} changed`);
-    for (const c of changes) {
-      this.append(`  ${c}`);
+    this.append(`${ts} [observation] ${sessionCount} sessions, ${changeCount} changed`);
+    if (sessionSummaries && sessionSummaries.length > 0) {
+      for (const s of sessionSummaries) {
+        this.append(`  ${s}`);
+      }
+    } else {
+      for (const c of changes) {
+        this.append(`  ${c}`);
+      }
     }
   }
 
   writeUserMessage(msg: string): void {
-    this.append(`\n${this.ts()} [you] ${msg}`);
+    this.append(`${this.ts()} [you] ${msg}`);
   }
 
   writeReasoning(reasoning: string): void {
@@ -169,6 +180,53 @@ export class ReasonerConsole {
   static sessionName(): string {
     return SESSION_NAME;
   }
+}
+
+// --- pure formatting helpers (exported for testing) ---
+
+/** Format the tick separator line. Pattern: `──── tick #N ────` */
+export function formatTickSeparator(pollCount: number): string {
+  return `──── tick #${pollCount} ────`;
+}
+
+/** Status icon for a session: ~ working, . idle, ! error, ? unknown */
+function sessionIcon(status: string): string {
+  if (status === "working") return "~";
+  if (status === "idle" || status === "stopped") return ".";
+  if (status === "error") return "!";
+  return "?";
+}
+
+/**
+ * Build per-session one-liner summaries for the observation entry.
+ * Format: `~ title (tool) — last activity snippet`
+ */
+export function formatSessionSummaries(
+  sessions: Array<{ title: string; tool: string; status: string; lastActivity?: string }>,
+  changedTitles: Set<string>,
+): string[] {
+  return sessions.map((s) => {
+    const icon = sessionIcon(s.status);
+    const activity = s.lastActivity
+      ? s.lastActivity.length > 60 ? s.lastActivity.slice(0, 57) + "..." : s.lastActivity
+      : s.status;
+    const changed = changedTitles.has(s.title) ? " *" : "";
+    return `${icon} ${s.title} (${s.tool})${changed} — ${activity}`;
+  });
+}
+
+/**
+ * Format an action line with session title and text preview.
+ * For send_input: `send_input → title: text preview`
+ * For other actions: `action → title`
+ */
+export function formatActionDetail(action: string, sessionTitle: string | undefined, detail: string): string {
+  if (!sessionTitle) return `${action}: ${detail}`;
+  if (action === "send_input") {
+    const preview = detail.length > 80 ? detail.slice(0, 77) + "..." : detail;
+    return `${action} → ${sessionTitle}: ${preview}`;
+  }
+  return `${action} → ${sessionTitle}`;
 }
 
 // shell script that runs in the bottom tmux pane -- simple input loop

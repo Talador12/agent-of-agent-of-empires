@@ -5,103 +5,37 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.30.0 (in progress)
+## Version: v0.30.0
 
 ## Current Focus
 
-**v0.30 theme: "Conversational UX"** — make the chat feel like talking to the
-daemon, not reading a log file. The conversation log should show meaningful
-events only, with clear visual structure and rich context.
+451 tests across 22 files. All v0.30 items shipped.
 
-426 tests across 22 files. Goal: ~450+ after v0.30 tests.
+### What shipped in v0.30.0
 
-### v0.30 Roadmap
+**Theme: "Conversational UX"** — the chat now feels like talking to the daemon,
+not reading a log file. Meaningful events only, clear visual structure, rich context.
 
-The problem: you type a message in chat, see "queued", then read a stream
-of raw log lines to understand what happened. No clear visual hierarchy,
-noisy status lines, no connection between your message and the response.
+- **Reduced conversation log noise** — removed `writeStatus("reasoning...")` and
+  `writeStatus("sleeping...")` from index.ts. Status ticker already shows phase.
+- **Tick boundary markers** — `writeTickSeparator(pollCount)` writes
+  `──── tick #N ────` at start of each tick. Groups observation → reasoning → actions.
+- **Enhanced observations** — `writeObservation()` shows per-session one-liners
+  with status icons (`~` working, `.` idle, `!` error, `?` unknown), tool name,
+  and truncated last activity. Changed sessions marked with `*`.
+- **Rich action lines** — `send_input → session title: text preview` instead of
+  raw session IDs. Other actions also resolve to session titles.
+- **Session-aware status ticker** — `buildStatusLineFromState()` includes compact
+  session names + states (e.g. `adventure: working, chv: idle`).
+- **`/sessions` command** — instant session list from daemon-state.json with
+  icons, tool, status, current task, last activity. No tmux capture needed.
+- **Tick separator colorization** — `colorize()` renders `^─{2,}.*─{2,}$` as dim.
+- **25 new tests** — formatTickSeparator (3), formatSessionSummaries (6),
+  formatActionDetail (4), buildStatusLineFromState with sessions (2),
+  formatCompactSessions (3), formatSessionsList (4), colorize tick separators (3).
 
-**Before (v0.29.1):**
-```
-10:30:00 [status] received: focus on the auth module
-10:30:00 [status] reasoning...
-10:30:00 [you] focus on the auth module
-10:30:01 [observation] 3 sessions, 1 changed
-  adventure (opencode): working
-10:30:30 [reasoner] The adventure session is working on CharacterCreate...
-10:30:31 [+ action] send_input: Focus on the auth module first
-10:30:31 [status] sleeping (next tick in 10s)
-```
-
-**After (v0.30):**
-```
-10:30:00 [status] received: focus on the auth module
-──── tick #42 ────
-10:30:00 [you] focus on the auth module
-10:30:01 [observation] 3 sessions, 1 changed
-  ~ adventure (opencode) — writing CharacterCreate.tsx
-  . cloud-hypervisor (opencode) — idle
-  . aoaoe (opencode) — idle
-10:30:30 [reasoner] The adventure session is working on CharacterCreate...
-10:30:31 [+ action] send_input → adventure: Focus on the auth module first
-```
-
-#### TODO
-
-1. **Reduce conversation log noise** (`src/index.ts`)
-   - Remove `writeStatus("sleeping (next tick in Xs)")` — status ticker
-     already handles phase display in chat
-   - Remove `writeStatus("reasoning...")` — same, status ticker shows this
-   - Keep: receipts, executing N actions, system messages
-   - Result: conversation log only shows meaningful events
-
-2. **Tick boundary markers** (`src/console.ts`, `src/index.ts`)
-   - New `writeTickSeparator(pollCount)` method on ReasonerConsole
-   - Writes `──── tick #N ────` line at start of each tick
-   - Groups observation → reasoning → actions visually
-   - `colorize()` renders separator lines as dim
-
-3. **Enhanced observations with session summaries** (`src/console.ts`, `src/index.ts`)
-   - `writeObservation()` accepts per-session one-liners
-   - Shows: status icon + title (tool) — last activity snippet
-   - Icons: `~` working, `.` idle, `!` error, `?` unknown
-   - Data already available from poller snapshots
-
-4. **Rich action lines** (`src/index.ts`)
-   - `send_input` shows: `send_input → <session title>: <text preview>`
-   - Other actions show session title instead of raw ID where possible
-   - Truncate text preview to ~80 chars
-
-5. **Session-aware status ticker** (`src/chat.ts`)
-   - `buildStatusLineFromState()` includes compact session names + states
-   - e.g. `next: 8s | adventure: working, chv: idle | poll #12`
-   - Data already in `DaemonState.sessions` from daemon-state.json
-   - Truncate to fit terminal width (compact names)
-
-6. **`/sessions` command** (`src/chat.ts`)
-   - Quick session list from daemon-state.json (no tmux capture)
-   - Shows: title, tool, status, last activity, current task
-   - Instant response (reads cached IPC state, not live data)
-   - Complement to `/overview` (which does live tmux capture)
-
-7. **Update `colorize()`** (`src/chat.ts`)
-   - Add pattern for tick separator lines (`^──.*──$`)
-   - Render as dim — visual structure without noise
-
-8. **Tests** for all new pure logic:
-   - `chat.test.ts`: buildStatusLineFromState with sessions, colorize
-     for tick separators, /sessions output formatting
-   - `console.test.ts`: writeTickSeparator format, writeObservation
-     with session summaries
-
-#### Files to modify
-- `src/index.ts` — remove noisy status writes, add tick separator call,
-  pass session info to writeObservation, rich action lines
-- `src/console.ts` — writeTickSeparator(), enhanced writeObservation()
-- `src/chat.ts` — buildStatusLineFromState() with sessions, /sessions
-  command, colorize() tick separator pattern
-- `src/chat.test.ts` — tests for new chat logic
-- `src/console.test.ts` — tests for new console methods
+Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
+`src/chat.test.ts`, `src/console.test.ts`.
 
 ### What shipped in v0.29.1
 

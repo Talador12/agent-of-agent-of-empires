@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { colorize, isDaemonRunningFromState, getCountdownFromState, buildStatusLineFromState } from "./chat.js";
-import type { DaemonState } from "./types.js";
+import { colorize, isDaemonRunningFromState, getCountdownFromState, buildStatusLineFromState, formatCompactSessions, formatSessionsList } from "./chat.js";
+import type { DaemonState, DaemonSessionState } from "./types.js";
 
 // --- helpers ---
 
@@ -222,5 +222,125 @@ describe("buildStatusLineFromState", () => {
     const state = makeState({ phaseStartedAt: now - 100_000, pollIntervalMs: 10_000 });
     // daemon is stale, but we pass daemonRunning=false
     assert.equal(buildStatusLineFromState(state, false, true), "aoaoe (daemon offline)");
+  });
+
+  it("shows session names and statuses when sessions available", () => {
+    const now = Date.now();
+    const sessions: DaemonSessionState[] = [
+      { id: "1", title: "adventure", tool: "opencode", status: "working" },
+      { id: "2", title: "chv", tool: "opencode", status: "idle" },
+    ];
+    const state = makeState({ phase: "sleeping", nextTickAt: now + 5_000, sessions, sessionCount: 2, pollCount: 10 });
+    const line = buildStatusLineFromState(state, true, false, now);
+    assert.ok(line?.includes("adventure: working"), `expected session info in '${line}'`);
+    assert.ok(line?.includes("chv: idle"), `expected session info in '${line}'`);
+  });
+
+  it("falls back to session count for forTitle mode", () => {
+    const now = Date.now();
+    const sessions: DaemonSessionState[] = [
+      { id: "1", title: "adventure", tool: "opencode", status: "working" },
+    ];
+    const state = makeState({ phase: "sleeping", nextTickAt: now + 5_000, sessions, sessionCount: 1, pollCount: 5 });
+    const line = buildStatusLineFromState(state, true, true, now);
+    assert.ok(line?.includes("1 sessions"), `forTitle should use count, got '${line}'`);
+  });
+});
+
+// --- formatCompactSessions ---
+
+describe("formatCompactSessions", () => {
+  it("formats multiple sessions", () => {
+    const sessions: DaemonSessionState[] = [
+      { id: "1", title: "adventure", tool: "opencode", status: "working" },
+      { id: "2", title: "cloud-hyp", tool: "opencode", status: "idle" },
+    ];
+    const result = formatCompactSessions(sessions);
+    assert.ok(result.includes("adventure: working"));
+    assert.ok(result.includes("cloud-hyp: idle"));
+  });
+
+  it("truncates long titles to 12 chars", () => {
+    const sessions: DaemonSessionState[] = [
+      { id: "1", title: "a-very-long-session-name", tool: "opencode", status: "working" },
+    ];
+    const result = formatCompactSessions(sessions);
+    assert.ok(result.includes("a-very-lon.."), `expected truncated title in '${result}'`);
+    assert.ok(!result.includes("a-very-long-session-name"), "full title should not appear");
+  });
+
+  it("returns '0 sessions' for empty array", () => {
+    assert.equal(formatCompactSessions([]), "0 sessions");
+  });
+});
+
+// --- formatSessionsList ---
+
+describe("formatSessionsList", () => {
+  it("shows session details with icons", () => {
+    const state = makeState({
+      sessions: [
+        { id: "1", title: "adventure", tool: "opencode", status: "working", lastActivity: "editing auth.tsx" },
+        { id: "2", title: "chv", tool: "opencode", status: "idle", lastActivity: "cargo build done" },
+      ],
+    });
+    const result = formatSessionsList(state);
+    assert.ok(result.includes("~ adventure"), "working session should have ~ icon");
+    assert.ok(result.includes(". chv"), "idle session should have . icon");
+    assert.ok(result.includes("editing auth.tsx"));
+    assert.ok(result.includes("cargo build done"));
+  });
+
+  it("shows current task when present", () => {
+    const state = makeState({
+      sessions: [
+        { id: "1", title: "proj", tool: "opencode", status: "working", currentTask: "fix bug #123", lastActivity: "running tests" },
+      ],
+    });
+    const result = formatSessionsList(state);
+    assert.ok(result.includes("task: fix bug #123"));
+  });
+
+  it("shows '(no output)' when no lastActivity", () => {
+    const state = makeState({
+      sessions: [
+        { id: "1", title: "proj", tool: "opencode", status: "working" },
+      ],
+    });
+    const result = formatSessionsList(state);
+    assert.ok(result.includes("(no output)"));
+  });
+
+  it("returns '(no sessions)' for empty sessions", () => {
+    const state = makeState({ sessions: [] });
+    const result = formatSessionsList(state);
+    assert.ok(result.includes("(no sessions)"));
+  });
+});
+
+// --- colorize tick separators ---
+
+describe("colorize tick separators", () => {
+  it("colorizes tick separator lines as dim", () => {
+    const input = "──── tick #42 ────";
+    const output = colorize(input);
+    assert.ok(output.includes("\x1b[2m"), "separator should have DIM escape code");
+    assert.ok(output.includes("tick #42"));
+  });
+
+  it("colorizes separator mixed with other entries", () => {
+    const input = "──── tick #5 ────\n10:30:00 [you] hello\n──── tick #6 ────";
+    const output = colorize(input);
+    // both separators should be dim
+    const dimCount = (output.match(/\x1b\[2m/g) ?? []).length;
+    assert.ok(dimCount >= 2, `expected at least 2 DIM codes, got ${dimCount}`);
+    // user message should be green
+    assert.ok(output.includes("\x1b[32m"), "user message should be green");
+  });
+
+  it("does not colorize lines with only a few dashes", () => {
+    const input = "- a list item";
+    const output = colorize(input);
+    assert.equal(output, input, "single dash should not trigger separator coloring");
   });
 });
