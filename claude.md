@@ -22,15 +22,19 @@ now clearly document the test-context -> dry-run -> full mode progression.
 - Improved --dry-run description (clarifies: costs tokens, never touches sessions)
 - Fixed npm test glob (was missing root-level test files, only ran 43/158)
 
+### E2e testing with mock daemon
+- **Status:** Done
+- Extracted `loop.ts` — testable tick() that accepts PollerLike/Reasoner/ExecutorLike interfaces
+- MockPoller, MockReasoner, MockExecutor with queued responses
+- 15 tests covering: full observe->reason->execute loop, dry-run mode, user message injection,
+  policy enforcement (idle, error accumulation, permission prompts), multi-tick sequences,
+  wait-only skipping, policy state pruning, error recovery
+- 173 tests total across 8 files, all passing
+
 ### Fix Homebrew tap PAT
 - **Status:** Todo
 - `HOMEBREW_TAP_TOKEN` PAT needs `repo` scope for `peter-evans/repository-dispatch`
 - Once fixed, re-run release workflow to trigger tap update
-
-### End-to-end testing with mock daemon
-- **Status:** Todo
-- Mock-based: canned reasoner responses, verify daemon + chat integration
-- Goal: test the full observe -> reason -> execute loop without a live LLM
 
 ### Meta-level UX improvements
 - **Status:** Todo
@@ -43,7 +47,7 @@ now clearly document the test-context -> dry-run -> full mode progression.
 - v0.9.0: Auto-discovery of AI instruction files, `resolveProjectDir`, cross-platform inode de-dupe, `test-context` subcommand
 - v0.8.0: Title-based project directory resolution for meta-level aoe usage
 - v0.7.0: AGENTS.md + claude.md context loading, global + per-session context
-- 158 tests across 7 files, all passing
+- 173 tests across 8 files, all passing (added loop.test.ts with 15 e2e tests)
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases

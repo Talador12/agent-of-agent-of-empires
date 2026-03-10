@@ -72,7 +72,8 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Testing
-- 158 tests across 7 files, `node:test` (stdlib, zero deps)
+- 173 tests across 8 files, `node:test` (stdlib, zero deps)
+- Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Run: `npm test`
 
 ## Dependencies
