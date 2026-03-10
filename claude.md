@@ -5,74 +5,124 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.29.1 (unreleased)
+## Version: v0.30.0 (in progress)
 
 ## Current Focus
 
-Message processing UX: extracted pure functions for testable message handling,
-wired into main loop. Daemon now skips sleep when input is already queued.
-426 tests across 22 files.
+**v0.30 theme: "Conversational UX"** — make the chat feel like talking to the
+daemon, not reading a log file. The conversation log should show meaningful
+events only, with clear visual structure and rich context.
 
-### What changed in v0.29.1
+426 tests across 22 files. Goal: ~450+ after v0.30 tests.
 
-- **Message processing module (`src/message.ts`)**: Extracted pure functions
-  from `index.ts` — `classifyMessages()` separates commands from user text,
-  `formatUserMessages()` numbers multi-message bursts for the reasoner,
-  `buildReceipts()` generates per-message acknowledgment strings,
-  `shouldSkipSleep()` checks if the next tick should run immediately,
-  `hasPendingFile()` stat-only check for pending input file.
+### v0.30 Roadmap
 
-- **32 new unit tests (`src/message.test.ts`)**: Full coverage of all message
-  module functions including edge cases (empty input, single/multi messages,
-  truncation, all-commands, all-user-messages).
+The problem: you type a message in chat, see "queued", then read a stream
+of raw log lines to understand what happened. No clear visual hierarchy,
+noisy status lines, no connection between your message and the response.
 
-- **Wired into main loop (`src/index.ts`)**: Replaced inline message
-  classification with `classifyMessages()`, inline concatenation with
-  `formatUserMessages()`, generic acknowledgment with per-message `buildReceipts()`.
-  Added `shouldSkipSleep()` check before `wakeableSleep()` — daemon now
-  processes queued messages immediately without sleeping.
+**Before (v0.29.1):**
+```
+10:30:00 [status] received: focus on the auth module
+10:30:00 [status] reasoning...
+10:30:00 [you] focus on the auth module
+10:30:01 [observation] 3 sessions, 1 changed
+  adventure (opencode): working
+10:30:30 [reasoner] The adventure session is working on CharacterCreate...
+10:30:31 [+ action] send_input: Focus on the auth module first
+10:30:31 [status] sleeping (next tick in 10s)
+```
 
-- **`input.ts` `hasPending()` method**: Returns true when stdin queue has
-  unprocessed messages (4 new tests in `input.test.ts`).
+**After (v0.30):**
+```
+10:30:00 [status] received: focus on the auth module
+──── tick #42 ────
+10:30:00 [you] focus on the auth module
+10:30:01 [observation] 3 sessions, 1 changed
+  ~ adventure (opencode) — writing CharacterCreate.tsx
+  . cloud-hypervisor (opencode) — idle
+  . aoaoe (opencode) — idle
+10:30:30 [reasoner] The adventure session is working on CharacterCreate...
+10:30:31 [+ action] send_input → adventure: Focus on the auth module first
+```
 
-- **`console.ts` `hasPendingInput()` method**: Stat-only check on the
-  `pending-input.txt` file (5 new tests in `console.test.ts`).
+#### TODO
 
-- **Chat queue feedback updated (`src/chat.ts`)**: Changed "queued -- reasoner
-  will read this in ~Xs" to "queued -- daemon will pick this up momentarily"
-  to reflect instant wake via `fs.watch`. Shows phase-aware feedback when
-  reasoner is active.
+1. **Reduce conversation log noise** (`src/index.ts`)
+   - Remove `writeStatus("sleeping (next tick in Xs)")` — status ticker
+     already handles phase display in chat
+   - Remove `writeStatus("reasoning...")` — same, status ticker shows this
+   - Keep: receipts, executing N actions, system messages
+   - Result: conversation log only shows meaningful events
 
-- **Fix CI race condition (`src/wake.test.ts`)**: Sequential calls test used
-  a clean subdirectory for the third call to avoid stale inotify events on
-  Linux CI.
+2. **Tick boundary markers** (`src/console.ts`, `src/index.ts`)
+   - New `writeTickSeparator(pollCount)` method on ReasonerConsole
+   - Writes `──── tick #N ────` line at start of each tick
+   - Groups observation → reasoning → actions visually
+   - `colorize()` renders separator lines as dim
 
-- **2 new `[status]` colorization tests** in `chat.test.ts`.
+3. **Enhanced observations with session summaries** (`src/console.ts`, `src/index.ts`)
+   - `writeObservation()` accepts per-session one-liners
+   - Shows: status icon + title (tool) — last activity snippet
+   - Icons: `~` working, `.` idle, `!` error, `?` unknown
+   - Data already available from poller snapshots
 
-### What changed in v0.29.0
+4. **Rich action lines** (`src/index.ts`)
+   - `send_input` shows: `send_input → <session title>: <text preview>`
+   - Other actions show session title instead of raw ID where possible
+   - Truncate text preview to ~80 chars
 
-- **Wakeable sleep (`src/wake.ts`)**: New `wakeableSleep()` primitive using
-  `fs.watch` on `~/.aoaoe/` directory. Message latency 10s → ~100ms.
+5. **Session-aware status ticker** (`src/chat.ts`)
+   - `buildStatusLineFromState()` includes compact session names + states
+   - e.g. `next: 8s | adventure: working, chv: idle | poll #12`
+   - Data already in `DaemonState.sessions` from daemon-state.json
+   - Truncate to fit terminal width (compact names)
 
-- **Fix stdin `/interrupt` (`src/input.ts`)**: Now calls `requestInterrupt()`
-  to create the flag file (was broken — only logged a message).
+6. **`/sessions` command** (`src/chat.ts`)
+   - Quick session list from daemon-state.json (no tmux capture)
+   - Shows: title, tool, status, last activity, current task
+   - Instant response (reads cached IPC state, not live data)
+   - Complement to `/overview` (which does live tmux capture)
 
-- **Live status in conversation log**: `writeStatus()` method, phase
-  transitions written to log, message acknowledgment.
+7. **Update `colorize()`** (`src/chat.ts`)
+   - Add pattern for tick separator lines (`^──.*──$`)
+   - Render as dim — visual structure without noise
 
-- **Remove blocking post-interrupt wait**: Replaced 60s `waitForInput()`
-  busy-poll with continue-to-next-tick.
+8. **Tests** for all new pure logic:
+   - `chat.test.ts`: buildStatusLineFromState with sessions, colorize
+     for tick separators, /sessions output formatting
+   - `console.test.ts`: writeTickSeparator format, writeObservation
+     with session summaries
 
-- **`[status]` colorization in chat**, **12 unit tests** in `wake.test.ts`.
+#### Files to modify
+- `src/index.ts` — remove noisy status writes, add tick separator call,
+  pass session info to writeObservation, rich action lines
+- `src/console.ts` — writeTickSeparator(), enhanced writeObservation()
+- `src/chat.ts` — buildStatusLineFromState() with sessions, /sessions
+  command, colorize() tick separator pattern
+- `src/chat.test.ts` — tests for new chat logic
+- `src/console.test.ts` — tests for new console methods
 
-## Working Items
+### What shipped in v0.29.1
 
-### Remaining backlog
-- **CI on PR creation** — add `pull_request` trigger to `.github/workflows/ci.yml` so tests run automatically on PR open/sync, validating before merge
+- Message processing module (`src/message.ts`) — classifyMessages,
+  formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile
+- 32 tests, wired into main loop, skip-sleep for queued messages
+- Chat queue feedback updated for instant wake
+- CI race condition fix in wake.test.ts
+
+### What shipped in v0.29.0
+
+- Wakeable sleep (`src/wake.ts`) — message latency 10s → ~100ms
+- Fix stdin `/interrupt`, live status in conversation log
+- Remove blocking post-interrupt wait, 12 tests in wake.test.ts
+
+## Backlog (not v0.30)
+
+- **CI on PR creation** — add `pull_request` trigger to `.github/workflows/ci.yml`
 - `OpencodeReasoner.shutdown()` doesn't clean up orphaned servers from prior runs
 - `index.ts` dynamic imports in `testContext` that could be static
 - `types.ts` `AoeSession.status` is `string` instead of union type
-- Meta-level UX improvements (auto session naming, onboarding)
 - IPC test isolation (make state dir configurable to prevent daemon race)
 - Homebrew tap PAT needs `repo` scope for dispatch
 
