@@ -216,18 +216,30 @@ export function loadGlobalContext(cwd?: string): string {
   return `\n\n--- GLOBAL PROJECT CONTEXT (from supervisor working directory) ---\n${context}`;
 }
 
-// resolve a session's actual project directory.
+// how a project directory was resolved — useful for diagnostics
+export type ResolutionSource =
+  | "sessionDirs"      // explicit config mapping
+  | "direct-child"     // basePath/<title>
+  | "nested-child"     // basePath/<group>/<title>
+  | null;              // not found
+
+export interface ResolutionResult {
+  dir: string | null;
+  source: ResolutionSource;
+}
+
+// resolve a session's actual project directory with source tracking.
 // priority order:
 //   1. explicit sessionDirs mapping (from config)
 //   2. direct child: basePath/<title>
 //   3. nested child: basePath/<group>/<title>
-// returns the resolved path, or null if not found.
-export function resolveProjectDir(
+// returns { dir, source } for diagnostics.
+export function resolveProjectDirWithSource(
   basePath: string,
   sessionTitle: string,
   sessionDirs?: Record<string, string>,
-): string | null {
-  if (!basePath || !sessionTitle) return null;
+): ResolutionResult {
+  if (!basePath || !sessionTitle) return { dir: null, source: null };
 
   // 1. explicit mapping takes priority — no heuristics needed
   if (sessionDirs) {
@@ -238,7 +250,7 @@ export function resolveProjectDir(
       )?.[1];
     if (explicit) {
       const resolved = resolve(basePath, explicit);
-      if (isDir(resolved)) return resolved;
+      if (isDir(resolved)) return { dir: resolved, source: "sessionDirs" };
     }
   }
 
@@ -252,7 +264,7 @@ export function resolveProjectDir(
     for (const entry of topEntries) {
       if (normalize(entry) === needle) {
         const candidate = join(basePath, entry);
-        if (isDir(candidate)) return candidate;
+        if (isDir(candidate)) return { dir: candidate, source: "direct-child" };
       }
     }
 
@@ -267,7 +279,7 @@ export function resolveProjectDir(
       for (const child of groupChildren) {
         if (normalize(child) === needle) {
           const candidate = join(groupDir, child);
-          if (isDir(candidate)) return candidate;
+          if (isDir(candidate)) return { dir: candidate, source: "nested-child" };
         }
       }
     }
@@ -275,7 +287,16 @@ export function resolveProjectDir(
     // filesystem errors -- fall through
   }
 
-  return null;
+  return { dir: null, source: null };
+}
+
+// convenience wrapper — returns just the path (backward compatible)
+export function resolveProjectDir(
+  basePath: string,
+  sessionTitle: string,
+  sessionDirs?: Record<string, string>,
+): string | null {
+  return resolveProjectDirWithSource(basePath, sessionTitle, sessionDirs).dir;
 }
 
 // load per-session context by resolving the project directory from the title

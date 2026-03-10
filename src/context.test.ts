@@ -9,6 +9,7 @@ import {
   loadGlobalContext,
   loadSessionContext,
   resolveProjectDir,
+  resolveProjectDirWithSource,
   discoverContextFiles,
   clearContextCache,
 } from "./context.js";
@@ -340,6 +341,41 @@ describe("resolveProjectDir with sessionDirs", () => {
   it("empty sessionDirs behaves same as no sessionDirs", () => {
     mkdirSync(join(TMP, "adventure"), { recursive: true });
     assert.equal(resolveProjectDir(TMP, "adventure", {}), join(TMP, "adventure"));
+  });
+});
+
+describe("resolveProjectDirWithSource", () => {
+  it("reports sessionDirs source for explicit mapping", () => {
+    mkdirSync(join(TMP, "custom", "proj"), { recursive: true });
+    const result = resolveProjectDirWithSource(TMP, "proj", { proj: "custom/proj" });
+    assert.equal(result.dir, join(TMP, "custom", "proj"));
+    assert.equal(result.source, "sessionDirs");
+  });
+
+  it("reports direct-child source for top-level match", () => {
+    mkdirSync(join(TMP, "adventure"), { recursive: true });
+    const result = resolveProjectDirWithSource(TMP, "adventure");
+    assert.equal(result.dir, join(TMP, "adventure"));
+    assert.equal(result.source, "direct-child");
+  });
+
+  it("reports nested-child source for group/repo match", () => {
+    mkdirSync(join(TMP, "github", "adventure"), { recursive: true });
+    const result = resolveProjectDirWithSource(TMP, "adventure");
+    assert.equal(result.dir, join(TMP, "github", "adventure"));
+    assert.equal(result.source, "nested-child");
+  });
+
+  it("reports null source when not found", () => {
+    const result = resolveProjectDirWithSource(TMP, "nonexistent");
+    assert.equal(result.dir, null);
+    assert.equal(result.source, null);
+  });
+
+  it("reports null source for empty inputs", () => {
+    const result = resolveProjectDirWithSource("", "title");
+    assert.equal(result.dir, null);
+    assert.equal(result.source, null);
   });
 });
 

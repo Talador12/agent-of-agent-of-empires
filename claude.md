@@ -9,8 +9,8 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 
 ## Current Focus
 
-Release v0.11.0: sessionDirs config for explicit project directory mapping,
-daemonTick refactor to use loop.ts, 183 tests passing.
+v0.11.0 released. Post-release improvements: resolveProjectDirWithSource for
+diagnostics, test-context shows resolution source, AGENTS.md updated, 188 tests.
 
 ## Working Items
 
@@ -41,13 +41,14 @@ daemonTick refactor to use loop.ts, 183 tests passing.
 
 ## Completed
 
-- v0.11.0: sessionDirs config, daemonTick refactor using loop.ts, 183 tests
+- v0.11.0: sessionDirs config, daemonTick refactor using loop.ts,
+  resolveProjectDirWithSource diagnostics, 188 tests
 - v0.10.0: E2e loop tests with mock infrastructure, "Try It Safely" README section,
   CLI help improvements, CI test glob fix, two-file AI Working Context propagation
 - v0.9.0: Auto-discovery of AI instruction files, `resolveProjectDir`, cross-platform inode de-dupe, `test-context` subcommand
 - v0.8.0: Title-based project directory resolution for meta-level aoe usage
 - v0.7.0: AGENTS.md + claude.md context loading, global + per-session context
-- 183 tests across 8 files, all passing
+- 188 tests across 8 files, all passing
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases

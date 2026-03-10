@@ -400,7 +400,7 @@ async function waitForInput(
 // discover context files. touches nothing, just prints what it finds.
 async function testContext(): Promise<void> {
   const { exec: shellExec } = await import("./shell.js");
-  const { resolveProjectDir, discoverContextFiles, loadSessionContext } = await import("./context.js");
+  const { resolveProjectDirWithSource, discoverContextFiles, loadSessionContext } = await import("./context.js");
   const { computeTmuxName } = await import("./poller.js");
 
   const basePath = process.cwd();
@@ -443,8 +443,9 @@ async function testContext(): Promise<void> {
     console.log(`  tmux:      ${tmuxName}`);
 
     // resolve project directory
-    const projectDir = resolveProjectDir(basePath, s.title, sessionDirs);
-    console.log(`  resolved:  ${projectDir ?? "(not found — will fall back to session path)"}`);
+    const { dir: projectDir, source: resolutionSource } = resolveProjectDirWithSource(basePath, s.title, sessionDirs);
+    const sourceLabel = resolutionSource ? ` (via ${resolutionSource})` : "";
+    console.log(`  resolved:  ${projectDir ? projectDir + sourceLabel : "(not found — will fall back to session path)"}`);
 
     // discover context files in the resolved dir
     const scanDir = projectDir ?? s.path;

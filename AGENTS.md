@@ -11,7 +11,7 @@ tmux, decides when to intervene, acts.
 
 ```bash
 npm run build            # tsc -> dist/
-npm test                 # build + node --test (158 tests, node:test stdlib)
+npm test                 # build + node --test (183 tests, node:test stdlib)
 npm start                # run daemon
 aoaoe --dry-run          # observe + reason, don't execute
 aoaoe --verbose          # verbose logging
@@ -32,13 +32,20 @@ reasoner gets a system prompt defining the supervisor role + per-session
 project context (auto-discovered AI instruction files from each session's
 resolved directory).
 
+The main loop is split into two layers:
+- **`loop.ts`** — pure tick logic (poll -> reason -> execute + policy tracking).
+  Testable with MockPoller/MockReasoner/MockExecutor. No UI, no IPC.
+- **`index.ts`** — `daemonTick()` wraps `loop.ts` tick() with dashboard, status
+  line, IPC state file, console output, and interrupt support.
+
 ## Source Layout
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Main daemon loop, subcommands (attach, register, test-context) |
+| `src/index.ts` | Main daemon loop, `daemonTick()` wrapper, subcommands (attach, register, test-context) |
+| `src/loop.ts` | Extracted tick logic (poll -> reason -> execute), testable with mocks |
 | `src/config.ts` | Config loader, CLI arg parser, env validation |
-| `src/types.ts` | All interfaces — SessionSnapshot, Observation, Action, Reasoner |
+| `src/types.ts` | All interfaces — SessionSnapshot, Observation, Action, Reasoner, AoaoeConfig |
 | `src/poller.ts` | `aoe list --json` + `tmux capture-pane`, SHA-256 diff detection |
 | `src/context.ts` | `discoverContextFiles`, `resolveProjectDir`, `loadSessionContext`, caching |
 | `src/executor.ts` | Action dispatch — send_input, start/stop/restart, create/remove agent |
@@ -60,6 +67,12 @@ resolved directory).
 - **Single-repo**: User runs `aoe` from inside a project. `session.path` points to the project directly.
 - **Meta-level**: User runs `aoe` from a parent dir (e.g. `~/repos/`), manually names sessions to match projects. All sessions share the same `path`. `resolveProjectDir()` searches 2 levels deep to find the actual project dir by matching the session title.
 
+### sessionDirs config
+Explicit session title -> project directory mapping via `sessionDirs` in config.
+Checked first in `resolveProjectDir()` before heuristic filesystem search.
+Supports absolute and relative paths, case-insensitive title matching.
+Falls back to heuristic when key not found or mapped path doesn't exist on disk.
+
 ### Context loading
 Auto-discovers AI instruction files from each session's project directory.
 One `readdir` call, pattern match, done. Loads `AGENTS.md` + `claude.md`
@@ -72,7 +85,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Testing
-- 173 tests across 8 files, `node:test` (stdlib, zero deps)
+- 183 tests across 8 files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Run: `npm test`
 
