@@ -2,6 +2,11 @@ import type { AoaoeConfig, Reasoner, Observation, ReasonerResult } from "../type
 import { exec, sleep } from "../shell.js";
 import { buildSystemPrompt, formatObservation } from "./prompt.js";
 import { parseReasonerResponse, validateResult } from "./parse.js";
+import { writeFileSync, readFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const OPENCODE_PID_FILE = join(homedir(), ".aoaoe", "opencode-server.pid");
 
 // OpenCode backend: uses `opencode serve` + SDK for long-running sessions.
 // Falls back to `opencode run` if SDK is not available.
@@ -43,6 +48,7 @@ export class OpencodeReasoner implements Reasoner {
       this.serverProcess.kill("SIGTERM");
       this.serverProcess = null;
     }
+    try { unlinkSync(OPENCODE_PID_FILE); } catch {}
     throw new Error("opencode server failed to start within 30s");
   }
 
@@ -63,6 +69,8 @@ export class OpencodeReasoner implements Reasoner {
       this.serverProcess.kill("SIGTERM");
       this.serverProcess = null;
     }
+    // clean up PID file
+    try { unlinkSync(OPENCODE_PID_FILE); } catch {}
   }
 
   private async decideViaSDK(prompt: string): Promise<ReasonerResult> {
@@ -120,12 +128,42 @@ export class OpencodeReasoner implements Reasoner {
   }
 
   private async startServer(port: number): Promise<void> {
+    // kill any orphaned server from a previous run
+    this.killOrphanedServer();
+
     const { spawn } = await import("node:child_process");
     this.serverProcess = spawn("opencode", ["serve", "--port", String(port)], {
       stdio: "ignore",
       detached: true,
     });
     this.serverProcess.unref();
+
+    // write PID file so orphans can be found/killed later
+    if (this.serverProcess.pid) {
+      try {
+        mkdirSync(join(homedir(), ".aoaoe"), { recursive: true });
+        writeFileSync(OPENCODE_PID_FILE, String(this.serverProcess.pid));
+      } catch {
+        // best-effort
+      }
+    }
+  }
+
+  // kill a previously-spawned opencode server that may still be running
+  private killOrphanedServer(): void {
+    try {
+      const pid = parseInt(readFileSync(OPENCODE_PID_FILE, "utf-8").trim(), 10);
+      if (isNaN(pid)) return;
+      process.kill(pid, "SIGTERM");
+      this.log(`killed orphaned opencode server (pid ${pid})`);
+    } catch {
+      // file doesn't exist or process already gone -- expected
+    }
+    try {
+      unlinkSync(OPENCODE_PID_FILE);
+    } catch {
+      // ENOENT is fine
+    }
   }
 
   private async tryConnect(port: number): Promise<boolean> {

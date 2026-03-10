@@ -6,12 +6,13 @@
 // works standalone too: captures all AoE panes directly via tmux + aoe CLI
 // to show /overview even when the daemon isn't running.
 import { createInterface, emitKeypressEvents } from "node:readline";
-import { appendFileSync, writeFileSync, existsSync, mkdirSync, watchFile, unwatchFile, readFileSync, statSync, openSync, readSync, closeSync, unlinkSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { appendFileSync, writeFileSync, existsSync, mkdirSync, watchFile, unwatchFile, readFileSync, statSync, openSync, readSync, closeSync, unlinkSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { readState, requestInterrupt } from "./daemon-state.js";
 import { parseTasks, parseModel, parseContext, parseCost, parseLastLine, formatTaskList } from "./task-parser.js";
+import { computeTmuxName } from "./poller.js";
+import { exec } from "./shell.js";
 import type { DaemonState } from "./types.js";
 
 const AOAOE_DIR = join(homedir(), ".aoaoe");
@@ -36,6 +37,9 @@ const ESC_DOUBLE_TAP_MS = 500;
 // track last displayed status to avoid spamming
 let lastStatusLine = "";
 
+// log file watcher (hoisted so cleanup() can close it)
+let logWatcher: FSWatcher | null = null;
+
 function main() {
   mkdirSync(AOAOE_DIR, { recursive: true });
   writeFileSync(PID_FILE, String(process.pid));
@@ -51,20 +55,34 @@ function main() {
   // replay conversation history
   replayLog();
 
-  // watch conversation.log for new daemon output
+  // watch conversation.log for new daemon output using fs.watch (inotify/kqueue)
+  // falls back to watchFile polling if fs.watch isn't available
   let lastSize = existsSync(CONVO_LOG) ? statSync(CONVO_LOG).size : 0;
-  watchFile(CONVO_LOG, { interval: 500 }, (curr) => {
-    if (curr.size > lastSize) {
-      const fd = openSync(CONVO_LOG, "r");
-      const buf = Buffer.alloc(curr.size - lastSize);
-      readSync(fd, buf, 0, buf.length, lastSize);
-      closeSync(fd);
-      const newText = buf.toString("utf-8");
-      process.stdout.write(`\r\x1b[K${colorize(newText)}`);
-      rl.prompt(true);
-      lastSize = curr.size;
+
+  const onLogChange = () => {
+    try {
+      const currSize = statSync(CONVO_LOG).size;
+      if (currSize > lastSize) {
+        const fd = openSync(CONVO_LOG, "r");
+        const buf = Buffer.alloc(currSize - lastSize);
+        readSync(fd, buf, 0, buf.length, lastSize);
+        closeSync(fd);
+        const newText = buf.toString("utf-8");
+        process.stdout.write(`\r\x1b[K${colorize(newText)}`);
+        rl.prompt(true);
+        lastSize = currSize;
+      }
+    } catch {
+      // file may be truncated or removed
     }
-  });
+  };
+
+  try {
+    logWatcher = watch(CONVO_LOG, onLogChange);
+  } catch {
+    // fs.watch not available on this platform — fall back to polling
+    watchFile(CONVO_LOG, { interval: 500 }, onLogChange);
+  }
 
   // ESC-ESC detection
   if (process.stdin.isTTY) {
@@ -106,13 +124,13 @@ function main() {
     if (titleLine) process.stdout.write(`\x1b]2;${titleLine}\x07`);
   }, 5000);
 
-  rl.on("line", (line: string) => {
+  rl.on("line", async (line: string) => {
     const trimmed = line.trim();
     if (!trimmed) { rl.prompt(); return; }
 
     // slash commands
     if (trimmed.startsWith("/")) {
-      handleCommand(trimmed, rl);
+      await handleCommand(trimmed, rl);
       rl.prompt();
       return;
     }
@@ -138,12 +156,12 @@ function main() {
 
 // --- commands ---
 
-function handleCommand(cmd: string, rl: ReturnType<typeof createInterface>) {
+async function handleCommand(cmd: string, rl: ReturnType<typeof createInterface>) {
   const parts = cmd.split(/\s+/);
   switch (parts[0]) {
     case "/help": printHelp(); break;
-    case "/overview": printOverview(); break;
-    case "/tasks": printOverview(); break; // alias
+    case "/overview": await printOverview(); break;
+    case "/tasks": await printOverview(); break; // alias
     case "/status": printStatus(); break;
     case "/dashboard":
       appendToInput("__CMD_DASHBOARD__");
@@ -193,7 +211,7 @@ function handleInterrupt(rl: ReturnType<typeof createInterface>) {
 
 // --- /overview: capture all panes directly via tmux + aoe, parse tasks ---
 
-function printOverview() {
+async function printOverview() {
   console.log(`\n${BOLD}${CYAN}=== aoaoe overview ===${RESET}`);
 
   // daemon status
@@ -211,8 +229,8 @@ function printOverview() {
   }
   console.log();
 
-  // list all AoE sessions by calling aoe CLI directly
-  const sessions = listAoeSessions();
+  // list all AoE sessions by calling aoe CLI directly (async)
+  const sessions = await listAoeSessions();
   if (sessions.length === 0) {
     console.log(`  ${DIM}no AoE sessions found${RESET}`);
     console.log();
@@ -220,8 +238,8 @@ function printOverview() {
   }
 
   for (const s of sessions) {
-    // capture tmux pane output
-    const output = captureTmuxPane(s.tmuxName);
+    // capture tmux pane output (async)
+    const output = await captureTmuxPane(s.tmuxName);
     if (!output) {
       const statusIcon = `${RED}x${RESET}`;
       console.log(`${statusIcon} ${BOLD}${s.title}${RESET} ${DIM}[${s.tool}]${RESET} ${DIM}(tmux pane not found)${RESET}`);
@@ -300,34 +318,37 @@ interface AoeSessionInfo {
   tmuxName: string;
 }
 
-function listAoeSessions(): AoeSessionInfo[] {
+async function listAoeSessions(): Promise<AoeSessionInfo[]> {
   try {
-    const out = execFileSync("aoe", ["list", "--json"], { timeout: 10_000, encoding: "utf-8" });
-    const raw = JSON.parse(out) as Array<Record<string, string>>;
-    // get status for each session
-    return raw.map((s) => {
-      const id = s.id ?? "";
-      const title = s.title ?? "";
-      let status = "unknown";
-      try {
-        const showOut = execFileSync("aoe", ["session", "show", id, "--json"], { timeout: 5_000, encoding: "utf-8" });
-        status = (JSON.parse(showOut) as { status?: string }).status ?? "unknown";
-      } catch {}
-      // replicate AoE tmux naming
-      const safeTitle = title.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 20);
-      const tmuxName = `aoe_${safeTitle}_${id.slice(0, 8)}`;
-      return { id, title, tool: s.tool ?? "", status, tmuxName };
-    }).filter((s) => s.title !== "aoaoe"); // exclude ourselves
+    const result = await exec("aoe", ["list", "--json"], 10_000);
+    if (result.exitCode !== 0) return [];
+    const raw = JSON.parse(result.stdout) as Array<Record<string, string>>;
+    // get status for each session in parallel
+    const sessions = await Promise.all(
+      raw.map(async (s) => {
+        const id = s.id ?? "";
+        const title = s.title ?? "";
+        let status = "unknown";
+        try {
+          const showResult = await exec("aoe", ["session", "show", id, "--json"], 5_000);
+          if (showResult.exitCode === 0) {
+            status = (JSON.parse(showResult.stdout) as { status?: string }).status ?? "unknown";
+          }
+        } catch {}
+        const tmuxName = computeTmuxName(id, title);
+        return { id, title, tool: s.tool ?? "", status, tmuxName };
+      }),
+    );
+    return sessions.filter((s) => s.title !== "aoaoe"); // exclude ourselves
   } catch {
     return [];
   }
 }
 
-function captureTmuxPane(tmuxName: string): string | null {
+async function captureTmuxPane(tmuxName: string): Promise<string | null> {
   try {
-    return execFileSync("tmux", ["capture-pane", "-t", tmuxName, "-p", "-S", "-100"], {
-      timeout: 5_000, encoding: "utf-8",
-    });
+    const result = await exec("tmux", ["capture-pane", "-t", tmuxName, "-p", "-S", "-100"], 5_000);
+    return result.exitCode === 0 ? result.stdout : null;
   } catch {
     return null;
   }
@@ -441,7 +462,12 @@ ${BOLD}anything else${RESET} is sent to the reasoner as an operator message
 }
 
 function cleanup() {
-  unwatchFile(CONVO_LOG);
+  if (logWatcher) {
+    logWatcher.close();
+    logWatcher = null;
+  } else {
+    unwatchFile(CONVO_LOG);
+  }
   try {
     if (existsSync(PID_FILE) && readFileSync(PID_FILE, "utf-8").trim() === String(process.pid)) {
       unlinkSync(PID_FILE);

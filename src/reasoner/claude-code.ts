@@ -82,6 +82,8 @@ export class ClaudeCodeReasoner implements Reasoner {
     const match = output.match(/session[_\s]?(?:id)?[:\s]+([a-f0-9-]+)/i);
     if (match) {
       this.sessionId = match[1];
+    } else if (output.length > 0) {
+      this.log("could not extract session ID from output (resume will start fresh next call)");
     }
   }
 

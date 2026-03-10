@@ -2,7 +2,7 @@
 // supports two modes:
 // 1. standalone tmux session (aoaoe_reasoner) -- legacy fallback when not registered as AoE session
 // 2. file-only mode -- when chat.ts runs inside an AoE-managed tmux pane, we just read/write files
-import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { execQuiet, exec } from "./shell.js";
@@ -104,17 +104,31 @@ export class ReasonerConsole {
     this.append(`${this.ts()} [system] ${msg}`);
   }
 
-  // read and clear pending user input from the input pane
+  // read and clear pending user input from the input pane.
+  // uses atomic rename to avoid race where input written between read and clear is lost.
   drainInput(): string[] {
     if (!existsSync(INPUT_FILE)) return [];
 
-    const content = readFileSync(INPUT_FILE, "utf-8").trim();
-    if (!content) return [];
+    // atomic swap: rename to temp file, then read the temp.
+    // if chat.ts appends between rename and read, those writes go to a new INPUT_FILE
+    // (the old one is now at drainPath) so nothing is lost.
+    const drainPath = INPUT_FILE + ".drain";
+    try {
+      renameSync(INPUT_FILE, drainPath);
+    } catch {
+      // file may have been removed between existsSync and rename
+      return [];
+    }
 
-    // clear the file
-    writeFileSync(INPUT_FILE, "");
-
-    return content.split("\n").filter((l) => l.trim());
+    try {
+      const content = readFileSync(drainPath, "utf-8").trim();
+      // remove the temp file (best-effort)
+      try { unlinkSync(drainPath); } catch {}
+      if (!content) return [];
+      return content.split("\n").filter((l) => l.trim());
+    } catch {
+      return [];
+    }
   }
 
   async stop(): Promise<void> {

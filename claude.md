@@ -5,13 +5,12 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.15.0
+## Version: v0.16.0
 
 ## Current Focus
 
-Test coverage expansion + ANSI stripping for reliable diffing. 313 tests across
-14 files. Next: IPC race condition fix (console.ts atomic swap), remaining code
-review findings (AbortSignal for reasoner, PID file for opencode server).
+IPC hardening + chat.ts modernization. 323 tests across 15 files. Next:
+AbortSignal for reasoner timeout, end-to-end daemon+chat integration tests.
 
 ## Working Items
 
@@ -19,11 +18,6 @@ review findings (AbortSignal for reasoner, PID file for opencode server).
 - **Status:** Todo
 - `HOMEBREW_TAP_TOKEN` PAT needs `repo` scope for `peter-evans/repository-dispatch`
 - Once fixed, re-run release workflow to trigger tap update
-
-### IPC race condition fix (console.ts)
-- **Status:** Todo
-- `drainInput()` reads then truncates `pending-input.txt` non-atomically
-- Input can be lost between read and write. Should use rename+read (atomic swap)
 
 ### AbortSignal for reasoner timeout
 - **Status:** Todo
@@ -37,6 +31,13 @@ review findings (AbortSignal for reasoner, PID file for opencode server).
 
 ## Completed
 
+- v0.16.0: IPC hardening + chat modernization — atomic rename-based drain in
+  console.ts (fixes race condition where input lost between read and clear),
+  opencode server PID file (orphan detection + kill on restart), chat.ts async
+  rewrite (execFileSync -> async exec, no longer blocks event loop), fs.watch
+  replaces watchFile polling in chat.ts, chat.ts imports computeTmuxName from
+  poller.ts (DRY), tryExtractSessionId now logs on extraction failure,
+  console.test.ts with 10 atomic drain tests, 323 tests total
 - v0.15.0: test coverage expansion — 5 new test files (dashboard, claude-code,
   reasoner-factory, daemon-state, input), ANSI escape code stripping in poller
   (stripAnsi before hash+diff), 12 stripAnsi tests, 313 tests total
@@ -64,7 +65,7 @@ review findings (AbortSignal for reasoner, PID file for opencode server).
 - v0.9.0: Auto-discovery of AI instruction files, `resolveProjectDir`, cross-platform inode de-dupe, `test-context` subcommand
 - v0.8.0: Title-based project directory resolution for meta-level aoe usage
 - v0.7.0: AGENTS.md + claude.md context loading, global + per-session context
-- 313 tests across 14 files, all passing
+- 323 tests across 15 files, all passing
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases
