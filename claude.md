@@ -5,44 +5,65 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.29.0 (unreleased)
+## Version: v0.29.1 (unreleased)
 
 ## Current Focus
 
-Daemon UX improvements: wakeable sleep, live status, interrupt fixes.
-383 tests across 20 files.
+Message processing UX: extracted pure functions for testable message handling,
+wired into main loop. Daemon now skips sleep when input is already queued.
+426 tests across 22 files.
+
+### What changed in v0.29.1
+
+- **Message processing module (`src/message.ts`)**: Extracted pure functions
+  from `index.ts` — `classifyMessages()` separates commands from user text,
+  `formatUserMessages()` numbers multi-message bursts for the reasoner,
+  `buildReceipts()` generates per-message acknowledgment strings,
+  `shouldSkipSleep()` checks if the next tick should run immediately,
+  `hasPendingFile()` stat-only check for pending input file.
+
+- **32 new unit tests (`src/message.test.ts`)**: Full coverage of all message
+  module functions including edge cases (empty input, single/multi messages,
+  truncation, all-commands, all-user-messages).
+
+- **Wired into main loop (`src/index.ts`)**: Replaced inline message
+  classification with `classifyMessages()`, inline concatenation with
+  `formatUserMessages()`, generic acknowledgment with per-message `buildReceipts()`.
+  Added `shouldSkipSleep()` check before `wakeableSleep()` — daemon now
+  processes queued messages immediately without sleeping.
+
+- **`input.ts` `hasPending()` method**: Returns true when stdin queue has
+  unprocessed messages (4 new tests in `input.test.ts`).
+
+- **`console.ts` `hasPendingInput()` method**: Stat-only check on the
+  `pending-input.txt` file (5 new tests in `console.test.ts`).
+
+- **Chat queue feedback updated (`src/chat.ts`)**: Changed "queued -- reasoner
+  will read this in ~Xs" to "queued -- daemon will pick this up momentarily"
+  to reflect instant wake via `fs.watch`. Shows phase-aware feedback when
+  reasoner is active.
+
+- **Fix CI race condition (`src/wake.test.ts`)**: Sequential calls test used
+  a clean subdirectory for the third call to avoid stale inotify events on
+  Linux CI.
+
+- **2 new `[status]` colorization tests** in `chat.test.ts`.
 
 ### What changed in v0.29.0
 
 - **Wakeable sleep (`src/wake.ts`)**: New `wakeableSleep()` primitive using
-  `fs.watch` on `~/.aoaoe/` directory. Replaces dumb `sleep()` in the main
-  loop. Message latency drops from up to 10s (full poll interval) to ~100ms.
-  Interrupt works from ANY daemon phase (sleeping, polling, reasoning).
-  Falls back to pure timeout if watch dir doesn't exist.
+  `fs.watch` on `~/.aoaoe/` directory. Message latency 10s → ~100ms.
 
-- **Fix stdin `/interrupt` (`src/input.ts`)**: The `/interrupt` command now
-  calls `requestInterrupt()` to create the flag file. Previously it only
-  pushed a `__CMD_INTERRUPT__` marker that logged a message but never
-  actually triggered an interrupt. ESC-ESC from `aoaoe-chat` already worked
-  (it calls `requestInterrupt()` directly); now stdin `/interrupt` does too.
+- **Fix stdin `/interrupt` (`src/input.ts`)**: Now calls `requestInterrupt()`
+  to create the flag file (was broken — only logged a message).
 
-- **Live status in conversation log (`src/console.ts`, `src/index.ts`)**:
-  New `writeStatus()` method on `ReasonerConsole`. Phase transitions
-  (sleeping, reasoning, executing) are written to the conversation log
-  so `aoaoe-chat` shows daemon activity in real-time. Message acknowledgment:
-  `[status] received your message, processing...` when user input is drained.
+- **Live status in conversation log**: `writeStatus()` method, phase
+  transitions written to log, message acknowledgment.
 
-- **Remove blocking post-interrupt wait (`src/index.ts`)**: Replaced the 60s
-  `waitForInput()` busy-poll loop with a simple continue-to-next-tick.
-  Wakeable sleep picks up the user's follow-up message immediately via
-  `fs.watch` instead of blocking the main loop.
+- **Remove blocking post-interrupt wait**: Replaced 60s `waitForInput()`
+  busy-poll with continue-to-next-tick.
 
-- **`[status]` colorization in chat (`src/chat.ts`)**: Added `status` tag
-  to the colorize regex so `[status]` entries render with dim styling.
-
-- **12 new unit tests (`src/wake.test.ts`)**: timeout, wake on file change,
-  abort signal, cleanup (no leaked timers/watchers), sequential calls,
-  missing watch directory fallback.
+- **`[status]` colorization in chat**, **12 unit tests** in `wake.test.ts`.
 
 ## Working Items
 
@@ -57,6 +78,15 @@ Daemon UX improvements: wakeable sleep, live status, interrupt fixes.
 
 ## Completed
 
+- v0.29.1: Message processing module + instant skip-sleep (426 tests):
+  - **`message.ts`**: Pure functions — classifyMessages, formatUserMessages,
+    buildReceipts, shouldSkipSleep, hasPendingFile.
+  - **`message.test.ts`**: 32 tests covering all functions.
+  - **`index.ts`**: Wired message.ts functions, added shouldSkipSleep check.
+  - **`input.ts`**: hasPending() method + 4 tests.
+  - **`console.ts`**: hasPendingInput() method + 5 tests.
+  - **`chat.ts`**: Updated queue feedback for instant wake, 2 new colorize tests.
+  - **`wake.test.ts`**: Fixed CI race condition (Linux inotify stale event).
 - v0.29.0: Wakeable sleep + live status + interrupt fixes (383 tests):
   - **`wake.ts`**: New `wakeableSleep()` using `fs.watch` — message latency
     10s → ~100ms. Returns `{ reason, elapsed }` with timeout/wake/abort.

@@ -2,7 +2,7 @@
 // supports two modes:
 // 1. standalone tmux session (aoaoe_reasoner) -- legacy fallback when not registered as AoE session
 // 2. file-only mode -- when chat.ts runs inside an AoE-managed tmux pane, we just read/write files
-import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, renameSync, unlinkSync } from "node:fs";
+import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, renameSync, unlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { execQuiet, exec } from "./shell.js";
@@ -109,6 +109,18 @@ export class ReasonerConsole {
   // phase transition status — lighter than [system], visible in chat
   writeStatus(msg: string): void {
     this.append(`${this.ts()} [status] ${msg}`);
+  }
+
+  // check if pending-input.txt has content without draining it.
+  // used to decide whether to skip sleep after a tick.
+  hasPendingInput(): boolean {
+    try {
+      if (!existsSync(INPUT_FILE)) return false;
+      const st = statSync(INPUT_FILE);
+      return st.size > 0;
+    } catch {
+      return false;
+    }
   }
 
   // read and clear pending user input from the input pane.

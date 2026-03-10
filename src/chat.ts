@@ -136,16 +136,16 @@ function main() {
       return;
     }
 
-    // regular message -> queue for reasoner
+    // regular message -> queue for reasoner (file write wakes daemon instantly)
     appendToInput(trimmed);
-    const eta = getCountdown();
-    if (eta !== null) {
-      console.log(`${DIM}queued -- reasoner will read this in ~${eta}s${RESET}`);
-    } else if (isDaemonRunning()) {
-      console.log(`${DIM}queued -- waiting for next reasoning cycle${RESET}`);
-    } else {
+    const state = readState();
+    if (!isDaemonRunning()) {
       console.log(`${YELLOW}queued, but daemon is not running!${RESET}`);
       console.log(`${DIM}start it with: aoaoe${RESET}`);
+    } else if (state?.phase === "reasoning") {
+      console.log(`${DIM}queued -- reasoner is active, will process on next tick${RESET}`);
+    } else {
+      console.log(`${DIM}queued -- daemon will pick this up momentarily${RESET}`);
     }
     rl.prompt();
   });

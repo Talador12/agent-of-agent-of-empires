@@ -61,6 +61,13 @@ describe("colorize", () => {
     assert.ok(output.includes("\x1b[2m"), "should contain DIM escape code");
   });
 
+  it("colorizes 'status' tags as dim", () => {
+    const input = "[12:00:00] [status] reasoning...";
+    const output = colorize(input);
+    assert.ok(output.includes("\x1b[2m"), "should contain DIM escape code");
+    assert.ok(output.includes("status"), "should contain the tag text");
+  });
+
   it("handles multiline text", () => {
     const input = "[12:00:00] [you] hello\n[12:00:01] [reasoner] hi back\nplain line";
     const output = colorize(input);
@@ -69,7 +76,12 @@ describe("colorize", () => {
     assert.ok(output.includes("plain line"), "should preserve plain lines");
   });
 
-
+  it("colorizes status receipts", () => {
+    const input = "[12:00:00] [status] received (1/2): fix the bug";
+    const output = colorize(input);
+    assert.ok(output.includes("\x1b[2m"), "receipt should be dim");
+    assert.ok(output.includes("fix the bug"), "should preserve content");
+  });
 });
 
 // --- isDaemonRunningFromState ---

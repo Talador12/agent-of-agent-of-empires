@@ -38,6 +38,33 @@ describe("InputReader queue management", () => {
   });
 });
 
+describe("InputReader hasPending", () => {
+  it("returns false when queue is empty", () => {
+    const reader = new InputReader();
+    assert.equal(reader.hasPending(), false);
+  });
+
+  it("returns true after inject", () => {
+    const reader = new InputReader();
+    reader.inject("hello");
+    assert.equal(reader.hasPending(), true);
+  });
+
+  it("returns false after drain", () => {
+    const reader = new InputReader();
+    reader.inject("hello");
+    reader.drain();
+    assert.equal(reader.hasPending(), false);
+  });
+
+  it("returns true with multiple queued messages", () => {
+    const reader = new InputReader();
+    reader.inject("a");
+    reader.inject("b");
+    assert.equal(reader.hasPending(), true);
+  });
+});
+
 describe("InputReader stop", () => {
   it("stop is safe to call without start", () => {
     const reader = new InputReader();

@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { wakeableSleep } from "./wake.js";
@@ -134,10 +134,13 @@ describe("wakeableSleep — sequential calls", () => {
     const r2 = await wakeableSleep(5000, dir);
     assert.equal(r2.reason, "wake");
 
-    // third call: abort
+    // third call: abort — use a clean subdirectory to avoid stale inotify
+    // events from the msg.txt write in call 2 (race condition on Linux CI)
+    const cleanDir = join(dir, "clean");
+    mkdirSync(cleanDir);
     const ac = new AbortController();
     setTimeout(() => ac.abort(), 30);
-    const r3 = await wakeableSleep(5000, dir, ac.signal);
+    const r3 = await wakeableSleep(5000, cleanDir, ac.signal);
     assert.equal(r3.reason, "abort");
   });
 });

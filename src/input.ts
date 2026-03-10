@@ -35,6 +35,11 @@ export class InputReader {
     return this.paused;
   }
 
+  // check if there are queued messages without draining them
+  hasPending(): boolean {
+    return this.queue.length > 0;
+  }
+
   // inject a message directly into the queue (used after interrupt to feed text into next tick)
   inject(msg: string): void {
     this.queue.push(msg);

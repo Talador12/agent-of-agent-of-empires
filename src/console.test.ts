@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, renameSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, renameSync, statSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -100,6 +100,66 @@ describe("atomic drain pattern", () => {
 
     // clean up
     unlinkSync(drainFile);
+  });
+});
+
+// hasPendingInput uses the same file path pattern — test with temp files.
+// the real method reads ~/.aoaoe/pending-input.txt; we test the logic pattern here.
+
+describe("hasPendingInput pattern", () => {
+  const pendingDir = join(tmpdir(), `aoaoe-test-pending-${process.pid}`);
+  const pendingFile = join(pendingDir, "pending-input.txt");
+
+  // replicates the logic from ReasonerConsole.hasPendingInput()
+  function hasPending(): boolean {
+    try {
+      if (!existsSync(pendingFile)) return false;
+      const st = statSync(pendingFile);
+      return st.size > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  beforeEach(() => {
+    mkdirSync(pendingDir, { recursive: true });
+    try { unlinkSync(pendingFile); } catch {}
+  });
+
+  afterEach(() => {
+    try { unlinkSync(pendingFile); } catch {}
+  });
+
+  it("returns false when file does not exist", () => {
+    assert.equal(hasPending(), false);
+  });
+
+  it("returns false when file is empty", () => {
+    writeFileSync(pendingFile, "");
+    assert.equal(hasPending(), false);
+  });
+
+  it("returns true when file has content", () => {
+    writeFileSync(pendingFile, "user message\n");
+    assert.equal(hasPending(), true);
+  });
+
+  it("returns true after multiple writes", () => {
+    writeFileSync(pendingFile, "msg1\n");
+    appendFileSync(pendingFile, "msg2\n");
+    assert.equal(hasPending(), true);
+  });
+
+  it("returns false after drain clears the file (via rename)", () => {
+    writeFileSync(pendingFile, "message\n");
+    assert.equal(hasPending(), true);
+
+    // simulate atomic drain (rename)
+    renameSync(pendingFile, pendingFile + ".drain");
+    assert.equal(hasPending(), false);
+
+    // cleanup
+    try { unlinkSync(pendingFile + ".drain"); } catch {}
   });
 });
 

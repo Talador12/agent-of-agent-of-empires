@@ -12,6 +12,7 @@ import { loadGlobalContext } from "./context.js";
 import { tick as loopTick } from "./loop.js";
 import { sleep } from "./shell.js";
 import { wakeableSleep } from "./wake.js";
+import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState } from "./types.js";
 import { readFileSync } from "node:fs";
@@ -21,6 +22,7 @@ import { homedir } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
+const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
   const { overrides, help, version, attach, register, testContext: isTestContext, runTest, showTasks, registerTitle } = parseCliArgs(process.argv);
@@ -163,40 +165,43 @@ async function main() {
     // drain user input from both stdin and console tmux session
     const stdinMessages = input.drain();
     const consoleMessages = reasonerConsole.drainInput();
-    const userMessages = [...stdinMessages, ...consoleMessages];
-    let userMessage: string | undefined;
+    const allMessages = [...stdinMessages, ...consoleMessages];
+
+    // classify into commands vs. real user messages
+    const { commands, userMessages } = classifyMessages(allMessages);
 
     // acknowledge receipt of user messages in the conversation log
-    if (userMessages.filter((m) => !m.startsWith("__CMD_")).length > 0) {
-      reasonerConsole.writeStatus("received your message, processing...");
+    const receipts = buildReceipts(userMessages);
+    for (const receipt of receipts) {
+      reasonerConsole.writeStatus(receipt);
     }
 
+    // format user messages for the reasoner prompt
+    const userMessage = userMessages.length > 0 ? formatUserMessages(userMessages) : undefined;
+
     // handle built-in command markers (from stdin or chat.ts file IPC)
-    for (const msg of userMessages) {
-      if (msg === "__CMD_STATUS__") {
+    for (const cmd of commands) {
+      if (cmd === "__CMD_STATUS__") {
         const isPausedNow = paused || input.isPaused();
         log(`status: poll #${pollCount}, reasoner=${config.reasoner}, paused=${isPausedNow}, dry-run=${config.dryRun}`);
         reasonerConsole.writeSystem(`status: poll #${pollCount}, reasoner=${config.reasoner}, paused=${isPausedNow}, dry-run=${config.dryRun}`);
-      } else if (msg === "__CMD_DASHBOARD__") {
+      } else if (cmd === "__CMD_DASHBOARD__") {
         forceDashboard = true;
-      } else if (msg === "__CMD_VERBOSE__") {
+      } else if (cmd === "__CMD_VERBOSE__") {
         config.verbose = !config.verbose;
         log(`verbose: ${config.verbose ? "on" : "off"}`);
         reasonerConsole.writeSystem(`verbose: ${config.verbose ? "on" : "off"}`);
-      } else if (msg === "__CMD_PAUSE__") {
+      } else if (cmd === "__CMD_PAUSE__") {
         paused = true;
         log("paused via console");
         reasonerConsole.writeSystem("paused -- reasoner will not be called until /resume");
-      } else if (msg === "__CMD_RESUME__") {
+      } else if (cmd === "__CMD_RESUME__") {
         paused = false;
         log("resumed via console");
         reasonerConsole.writeSystem("resumed");
-      } else if (msg === "__CMD_INTERRUPT__") {
+      } else if (cmd === "__CMD_INTERRUPT__") {
         // interrupt is handled inside tick() via the flag file; clear it here if no tick is running
         log("interrupt requested (will take effect during next reasoning call)");
-      } else {
-        // real user message -- combine if multiple
-        userMessage = userMessage ? `${userMessage}\n${msg}` : msg;
       }
     }
 
@@ -228,13 +233,24 @@ async function main() {
     }
 
     if (running) {
-      const nextTickAt = Date.now() + config.pollIntervalMs;
-      writeState("sleeping", { pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt, paused: false });
-      reasonerConsole.writeStatus(`sleeping (next tick in ${config.pollIntervalMs / 1000}s)`);
+      // skip sleep entirely if there are already-queued messages waiting
+      const skipSleep = shouldSkipSleep({
+        hasPendingStdin: input.hasPending(),
+        hasPendingFile: hasPendingFile(INPUT_FILE),
+        interrupted: checkInterrupt(),
+      });
 
-      const wake = await wakeableSleep(config.pollIntervalMs, AOAOE_DIR);
-      if (wake.reason === "wake") {
-        log(`woke early after ${wake.elapsed}ms (file change detected)`);
+      if (skipSleep) {
+        log("skipping sleep — pending input detected");
+      } else {
+        const nextTickAt = Date.now() + config.pollIntervalMs;
+        writeState("sleeping", { pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt, paused: false });
+        reasonerConsole.writeStatus(`sleeping (next tick in ${config.pollIntervalMs / 1000}s)`);
+
+        const wake = await wakeableSleep(config.pollIntervalMs, AOAOE_DIR);
+        if (wake.reason === "wake") {
+          log(`woke early after ${wake.elapsed}ms (file change detected)`);
+        }
       }
     }
   }
