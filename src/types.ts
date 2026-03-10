@@ -87,6 +87,7 @@ export interface AoaoeConfig {
     autoAnswerPermissions: boolean;
   };
   contextFiles: string[]; // extra AI instruction file paths to load (relative to project root)
+  sessionDirs: Record<string, string>; // explicit session title -> project directory mapping (absolute or relative to cwd)
   captureLinesCount: number; // how many lines to capture from each tmux pane
   verbose: boolean;
   dryRun: boolean; // observe + reason but don't execute; log what would happen

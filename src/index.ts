@@ -7,8 +7,9 @@ import { printDashboard } from "./dashboard.js";
 import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
 import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState } from "./daemon-state.js";
-import { type SessionPolicyState, detectPermissionPrompt } from "./reasoner/prompt.js";
+import { type SessionPolicyState } from "./reasoner/prompt.js";
 import { loadGlobalContext, loadSessionContext } from "./context.js";
+import { tick as loopTick } from "./loop.js";
 import type { AoaoeConfig, Observation, ReasonerResult } from "./types.js";
 import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -157,7 +158,7 @@ async function main() {
     }
 
     try {
-      const interrupted = await tick(config, poller, reasoner, executor, console_, pollCount, policyStates, userMessage, forceDashboard);
+      const interrupted = await daemonTick(config, poller, reasoner, executor, console_, pollCount, policyStates, userMessage, forceDashboard);
       forceDashboard = false;
 
       // if the reasoner was interrupted, wait for user input before continuing
@@ -187,8 +188,9 @@ async function main() {
   }
 }
 
-// returns true if the reasoner was interrupted
-async function tick(
+// wraps the core tick logic (loop.ts) with daemon UI: state file, dashboard, status line,
+// console output, and interrupt support. the core logic in loop.ts is what the tests exercise.
+async function daemonTick(
   config: AoaoeConfig,
   poller: Poller,
   reasoner: ReturnType<typeof createReasoner>,
@@ -199,60 +201,62 @@ async function tick(
   userMessage?: string,
   forceDashboard?: boolean
 ): Promise<boolean> {
-  // 1. poll
+  // pre-tick: write IPC state
   writeState("polling", { pollCount, pollIntervalMs: config.pollIntervalMs, tickStartedAt: Date.now() });
-  const observation = await poller.poll();
-  const sessionCount = observation.sessions.length;
-  const changeCount = observation.changes.length;
 
-  // update state with session info
-  const sessionStates = buildSessionStates(observation);
-  writeState("polling", { pollCount, sessionCount, changeCount, sessions: sessionStates });
-
-  // update per-session policy tracking (idle time, error counts, permission prompts)
-  const now = Date.now();
-  const changedIds = new Set(observation.changes.map((c) => c.sessionId));
-  for (const snap of observation.sessions) {
-    const sid = snap.session.id;
-    let ps = policyStates.get(sid);
-    if (!ps) {
-      ps = { sessionId: sid, lastOutputChangeAt: now, consecutiveErrorPolls: 0, hasPermissionPrompt: false };
-      policyStates.set(sid, ps);
-    }
-    // update idle tracking: reset timer when output changed
-    if (changedIds.has(sid)) {
-      ps.lastOutputChangeAt = now;
-    }
-    // update error counter
-    if (snap.session.status === "error") {
-      ps.consecutiveErrorPolls++;
-    } else {
-      ps.consecutiveErrorPolls = 0;
-    }
-    // detect permission prompts in recent output
-    ps.hasPermissionPrompt = detectPermissionPrompt(snap.output);
-  }
-  // prune policy states for sessions that no longer exist
-  const activeIds = new Set(observation.sessions.map((s) => s.session.id));
-  for (const key of policyStates.keys()) {
-    if (!activeIds.has(key)) policyStates.delete(key);
-  }
-
-  // attach user message to observation if present
+  // user message -> console
   if (userMessage) {
-    observation.userMessage = userMessage;
     console_.writeUserMessage(userMessage);
   }
 
-  if (sessionCount === 0 && !userMessage) {
-    if (pollCount % 6 === 1) {
-      // log every ~60s when no sessions
-      log("no active aoe sessions found");
-    }
+  // wrap reasoner with timeout + interrupt support
+  const wrappedReasoner: import("./types.js").Reasoner = {
+    init: () => reasoner.init(),
+    shutdown: () => reasoner.shutdown(),
+    decide: async (obs) => {
+      writeState("reasoning", { pollCount, pollIntervalMs: config.pollIntervalMs });
+      process.stdout.write(" | reasoning...");
+
+      const { result: r, interrupted } = await withTimeoutAndInterrupt(
+        reasoner.decide(obs),
+        90_000,
+        { actions: [{ action: "wait" as const, reason: "reasoner timeout" }] }
+      );
+      if (interrupted) {
+        process.stdout.write(" INTERRUPTED\n");
+        console_.writeSystem("reasoner interrupted by operator");
+        throw new InterruptError();
+      }
+      return r;
+    },
+  };
+
+  // run core tick logic (same code path the tests exercise)
+  let tickResult: import("./loop.js").TickResult;
+  try {
+    tickResult = await loopTick({
+      config, poller, reasoner: wrappedReasoner, executor, policyStates, pollCount, userMessage,
+    });
+  } catch (err) {
+    if (err instanceof InterruptError) return true;
+    throw err;
+  }
+
+  const { observation, result, executed, skippedReason, dryRunActions } = tickResult;
+  const sessionCount = observation.sessions.length;
+  const changeCount = observation.changes.length;
+
+  // update IPC state with session info
+  const sessionStates = buildSessionStates(observation);
+  writeState("polling", { pollCount, sessionCount, changeCount, sessions: sessionStates });
+
+  // skip cases
+  if (skippedReason === "no sessions") {
+    if (pollCount % 6 === 1) log("no active aoe sessions found");
     return false;
   }
 
-  // dashboard every 6 polls (~60s at default interval), or on demand
+  // dashboard
   if (forceDashboard || pollCount % 6 === 1) {
     printDashboard(observation, executor.getRecentLog(), pollCount, config);
   }
@@ -264,71 +268,31 @@ async function tick(
     `\r[poll #${pollCount}] ${sessionCount} sessions (${statuses}) | ${changeCount} changed${userTag}`
   );
 
-  // write observation to console
+  // console: observation summary
   if (changeCount > 0) {
-    const changeSummary = observation.changes.map(
-      (c) => `${c.title} (${c.tool}): ${c.status}`
-    );
+    const changeSummary = observation.changes.map((c) => `${c.title} (${c.tool}): ${c.status}`);
     console_.writeObservation(sessionCount, changeCount, changeSummary);
   }
 
-  // check if any policy alerts should force reasoning even without output changes
-  const policyAlerts = [...policyStates.values()].filter((ps) =>
-    (now - ps.lastOutputChangeAt >= config.policies.maxIdleBeforeNudgeMs) ||
-    (ps.consecutiveErrorPolls >= config.policies.maxErrorsBeforeRestart) ||
-    (ps.hasPermissionPrompt && config.policies.autoAnswerPermissions)
-  );
-  const hasPolicyAlerts = policyAlerts.length > 0;
+  if (skippedReason === "no changes") {
+    if (config.verbose) process.stdout.write(" | no changes, skipping reasoner\n");
+    return false;
+  }
 
-  // 2. if nothing changed AND no user message AND no policy alerts, skip reasoning
-  if (changeCount === 0 && !userMessage && !hasPolicyAlerts) {
-    if (config.verbose) {
-      process.stdout.write(" | no changes, skipping reasoner\n");
+  // reasoning happened
+  if (result) {
+    const actionSummary = result.actions.map((a) => a.action).join(", ");
+    process.stdout.write(` -> ${actionSummary}\n`);
+
+    if (result.reasoning) {
+      console_.writeReasoning(result.reasoning);
+      if (config.verbose) log(`reasoning: ${result.reasoning}`);
     }
-    return false;
   }
 
-  // attach policy context to observation so formatObservation can annotate the prompt
-  observation.policyContext = {
-    policies: config.policies,
-    sessionStates: [...policyStates.values()],
-  };
-
-  process.stdout.write(" | reasoning...");
-  writeState("reasoning", { pollCount, sessionCount, changeCount, sessions: sessionStates });
-
-  // 3. reason (with timeout + interrupt support)
-  const { result, interrupted } = await withTimeoutAndInterrupt(
-    reasoner.decide(observation),
-    90_000, // 90s max for a single reasoning call
-    { actions: [{ action: "wait" as const, reason: "reasoner timeout" }] }
-  );
-
-  if (interrupted) {
-    process.stdout.write(" INTERRUPTED\n");
-    console_.writeSystem("reasoner interrupted by operator");
-    return true;
-  }
-
-  const actionSummary = result.actions.map((a) => a.action).join(", ");
-  process.stdout.write(` -> ${actionSummary}\n`);
-
-  if (result.reasoning) {
-    console_.writeReasoning(result.reasoning);
-    if (config.verbose) log(`reasoning: ${result.reasoning}`);
-  }
-
-  // 4. execute (skip if all actions are "wait")
-  const nonWaitActions = result.actions.filter((a) => a.action !== "wait");
-  if (nonWaitActions.length === 0) {
-    return false;
-  }
-
-  writeState("executing", { pollCount, sessionCount, changeCount, sessions: sessionStates });
-
-  // dry-run: log what would happen, don't actually execute
-  if (config.dryRun) {
-    for (const action of nonWaitActions) {
+  // dry-run
+  if (dryRunActions && dryRunActions.length > 0) {
+    for (const action of dryRunActions) {
       const msg = `would ${action.action}: ${JSON.stringify(action)}`;
       log(`[dry-run] ${msg}`);
       console_.writeAction(action.action, "dry-run", true);
@@ -336,8 +300,9 @@ async function tick(
     return false;
   }
 
-  const entries = await executor.execute(result.actions, observation.sessions);
-  for (const entry of entries) {
+  // execution results
+  writeState("executing", { pollCount, sessionCount, changeCount, sessions: sessionStates });
+  for (const entry of executed) {
     if (entry.action.action === "wait") continue;
     const icon = entry.success ? "+" : "!";
     log(`[${icon}] ${entry.action.action}: ${entry.detail}`);
@@ -345,6 +310,8 @@ async function tick(
   }
   return false;
 }
+
+class InterruptError extends Error { constructor() { super("interrupted"); } }
 
 function summarizeStatuses(obs: Observation): string {
   const counts = new Map<string, number>();
@@ -437,7 +404,13 @@ async function testContext(): Promise<void> {
   const { computeTmuxName } = await import("./poller.js");
 
   const basePath = process.cwd();
-  console.log(`base path: ${basePath}\n`);
+  const config = loadConfig();
+  const sessionDirs = Object.keys(config.sessionDirs).length ? config.sessionDirs : undefined;
+  console.log(`base path: ${basePath}`);
+  if (sessionDirs) {
+    console.log(`sessionDirs config: ${JSON.stringify(sessionDirs)}`);
+  }
+  console.log();
 
   // 1. list sessions
   const listResult = await shellExec("aoe", ["list", "--json"]);
@@ -470,7 +443,7 @@ async function testContext(): Promise<void> {
     console.log(`  tmux:      ${tmuxName}`);
 
     // resolve project directory
-    const projectDir = resolveProjectDir(basePath, s.title);
+    const projectDir = resolveProjectDir(basePath, s.title, sessionDirs);
     console.log(`  resolved:  ${projectDir ?? "(not found — will fall back to session path)"}`);
 
     // discover context files in the resolved dir
@@ -509,7 +482,7 @@ async function testContext(): Promise<void> {
     }
 
     // show total loaded context size
-    const fullContext = loadSessionContext(basePath, s.title);
+    const fullContext = loadSessionContext(basePath, s.title, undefined, sessionDirs);
     const contextSize = Buffer.byteLength(fullContext, "utf-8");
     console.log(`  total context: ${(contextSize / 1024).toFixed(1)}KB`);
     console.log();

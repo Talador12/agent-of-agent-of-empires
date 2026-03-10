@@ -5,31 +5,29 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.10.0
+## Version: v0.11.0
 
 ## Current Focus
 
-Release v0.10.0: e2e test infrastructure, CLI UX for running safely alongside
-active sessions, CI fixes.
+Release v0.11.0: sessionDirs config for explicit project directory mapping,
+daemonTick refactor to use loop.ts, 183 tests passing.
 
 ## Working Items
 
-### CLI/README onboarding UX
+### sessionDirs config
 - **Status:** Done
-- Added "Try It Safely" section to README with comparison table
-- Improved --help: shows progression (test-context -> --dry-run -> full mode)
-- Added test-context to README Daemon CLI section (was missing)
-- Improved --dry-run description (clarifies: costs tokens, never touches sessions)
-- Fixed npm test glob (was missing root-level test files, only ran 43/158)
+- Added `sessionDirs: Record<string, string>` to AoaoeConfig
+- Wired through: resolveProjectDir() -> loadSessionContext() -> poller.ts -> index.ts test-context
+- Supports absolute and relative paths, case-insensitive title matching
+- Falls back to heuristic search when mapping not found or path doesn't exist
+- 10 new tests (8 resolveProjectDir + 2 loadSessionContext)
+- README: config table, dedicated section with examples, `test-context` usage
 
-### E2e testing with mock daemon
+### daemonTick refactor
 - **Status:** Done
-- Extracted `loop.ts` — testable tick() that accepts PollerLike/Reasoner/ExecutorLike interfaces
-- MockPoller, MockReasoner, MockExecutor with queued responses
-- 15 tests covering: full observe->reason->execute loop, dry-run mode, user message injection,
-  policy enforcement (idle, error accumulation, permission prompts), multi-tick sequences,
-  wait-only skipping, policy state pruning, error recovery
-- 173 tests total across 8 files, all passing
+- index.ts now wraps loop.ts tick() via daemonTick() for UI/IPC side effects
+- Core logic in loop.ts is what tests exercise — same code path as production
+- Dashboard, status line, state file, console output, interrupt support all in daemonTick()
 
 ### Fix Homebrew tap PAT
 - **Status:** Todo
@@ -39,17 +37,17 @@ active sessions, CI fixes.
 ### Meta-level UX improvements
 - **Status:** Todo
 - Auto session naming (match session titles to project directories)
-- Project directory config (explicit mapping instead of heuristic search)
 - Better onboarding for users who run `aoe` from a parent directory
 
 ## Completed
 
+- v0.11.0: sessionDirs config, daemonTick refactor using loop.ts, 183 tests
 - v0.10.0: E2e loop tests with mock infrastructure, "Try It Safely" README section,
   CLI help improvements, CI test glob fix, two-file AI Working Context propagation
 - v0.9.0: Auto-discovery of AI instruction files, `resolveProjectDir`, cross-platform inode de-dupe, `test-context` subcommand
 - v0.8.0: Title-based project directory resolution for meta-level aoe usage
 - v0.7.0: AGENTS.md + claude.md context loading, global + per-session context
-- 173 tests across 8 files, all passing (added loop.test.ts with 15 e2e tests)
+- 183 tests across 8 files, all passing
 - Both reasoner backends (OpenCode SDK, Claude Code subprocess)
 - Dashboard + interactive chat UI
 - GitHub Actions CI, npm publish, GitHub Releases

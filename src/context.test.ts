@@ -289,6 +289,77 @@ describe("resolveProjectDir", () => {
   });
 });
 
+describe("resolveProjectDir with sessionDirs", () => {
+  it("uses explicit sessionDirs mapping (exact match)", () => {
+    mkdirSync(join(TMP, "custom", "my-project"), { recursive: true });
+    const dirs = { adventure: "custom/my-project" };
+    assert.equal(resolveProjectDir(TMP, "adventure", dirs), join(TMP, "custom", "my-project"));
+  });
+
+  it("uses explicit sessionDirs mapping (case-insensitive)", () => {
+    mkdirSync(join(TMP, "custom", "my-project"), { recursive: true });
+    const dirs = { Adventure: "custom/my-project" };
+    assert.equal(resolveProjectDir(TMP, "adventure", dirs), join(TMP, "custom", "my-project"));
+  });
+
+  it("supports absolute paths in sessionDirs", () => {
+    const absDir = join(TMP, "absolute", "proj");
+    mkdirSync(absDir, { recursive: true });
+    const dirs = { myproj: absDir };
+    assert.equal(resolveProjectDir(TMP, "myproj", dirs), absDir);
+  });
+
+  it("supports relative paths in sessionDirs", () => {
+    mkdirSync(join(TMP, "rel", "proj"), { recursive: true });
+    const dirs = { myproj: "rel/proj" };
+    assert.equal(resolveProjectDir(TMP, "myproj", dirs), join(TMP, "rel", "proj"));
+  });
+
+  it("falls back to heuristic when sessionDirs key doesnt match", () => {
+    mkdirSync(join(TMP, "github", "adventure"), { recursive: true });
+    const dirs = { cloudchamber: "cc/cloudchamber" };
+    // adventure is not in sessionDirs, should fall back to heuristic search
+    assert.equal(resolveProjectDir(TMP, "adventure", dirs), join(TMP, "github", "adventure"));
+  });
+
+  it("falls back to heuristic when sessionDirs path doesnt exist", () => {
+    mkdirSync(join(TMP, "github", "adventure"), { recursive: true });
+    const dirs = { adventure: "nonexistent/path" };
+    // mapped path doesn't exist, should fall back to heuristic search
+    assert.equal(resolveProjectDir(TMP, "adventure", dirs), join(TMP, "github", "adventure"));
+  });
+
+  it("sessionDirs takes priority over heuristic match", () => {
+    // both heuristic and explicit match exist
+    mkdirSync(join(TMP, "adventure"), { recursive: true }); // heuristic direct child
+    mkdirSync(join(TMP, "custom", "adventure-fork"), { recursive: true }); // explicit mapping
+    const dirs = { adventure: "custom/adventure-fork" };
+    assert.equal(resolveProjectDir(TMP, "adventure", dirs), join(TMP, "custom", "adventure-fork"));
+  });
+
+  it("empty sessionDirs behaves same as no sessionDirs", () => {
+    mkdirSync(join(TMP, "adventure"), { recursive: true });
+    assert.equal(resolveProjectDir(TMP, "adventure", {}), join(TMP, "adventure"));
+  });
+});
+
+describe("loadSessionContext with sessionDirs", () => {
+  it("uses sessionDirs to resolve project directory", () => {
+    mkdirSync(join(TMP, "custom", "myproj"), { recursive: true });
+    writeFileSync(join(TMP, "custom", "myproj", "AGENTS.md"), "custom rules");
+    const dirs = { myproj: "custom/myproj" };
+    const result = loadSessionContext(TMP, "myproj", undefined, dirs);
+    assert.ok(result.includes("custom rules"));
+  });
+
+  it("falls back when sessionDirs mapping doesnt exist on disk", () => {
+    writeFileSync(join(TMP, "AGENTS.md"), "fallback rules");
+    const dirs = { myproj: "nonexistent/path" };
+    const result = loadSessionContext(TMP, "myproj", undefined, dirs);
+    assert.ok(result.includes("fallback rules"));
+  });
+});
+
 describe("loadSessionContext", () => {
   it("loads context from resolved project dir", () => {
     // simulate repos/github/adventure with AGENTS.md

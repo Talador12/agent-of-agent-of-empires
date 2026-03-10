@@ -216,19 +216,38 @@ export function loadGlobalContext(cwd?: string): string {
   return `\n\n--- GLOBAL PROJECT CONTEXT (from supervisor working directory) ---\n${context}`;
 }
 
-// resolve a session's actual project directory by searching subdirectories
-// of basePath for a directory whose name matches the session title.
-// searches two levels deep: basePath/*/title and basePath/title
+// resolve a session's actual project directory.
+// priority order:
+//   1. explicit sessionDirs mapping (from config)
+//   2. direct child: basePath/<title>
+//   3. nested child: basePath/<group>/<title>
 // returns the resolved path, or null if not found.
-export function resolveProjectDir(basePath: string, sessionTitle: string): string | null {
+export function resolveProjectDir(
+  basePath: string,
+  sessionTitle: string,
+  sessionDirs?: Record<string, string>,
+): string | null {
   if (!basePath || !sessionTitle) return null;
 
-  // normalize title for matching: lowercase, spaces/underscores → hyphens
+  // 1. explicit mapping takes priority — no heuristics needed
+  if (sessionDirs) {
+    // try exact match first, then case-insensitive
+    const explicit = sessionDirs[sessionTitle]
+      ?? Object.entries(sessionDirs).find(
+        ([k]) => k.toLowerCase() === sessionTitle.toLowerCase()
+      )?.[1];
+    if (explicit) {
+      const resolved = resolve(basePath, explicit);
+      if (isDir(resolved)) return resolved;
+    }
+  }
+
+  // 2. heuristic search: normalize title and scan filesystem
   const normalize = (s: string) => s.toLowerCase().replace(/[\s_]+/g, "-");
   const needle = normalize(sessionTitle);
 
   try {
-    // first check direct children: basePath/<title>
+    // direct children: basePath/<title>
     const topEntries = safeReaddir(basePath);
     for (const entry of topEntries) {
       if (normalize(entry) === needle) {
@@ -237,12 +256,11 @@ export function resolveProjectDir(basePath: string, sessionTitle: string): strin
       }
     }
 
-    // then check one level deeper: basePath/<group>/<title>
-    // this handles repos/github/adventure, repos/cc/cloudchamber, etc.
+    // one level deeper: basePath/<group>/<title>
+    // handles repos/github/adventure, repos/cc/cloudchamber, etc.
     for (const groupEntry of topEntries) {
       const groupDir = join(basePath, groupEntry);
       if (!isDir(groupDir)) continue;
-      // skip hidden dirs and node_modules
       if (groupEntry.startsWith(".") || groupEntry === "node_modules") continue;
 
       const groupChildren = safeReaddir(groupDir);
@@ -265,13 +283,21 @@ export function resolveProjectDir(basePath: string, sessionTitle: string): strin
 //
 // loads AGENTS.md + claude.md (primary) plus any other AI instruction files,
 // then checks parent dir for group-level context.
-export function loadSessionContext(sessionPath: string, sessionTitle?: string, extraFiles?: string[]): string {
+//
+// sessionDirs: explicit session title -> project directory mapping (from config).
+// checked first before heuristic filesystem search.
+export function loadSessionContext(
+  sessionPath: string,
+  sessionTitle?: string,
+  extraFiles?: string[],
+  sessionDirs?: Record<string, string>,
+): string {
   if (!sessionPath) return "";
 
   // try to resolve the actual project directory from the title
   let projectDir: string | null = null;
   if (sessionTitle) {
-    projectDir = resolveProjectDir(sessionPath, sessionTitle);
+    projectDir = resolveProjectDir(sessionPath, sessionTitle, sessionDirs);
   }
 
   if (projectDir) {

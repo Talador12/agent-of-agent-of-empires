@@ -21,6 +21,7 @@ const DEFAULTS: AoaoeConfig = {
     autoAnswerPermissions: true,
   },
   contextFiles: [],
+  sessionDirs: {},
   captureLinesCount: 100,
   verbose: false,
   dryRun: false,

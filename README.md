@@ -247,7 +247,12 @@ Create `aoaoe.config.json` in the directory where you run the daemon (optional -
     "maxIdleBeforeNudgeMs": 120000,
     "maxErrorsBeforeRestart": 3,
     "autoAnswerPermissions": true
-  }
+  },
+  "sessionDirs": {
+    "adventure": "github/adventure",
+    "cloudchamber": "cc/cloudchamber"
+  },
+  "contextFiles": []
 }
 ```
 
@@ -264,8 +269,30 @@ Create `aoaoe.config.json` in the directory where you run the daemon (optional -
 | `policies.maxIdleBeforeNudgeMs` | Nudge idle agents after this long | `120000` |
 | `policies.maxErrorsBeforeRestart` | Restart after N consecutive errors | `3` |
 | `policies.autoAnswerPermissions` | Auto-approve permission prompts | `true` |
+| `sessionDirs` | Map session titles to project directories (relative to cwd or absolute). Bypasses heuristic directory search. | `{}` |
+| `contextFiles` | Extra AI instruction file paths to load from each project root | `[]` |
 
 Also reads `.aoaoe.json` as an alternative config filename.
+
+### `sessionDirs` — explicit project directory mapping
+
+By default, aoaoe resolves project directories by searching subdirectories (up to 2 levels deep) for a folder name matching each session title. This works great for standard layouts like `repos/github/adventure/`.
+
+For non-standard layouts or when the session title doesn't match the directory name, use `sessionDirs` to provide explicit mappings:
+
+```json
+{
+  "sessionDirs": {
+    "adventure": "github/adventure",
+    "cloudchamber": "cc/cloudchamber",
+    "my-agent": "/absolute/path/to/project"
+  }
+}
+```
+
+Paths can be relative (resolved from the directory where you run `aoaoe`) or absolute. Case-insensitive matching is used for session title lookup. If a mapped path doesn't exist on disk, aoaoe falls back to heuristic search.
+
+Use `aoaoe test-context` to verify resolution:
 
 ## How It Works
 
@@ -369,6 +396,7 @@ The daemon and chat UI communicate via files in `~/.aoaoe/`:
 ```
 src/
   index.ts          # daemon entry point, main loop, register/attach subcommands
+  loop.ts           # extracted tick logic (poll->reason->execute), testable with mocks
   chat.ts           # interactive chat UI (aoaoe-chat binary)
   config.ts         # config loader and CLI arg parser
   daemon-state.ts   # shared IPC state file + interrupt flag

@@ -99,7 +99,8 @@ export class Poller {
     // resolves the actual repo dir by matching session title against subdirectories
     // cached internally with 60s TTL so this is cheap on subsequent polls
     const extraFiles = this.config.contextFiles.length ? this.config.contextFiles : undefined;
-    const projectContext = loadSessionContext(session.path, session.title, extraFiles) || undefined;
+    const sessionDirs = Object.keys(this.config.sessionDirs).length ? this.config.sessionDirs : undefined;
+    const projectContext = loadSessionContext(session.path, session.title, extraFiles, sessionDirs) || undefined;
 
     return {
       session,

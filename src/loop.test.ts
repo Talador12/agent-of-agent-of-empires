@@ -50,6 +50,7 @@ function defaultConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig {
       autoAnswerPermissions: true,
     },
     contextFiles: [],
+    sessionDirs: {},
     captureLinesCount: 100,
     verbose: false,
     dryRun: false,
