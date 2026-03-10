@@ -357,19 +357,27 @@ async function captureTmuxPane(tmuxName: string): Promise<string | null> {
 // --- daemon connection check ---
 
 function isDaemonRunning(): boolean {
-  const state = readState();
-  if (!state) return false;
-  // state file exists -- check if it's recent (within 2x poll interval or 30s max)
-  const staleMs = Math.max(state.pollIntervalMs * 2, 30_000);
-  const age = Date.now() - state.phaseStartedAt;
-  return age < staleMs;
+  return isDaemonRunningFromState(readState());
 }
 
 function getCountdown(): number | null {
   const state = readState();
-  if (!state || !isDaemonRunning()) return null;
+  return getCountdownFromState(state, isDaemonRunningFromState(state));
+}
+
+// pure logic extracted for testing — accepts state + current time
+export function isDaemonRunningFromState(state: DaemonState | null, now = Date.now()): boolean {
+  if (!state) return false;
+  // state file exists -- check if it's recent (within 2x poll interval or 30s max)
+  const staleMs = Math.max(state.pollIntervalMs * 2, 30_000);
+  const age = now - state.phaseStartedAt;
+  return age < staleMs;
+}
+
+export function getCountdownFromState(state: DaemonState | null, daemonRunning: boolean, now = Date.now()): number | null {
+  if (!state || !daemonRunning) return null;
   if (state.phase === "sleeping" && state.nextTickAt) {
-    const remaining = Math.max(0, Math.ceil((state.nextTickAt - Date.now()) / 1000));
+    const remaining = Math.max(0, Math.ceil((state.nextTickAt - now) / 1000));
     return remaining;
   }
   return null;
@@ -391,14 +399,19 @@ function checkDaemon() {
 
 function buildStatusLine(forTitle = false): string | null {
   const state = readState();
-  if (!state || !isDaemonRunning()) return forTitle ? "aoaoe (daemon offline)" : null;
+  return buildStatusLineFromState(state, isDaemonRunningFromState(state), forTitle);
+}
+
+// pure logic extracted for testing
+export function buildStatusLineFromState(state: DaemonState | null, daemonRunning: boolean, forTitle = false, now = Date.now()): string | null {
+  if (!state || !daemonRunning) return forTitle ? "aoaoe (daemon offline)" : null;
 
   const parts: string[] = [];
   if (state.phase === "sleeping" && state.nextTickAt) {
-    const remaining = Math.max(0, Math.ceil((state.nextTickAt - Date.now()) / 1000));
+    const remaining = Math.max(0, Math.ceil((state.nextTickAt - now) / 1000));
     parts.push(`next: ${remaining}s`);
   } else if (state.phase === "reasoning") {
-    const elapsed = Math.floor((Date.now() - state.phaseStartedAt) / 1000);
+    const elapsed = Math.floor((now - state.phaseStartedAt) / 1000);
     parts.push(`reasoning: ${elapsed}s`);
   } else {
     parts.push(state.phase);
@@ -426,7 +439,7 @@ function replayLog() {
   } catch {}
 }
 
-function colorize(text: string): string {
+export function colorize(text: string): string {
   return text.replace(/^(.*?\[)(observation|you|reasoner|action|\+ action|! action|system)(\].*$)/gm, (_, pre, tag, post) => {
     switch (tag) {
       case "observation": return `${DIM}${pre}${tag}${post}${RESET}`;
@@ -475,4 +488,8 @@ function cleanup() {
   } catch {}
 }
 
-main();
+// only run when executed as entry point (not when imported for testing)
+const isEntryPoint = process.argv[1]?.endsWith("chat.js") || process.argv[1]?.endsWith("chat.ts");
+if (isEntryPoint) {
+  main();
+}
