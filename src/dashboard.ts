@@ -2,6 +2,7 @@
 import type { Observation, AoaoeConfig, TaskState } from "./types.js";
 import type { ActionLogEntry } from "./executor.js";
 import { readState } from "./daemon-state.js";
+import { formatAgo } from "./task-manager.js";
 
 const STATUS_ICONS: Record<string, string> = {
   working: "~",
@@ -122,8 +123,4 @@ function truncate(s: string, max: number): string {
   return line.length > max ? line.slice(0, max - 3) + "..." : line;
 }
 
-function formatAgo(ms: number): string {
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s ago`;
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m ago`;
-  return `${Math.round(ms / 3_600_000)}h ago`;
-}
+// formatAgo imported from task-manager.ts

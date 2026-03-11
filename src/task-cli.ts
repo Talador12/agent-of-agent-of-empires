@@ -178,7 +178,7 @@ export async function taskRemove(ref: string): Promise<boolean> {
   // stop + remove the AoE session if it exists
   if (task.sessionId) {
     await exec("aoe", ["session", "stop", task.sessionId]);
-    await exec("bash", ["-c", `echo "y" | aoe remove ${task.sessionId}`]);
+    await exec("aoe", ["remove", task.sessionId, "-y"]);
     console.log(`${DIM}removed session ${task.sessionId.slice(0, 8)}${RESET}`);
   }
 

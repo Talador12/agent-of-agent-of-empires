@@ -5,11 +5,69 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.38.0
+## Version: v0.39.0
 
 ## Current Focus
 
-542 tests across 25 files. v0.38.0 shipped: polish — code quality, type safety, cleanup, and documentation.
+546 tests across 25 files. v0.39.0 shipped: correctness — parser bug fix, security hardening, robustness improvements, dead code removal, perf optimization.
+
+### What shipped in v0.39.0
+
+**Theme: "Correctness"** — bug fixes, security hardening, and robustness.
+
+#### 1. Fix `report_progress`/`complete_task` silently dropped (`src/reasoner/parse.ts`)
+`validateAction()` was missing cases for `report_progress` and `complete_task`.
+When the LLM returned either action, the validator returned `null` → the action
+was silently discarded. Added both cases with proper field validation
+(`session` + `summary` required). 4 new tests.
+
+#### 2. Fix `protectedSessions` type assertion hack (`src/types.ts`, `src/loop.ts`, `src/reasoner/prompt.ts`)
+`protectedSessions` was smuggled onto `Observation` via unsafe `as` casts
+in `loop.ts` and read back via the same cast in `prompt.ts`. Added
+`protectedSessions?: string[]` to the `Observation` interface. Removed both
+casts — now fully type-safe.
+
+#### 3. Remove phantom `@opencode-ai/sdk` dependency (`package.json`)
+The SDK was pinned to `"latest"` but never imported — the codebase uses raw
+`fetch()` for the OpenCode HTTP API. Removed entirely. aoaoe is now truly
+zero-runtime-dependency (Node stdlib only).
+
+#### 4. Fix shell injection in task cleanup (`src/task-manager.ts`, `src/task-cli.ts`)
+`completeTask()` and task `rm` used `exec("bash", ["-c", \`echo "y" | aoe remove \${id}\`])`,
+interpolating the session ID into a shell string. Replaced with
+`exec("aoe", ["remove", id, "-y"])` — no shell interpretation, no injection.
+
+#### 5. Switch `discoverSessions` to `Promise.allSettled` (`src/init.ts`)
+If any single session status fetch threw, `Promise.all` would reject and
+`discoverSessions()` would return `[]`, losing all sessions. Now uses
+`Promise.allSettled` with the same settled-result filtering pattern as
+`poller.ts`.
+
+#### 6. Refactor `findFreePort` (`src/init.ts`)
+Replaced nested callback pyramid (3 `createServer()` instances with chained
+error handlers) with a clean retry loop over `[preferred, preferred+1, 0]`.
+Each iteration creates and properly closes a single server. No handle leaks.
+
+#### 7. Remove dead code (`src/console.ts`)
+Removed `SESSION_NAME` constant and `ReasonerConsole.sessionName()` static
+method — legacy from the v0.32.0 tmux session approach. Never called.
+
+#### 8. Deduplicate `formatAgo` (`src/dashboard.ts`, `src/task-manager.ts`)
+Two near-identical implementations. Exported the more complete version
+(with day support) from `task-manager.ts`, imported in `dashboard.ts`.
+
+#### 9. Skip `parseTasks` for unchanged sessions (`src/daemon-state.ts`)
+`buildSessionStates()` called `parseTasks()` on every session every tick.
+Now only re-parses sessions that appear in `observation.changes`, caching
+results for unchanged sessions. Updated 2 tests.
+
+Config additions: none.
+Modified: `src/reasoner/parse.ts`, `src/types.ts`, `src/loop.ts`,
+`src/reasoner/prompt.ts`, `src/init.ts`, `src/task-manager.ts`,
+`src/task-cli.ts`, `src/console.ts`, `src/dashboard.ts`,
+`src/daemon-state.ts`, `src/daemon-state.test.ts`,
+`src/reasoner/opencode.test.ts`, `package.json`, `claude.md`
+Test changes: +4 (report_progress/complete_task validation), net 546 tests.
 
 ### What shipped in v0.38.0
 
@@ -387,6 +445,20 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 
 ## Completed
 
+- v0.39.0: Correctness (546 tests):
+  - **`reasoner/parse.ts`**: Added `report_progress` and `complete_task` to
+    `validateAction()` — were silently dropped. 4 new tests.
+  - **`types.ts`**: Added `protectedSessions?: string[]` to `Observation`.
+  - **`loop.ts`**, **`reasoner/prompt.ts`**: Removed unsafe `as` casts for
+    `protectedSessions`.
+  - **`package.json`**: Removed phantom `@opencode-ai/sdk` dep (zero runtime deps).
+  - **`task-manager.ts`**, **`task-cli.ts`**: Replaced shell injection via
+    `bash -c echo | aoe remove` with `exec("aoe", ["remove", id, "-y"])`.
+  - **`init.ts`**: `discoverSessions()` → `Promise.allSettled`, `findFreePort()`
+    refactored to clean retry loop.
+  - **`console.ts`**: Removed dead `SESSION_NAME` + `sessionName()`.
+  - **`dashboard.ts`**: Imports `formatAgo` from `task-manager.ts` (dedup).
+  - **`daemon-state.ts`**: `parseTasks()` skipped for unchanged sessions (perf).
 - v0.38.0: Polish (542 tests):
   - **`types.ts`**: `AoeSessionStatus` union type replacing `string`.
   - **`init.ts`**: PID file write for orphan server cleanup, `AoeSessionStatus`

@@ -108,7 +108,7 @@ export async function tick(opts: {
 
   // attach protected sessions list for the prompt formatter
   if (config.protectedSessions && config.protectedSessions.length > 0) {
-    (observation as { protectedSessions?: string[] }).protectedSessions = config.protectedSessions;
+    observation.protectedSessions = config.protectedSessions;
   }
 
   // 2. reason

@@ -256,8 +256,7 @@ export class TaskManager {
     if (cleanupSession && task.sessionId) {
       // stop and remove the AoE session
       await exec("aoe", ["session", "stop", task.sessionId]);
-      // aoe remove requires "y" confirmation piped in
-      await exec("bash", ["-c", `echo "y" | aoe remove ${task.sessionId}`]);
+      await exec("aoe", ["remove", task.sessionId, "-y"]);
       log(`cleaned up session ${task.sessionTitle} (${task.sessionId})`);
     }
 
@@ -326,7 +325,7 @@ export function formatTaskTable(states: Map<string, TaskState> | TaskState[]): s
   return lines.join("\n");
 }
 
-function formatAgo(ms: number): string {
+export function formatAgo(ms: number): string {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s ago`;
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m ago`;
   if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)}h ago`;

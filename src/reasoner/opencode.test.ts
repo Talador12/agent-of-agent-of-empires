@@ -123,6 +123,38 @@ describe("validateResult", () => {
     assert.equal(result.actions[0].action, "wait");
   });
 
+  it("handles report_progress action", () => {
+    const result = validateResult({
+      actions: [{ action: "report_progress", session: "s1", summary: "auth feature done" }],
+    });
+    assert.equal(result.actions.length, 1);
+    assert.equal(result.actions[0].action, "report_progress");
+  });
+
+  it("rejects report_progress missing summary", () => {
+    const result = validateResult({
+      actions: [{ action: "report_progress", session: "s1" }],
+    });
+    assert.equal(result.actions.length, 1);
+    assert.equal(result.actions[0].action, "wait");
+  });
+
+  it("handles complete_task action", () => {
+    const result = validateResult({
+      actions: [{ action: "complete_task", session: "s1", summary: "all tests pass" }],
+    });
+    assert.equal(result.actions.length, 1);
+    assert.equal(result.actions[0].action, "complete_task");
+  });
+
+  it("rejects complete_task missing session", () => {
+    const result = validateResult({
+      actions: [{ action: "complete_task", summary: "done" }],
+    });
+    assert.equal(result.actions.length, 1);
+    assert.equal(result.actions[0].action, "wait");
+  });
+
   it("keeps valid actions and discards malformed ones", () => {
     const result = validateResult({
       actions: [

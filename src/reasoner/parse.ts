@@ -58,6 +58,16 @@ function validateAction(raw: unknown): Action | null {
       if (typeof a.session !== "string" || !a.session) return null;
       return { action: "remove_agent", session: a.session };
 
+    case "report_progress":
+      if (typeof a.session !== "string" || !a.session) return null;
+      if (typeof a.summary !== "string" || !a.summary) return null;
+      return { action: "report_progress", session: a.session, summary: a.summary };
+
+    case "complete_task":
+      if (typeof a.session !== "string" || !a.session) return null;
+      if (typeof a.summary !== "string" || !a.summary) return null;
+      return { action: "complete_task", session: a.session, summary: a.summary };
+
     case "wait":
       return { action: "wait", reason: typeof a.reason === "string" ? a.reason : undefined };
 

@@ -72,8 +72,8 @@ async function discoverSessions(): Promise<AoeSession[]> {
 
   try {
     const raw = JSON.parse(result.stdout) as Record<string, unknown>[];
-    // fetch status for each session in parallel
-    const sessions = await Promise.all(raw.map(async (r) => {
+    // fetch status for each session in parallel (allSettled so one failure doesn't kill all)
+    const results = await Promise.allSettled(raw.map(async (r): Promise<AoeSession> => {
       const id = String(r.id ?? "");
       const title = String(r.title ?? "");
       const status = await getSessionStatus(id);
@@ -88,7 +88,9 @@ async function discoverSessions(): Promise<AoeSession[]> {
         created_at: r.created_at ? String(r.created_at) : undefined,
       };
     }));
-    return sessions;
+    return results
+      .filter((r): r is PromiseFulfilledResult<AoeSession> => r.status === "fulfilled")
+      .map((r) => r.value);
   } catch {
     return [];
   }
@@ -115,29 +117,25 @@ async function probeOpencodePort(port: number): Promise<boolean> {
   }
 }
 
-// find a free port starting from preferred
+// find a free port starting from preferred, trying preferred+1 then OS-assigned
 async function findFreePort(preferred: number): Promise<number> {
-  return new Promise((resolve) => {
-    const server = createServer();
-    server.listen(preferred, "127.0.0.1", () => {
-      server.close(() => resolve(preferred));
-    });
-    server.on("error", () => {
-      // preferred port in use, let OS assign one (but try preferred+1 first)
-      const server2 = createServer();
-      server2.listen(preferred + 1, "127.0.0.1", () => {
-        server2.close(() => resolve(preferred + 1));
-      });
-      server2.on("error", () => {
-        const server3 = createServer();
-        server3.listen(0, "127.0.0.1", () => {
-          const addr = server3.address();
-          const port = typeof addr === "object" && addr ? addr.port : 4097;
-          server3.close(() => resolve(port));
+  for (const port of [preferred, preferred + 1, 0]) {
+    try {
+      const found = await new Promise<number>((resolve, reject) => {
+        const server = createServer();
+        server.on("error", reject);
+        server.listen(port, "127.0.0.1", () => {
+          const addr = server.address();
+          const p = typeof addr === "object" && addr ? addr.port : preferred;
+          server.close(() => resolve(p));
         });
       });
-    });
-  });
+      return found;
+    } catch {
+      continue;
+    }
+  }
+  return preferred; // fallback
 }
 
 export async function runInit(forceOverwrite = false): Promise<InitResult> {

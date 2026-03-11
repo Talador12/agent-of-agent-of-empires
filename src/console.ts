@@ -11,7 +11,6 @@ const AOAOE_DIR = join(homedir(), ".aoaoe");
 const CONVO_LOG = join(AOAOE_DIR, "conversation.log");
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt");
 const PID_FILE = join(AOAOE_DIR, "chat.pid");
-const SESSION_NAME = "aoaoe_reasoner";
 
 // ANSI colors for inline mode
 const DIM = "\x1b[2m";
@@ -160,9 +159,6 @@ export class ReasonerConsole {
     return new Date().toLocaleTimeString();
   }
 
-  static sessionName(): string {
-    return SESSION_NAME;
-  }
 }
 
 // --- pure formatting helpers (exported for testing) ---

@@ -142,8 +142,8 @@ export function formatObservation(obs: Observation): string {
   parts.push(`Active sessions: ${obs.sessions.length}`);
   parts.push("");
 
-  // resolve protected sessions list from config (injected via policyContext)
-  const protectedList = (obs as { protectedSessions?: string[] }).protectedSessions ?? [];
+  // resolve protected sessions list from config (attached by loop.ts)
+  const protectedList = obs.protectedSessions ?? [];
 
   // session summary table
   parts.push("Sessions:");

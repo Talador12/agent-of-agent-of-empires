@@ -28,6 +28,7 @@ export interface Observation {
   changes: SessionChange[]; // only sessions with new output since last poll
   userMessage?: string; // optional human operator message injected via stdin
   taskContext?: TaskState[]; // active tasks with goals + progress (for reasoner)
+  protectedSessions?: string[]; // session titles that are observe-only
   // policy enforcement context (attached by main loop, consumed by formatObservation)
   policyContext?: {
     policies: AoaoeConfig["policies"];

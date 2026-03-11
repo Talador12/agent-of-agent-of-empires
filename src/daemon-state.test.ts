@@ -110,8 +110,15 @@ describe("buildSessionStates", () => {
 
   it("parses TODO items from output into todoSummary", async () => {
     const { buildSessionStates } = await import("./daemon-state.js");
+    const session = makeSession();
     const output = "Some output\n[✓] completed task\n[•] in progress task\n[ ] pending task\n";
-    const obs = makeObservation([makeSnapshot({ output })]);
+    const snap = makeSnapshot({ session, output });
+    // include session in changes so parseTasks runs
+    const obs: Observation = {
+      timestamp: Date.now(),
+      sessions: [snap],
+      changes: [{ sessionId: session.id, title: session.title, tool: session.tool, status: session.status, newLines: output }],
+    };
     const result = buildSessionStates(obs);
     // todoSummary should be present when tasks are found
     assert.ok(result[0].todoSummary !== undefined, "should have todoSummary when tasks exist");
@@ -120,7 +127,13 @@ describe("buildSessionStates", () => {
 
   it("sets todoSummary to undefined when no tasks found", async () => {
     const { buildSessionStates } = await import("./daemon-state.js");
-    const obs = makeObservation([makeSnapshot({ output: "just regular output\nno tasks here\n" })]);
+    const session = makeSession();
+    const snap = makeSnapshot({ session, output: "just regular output\nno tasks here\n" });
+    const obs: Observation = {
+      timestamp: Date.now(),
+      sessions: [snap],
+      changes: [{ sessionId: session.id, title: session.title, tool: session.tool, status: session.status, newLines: "just regular output" }],
+    };
     const result = buildSessionStates(obs);
     assert.equal(result[0].todoSummary, undefined);
   });

@@ -1,6 +1,6 @@
 {
   "name": "aoaoe",
-  "version": "0.38.0",
+  "version": "0.39.0",
   "description": "Autonomous supervisor for agent-of-empires sessions using OpenCode or Claude Code",
   "type": "module",
   "main": "dist/index.js",
@@ -46,9 +46,6 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "dependencies": {
-    "@opencode-ai/sdk": "latest"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

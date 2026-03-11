@@ -42,6 +42,8 @@ export function resetInternalState(): void {
 
 // track last task sent to each session (persists across ticks)
 const sessionTasks = new Map<string, string>();
+// cache parsed TODO summaries for unchanged sessions
+const todoCache = new Map<string, string | undefined>();
 
 export function setSessionTask(sessionId: string, task: string): void {
   // keep task text short for display
@@ -75,14 +77,23 @@ export function buildSessionStates(obs: Observation): DaemonSessionState[] {
     if (!currentIds.has(id)) sessionTasks.delete(id);
   }
 
+  // only re-parse TODO items for sessions that have new output
+  const changedIds = new Set(obs.changes.map((c) => c.sessionId));
+
   return obs.sessions.map((snap) => {
     const s = snap.session;
     // extract last non-empty line from output as "last activity"
     const lines = snap.output.split("\n").filter((l) => l.trim());
     const lastActivity = lines.length > 0 ? lines[lines.length - 1].trim() : undefined;
-    // parse OpenCode-style TODO items from pane output
-    const todos = parseTasks(snap.output);
-    const todoSummary = todos.length > 0 ? formatTaskList(todos) : undefined;
+    // parse OpenCode-style TODO items from pane output (skip unchanged sessions)
+    let todoSummary: string | undefined;
+    if (changedIds.has(s.id)) {
+      const todos = parseTasks(snap.output);
+      todoSummary = todos.length > 0 ? formatTaskList(todos) : undefined;
+      todoCache.set(s.id, todoSummary);
+    } else {
+      todoSummary = todoCache.get(s.id);
+    }
     return {
       id: s.id,
       title: s.title,
