@@ -5,19 +5,70 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.47.0
+## Version: v0.48.0
 
 ## Current Focus
 
-681 tests across 26 files. v0.47.0 shipped: UI polish — OpenCode-inspired block-style TUI with box-drawn panels, 256-color palette, braille spinner animation, session cards, phase-aware input prompt.
+698 tests across 26 files. v0.48.0 shipped: Type safety — runtime validators for JSON from disk/CLI, non-null assertion removal, dead export cleanup.
 
 ## Roadmap
 
-### v0.48.0+ — Ideas Backlog
+### v0.49.0+ — Ideas Backlog
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Notification hooks** — Slack, webhook for significant events (errors, completions)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
+
+### What shipped in v0.48.0
+
+**Theme: "Type Safety"** — runtime validators for untyped JSON, non-null assertion removal, dead export cleanup. Eliminates the highest-risk `as` casts that could silently propagate corrupt data.
+
+#### 1. `toTaskState` validator (`src/types.ts`, `src/task-manager.ts`)
+Added `toTaskState(raw)` function that validates arbitrary values from `JSON.parse` against the
+`TaskState` interface. Checks all required fields (repo, sessionTitle, tool, goal, status, progress)
+with correct types. Validates `status` against the `TaskStatus` union. Filters invalid `progress`
+entries. Returns `null` for invalid input instead of silently casting. Applied to `loadTaskState()`.
+10 new tests.
+
+#### 2. `toDaemonState` validator (`src/types.ts`, `src/daemon-state.ts`)
+Added `toDaemonState(raw)` function that validates the daemon state JSON file against the
+`DaemonState` interface. Checks all 10 required fields with correct types. Returns `null` for
+corrupt files instead of returning garbage via `as DaemonState`. Applied to `readState()`.
+3 new tests.
+
+#### 3. `toAoeSessionList` validator (`src/types.ts`, `src/task-manager.ts`, `src/task-cli.ts`)
+Added `toAoeSessionList(raw)` function that validates `aoe list --json` output. Filters array
+entries to only those with string `id` and `title` fields. Returns empty array for non-array input.
+Applied to `task-manager.ts` session refresh and `task-cli.ts` `taskNew()`. Also added Array.isArray
+guard in `init.ts` `discoverSessions()`. 3 new tests.
+
+#### 4. `toReasonerBackend` validator (`src/types.ts`, `src/config.ts`)
+Added `toReasonerBackend(raw)` function that validates `--reasoner` CLI arg against the
+`ReasonerBackend` union type. Throws a descriptive error for invalid values (e.g.
+`--reasoner must be "opencode" or "claude-code", got "gpt-4"`). Previously `as ReasonerBackend`
+silently accepted any string. 2 new tests + 1 parseCliArgs integration test.
+
+#### 5. Non-null assertion removal (5 files)
+- `index.ts:443`: `reasoner!`/`executor!` → explicit null guard + throw (inside observe-mode else block)
+- `reasoner/opencode.ts:93`: `this.client!` → explicit null guard + throw (caller already checks truthy)
+- `reasoner/opencode.ts:313`: `p.text!` → `p.text ?? ""` (filter already ensures truthy)
+- `reasoner/prompt.ts:180`: `snap.projectContext!` → `snap.projectContext ?? ""` (filter ensures truthy but safer)
+- `task-manager.ts:148`: `this.states.get(def.repo)!` → null-safe `if (existing)` guard
+
+#### 6. Dead export cleanup (`src/colors.ts`)
+Removed 4 unused exports: `ITALIC`, `BG_DARKER`, `BG_PANEL`, `BG_HIGHLIGHT`. All were defined in
+v0.47.0 but never imported by any source file.
+
+#### 7. Unused catch variable (`src/prompt-watcher.ts`)
+Changed `catch(e) {}` to `catch {}` — `e` was captured but never used.
+
+Config additions: none.
+Modified: `src/types.ts`, `src/task-manager.ts`, `src/daemon-state.ts`, `src/config.ts`,
+`src/config.test.ts`, `src/task-cli.ts`, `src/init.ts`, `src/index.ts`, `src/reasoner/opencode.ts`,
+`src/reasoner/prompt.ts`, `src/colors.ts`, `src/prompt-watcher.ts`, `package.json`, `Makefile`,
+`AGENTS.md`, `claude.md`
+Test changes: +17 (10 toTaskState, 3 toDaemonState, 3 toAoeSessionList, 2 toReasonerBackend,
+1 --reasoner invalid value), net 698 tests.
 
 ### What shipped in v0.47.0
 

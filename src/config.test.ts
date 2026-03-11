@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { parseCliArgs, deepMerge, validateConfig, findConfigFile, configFileExists, defaultConfigPath } from "./config.js";
 import type { AoaoeConfig, Action } from "./types.js";
-import { actionSession, actionDetail, toSessionStatus } from "./types.js";
+import { actionSession, actionDetail, toSessionStatus, toTaskState, toDaemonState, toAoeSessionList, toReasonerBackend } from "./types.js";
 
 describe("config file resolution", () => {
   it("defaultConfigPath points to ~/.aoaoe/aoaoe.config.json", () => {
@@ -529,6 +529,10 @@ describe("parseCliArgs missing flag values", () => {
   it("throws when --reasoner is the last arg", () => {
     assert.throws(() => parseCliArgs(argv("--verbose", "--reasoner")), /--reasoner requires a value/);
   });
+
+  it("throws when --reasoner has invalid value", () => {
+    assert.throws(() => parseCliArgs(argv("--reasoner", "gpt-4")), /must be "opencode" or "claude-code"/);
+  });
 });
 
 // ── actionSession / actionDetail helpers ────────────────────────────────────
@@ -608,5 +612,160 @@ describe("toSessionStatus", () => {
   it("returns 'unknown' for non-string input", () => {
     assert.equal(toSessionStatus(42), "unknown");
     assert.equal(toSessionStatus(true), "unknown");
+  });
+});
+
+// ── toTaskState ─────────────────────────────────────────────────────────────
+
+describe("toTaskState", () => {
+  const valid = {
+    repo: "github/adventure",
+    sessionTitle: "adventure",
+    tool: "opencode",
+    goal: "build it",
+    status: "active",
+    progress: [],
+  };
+
+  it("accepts a valid task state object", () => {
+    const result = toTaskState(valid);
+    assert.ok(result);
+    assert.equal(result.repo, "github/adventure");
+    assert.equal(result.status, "active");
+    assert.deepEqual(result.progress, []);
+  });
+
+  it("accepts all valid statuses", () => {
+    for (const s of ["pending", "active", "completed", "paused", "failed"]) {
+      assert.ok(toTaskState({ ...valid, status: s }));
+    }
+  });
+
+  it("rejects null/undefined/primitives", () => {
+    assert.equal(toTaskState(null), null);
+    assert.equal(toTaskState(undefined), null);
+    assert.equal(toTaskState("string"), null);
+    assert.equal(toTaskState(42), null);
+  });
+
+  it("rejects missing required fields", () => {
+    assert.equal(toTaskState({ ...valid, repo: undefined }), null);
+    assert.equal(toTaskState({ ...valid, sessionTitle: 42 }), null);
+    assert.equal(toTaskState({ ...valid, tool: undefined }), null);
+    assert.equal(toTaskState({ ...valid, goal: undefined }), null);
+    assert.equal(toTaskState({ ...valid, progress: "not-array" }), null);
+  });
+
+  it("rejects invalid status values", () => {
+    assert.equal(toTaskState({ ...valid, status: "banana" }), null);
+    assert.equal(toTaskState({ ...valid, status: 42 }), null);
+  });
+
+  it("preserves optional fields when present", () => {
+    const result = toTaskState({ ...valid, sessionId: "abc-123", createdAt: 1000, lastProgressAt: 2000, completedAt: 3000 });
+    assert.ok(result);
+    assert.equal(result.sessionId, "abc-123");
+    assert.equal(result.createdAt, 1000);
+    assert.equal(result.lastProgressAt, 2000);
+    assert.equal(result.completedAt, 3000);
+  });
+
+  it("drops optional fields with wrong types", () => {
+    const result = toTaskState({ ...valid, sessionId: 42, createdAt: "not-a-number" });
+    assert.ok(result);
+    assert.equal(result.sessionId, undefined);
+    assert.equal(result.createdAt, undefined);
+  });
+
+  it("filters invalid progress entries", () => {
+    const result = toTaskState({ ...valid, progress: [
+      { at: 1000, summary: "did stuff" },
+      { at: "bad", summary: "nope" },
+      null,
+      { at: 2000, summary: "more stuff" },
+    ]});
+    assert.ok(result);
+    assert.equal(result.progress.length, 2);
+  });
+});
+
+// ── toDaemonState ───────────────────────────────────────────────────────────
+
+describe("toDaemonState", () => {
+  const valid = {
+    tickStartedAt: 1000,
+    nextTickAt: 2000,
+    pollIntervalMs: 10000,
+    phase: "sleeping",
+    phaseStartedAt: 1000,
+    pollCount: 5,
+    paused: false,
+    sessionCount: 2,
+    changeCount: 1,
+    sessions: [],
+  };
+
+  it("accepts a valid daemon state", () => {
+    const result = toDaemonState(valid);
+    assert.ok(result);
+    assert.equal(result.phase, "sleeping");
+  });
+
+  it("rejects null/undefined/primitives", () => {
+    assert.equal(toDaemonState(null), null);
+    assert.equal(toDaemonState(undefined), null);
+    assert.equal(toDaemonState("string"), null);
+  });
+
+  it("rejects missing required fields", () => {
+    assert.equal(toDaemonState({ ...valid, tickStartedAt: undefined }), null);
+    assert.equal(toDaemonState({ ...valid, phase: 42 }), null);
+    assert.equal(toDaemonState({ ...valid, paused: "yes" }), null);
+    assert.equal(toDaemonState({ ...valid, sessions: "not-array" }), null);
+  });
+});
+
+// ── toAoeSessionList ────────────────────────────────────────────────────────
+
+describe("toAoeSessionList", () => {
+  it("filters valid sessions from array", () => {
+    const result = toAoeSessionList([
+      { id: "abc", title: "Adventure" },
+      { id: "def", title: "CHV" },
+    ]);
+    assert.equal(result.length, 2);
+    assert.equal(result[0].title, "Adventure");
+  });
+
+  it("returns empty for non-array", () => {
+    assert.deepEqual(toAoeSessionList(null), []);
+    assert.deepEqual(toAoeSessionList("string"), []);
+    assert.deepEqual(toAoeSessionList(42), []);
+  });
+
+  it("filters out entries missing id or title", () => {
+    const result = toAoeSessionList([
+      { id: "abc", title: "good" },
+      { id: "def" }, // missing title
+      { title: "no-id" }, // missing id
+      null,
+      42,
+      { id: "ghi", title: "also-good" },
+    ]);
+    assert.equal(result.length, 2);
+  });
+});
+
+// ── toReasonerBackend ───────────────────────────────────────────────────────
+
+describe("toReasonerBackend", () => {
+  it("accepts valid backends", () => {
+    assert.equal(toReasonerBackend("opencode"), "opencode");
+    assert.equal(toReasonerBackend("claude-code"), "claude-code");
+  });
+
+  it("throws for invalid backend", () => {
+    assert.throws(() => toReasonerBackend("gpt-4"), /must be "opencode" or "claude-code"/);
+    assert.throws(() => toReasonerBackend(""), /must be "opencode" or "claude-code"/);
   });
 });

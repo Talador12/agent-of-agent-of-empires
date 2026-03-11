@@ -87,7 +87,7 @@ function checkAndClear() {
                 .pop() || '';
               appendFileSync(logFile,
                 new Date().toISOString() + ' CLEARED: ' + line.trim().slice(0, 120) + '\\n');
-            } catch(e) {}
+            } catch {}
           }
         }
       }

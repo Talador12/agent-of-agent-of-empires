@@ -177,7 +177,7 @@ export function formatObservation(obs: Observation): string {
     parts.push("Project context for sessions:");
     let contextBudget = 50_000; // max bytes for all project context combined
     for (const snap of sortedContextSessions) {
-      const ctx = snap.projectContext!;
+      const ctx = snap.projectContext ?? "";
       const ctxBytes = Buffer.byteLength(ctx, "utf-8");
       if (ctxBytes > contextBudget) {
         // truncate this context to fit remaining budget

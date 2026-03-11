@@ -4,6 +4,7 @@
 import { writeFileSync, readFileSync, existsSync, unlinkSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { toDaemonState } from "./types.js";
 import type { DaemonState, DaemonPhase, DaemonSessionState, Observation } from "./types.js";
 import { parseTasks, formatTaskList } from "./task-parser.js";
 
@@ -137,7 +138,7 @@ export function buildSessionStates(obs: Observation): DaemonSessionState[] {
 export function readState(): DaemonState | null {
   try {
     if (!existsSync(STATE_FILE)) return null;
-    return JSON.parse(readFileSync(STATE_FILE, "utf-8")) as DaemonState;
+    return toDaemonState(JSON.parse(readFileSync(STATE_FILE, "utf-8")));
   } catch {
     return null;
   }

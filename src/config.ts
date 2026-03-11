@@ -3,6 +3,7 @@ import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
+import { toReasonerBackend } from "./types.js";
 import type { AoaoeConfig, ReasonerBackend } from "./types.js";
 
 const execFileAsync = promisify(execFileCb);
@@ -288,7 +289,7 @@ export function parseCliArgs(argv: string[]): {
     const arg = argv[i];
     switch (arg) {
       case "--reasoner":
-        overrides.reasoner = nextArg(i, arg) as ReasonerBackend;
+        overrides.reasoner = toReasonerBackend(nextArg(i, arg));
         i++;
         break;
       case "--poll-interval": {

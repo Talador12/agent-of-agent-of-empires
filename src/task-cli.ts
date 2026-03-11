@@ -4,6 +4,7 @@ import { exec } from "./shell.js";
 import { existsSync } from "node:fs";
 import { resolve, basename } from "node:path";
 import { loadTaskState, saveTaskState, formatTaskTable } from "./task-manager.js";
+import { toAoeSessionList } from "./types.js";
 import type { TaskState, TaskStatus } from "./types.js";
 
 import { BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET } from "./colors.js";
@@ -132,7 +133,7 @@ export async function taskNew(title: string, path: string, tool = "opencode"): P
   let sessionId: string | undefined;
   if (listResult.exitCode === 0) {
     try {
-      const sessions = JSON.parse(listResult.stdout) as Array<{ id: string; title: string }>;
+      const sessions = toAoeSessionList(JSON.parse(listResult.stdout));
       const found = sessions.find((s) => s.title.toLowerCase() === lower);
       sessionId = found?.id;
     } catch {}

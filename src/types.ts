@@ -187,6 +187,8 @@ export interface TaskProgress {
 
 export type TaskStatus = "pending" | "active" | "completed" | "paused" | "failed";
 
+const VALID_TASK_STATUSES = new Set<TaskStatus>(["pending", "active", "completed", "paused", "failed"]);
+
 // persistent state for a task — survives session creation and teardown
 export interface TaskState {
   repo: string;
@@ -199,4 +201,68 @@ export interface TaskState {
   lastProgressAt?: number;
   completedAt?: number;
   progress: TaskProgress[];
+}
+
+// validate an unknown value (e.g. from JSON.parse) as a TaskState, returning null if invalid
+export function toTaskState(raw: unknown): TaskState | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.repo !== "string" || !r.repo) return null;
+  if (typeof r.sessionTitle !== "string") return null;
+  if (typeof r.tool !== "string") return null;
+  if (typeof r.goal !== "string") return null;
+  if (typeof r.status !== "string" || !VALID_TASK_STATUSES.has(r.status as TaskStatus)) return null;
+  if (!Array.isArray(r.progress)) return null;
+  return {
+    repo: r.repo,
+    sessionTitle: r.sessionTitle,
+    tool: r.tool,
+    goal: r.goal,
+    status: r.status as TaskStatus,
+    sessionId: typeof r.sessionId === "string" ? r.sessionId : undefined,
+    createdAt: typeof r.createdAt === "number" ? r.createdAt : undefined,
+    lastProgressAt: typeof r.lastProgressAt === "number" ? r.lastProgressAt : undefined,
+    completedAt: typeof r.completedAt === "number" ? r.completedAt : undefined,
+    progress: r.progress.filter(
+      (p: unknown): p is TaskProgress =>
+        !!p && typeof p === "object" &&
+        typeof (p as Record<string, unknown>).at === "number" &&
+        typeof (p as Record<string, unknown>).summary === "string"
+    ),
+  };
+}
+
+// validate an unknown value as a DaemonState, returning null if invalid
+export function toDaemonState(raw: unknown): DaemonState | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.tickStartedAt !== "number") return null;
+  if (typeof r.nextTickAt !== "number") return null;
+  if (typeof r.pollIntervalMs !== "number") return null;
+  if (typeof r.phase !== "string") return null;
+  if (typeof r.phaseStartedAt !== "number") return null;
+  if (typeof r.pollCount !== "number") return null;
+  if (typeof r.paused !== "boolean") return null;
+  if (typeof r.sessionCount !== "number") return null;
+  if (typeof r.changeCount !== "number") return null;
+  if (!Array.isArray(r.sessions)) return null;
+  return raw as DaemonState;
+}
+
+// validate an unknown array as an AoE session list (from `aoe list --json`)
+export function toAoeSessionList(raw: unknown): Array<{ id: string; title: string }> {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item): item is { id: string; title: string } =>
+      !!item && typeof item === "object" &&
+      typeof (item as Record<string, unknown>).id === "string" &&
+      typeof (item as Record<string, unknown>).title === "string"
+  );
+}
+
+// validate a string as a ReasonerBackend, throwing on invalid input
+const VALID_REASONER_BACKENDS = new Set<ReasonerBackend>(["opencode", "claude-code"]);
+export function toReasonerBackend(raw: string): ReasonerBackend {
+  if (VALID_REASONER_BACKENDS.has(raw as ReasonerBackend)) return raw as ReasonerBackend;
+  throw new Error(`--reasoner must be "opencode" or "claude-code", got "${raw}"`);
 }

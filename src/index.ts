@@ -440,7 +440,8 @@ async function main() {
       // ── normal mode: full tick ─────────────────────────────────────────
 
       const activeTaskContext = taskManager ? taskManager.tasks.filter((t) => t.status !== "completed") : undefined;
-      const { interrupted, decisionsThisTick, actionsOk, actionsFail } = await daemonTick(config, poller, reasoner!, executor!, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager, tui);
+      if (!reasoner || !executor) throw new Error("reasoner/executor unexpectedly null in normal mode");
+      const { interrupted, decisionsThisTick, actionsOk, actionsFail } = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager, tui);
       totalDecisions += decisionsThisTick;
       totalActionsExecuted += actionsOk;
       totalActionsFailed += actionsFail;

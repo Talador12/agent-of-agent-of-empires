@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "
 import { join, resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import { exec } from "./shell.js";
+import { toTaskState, toAoeSessionList } from "./types.js";
 import type { TaskDefinition, TaskState, TaskProgress, TaskStatus } from "./types.js";
 import { RESET, BOLD, DIM, GREEN, YELLOW, RED, CYAN } from "./colors.js";
 
@@ -89,8 +90,9 @@ export function loadTaskState(): Map<string, TaskState> {
     const raw = JSON.parse(readFileSync(STATE_FILE, "utf-8"));
     if (raw && typeof raw.tasks === "object") {
       for (const [repo, state] of Object.entries(raw.tasks)) {
-        if (state && typeof state === "object") {
-          map.set(repo, state as TaskState);
+        const validated = toTaskState(state);
+        if (validated) {
+          map.set(repo, validated);
         }
       }
     }
@@ -143,9 +145,11 @@ export class TaskManager {
         });
       } else {
         // update goal/tool if definition changed (don't reset progress)
-        const existing = this.states.get(def.repo)!;
-        if (def.goal) existing.goal = def.goal;
-        if (def.tool) existing.tool = def.tool;
+        const existing = this.states.get(def.repo);
+        if (existing) {
+          if (def.goal) existing.goal = def.goal;
+          if (def.tool) existing.tool = def.tool;
+        }
       }
     }
     this.save();
@@ -213,7 +217,7 @@ export class TaskManager {
           const refreshResult = await exec("aoe", ["list", "--json"]);
           if (refreshResult.exitCode === 0) {
             try {
-              const refreshed = JSON.parse(refreshResult.stdout) as Array<{ id: string; title: string }>;
+              const refreshed = toAoeSessionList(JSON.parse(refreshResult.stdout));
               const newSession = refreshed.find(
                 (s) => s.title.toLowerCase() === task.sessionTitle.toLowerCase()
               );

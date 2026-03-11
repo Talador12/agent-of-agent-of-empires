@@ -90,7 +90,8 @@ export class OpencodeReasoner implements Reasoner {
   }
 
   private async decideViaSDK(prompt: string, signal?: AbortSignal): Promise<ReasonerResult> {
-    const client = this.client!;
+    if (!this.client) throw new Error("decideViaSDK called without a connected client");
+    const client = this.client;
 
     // create session on first call, after rotation, or after error reset
     if (!this.sessionId) {
@@ -309,7 +310,7 @@ class OpencodeClient {
     // extract text from assistant response parts
     const textParts = (data.parts ?? [])
       .filter((p) => p.type === "text" && p.text)
-      .map((p) => p.text!);
+      .map((p) => p.text ?? "");
     return textParts.join("\n");
   }
 }

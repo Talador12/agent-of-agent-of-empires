@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import { exec } from "./shell.js";
 import { resolveProjectDirWithSource, type ResolutionSource } from "./context.js";
 import { saveTaskState, loadTaskState } from "./task-manager.js";
-import { toSessionStatus, type AoeSession, type AoeSessionStatus, type TaskState } from "./types.js";
+import { toSessionStatus, toAoeSessionList, type AoeSession, type AoeSessionStatus, type TaskState } from "./types.js";
 import { createServer } from "node:net";
 
 import { BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET } from "./colors.js";
@@ -64,7 +64,9 @@ async function discoverSessions(): Promise<AoeSession[]> {
   if (result.exitCode !== 0) return [];
 
   try {
-    const raw = JSON.parse(result.stdout) as Record<string, unknown>[];
+    const parsed = JSON.parse(result.stdout);
+    if (!Array.isArray(parsed)) return [];
+    const raw = parsed as Record<string, unknown>[];
     // fetch status for each session in parallel (allSettled so one failure doesn't kill all)
     const results = await Promise.allSettled(raw.map(async (r): Promise<AoeSession> => {
       const id = String(r.id ?? "");
