@@ -5,11 +5,66 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.36.0
+## Version: v0.37.0
 
 ## Current Focus
 
-509 tests across 25 files. v0.36.0 shipped: clarity & usability for human operators.
+543 tests across 25 files. v0.37.0 shipped: narration — everything aoaoe says feels human and conversational.
+
+### What shipped in v0.37.0
+
+**Theme: "Narration"** — six features that make aoaoe's output feel like a
+narrated experience rather than a status dashboard.
+
+#### 1. Plain-English session panel (`src/tui.ts`)
+`formatSessionSentence()` replaces the columnar session table with
+conversational sentences per agent:
+- `~ Adventure (opencode) — working on authentication`
+- `! Cloud Hypervisor (opencode) — hit an error`
+- `~ Adventure (opencode) — you're working here`
+Status-aware descriptions: idle, error, user active, done, waiting for input.
+
+#### 2. Narrated observations (`src/console.ts`, `src/index.ts`)
+`narrateObservation()` generates conversational summaries instead of
+session-by-session technical output:
+- "Adventure just made progress. CHV is idle."
+- "All 3 agents are working — no new changes."
+- "CHV hit an error!"
+Displayed in the TUI activity log as the primary observation line.
+
+#### 3. Event highlights (`src/index.ts`)
+Important events get prominent TUI log entries:
+- Error sessions: "Adventure hit an error! The AI will investigate."
+- Completions: "Adventure finished its task!"
+- User-active: "You're working in Adventure — the AI won't interfere."
+
+#### 4. Catch-up on startup (`src/console.ts`, `src/index.ts`)
+`summarizeRecentActions()` reads `~/.aoaoe/actions.log` at startup and shows
+a conversational summary in the welcome banner:
+- "Recent activity: 5 actions in the last 1 hour, across Adventure, CHV."
+- "No previous activity found."
+Configurable time window (default: 1 hour). Skips wait actions.
+
+#### 5. Friendly error display (`src/console.ts`, `src/index.ts`)
+`friendlyError()` translates raw shell stderr into human-readable messages:
+- `ECONNREFUSED` → "Connection refused — is the server running?"
+- `command not found` → `"aoe" is not installed or not on your PATH.`
+- `EACCES` → "Permission denied — check file permissions."
+- `401` → "Authentication failed — check your credentials."
+Applied to all failed action display lines in the TUI and log.
+
+#### 6. Auto-explain on first tick (`src/index.ts`)
+On the very first tick with sessions (in normal mode), the AI automatically
+gets a prompt asking it to introduce what it sees — how many agents, what
+each is working on, and whether anything needs attention. The user sees the
+AI's explanation appear naturally without having to type `/explain`.
+Skipped in observe and confirm modes.
+
+Config additions: none (all features are default-on behavior).
+
+Modified: `src/console.ts`, `src/tui.ts`, `src/index.ts`
+Test additions: 34 new tests (narrateObservation 7, summarizeRecentActions 8,
+friendlyError 11, formatSessionSentence 8)
 
 ### What shipped in v0.36.0
 
@@ -288,6 +343,17 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 
 ## Completed
 
+- v0.37.0: Narration (543 tests):
+  - **`tui.ts`**: `formatSessionSentence()` — conversational session panel with
+    status-aware descriptions, `paintSessions()` rewritten to use sentences.
+  - **`console.ts`**: `narrateObservation()` — conversational observation
+    summaries, `summarizeRecentActions()` — startup catch-up from actions.log,
+    `friendlyError()` — translate raw stderr into human-readable messages.
+  - **`index.ts`**: Event highlights (error/completion/user-active), narrated
+    observation wiring, startup catch-up display, friendly error translation
+    for failed actions, auto-explain injection on first tick.
+  - 34 new tests (narrateObservation 7, summarizeRecentActions 8,
+    friendlyError 11, formatSessionSentence 8).
 - v0.36.0: Clarity & usability (509 tests):
   - **`reasoner/prompt.ts`**: System prompt requires plain-English `reasoning`
     field, written for non-programmers.

@@ -238,19 +238,13 @@ export class TUI {
 
   private paintSessions(): void {
     const startRow = this.headerHeight + 1;
-    // session header
-    const hdr = `  ${DIM}${"st".padEnd(4)} ${"tool".padEnd(11)} ${"title".padEnd(22)} ${"id".padEnd(10)} task${RESET}`;
+    // session header — friendly label instead of column abbreviations
+    const hdr = `  ${DIM}agents:${RESET}`;
     process.stderr.write(SAVE_CURSOR + moveTo(startRow, 1) + CLEAR_LINE + hdr);
 
     for (let i = 0; i < this.sessions.length; i++) {
       const s = this.sessions[i];
-      const icon = STATUS_ICONS[s.status] ?? `${YELLOW}?${RESET}`;
-      const userFlag = s.userActive ? `${YELLOW}*${RESET}` : " ";
-      const tool = s.tool.length > 10 ? s.tool.slice(0, 10) : s.tool.padEnd(11);
-      const title = s.title.length > 20 ? s.title.slice(0, 20) + ".." : s.title.padEnd(22);
-      const id = (s.id || "").slice(0, 8).padEnd(10);
-      const task = s.currentTask ? truncatePlain(s.currentTask, 30) : `${DIM}-${RESET}`;
-      const line = `  ${icon}${userFlag} ${tool} ${title} ${id} ${task}`;
+      const line = `  ${formatSessionSentence(s, this.cols - 4)}`;
       process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + line);
     }
 
@@ -264,7 +258,7 @@ export class TUI {
   }
 
   private paintSeparator(): void {
-    const hints = " ESC ESC: interrupt  /help  /task  /pause ";
+    const hints = " ESC ESC: interrupt  /help  /explain  /pause ";
     const prefix = "── activity ";
     const totalDecor = prefix.length + hints.length + 2; // 2 for surrounding ──
     const fill = Math.max(0, this.cols - totalDecor);
@@ -347,6 +341,44 @@ function truncateAnsi(str: string, maxCols: number): string {
 
 function truncatePlain(str: string, max: number): string {
   return str.length > max ? str.slice(0, max - 2) + ".." : str;
+}
+
+/**
+ * Format a session state as a plain-English sentence.
+ * Examples:
+ *   "~ Adventure (opencode) — working on authentication"
+ *   "! Cloud Hypervisor (opencode) — error"
+ *   ". CHV (claude) — idle"
+ *   "~ Adventure (opencode) — you're working here"
+ */
+export function formatSessionSentence(s: DaemonSessionState, maxCols: number): string {
+  const icon = STATUS_ICONS[s.status] ?? `${YELLOW}?${RESET}`;
+  const name = s.title;
+  const tool = `${DIM}(${s.tool})${RESET}`;
+
+  // human-readable status descriptions
+  let statusDesc: string;
+  if (s.userActive) {
+    statusDesc = `${YELLOW}you're working here${RESET}`;
+  } else if (s.status === "working") {
+    if (s.currentTask) {
+      statusDesc = truncatePlain(s.currentTask, Math.max(30, maxCols - name.length - s.tool.length - 20));
+    } else {
+      statusDesc = `${GREEN}working${RESET}`;
+    }
+  } else if (s.status === "idle" || s.status === "stopped") {
+    statusDesc = `${DIM}idle${RESET}`;
+  } else if (s.status === "error") {
+    statusDesc = `${RED}hit an error${RESET}`;
+  } else if (s.status === "done") {
+    statusDesc = `${GREEN}finished${RESET}`;
+  } else if (s.status === "waiting") {
+    statusDesc = `${YELLOW}waiting for input${RESET}`;
+  } else {
+    statusDesc = s.status;
+  }
+
+  return truncateAnsi(`${icon} ${BOLD}${name}${RESET} ${tool} ${DIM}—${RESET} ${statusDesc}`, maxCols);
 }
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────

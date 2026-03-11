@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatActivity, truncateAnsi, truncatePlain, TUI } from "./tui.js";
+import { formatActivity, truncateAnsi, truncatePlain, TUI, formatSessionSentence } from "./tui.js";
 import type { ActivityEntry } from "./tui.js";
+import type { DaemonSessionState } from "./types.js";
 
 describe("truncatePlain", () => {
   it("returns string unchanged when under limit", () => {
@@ -90,6 +91,74 @@ describe("TUI class", () => {
   it("updateState does not throw when not active", () => {
     const tui = new TUI();
     tui.updateState({ phase: "reasoning", pollCount: 5, sessions: [] });
+  });
+});
+
+// --- formatSessionSentence ---
+
+describe("formatSessionSentence", () => {
+  function makeSession(overrides: Partial<DaemonSessionState> = {}): DaemonSessionState {
+    return {
+      id: "abc12345-def6-7890",
+      title: "Adventure",
+      tool: "opencode",
+      status: "working",
+      ...overrides,
+    };
+  }
+
+  function stripAnsi(s: string): string {
+    return s.replace(/\x1b\[[0-9;]*m/g, "");
+  }
+
+  it("shows working session with task", () => {
+    const s = makeSession({ currentTask: "implementing auth" });
+    const result = stripAnsi(formatSessionSentence(s, 120));
+    assert.ok(result.includes("Adventure"), `got: ${result}`);
+    assert.ok(result.includes("opencode"), `got: ${result}`);
+    assert.ok(result.includes("implementing auth"), `got: ${result}`);
+  });
+
+  it("shows working session without task as 'working'", () => {
+    const s = makeSession();
+    const result = stripAnsi(formatSessionSentence(s, 120));
+    assert.ok(result.includes("working"), `got: ${result}`);
+  });
+
+  it("shows idle session", () => {
+    const s = makeSession({ status: "idle" });
+    const result = stripAnsi(formatSessionSentence(s, 120));
+    assert.ok(result.includes("idle"), `got: ${result}`);
+  });
+
+  it("shows error session as 'hit an error'", () => {
+    const s = makeSession({ status: "error" });
+    const result = stripAnsi(formatSessionSentence(s, 120));
+    assert.ok(result.includes("hit an error"), `got: ${result}`);
+  });
+
+  it("shows user-active session as 'you're working here'", () => {
+    const s = makeSession({ userActive: true });
+    const result = stripAnsi(formatSessionSentence(s, 120));
+    assert.ok(result.includes("you're working here"), `got: ${result}`);
+  });
+
+  it("shows done session as 'finished'", () => {
+    const s = makeSession({ status: "done" });
+    const result = stripAnsi(formatSessionSentence(s, 120));
+    assert.ok(result.includes("finished"), `got: ${result}`);
+  });
+
+  it("shows waiting session", () => {
+    const s = makeSession({ status: "waiting" });
+    const result = stripAnsi(formatSessionSentence(s, 120));
+    assert.ok(result.includes("waiting for input"), `got: ${result}`);
+  });
+
+  it("includes tool name in parentheses", () => {
+    const s = makeSession({ tool: "claude" });
+    const result = stripAnsi(formatSessionSentence(s, 120));
+    assert.ok(result.includes("(claude)"), `got: ${result}`);
   });
 });
 

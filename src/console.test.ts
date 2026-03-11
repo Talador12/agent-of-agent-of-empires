@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, renameSync, statSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { formatTickSeparator, formatSessionSummaries, formatActionDetail, formatPlainEnglishAction, colorizeConsoleLine } from "./console.js";
+import { formatTickSeparator, formatSessionSummaries, formatActionDetail, formatPlainEnglishAction, colorizeConsoleLine, narrateObservation, summarizeRecentActions, friendlyError } from "./console.js";
 
 // ReasonerConsole.drainInput uses hardcoded paths (~/.aoaoe/pending-input.txt)
 // so we test the atomic swap logic pattern here with temp files instead.
@@ -334,6 +334,206 @@ describe("colorizeConsoleLine — explain tag", () => {
     const line = "12:00:00 [reasoner] decided: wait";
     const result = colorizeConsoleLine(line);
     assert.ok(result.includes("\x1b[36m"), "reasoner should be cyan");
+  });
+});
+
+// --- narrateObservation ---
+
+describe("narrateObservation", () => {
+  it("returns 'No agents running.' when empty", () => {
+    assert.equal(narrateObservation([], new Set()), "No agents running.");
+  });
+
+  it("mentions sessions that made progress", () => {
+    const sessions = [
+      { title: "Adventure", status: "working" },
+      { title: "CHV", status: "idle" },
+    ];
+    const result = narrateObservation(sessions, new Set(["Adventure"]));
+    assert.ok(result.includes("Adventure just made progress"), `got: ${result}`);
+  });
+
+  it("mentions errored sessions prominently", () => {
+    const sessions = [{ title: "Broken", status: "error" }];
+    const result = narrateObservation(sessions, new Set(["Broken"]));
+    assert.ok(result.includes("Broken hit an error"), `got: ${result}`);
+  });
+
+  it("reports all idle when nothing changed and all idle", () => {
+    const sessions = [
+      { title: "A", status: "idle" },
+      { title: "B", status: "stopped" },
+    ];
+    const result = narrateObservation(sessions, new Set());
+    assert.ok(result.includes("2 agents are idle"), `got: ${result}`);
+  });
+
+  it("reports no new changes when agents are working but nothing changed", () => {
+    const sessions = [
+      { title: "A", status: "working" },
+      { title: "B", status: "working" },
+    ];
+    const result = narrateObservation(sessions, new Set());
+    assert.ok(result.includes("no new changes"), `got: ${result}`);
+  });
+
+  it("combines multiple observations", () => {
+    const sessions = [
+      { title: "Adventure", status: "working" },
+      { title: "CHV", status: "error" },
+      { title: "Idle", status: "idle" },
+    ];
+    const result = narrateObservation(sessions, new Set(["Adventure", "CHV"]));
+    assert.ok(result.includes("CHV hit an error"), `should mention error: ${result}`);
+    assert.ok(result.includes("Adventure just made progress"), `should mention progress: ${result}`);
+    assert.ok(result.includes("Idle"), `should mention idle session: ${result}`);
+  });
+
+  it("uses singular 'is' for a single idle session", () => {
+    const sessions = [
+      { title: "A", status: "working" },
+      { title: "B", status: "idle" },
+    ];
+    const result = narrateObservation(sessions, new Set(["A"]));
+    assert.ok(result.includes("B is idle"), `got: ${result}`);
+  });
+});
+
+// --- summarizeRecentActions ---
+
+describe("summarizeRecentActions", () => {
+  const now = Date.now();
+  const recentTs = now - 300_000; // 5 minutes ago
+  const oldTs = now - 7_200_000; // 2 hours ago
+
+  it("returns 'No previous activity' for empty input", () => {
+    assert.equal(summarizeRecentActions([]), "No previous activity found.");
+  });
+
+  it("returns 'No actions in the last hour' when all entries are old", () => {
+    const lines = [
+      JSON.stringify({ timestamp: oldTs, action: { action: "send_input", session: "s1" }, success: true }),
+    ];
+    const result = summarizeRecentActions(lines);
+    assert.equal(result, "No actions in the last hour.");
+  });
+
+  it("counts recent actions within the window", () => {
+    const lines = [
+      JSON.stringify({ timestamp: recentTs, action: { action: "send_input", session: "Adventure" }, success: true }),
+      JSON.stringify({ timestamp: recentTs, action: { action: "start_session", session: "CHV" }, success: true }),
+    ];
+    const result = summarizeRecentActions(lines);
+    assert.ok(result.includes("2 actions"), `got: ${result}`);
+    assert.ok(result.includes("1 hour"), `got: ${result}`);
+  });
+
+  it("skips wait actions", () => {
+    const lines = [
+      JSON.stringify({ timestamp: recentTs, action: { action: "wait" }, success: true }),
+      JSON.stringify({ timestamp: recentTs, action: { action: "send_input", session: "A" }, success: true }),
+    ];
+    const result = summarizeRecentActions(lines);
+    assert.ok(result.includes("1 action"), `got: ${result}`);
+  });
+
+  it("reports failures", () => {
+    const lines = [
+      JSON.stringify({ timestamp: recentTs, action: { action: "send_input", session: "A" }, success: false }),
+    ];
+    const result = summarizeRecentActions(lines);
+    assert.ok(result.includes("1 failed"), `got: ${result}`);
+  });
+
+  it("mentions session names when <= 4", () => {
+    const lines = [
+      JSON.stringify({ timestamp: recentTs, action: { action: "send_input", session: "Adventure" }, success: true }),
+    ];
+    const result = summarizeRecentActions(lines);
+    assert.ok(result.includes("Adventure"), `got: ${result}`);
+  });
+
+  it("handles malformed lines gracefully", () => {
+    const lines = [
+      "not valid json",
+      JSON.stringify({ timestamp: recentTs, action: { action: "send_input", session: "A" }, success: true }),
+    ];
+    const result = summarizeRecentActions(lines);
+    assert.ok(result.includes("1 action"), `got: ${result}`);
+  });
+
+  it("respects custom window", () => {
+    const fiveMinAgo = now - 300_000;
+    const thirtyMinAgo = now - 1_800_000;
+    const lines = [
+      JSON.stringify({ timestamp: fiveMinAgo, action: { action: "send_input", session: "A" }, success: true }),
+      JSON.stringify({ timestamp: thirtyMinAgo, action: { action: "send_input", session: "B" }, success: true }),
+    ];
+    // 10 minute window should only include the 5-minute-ago entry
+    const result = summarizeRecentActions(lines, 600_000);
+    assert.ok(result.includes("1 action"), `got: ${result}`);
+    assert.ok(result.includes("10 minutes"), `got: ${result}`);
+  });
+});
+
+// --- friendlyError ---
+
+describe("friendlyError", () => {
+  it("handles 'command not found'", () => {
+    const result = friendlyError("bash: aoe: command not found");
+    assert.ok(result.includes("aoe"), `got: ${result}`);
+    assert.ok(result.includes("not installed") || result.includes("PATH"), `got: ${result}`);
+  });
+
+  it("handles ECONNREFUSED", () => {
+    const result = friendlyError("Error: connect ECONNREFUSED 127.0.0.1:4097");
+    assert.ok(result.includes("Connection refused"), `got: ${result}`);
+  });
+
+  it("handles ENOENT with path", () => {
+    const result = friendlyError("Error: ENOENT: no such file or directory, open '/foo/bar'");
+    assert.ok(result.includes("/foo/bar"), `got: ${result}`);
+  });
+
+  it("handles permission denied", () => {
+    const result = friendlyError("Error: EACCES: permission denied");
+    assert.ok(result.includes("Permission denied"), `got: ${result}`);
+  });
+
+  it("handles timeout", () => {
+    const result = friendlyError("Error: ETIMEDOUT");
+    assert.ok(result.includes("timed out"), `got: ${result}`);
+  });
+
+  it("handles 401 unauthorized", () => {
+    const result = friendlyError("401 Unauthorized");
+    assert.ok(result.includes("Authentication failed"), `got: ${result}`);
+  });
+
+  it("handles rate limit", () => {
+    const result = friendlyError("429 Too Many Requests: rate limit exceeded");
+    assert.ok(result.includes("Rate limited"), `got: ${result}`);
+  });
+
+  it("handles empty input", () => {
+    assert.equal(friendlyError(""), "Unknown error (no details)");
+  });
+
+  it("truncates long unknown errors", () => {
+    const longError = "x".repeat(200);
+    const result = friendlyError(longError);
+    assert.ok(result.length <= 125, `got length: ${result.length}`);
+    assert.ok(result.includes("..."), `got: ${result}`);
+  });
+
+  it("returns first line for unknown errors", () => {
+    const result = friendlyError("some weird error\nsecond line\nthird line");
+    assert.equal(result, "some weird error");
+  });
+
+  it("handles 'no such session'", () => {
+    const result = friendlyError("error: no such session 'foo'");
+    assert.ok(result.includes("session doesn't exist"), `got: ${result}`);
   });
 });
 

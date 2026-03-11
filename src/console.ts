@@ -199,6 +199,54 @@ export function formatSessionSummaries(
 }
 
 /**
+ * Build a narrated observation summary — conversational one-liner.
+ * Examples:
+ *   "Adventure just made progress. CHV is idle."
+ *   "All 3 agents are working — no changes."
+ *   "Adventure hit an error!"
+ */
+export function narrateObservation(
+  sessions: Array<{ title: string; status: string }>,
+  changedTitles: Set<string>,
+): string {
+  if (sessions.length === 0) return "No agents running.";
+
+  const parts: string[] = [];
+
+  // mention sessions that changed
+  const changed = sessions.filter((s) => changedTitles.has(s.title));
+  const errored = sessions.filter((s) => s.status === "error");
+  const idle = sessions.filter((s) => s.status === "idle" || s.status === "stopped");
+
+  if (errored.length > 0) {
+    const names = errored.map((s) => s.title).join(", ");
+    parts.push(`${names} hit an error!`);
+  }
+
+  if (changed.length > 0) {
+    const progressNames = changed.filter((s) => s.status !== "error").map((s) => s.title);
+    if (progressNames.length > 0) {
+      parts.push(`${progressNames.join(", ")} just made progress.`);
+    }
+  }
+
+  if (changed.length === 0 && errored.length === 0) {
+    if (idle.length === sessions.length) {
+      parts.push(`All ${sessions.length} agents are idle.`);
+    } else {
+      parts.push(`${sessions.length} agents working — no new changes.`);
+    }
+  }
+
+  if (idle.length > 0 && idle.length < sessions.length) {
+    const idleNames = idle.map((s) => s.title).join(", ");
+    parts.push(`${idleNames} ${idle.length === 1 ? "is" : "are"} idle.`);
+  }
+
+  return parts.join(" ");
+}
+
+/**
  * Format an action line with session title and text preview.
  * For send_input: `send_input → title: text preview`
  * For other actions: `action → title`
@@ -252,6 +300,111 @@ export function formatPlainEnglishAction(
     default:
       return `${action} on ${name}${failed}`;
   }
+}
+
+/**
+ * Summarize recent actions from the persistent actions.log.
+ * Pure function: takes log lines (JSONL), returns a conversational catch-up sentence.
+ * Used at startup to show "Recent activity: 5 actions in the last hour."
+ */
+export function summarizeRecentActions(logLines: string[], windowMs = 3_600_000): string {
+  if (logLines.length === 0) return "No previous activity found.";
+
+  const now = Date.now();
+  const cutoff = now - windowMs;
+  let recentCount = 0;
+  let successes = 0;
+  let failures = 0;
+  const actionTypes = new Map<string, number>();
+  const sessionNames = new Set<string>();
+
+  for (const line of logLines) {
+    try {
+      const entry = JSON.parse(line) as {
+        timestamp: number;
+        action: { action: string; session?: string; title?: string };
+        success: boolean;
+      };
+      if (entry.timestamp < cutoff) continue;
+      if (entry.action.action === "wait") continue;
+      recentCount++;
+      if (entry.success) successes++;
+      else failures++;
+      actionTypes.set(entry.action.action, (actionTypes.get(entry.action.action) ?? 0) + 1);
+      if (entry.action.session) sessionNames.add(entry.action.session);
+      if (entry.action.title) sessionNames.add(entry.action.title);
+    } catch {
+      // skip malformed lines
+    }
+  }
+
+  if (recentCount === 0) return "No actions in the last hour.";
+
+  const windowDesc = windowMs >= 3_600_000
+    ? `${Math.round(windowMs / 3_600_000)} hour${windowMs >= 7_200_000 ? "s" : ""}`
+    : `${Math.round(windowMs / 60_000)} minutes`;
+
+  const parts: string[] = [];
+  parts.push(`${recentCount} action${recentCount !== 1 ? "s" : ""} in the last ${windowDesc}`);
+  if (failures > 0) parts.push(`${failures} failed`);
+  if (sessionNames.size > 0 && sessionNames.size <= 4) {
+    parts.push(`across ${[...sessionNames].join(", ")}`);
+  }
+
+  return `Recent activity: ${parts.join(", ")}.`;
+}
+
+/**
+ * Translate raw shell error output into a friendlier human-readable message.
+ * Pure function: takes stderr text, returns a plain-English explanation.
+ */
+export function friendlyError(stderr: string): string {
+  const s = stderr.trim();
+  if (!s) return "Unknown error (no details)";
+
+  // common patterns
+  if (/command not found/i.test(s)) {
+    const cmd = s.match(/(?:(?:bash|sh|zsh): )?(.+?):\s*command not found/i)?.[1]?.trim();
+    return cmd ? `"${cmd}" is not installed or not on your PATH.` : "A required command is not installed.";
+  }
+  if (/ECONNREFUSED/i.test(s)) {
+    return "Connection refused — is the server running?";
+  }
+  if (/ENOENT/i.test(s)) {
+    const path = s.match(/ENOENT[^']*'([^']+)'/)?.[1];
+    return path ? `File or directory not found: ${path}` : "A file or directory was not found.";
+  }
+  if (/EACCES|permission denied/i.test(s)) {
+    return "Permission denied — check file permissions or run with appropriate access.";
+  }
+  if (/ETIMEDOUT|timed?\s*out/i.test(s)) {
+    return "The operation timed out — try again or check the network.";
+  }
+  if (/401|unauthorized/i.test(s)) {
+    return "Authentication failed — check your credentials or run the auth login command.";
+  }
+  if (/403|forbidden/i.test(s)) {
+    return "Access forbidden — you may not have permission for this resource.";
+  }
+  if (/404|not found/i.test(s) && !/ENOENT/.test(s)) {
+    return "Resource not found — check the URL or identifier.";
+  }
+  if (/no such session/i.test(s)) {
+    return "That session doesn't exist — it may have been removed or never created.";
+  }
+  if (/can't establish/i.test(s) || /connection reset/i.test(s)) {
+    return "Network error — check your connection.";
+  }
+  if (/rate limit/i.test(s) || /429/i.test(s)) {
+    return "Rate limited — too many requests, waiting before retry.";
+  }
+  if (/ENOMEM|out of memory/i.test(s)) {
+    return "Out of memory — try closing other applications.";
+  }
+
+  // fallback: return first line, trimmed
+  const firstLine = s.split("\n")[0].trim();
+  return firstLine.length > 120 ? firstLine.slice(0, 117) + "..." : firstLine;
 }
 
 // colorize a single console line for inline terminal output

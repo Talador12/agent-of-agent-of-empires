@@ -7,7 +7,7 @@ import { printDashboard } from "./dashboard.js";
 import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
 import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState, acquireLock } from "./daemon-state.js";
-import { formatSessionSummaries, formatActionDetail, formatPlainEnglishAction } from "./console.js";
+import { formatSessionSummaries, formatActionDetail, formatPlainEnglishAction, narrateObservation, summarizeRecentActions, friendlyError } from "./console.js";
 import { type SessionPolicyState } from "./reasoner/prompt.js";
 import { loadGlobalContext } from "./context.js";
 import { tick as loopTick } from "./loop.js";
@@ -18,7 +18,7 @@ import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from
 import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
 import { TUI } from "./tui.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState } from "./types.js";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -228,6 +228,19 @@ async function main() {
     tui.log("system", "Type a message to talk to the AI, or use /help for commands.");
     tui.log("system", "Press ESC twice to interrupt the AI mid-thought.");
     tui.log("system", "");
+
+    // catch-up: show recent activity from actions.log
+    try {
+      const actionsLogPath = join(homedir(), ".aoaoe", "actions.log");
+      if (existsSync(actionsLogPath)) {
+        const logContent = readFileSync(actionsLogPath, "utf-8").trim();
+        if (logContent) {
+          const logLines = logContent.split("\n").filter((l) => l.trim());
+          const catchUp = summarizeRecentActions(logLines);
+          tui.log("system", catchUp);
+        }
+      }
+    } catch {}
   }
 
   // ── session stats (for shutdown summary) ──────────────────────────────────
@@ -291,6 +304,10 @@ async function main() {
   // clear any stale interrupt from a previous run
   clearInterrupt();
 
+  // auto-explain: on the very first tick with sessions, inject an explain prompt
+  // so the AI introduces what it sees. Only in normal mode (not observe/confirm/dry-run).
+  let autoExplainPending = !config.observe && !config.confirm;
+
   while (running) {
     pollCount++;
 
@@ -301,6 +318,16 @@ async function main() {
 
     // classify into commands vs. real user messages
     const { commands, userMessages } = classifyMessages(allMessages);
+
+    // auto-explain on first tick: inject an explain prompt so the AI introduces itself
+    if (autoExplainPending && pollCount === 1) {
+      const autoExplainPrompt = "This is your first observation. Please briefly introduce what you see: " +
+        "how many agents are running, what each one is working on, and whether anything needs attention. " +
+        "Keep it conversational — one or two sentences per agent.";
+      userMessages.push(autoExplainPrompt);
+      autoExplainPending = false;
+      if (tui) tui.log("system", "asking the AI for an introduction..."); else log("auto-explain: asking AI to introduce what it sees");
+    }
 
     // /explain: inject a smart prompt into userMessages before formatting
     if (commands.includes("__CMD_EXPLAIN__")) {
@@ -592,9 +619,28 @@ async function daemonTick(
     reasonerConsole.writeObservation(sessionCount, changeCount, changeSummary, summaries);
   }
 
-  // TUI: log observation summary
+  // TUI: log narrated observation summary + event highlights
   if (tui) {
-    tui.log("observation", `${sessionCount} sessions, ${changeCount} changed${userMessage ? " +operator msg" : ""}`);
+    const changedTitles = new Set(observation.changes.map((c) => c.title));
+    const sessionInfos = observation.sessions.map((s) => ({
+      title: s.session.title, status: s.session.status,
+    }));
+    const narration = narrateObservation(sessionInfos, changedTitles);
+    tui.log("observation", narration + (userMessage ? " +your message" : ""));
+
+    // event highlights — call attention to important events
+    for (const snap of observation.sessions) {
+      const s = snap.session;
+      if (s.status === "error" && changedTitles.has(s.title)) {
+        tui.log("! action", `${s.title} hit an error! The AI will investigate.`);
+      }
+      if (s.status === "done" && changedTitles.has(s.title)) {
+        tui.log("+ action", `${s.title} finished its task!`);
+      }
+      if (snap.userActive) {
+        tui.log("status", `You're working in ${s.title} — the AI won't interfere.`);
+      }
+    }
   }
 
   if (skippedReason === "no changes") {
@@ -650,11 +696,17 @@ async function daemonTick(
     const plainEnglish = formatPlainEnglishAction(entry.action.action, sessionTitle, actionText, entry.success);
     // technical detail for the log file
     const richDetail = formatActionDetail(entry.action.action, sessionTitle, actionText);
+
+    // friendly error translation for failed actions
+    const displayText = !entry.success && entry.detail
+      ? `${plainEnglish} — ${friendlyError(entry.detail)}`
+      : plainEnglish;
+
     if (tui) {
-      tui.log(tag, plainEnglish);
+      tui.log(tag, displayText);
     } else {
       const icon = entry.success ? "+" : "!";
-      log(`[${icon}] ${plainEnglish}`);
+      log(`[${icon}] ${displayText}`);
     }
     reasonerConsole.writeAction(entry.action.action, richDetail, entry.success);
   }
