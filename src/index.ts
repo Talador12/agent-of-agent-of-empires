@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-import { loadConfig, validateEnvironment, parseCliArgs, printHelp, configFileExists } from "./config.js";
+import { loadConfig, validateEnvironment, parseCliArgs, printHelp, configFileExists, findConfigFile } from "./config.js";
 import { Poller, computeTmuxName } from "./poller.js";
 import { createReasoner } from "./reasoner/index.js";
 import { Executor } from "./executor.js";
 import { printDashboard } from "./dashboard.js";
 import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
-import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState, acquireLock } from "./daemon-state.js";
+import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState, acquireLock, readState } from "./daemon-state.js";
 import { formatSessionSummaries, formatActionDetail, formatPlainEnglishAction, narrateObservation, summarizeRecentActions, friendlyError } from "./console.js";
 import { type SessionPolicyState } from "./reasoner/prompt.js";
 import { loadGlobalContext, resolveProjectDirWithSource, discoverContextFiles, loadSessionContext } from "./context.js";
@@ -17,6 +17,7 @@ import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, h
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
 import { TUI } from "./tui.js";
+import { isDaemonRunningFromState } from "./chat.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState } from "./types.js";
 import { actionSession, actionDetail } from "./types.js";
 import { YELLOW, GREEN, DIM, BOLD, RED, RESET } from "./colors.js";
@@ -30,7 +31,7 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -74,6 +75,18 @@ async function main() {
   // `aoaoe history` -- review recent actions
   if (showHistory) {
     await showActionHistory();
+    return;
+  }
+
+  // `aoaoe status` -- quick one-shot daemon health check
+  if (showStatus) {
+    showDaemonStatus();
+    return;
+  }
+
+  // `aoaoe config` -- show effective resolved config
+  if (showConfig) {
+    showEffectiveConfig();
     return;
   }
 
@@ -1111,6 +1124,90 @@ async function runIntegrationTest(): Promise<void> {
   }
   // the integration test is a self-contained script that runs main() on import
   await import(testModule);
+}
+
+// `aoaoe status` -- quick one-shot health check: is the daemon running? what's it doing?
+function showDaemonStatus(): void {
+  const state = readState();
+  const running = isDaemonRunningFromState(state);
+  const pkg = readPkgVersion();
+
+  console.log("");
+  console.log(`  aoaoe${pkg ? ` v${pkg}` : ""} — daemon status`);
+  console.log(`  ${"─".repeat(50)}`);
+
+  if (!running || !state) {
+    console.log(`  ${RED}●${RESET} daemon is ${BOLD}not running${RESET}`);
+    const configPath = findConfigFile();
+    console.log(`  config: ${configPath ?? "none found (run 'aoaoe init')"}`);
+    console.log("");
+    console.log("  start with: aoaoe");
+    console.log("  or observe: aoaoe --observe");
+    console.log("");
+    return;
+  }
+
+  // daemon is running — show details
+  const elapsed = Date.now() - state.phaseStartedAt;
+  const elapsedStr = elapsed < 60_000 ? `${Math.floor(elapsed / 1000)}s` : `${Math.floor(elapsed / 60_000)}m`;
+  const phaseIcon = state.phase === "sleeping" ? `${DIM}○${RESET}` :
+                    state.phase === "reasoning" ? `${YELLOW}●${RESET}` :
+                    state.phase === "executing" ? `${GREEN}●${RESET}` :
+                    state.phase === "polling" ? `${YELLOW}○${RESET}` :
+                    `${RED}●${RESET}`;
+
+  console.log(`  ${GREEN}●${RESET} daemon is ${BOLD}running${RESET}  (poll #${state.pollCount})`);
+  console.log(`  ${phaseIcon} phase: ${state.phase} (${elapsedStr})`);
+  if (state.paused) console.log(`  ${YELLOW}${BOLD}  PAUSED${RESET}`);
+  console.log(`  poll interval: ${state.pollIntervalMs / 1000}s`);
+
+  if (state.nextTickAt > Date.now()) {
+    const countdown = Math.ceil((state.nextTickAt - Date.now()) / 1000);
+    console.log(`  next tick: ${countdown}s`);
+  }
+
+  console.log("");
+
+  // sessions
+  if (state.sessions.length === 0) {
+    console.log("  no active sessions");
+  } else {
+    console.log(`  ${state.sessions.length} session(s):`);
+    for (const s of state.sessions) {
+      const statusIcon = s.status === "working" || s.status === "running" ? `${GREEN}●${RESET}` :
+                         s.status === "idle" ? `${DIM}○${RESET}` :
+                         s.status === "error" ? `${RED}●${RESET}` :
+                         s.status === "done" ? `${GREEN}✓${RESET}` :
+                         `${DIM}?${RESET}`;
+      const userTag = s.userActive ? ` ${DIM}(user active)${RESET}` : "";
+      const taskTag = s.currentTask ? ` — ${DIM}${s.currentTask.slice(0, 50)}${RESET}` : "";
+      console.log(`    ${statusIcon} ${BOLD}${s.title}${RESET} (${s.tool}) ${s.status}${userTag}${taskTag}`);
+    }
+  }
+
+  console.log("");
+}
+
+// `aoaoe config` -- show the effective resolved config (defaults + file + any notes)
+function showEffectiveConfig(): void {
+  const configPath = findConfigFile();
+  const configResult = loadConfig();
+  // strip _configPath from output
+  const { _configPath, ...config } = configResult as unknown as Record<string, unknown>;
+
+  console.log("");
+  console.log("  aoaoe — effective config");
+  console.log(`  ${"─".repeat(50)}`);
+  console.log(`  source: ${configPath ?? "defaults (no config file found)"}`);
+  console.log("");
+  console.log(JSON.stringify(config, null, 2));
+  console.log("");
+
+  // helpful notes
+  if (!configPath) {
+    console.log(`  ${DIM}create a config: aoaoe init${RESET}`);
+    console.log("");
+  }
 }
 
 main().catch((err) => {

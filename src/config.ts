@@ -262,6 +262,8 @@ export function parseCliArgs(argv: string[]): {
   runTest: boolean;
   showTasks: boolean;
   showHistory: boolean;
+  showStatus: boolean;
+  showConfig: boolean;
   runInit: boolean;
   initForce: boolean;
   runTaskCli: boolean;
@@ -279,7 +281,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, runInit: false, initForce: false, runTaskCli: false };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, runInit: false, initForce: false, runTaskCli: false };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "test-context") {
@@ -296,6 +298,12 @@ export function parseCliArgs(argv: string[]): {
   }
   if (argv[2] === "history") {
     return { ...defaults, showHistory: true };
+  }
+  if (argv[2] === "status") {
+    return { ...defaults, showStatus: true };
+  }
+  if (argv[2] === "config") {
+    return { ...defaults, showConfig: true };
   }
   if (argv[2] === "init") {
     const force = argv.includes("--force") || argv.includes("-f");
@@ -388,7 +396,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, runInit: false, initForce: false, runTaskCli: false };
+  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, runInit: false, initForce: false, runTaskCli: false };
 }
 
 export function printHelp() {
@@ -405,6 +413,8 @@ getting started:
 commands:
   init           detect tools + sessions, import history, generate config
   (none)         start the supervisor daemon (interactive TUI)
+  status         quick daemon health check (is it running? what's it doing?)
+  config         show the effective resolved config (defaults + file)
   task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)
   history        review recent actions (from ~/.aoaoe/actions.log)

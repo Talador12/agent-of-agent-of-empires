@@ -136,7 +136,8 @@ export class Poller {
     try {
       const data = JSON.parse(result.stdout);
       return toSessionStatus(data.status);
-    } catch {
+    } catch (e) {
+      console.error(`[poller] failed to parse session status for ${id}: ${e}`);
       return "unknown";
     }
   }
@@ -280,7 +281,8 @@ export async function listAoeSessionsShared(timeoutMs = 10_000): Promise<BasicSe
   try {
     const parsed = JSON.parse(result.stdout);
     raw = Array.isArray(parsed) ? parsed : [];
-  } catch {
+  } catch (e) {
+    console.error(`[poller] failed to parse session list: ${e}`);
     return [];
   }
 
@@ -294,7 +296,7 @@ export async function listAoeSessionsShared(timeoutMs = 10_000): Promise<BasicSe
         if (showResult.exitCode === 0) {
           status = (JSON.parse(showResult.stdout) as { status?: string }).status ?? "unknown";
         }
-      } catch {}
+      } catch (e) { console.error(`[poller] failed to parse session show for ${id}: ${e}`); }
       return { id, title, tool: s.tool ?? "", status, tmuxName: computeTmuxName(id, title) };
     }),
   );

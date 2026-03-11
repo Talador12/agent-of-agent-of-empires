@@ -156,6 +156,8 @@ describe("parseCliArgs", () => {
     assert.equal(result.testContext, false);
     assert.equal(result.runInit, false);
     assert.equal(result.initForce, false);
+    assert.equal(result.showStatus, false);
+    assert.equal(result.showConfig, false);
     assert.deepEqual(result.overrides, {});
   });
 
@@ -216,21 +218,50 @@ describe("parseCliArgs", () => {
     assert.equal(result.initForce, true);
   });
 
+  it("parses status subcommand", () => {
+    const result = parseCliArgs(argv("status"));
+    assert.equal(result.showStatus, true);
+    assert.equal(result.showConfig, false);
+    assert.equal(result.register, false);
+  });
+
+  it("parses config subcommand", () => {
+    const result = parseCliArgs(argv("config"));
+    assert.equal(result.showConfig, true);
+    assert.equal(result.showStatus, false);
+    assert.equal(result.register, false);
+  });
+
   it("subcommands are mutually exclusive", () => {
     const registerResult = parseCliArgs(argv("register"));
     assert.equal(registerResult.register, true);
     assert.equal(registerResult.testContext, false);
     assert.equal(registerResult.runInit, false);
+    assert.equal(registerResult.showStatus, false);
+    assert.equal(registerResult.showConfig, false);
 
     const testCtxResult = parseCliArgs(argv("test-context"));
     assert.equal(testCtxResult.register, false);
     assert.equal(testCtxResult.testContext, true);
     assert.equal(testCtxResult.runInit, false);
+    assert.equal(testCtxResult.showStatus, false);
 
     const initResult = parseCliArgs(argv("init"));
     assert.equal(initResult.register, false);
     assert.equal(initResult.testContext, false);
     assert.equal(initResult.runInit, true);
+    assert.equal(initResult.showStatus, false);
+
+    const statusResult = parseCliArgs(argv("status"));
+    assert.equal(statusResult.showStatus, true);
+    assert.equal(statusResult.register, false);
+    assert.equal(statusResult.runInit, false);
+    assert.equal(statusResult.showConfig, false);
+
+    const configResult = parseCliArgs(argv("config"));
+    assert.equal(configResult.showConfig, true);
+    assert.equal(configResult.register, false);
+    assert.equal(configResult.showStatus, false);
   });
 });
 

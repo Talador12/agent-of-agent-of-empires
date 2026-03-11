@@ -250,7 +250,8 @@ export class Executor {
           `path is not a directory: ${path}`
         );
       }
-    } catch {
+    } catch (e) {
+      console.error(`[executor] statSync failed for create_agent path ${path}: ${e}`);
       return this.logAction(
         { action: "create_agent", path, title, tool },
         false,
@@ -423,7 +424,7 @@ export class Executor {
       try {
         this.rotateLogIfNeeded();
         appendFileSync(LOG_FILE, JSON.stringify(entry) + "\n");
-      } catch {} // best-effort, don't crash the daemon
+      } catch (e) { console.error(`[executor] action log write failed: ${e}`); } // best-effort, don't crash the daemon
     }
 
     return entry;

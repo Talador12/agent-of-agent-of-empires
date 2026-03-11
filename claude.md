@@ -5,15 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.50.0
+## Version: v0.51.0
 
 ## Current Focus
 
-734 tests across 26 files. v0.50.0 shipped: Config hardening — unknown key warnings, config path in startup banner.
+736 tests across 26 files. v0.51.0 shipped: Diagnostics — `aoaoe status`, `aoaoe config`, and 15 empty catch blocks replaced with logging.
 
 ## Roadmap
 
-### v0.51.0+ — Ideas Backlog
+### v0.52.0+ — Ideas Backlog
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Notification hooks** — Slack, webhook for significant events (errors, completions)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
@@ -21,6 +21,49 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Persisted TUI history** — survive daemon restarts, scroll through history
 - **Refactor index.ts remaining as casts** — config.ts deepMerge casts are safe but ugly
 - **Scroll-through history navigation in TUI**
+- **Remaining empty catch cleanup** — 58 more catches across production code (most are legitimate best-effort)
+
+### What shipped in v0.51.0
+
+**Theme: "Diagnostics"** — quick health checks without starting the daemon, plus error visibility for silent failures.
+
+#### 1. `aoaoe status` command (`src/index.ts`, `src/config.ts`)
+One-shot daemon health check that reads `~/.aoaoe/daemon-state.json` and prints:
+- Whether the daemon is running or not (reuses `isDaemonRunningFromState` from chat.ts)
+- Current phase (sleeping/polling/reasoning/executing) with elapsed time
+- Poll count, poll interval, countdown to next tick
+- Session list with status icons, tool names, user-active flags, and current tasks
+- Config file location
+- Helpful hints (start commands) when daemon is offline
+
+#### 2. `aoaoe config` command (`src/index.ts`, `src/config.ts`)
+Shows the effective resolved config after merging defaults + config file. Outputs:
+- Source file path (or "defaults" if no config found)
+- Full JSON config with 2-space indentation
+- Hint to run `aoaoe init` if no config file exists
+
+#### 3. Empty catch logging — 15 silent catches replaced (`6 files`)
+Replaced the highest-impact empty catch blocks with `console.error` logging. These were
+swallowing JSON parse failures, session data errors, and I/O failures that made debugging
+impossible. Fixed catches in:
+- `poller.ts` (3): session list parse, session status parse, session show parse
+- `chat.ts` (4): conversation log read, tmux capture, pending-input write, log replay
+- `executor.ts` (2): create_agent path validation, action log write
+- `init.ts` (2): session list parse, session status parse
+- `console.ts` (2): pending-input size check, conversation log write
+- `context.ts` (2): context file read, inode de-dup stat
+
+Skipped legitimate best-effort catches (file deletion, mkdir, lock files, port probing,
+process signal checks, JSON parse fallthrough in reasoner).
+
+#### 4. CLI parser updates (`src/config.ts`)
+Added `status` and `config` to `parseCliArgs` subcommand dispatch, help text, and return type.
+
+Config additions: none.
+Modified: `src/index.ts`, `src/config.ts`, `src/config.test.ts`, `src/poller.ts`, `src/chat.ts`,
+`src/executor.ts`, `src/init.ts`, `src/console.ts`, `src/context.ts`, `package.json`, `Makefile`,
+`AGENTS.md`, `claude.md`
+Test changes: +2 (status subcommand, config subcommand), net 736 tests.
 
 ### What shipped in v0.50.0
 

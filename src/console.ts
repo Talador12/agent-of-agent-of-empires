@@ -102,7 +102,8 @@ export class ReasonerConsole {
       if (!existsSync(INPUT_FILE)) return false;
       const st = statSync(INPUT_FILE);
       return st.size > 0;
-    } catch {
+    } catch (e) {
+      console.error(`[console] pending-input size check failed: ${e}`);
       return false;
     }
   }
@@ -141,7 +142,7 @@ export class ReasonerConsole {
     // always write to conversation.log (for chat.ts / external readers)
     try {
       appendFileSync(CONVO_LOG, line + "\n");
-    } catch {}
+    } catch (e) { console.error(`[console] conversation log write failed: ${e}`); }
 
     // in inline mode, also print colorized output to stderr
     if (this.inlineMode) {

@@ -45,7 +45,7 @@ The main loop is split into two layers:
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Main daemon loop, `daemonTick()` wrapper, subcommands (init, register, tasks, test-context) |
+| `src/index.ts` | Main daemon loop, `daemonTick()` wrapper, subcommands (init, register, tasks, status, config, test-context) |
 | `src/loop.ts` | Extracted tick logic (poll -> reason -> execute), testable with mocks |
 | `src/config.ts` | Config loader, CLI arg parser, env validation |
 | `src/types.ts` | All interfaces — SessionSnapshot, Observation, Action, Reasoner, AoaoeConfig |
@@ -99,7 +99,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Testing
-- 734 unit tests across 26 files, `node:test` (stdlib, zero deps)
+- 736 unit tests across 26 files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

@@ -64,8 +64,9 @@ function main() {
         rl.prompt(true);
         lastSize = currSize;
       }
-    } catch {
+    } catch (e) {
       // file may be truncated or removed — reset so we pick up from start of new file
+      console.error(`[chat] conversation log read failed: ${e}`);
       lastSize = 0;
     }
   };
@@ -352,7 +353,8 @@ async function captureTmuxPane(tmuxName: string): Promise<string | null> {
   try {
     const result = await exec("tmux", ["capture-pane", "-t", tmuxName, "-p", "-S", "-100"], 5_000);
     return result.exitCode === 0 ? result.stdout : null;
-  } catch {
+  } catch (e) {
+    console.error(`[chat] tmux capture-pane failed for ${tmuxName}: ${e}`);
     return null;
   }
 }
@@ -447,7 +449,7 @@ export function formatCompactSessions(sessions: DaemonState["sessions"]): string
 // --- helpers ---
 
 function appendToInput(msg: string) {
-  try { appendFileSync(INPUT_FILE, msg + "\n"); } catch {}
+  try { appendFileSync(INPUT_FILE, msg + "\n"); } catch (e) { console.error(`[chat] pending-input write failed: ${e}`); }
 }
 
 function replayLog() {
@@ -458,7 +460,7 @@ function replayLog() {
       process.stdout.write(colorize(content));
       console.log(`${DIM}--- end of history ---${RESET}\n`);
     }
-  } catch {}
+  } catch (e) { console.error(`[chat] conversation log replay failed: ${e}`); }
 }
 
 export function colorize(text: string): string {

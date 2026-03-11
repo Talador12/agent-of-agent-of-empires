@@ -86,7 +86,8 @@ async function discoverSessions(): Promise<AoeSession[]> {
     return results
       .filter((r): r is PromiseFulfilledResult<AoeSession> => r.status === "fulfilled")
       .map((r) => r.value);
-  } catch {
+  } catch (e) {
+    console.error(`[init] failed to parse session list: ${e}`);
     return [];
   }
 }
@@ -97,7 +98,8 @@ async function getSessionStatus(id: string): Promise<AoeSessionStatus> {
   try {
     const data = JSON.parse(result.stdout);
     return toSessionStatus(data.status);
-  } catch {
+  } catch (e) {
+    console.error(`[init] failed to parse session status for ${id}: ${e}`);
     return "unknown";
   }
 }

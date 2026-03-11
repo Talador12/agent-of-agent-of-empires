@@ -92,7 +92,8 @@ export function readContextFile(filePath: string): string {
     cache.set(filePath, { content, readAt: now, mtime: stat.mtimeMs, accessedAt: now });
     evictCache();
     return content;
-  } catch {
+  } catch (e) {
+    console.error(`[context] context file read failed for ${filePath}: ${e}`);
     return "";
   }
 }
@@ -121,8 +122,9 @@ export function discoverContextFiles(dir: string): string[] {
         if (seenInodes.has(inodeKey)) return;
         seenInodes.add(inodeKey);
       }
-    } catch {
+    } catch (e) {
       // stat failed — still add by path to avoid silently dropping
+      console.error(`[context] inode de-dup stat failed for ${resolved}: ${e}`);
     }
     seenPaths.add(resolved);
     found.push(filePath);
