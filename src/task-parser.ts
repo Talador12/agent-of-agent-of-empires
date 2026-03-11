@@ -13,18 +13,6 @@ export interface ParsedTask {
   status: "done" | "in_progress" | "pending" | "failed";
 }
 
-interface PaneOverview {
-  sessionId: string;
-  title: string;
-  tool: string;
-  status: string; // aoe session status
-  tasks: ParsedTask[];
-  lastLine: string; // last meaningful line of output
-  model?: string; // model name if visible in output
-  context?: string; // context token info if visible
-  cost?: string; // cost if visible
-}
-
 // parse TODO items from tmux captured output
 export function parseTasks(output: string): ParsedTask[] {
   const tasks: ParsedTask[] = [];

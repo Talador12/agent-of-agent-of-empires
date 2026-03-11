@@ -5,15 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.42.0
+## Version: v0.43.0
 
 ## Current Focus
 
-590 tests across 28 files. v0.42.0 shipped: robustness — early NaN errors, resolveProjectDir cache, writeState debounce, dead export cleanup, discriminated union switch, empty catch fixes.
+597 tests across 28 files. v0.43.0 shipped: developer experience — prepublishOnly safety, dead code/import cleanup, config validation hardening, observe mode fix, AGENTS.md overhaul.
 
 ## Roadmap
 
-### v0.43.0 — "UI Polish" (next)
+### v0.44.0 — "UI Polish" (next)
 OpenCode-inspired TUI overhaul. Minimalist + slick, smooth color design, not monochrome but not a rave.
 - **Block-style rendering** — structured sections with visual hierarchy (OpenCode's panel approach)
 - **Highlighted sections** — last-ran commands and recent AI decisions get visual emphasis
@@ -23,13 +23,58 @@ OpenCode-inspired TUI overhaul. Minimalist + slick, smooth color design, not mon
 - **Slick animations** — subtle transitions for phase changes, countdowns, new events
 - Design principle: pizzaz without being annoying. Minimalist with confident color choices.
 
-### v0.44.0+ — Ideas Backlog
+### v0.45.0+ — Ideas Backlog
 - **Homebrew tap fix** — PAT needs `repo` scope for `peter-evans/repository-dispatch`
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Notification hooks** — Slack, webhook for significant events (errors, completions)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **README refresh** — update test counts, new features, architecture diagram
+
+### What shipped in v0.43.0
+
+**Theme: "Developer Experience"** — repo hygiene, publish safety, config validation hardening,
+dead code removal, documentation refresh.
+
+#### 1. `prepublishOnly` runs tests (`package.json`)
+Changed from `npm run build` to `npm test` (which includes build). Prevents publishing
+a broken package that compiles but fails tests.
+
+#### 2. Remove unused imports (`src/index.ts`, `src/reasoner/claude-code.ts`, `src/dashboard.ts`)
+- `sleep` from `shell.js` in index.ts — replaced by `wakeableSleep` in v0.29.0, import left behind.
+- `validateResult` from `parse.js` in claude-code.ts — never called.
+- `TaskState` from `types.js` in dashboard.ts — not used in dashboard module.
+
+#### 3. Remove fully dead code (`src/reasoner/prompt.ts`, `src/task-parser.ts`)
+- `SYSTEM_PROMPT` constant (prompt.ts) — alias for `BASE_SYSTEM_PROMPT`, never referenced after
+  v0.42.0 unexported it. Removed entirely.
+- `PaneOverview` interface (task-parser.ts) — defined but never used anywhere. Removed entirely.
+
+#### 4. Config validation hardening (`src/config.ts`)
+`validateConfig()` now checks types for three fields that could cause runtime crashes on bad input:
+- `protectedSessions` must be an array (not a string — would crash `isProtected()`)
+- `sessionDirs` must be a plain object (not null or array)
+- `contextFiles` must be an array (not a string)
+7 new tests covering accept/reject cases for all three fields.
+
+#### 5. Fix observe mode swallowed errors (`src/index.ts`)
+Observe mode previously called `validateEnvironment().catch(() => {})` — if `aoe` or `tmux`
+were missing, the error was silently swallowed and the daemon would fail later with an unhelpful
+message. Now re-throws if the missing tool is aoe or tmux (the only ones needed for observe mode),
+while still ignoring reasoner tool errors (opencode/claude not needed in observe mode).
+
+#### 6. AGENTS.md overhaul (`AGENTS.md`)
+- Source layout table: added 8 missing files (tui.ts, activity.ts, message.ts, wake.ts, colors.ts,
+  prompt-watcher.ts, reasoner/parse.ts, task-cli.ts). Updated descriptions for existing files.
+- Dependencies section: corrected from "`@opencode-ai/sdk` — only runtime dep" to
+  "zero runtime dependencies" (SDK was removed in v0.39.0).
+- Test count updated to 597.
+
+Config additions: none.
+Modified: `package.json`, `src/index.ts`, `src/reasoner/claude-code.ts`, `src/dashboard.ts`,
+`src/reasoner/prompt.ts`, `src/task-parser.ts`, `src/config.ts`, `src/config.test.ts`,
+`AGENTS.md`, `claude.md`
+Test changes: +7 (protectedSessions 2, sessionDirs 3, contextFiles 2), net 597 tests.
 
 ### What shipped in v0.42.0
 
@@ -579,6 +624,21 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 
 ## Completed
 
+- v0.43.0: Developer Experience (597 tests):
+  - **`package.json`**: `prepublishOnly` now runs `npm test` (build + test) instead of
+    just `npm run build` — prevents publishing broken packages.
+  - **`index.ts`**: Removed unused `sleep` import (replaced by wakeableSleep in v0.29.0).
+  - **`reasoner/claude-code.ts`**: Removed unused `validateResult` import.
+  - **`dashboard.ts`**: Removed unused `TaskState` import.
+  - **`reasoner/prompt.ts`**: Removed dead `SYSTEM_PROMPT` alias constant.
+  - **`task-parser.ts`**: Removed dead `PaneOverview` interface (12 lines).
+  - **`config.ts`**: Added type validation for `protectedSessions` (array),
+    `sessionDirs` (object), `contextFiles` (array).
+  - **`index.ts`**: Observe mode now properly checks for aoe/tmux instead of
+    swallowing all validation errors.
+  - **`AGENTS.md`**: Source layout table added 8 missing files, fixed stale
+    dependencies section (zero runtime deps, not SDK).
+  - **`config.test.ts`**: +7 tests (protectedSessions 2, sessionDirs 3, contextFiles 2).
 - v0.42.0: Robustness (590 tests):
   - **`config.ts`**: Early NaN validation in `parseCliArgs()` for `--poll-interval`
     and `--port` — throws descriptive error instead of passing NaN to validateConfig.

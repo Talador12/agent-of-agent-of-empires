@@ -1,5 +1,5 @@
 // periodic CLI dashboard -- prints a status table to stderr every N polls
-import type { Observation, AoaoeConfig, TaskState } from "./types.js";
+import type { Observation, AoaoeConfig } from "./types.js";
 import type { ActionLogEntry } from "./executor.js";
 import { readState } from "./daemon-state.js";
 import { formatAgo } from "./task-manager.js";

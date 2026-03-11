@@ -11,7 +11,7 @@ import { formatSessionSummaries, formatActionDetail, formatPlainEnglishAction, n
 import { type SessionPolicyState } from "./reasoner/prompt.js";
 import { loadGlobalContext, resolveProjectDirWithSource, discoverContextFiles, loadSessionContext } from "./context.js";
 import { tick as loopTick } from "./loop.js";
-import { sleep, exec as shellExec } from "./shell.js";
+import { exec as shellExec } from "./shell.js";
 import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
@@ -137,11 +137,16 @@ async function main() {
 
   // validate tools are installed (in observe mode, only need aoe+tmux, not the reasoner)
   if (config.observe) {
-    // lightweight validation — only poller deps
-    const { validateEnvironment: ve } = await import("./config.js");
-    // override config.reasoner temporarily to skip reasoner tool check
+    // lightweight validation — only poller deps (aoe + tmux), skip reasoner tool check
     const obsConfig = { ...config, reasoner: "opencode" as const };
-    await ve(obsConfig).catch(() => {}); // best-effort, aoe+tmux checked below
+    try {
+      await validateEnvironment(obsConfig);
+    } catch (err) {
+      // re-throw only if aoe/tmux are missing (strip reasoner-specific errors)
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("aoe") || msg.includes("tmux")) throw err;
+      // opencode/claude missing is fine in observe mode — no reasoner needed
+    }
   } else {
     await validateEnvironment(config);
   }

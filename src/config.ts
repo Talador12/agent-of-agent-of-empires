@@ -118,6 +118,18 @@ export function validateConfig(config: AoaoeConfig): void {
       errors.push(`policies.actionCooldownMs must be a finite number >= 1000, got ${cd}`);
     }
   }
+  // protectedSessions must be an array of strings (crashes isProtected if string)
+  if (config.protectedSessions !== undefined && !Array.isArray(config.protectedSessions)) {
+    errors.push(`protectedSessions must be an array of strings, got ${typeof config.protectedSessions}`);
+  }
+  // sessionDirs must be a plain object with string values
+  if (config.sessionDirs !== undefined && (typeof config.sessionDirs !== "object" || config.sessionDirs === null || Array.isArray(config.sessionDirs))) {
+    errors.push(`sessionDirs must be an object mapping session titles to directory paths, got ${typeof config.sessionDirs}`);
+  }
+  // contextFiles must be an array of strings
+  if (config.contextFiles !== undefined && !Array.isArray(config.contextFiles)) {
+    errors.push(`contextFiles must be an array of file paths, got ${typeof config.contextFiles}`);
+  }
 
   if (errors.length > 0) {
     throw new Error(`invalid config:\n  ${errors.join("\n  ")}`);

@@ -323,7 +323,45 @@ describe("validateConfig", () => {
     assert.throws(() => validateConfig(config), /actionCooldownMs/);
   });
 
+  it("rejects protectedSessions as a string", () => {
+    assert.throws(
+      () => validateConfig(makeConfig({ protectedSessions: "adventure" })),
+      /protectedSessions must be an array/,
+    );
+  });
 
+  it("accepts protectedSessions as an array", () => {
+    assert.doesNotThrow(() => validateConfig(makeConfig({ protectedSessions: ["adventure"] })));
+  });
+
+  it("rejects sessionDirs as an array", () => {
+    assert.throws(
+      () => validateConfig(makeConfig({ sessionDirs: ["foo"] })),
+      /sessionDirs must be an object/,
+    );
+  });
+
+  it("rejects sessionDirs as null", () => {
+    assert.throws(
+      () => validateConfig(makeConfig({ sessionDirs: null })),
+      /sessionDirs must be an object/,
+    );
+  });
+
+  it("accepts sessionDirs as an object", () => {
+    assert.doesNotThrow(() => validateConfig(makeConfig({ sessionDirs: { adventure: "/tmp" } })));
+  });
+
+  it("rejects contextFiles as a string", () => {
+    assert.throws(
+      () => validateConfig(makeConfig({ contextFiles: "AGENTS.md" })),
+      /contextFiles must be an array/,
+    );
+  });
+
+  it("accepts contextFiles as an array", () => {
+    assert.doesNotThrow(() => validateConfig(makeConfig({ contextFiles: ["AGENTS.md"] })));
+  });
 });
 
 describe("deepMerge", () => {

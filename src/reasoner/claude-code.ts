@@ -1,7 +1,7 @@
 import type { AoaoeConfig, Reasoner, Observation, ReasonerResult } from "../types.js";
 import { exec } from "../shell.js";
 import { buildSystemPrompt, formatObservation } from "./prompt.js";
-import { parseReasonerResponse, validateResult } from "./parse.js";
+import { parseReasonerResponse } from "./parse.js";
 
 // Claude Code backend: uses `claude --print` subprocess for each decision.
 // Optionally stateful via `--resume`.
