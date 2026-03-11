@@ -5,19 +5,55 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.48.0
+## Version: v0.49.0
 
 ## Current Focus
 
-698 tests across 26 files. v0.48.0 shipped: Type safety — runtime validators for JSON from disk/CLI, non-null assertion removal, dead export cleanup.
+725 tests across 26 files. v0.49.0 shipped: Test coverage — filled gaps in prompt, daemon-state, and executor test suites.
 
 ## Roadmap
 
-### v0.49.0+ — Ideas Backlog
+### v0.50.0+ — Ideas Backlog
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Notification hooks** — Slack, webhook for significant events (errors, completions)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
+- **Config unknown key warnings** — warn on typos in config file keys
+- **Persisted TUI history** — survive daemon restarts, scroll through history
+- **TaskState validation on JSON.parse from disk** — done in v0.48.0
+- **Refactor index.ts remaining as casts** — config.ts deepMerge casts are safe but ugly
+
+### What shipped in v0.49.0
+
+**Theme: "Test Coverage"** — fill gaps in existing test suites. Covers `formatTaskContext`, `setSessionTask`, `acquireLock`, `Executor` class (destructive gate, protected sessions, user-active guard, rate limiting, session resolution), `VALID_TOOLS` set.
+
+#### 1. `formatTaskContext` tests (`src/reasoner/prompt.test.ts`)
+11 new tests for the task context formatter that tells the reasoner what each session is working on.
+Covers: empty tasks, header, session title/repo, goal line, status tags (ACTIVE/COMPLETED/PENDING),
+progress entries (last 3 shown), time-ago formatting, multiple tasks, instruction lines.
+
+#### 2. `setSessionTask` tests (`src/daemon-state.test.ts`)
+2 new tests: stores task text and surfaces it via `buildSessionStates()`, truncates text longer than
+80 chars with ellipsis.
+
+#### 3. `acquireLock` tests (`src/daemon-state.test.ts`)
+2 new tests: acquires lock when none exists, fails when lock is already held by the current process
+(returns `existingPid`).
+
+#### 4. `VALID_TOOLS` tests (`src/executor.test.ts`)
+3 new tests: contains expected tool names (opencode, claude-code, cursor, aider), rejects invalid
+names, has at least 5 entries.
+
+#### 5. `Executor` class tests (`src/executor.test.ts`)
+9 new tests: constructor, wait action success, destructive action blocking (remove_agent,
+stop_session), protected session blocking (with case-insensitive matching), user-active send_input
+blocking, getRecentLog, session resolution by title.
+
+Config additions: none.
+Modified: `src/reasoner/prompt.test.ts`, `src/daemon-state.test.ts`, `src/executor.test.ts`,
+`package.json`, `Makefile`, `AGENTS.md`, `claude.md`
+Test changes: +27 (11 formatTaskContext, 2 setSessionTask, 2 acquireLock, 3 VALID_TOOLS,
+9 Executor), net 725 tests.
 
 ### What shipped in v0.48.0
 

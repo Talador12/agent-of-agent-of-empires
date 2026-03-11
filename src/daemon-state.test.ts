@@ -352,3 +352,83 @@ describe("writeState and readState", () => {
     assert.equal(state!.pollCount, 99);
   });
 });
+
+// ── setSessionTask ──────────────────────────────────────────────────────────
+
+describe("setSessionTask", () => {
+  it("stores a task for a session and shows it in buildSessionStates", async () => {
+    const { setSessionTask, buildSessionStates, resetInternalState } = await import("./daemon-state.js");
+    resetInternalState();
+    setSessionTask("abc12345-dead-beef-cafe-000000000001", "implement auth");
+    const snap = {
+      session: {
+        id: "abc12345-dead-beef-cafe-000000000001",
+        title: "adventure",
+        path: "/tmp",
+        tool: "opencode",
+        status: "working" as const,
+        tmux_name: "aoe_adventure_abc12345",
+      },
+      output: "",
+      outputHash: "abcd",
+      capturedAt: Date.now(),
+    };
+    const obs = { timestamp: Date.now(), sessions: [snap], changes: [] };
+    const result = buildSessionStates(obs);
+    assert.equal(result[0].currentTask, "implement auth");
+  });
+
+  it("truncates long task text to 80 chars", async () => {
+    const { setSessionTask, buildSessionStates, resetInternalState } = await import("./daemon-state.js");
+    resetInternalState();
+    const longText = "a".repeat(100);
+    setSessionTask("abc12345-dead-beef-cafe-000000000001", longText);
+    const snap = {
+      session: {
+        id: "abc12345-dead-beef-cafe-000000000001",
+        title: "adventure",
+        path: "/tmp",
+        tool: "opencode",
+        status: "working" as const,
+        tmux_name: "aoe_adventure_abc12345",
+      },
+      output: "",
+      outputHash: "abcd",
+      capturedAt: Date.now(),
+    };
+    const obs = { timestamp: Date.now(), sessions: [snap], changes: [] };
+    const result = buildSessionStates(obs);
+    assert.ok(result[0].currentTask!.length <= 80);
+    assert.ok(result[0].currentTask!.endsWith("..."));
+  });
+});
+
+// ── acquireLock ─────────────────────────────────────────────────────────────
+
+describe("acquireLock", () => {
+  it("acquires lock successfully when no lock exists", async () => {
+    const { acquireLock, cleanupState, resetInternalState } = await import("./daemon-state.js");
+    resetInternalState();
+    // clean up any leftover lock from previous tests
+    cleanupState();
+    const result = acquireLock();
+    assert.equal(result.acquired, true);
+    // cleanup
+    cleanupState();
+  });
+
+  it("fails to acquire when lock is held by current process", async () => {
+    const { acquireLock, cleanupState, resetInternalState } = await import("./daemon-state.js");
+    resetInternalState();
+    cleanupState();
+    // first acquire should succeed
+    const first = acquireLock();
+    assert.equal(first.acquired, true);
+    // second acquire should fail — our own PID is running
+    const second = acquireLock();
+    assert.equal(second.acquired, false);
+    assert.equal(second.existingPid, process.pid);
+    // cleanup
+    cleanupState();
+  });
+});

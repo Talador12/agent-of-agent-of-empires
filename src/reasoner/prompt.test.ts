@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatObservation, detectPermissionPrompt, buildSystemPrompt, sliceToByteLimit } from "./prompt.js";
-import type { Observation, SessionSnapshot, AoeSessionStatus, SessionChange } from "../types.js";
+import { formatObservation, detectPermissionPrompt, buildSystemPrompt, sliceToByteLimit, formatTaskContext } from "./prompt.js";
+import type { Observation, SessionSnapshot, AoeSessionStatus, SessionChange, TaskState } from "../types.js";
 
 // helper to build a minimal observation
 function makeObs(overrides?: Partial<Observation>): Observation {
@@ -487,5 +487,96 @@ describe("formatObservation total prompt budget (MAX_PROMPT_BYTES)", () => {
     const result = formatObservation(obs);
     // changes should survive even when context is huge
     assert.ok(result.includes("UNIQUE_CHANGE_MARKER_12345"), "changes were lost during truncation");
+  });
+});
+
+// ── formatTaskContext ───────────────────────────────────────────────────────
+
+function makeTask(overrides?: Partial<TaskState>): TaskState {
+  return {
+    repo: "github/adventure",
+    sessionTitle: "adventure",
+    tool: "opencode",
+    goal: "build the game",
+    status: "active",
+    progress: [],
+    ...overrides,
+  };
+}
+
+describe("formatTaskContext", () => {
+  it("returns empty string for no tasks", () => {
+    assert.equal(formatTaskContext([]), "");
+  });
+
+  it("includes task header line", () => {
+    const result = formatTaskContext([makeTask()]);
+    assert.ok(result.includes("Active tasks"));
+  });
+
+  it("includes session title and repo", () => {
+    const result = formatTaskContext([makeTask()]);
+    assert.ok(result.includes('"adventure"'));
+    assert.ok(result.includes("github/adventure"));
+  });
+
+  it("includes goal line", () => {
+    const result = formatTaskContext([makeTask({ goal: "implement auth" })]);
+    assert.ok(result.includes("Goal: implement auth"));
+  });
+
+  it("shows ACTIVE status tag for active tasks", () => {
+    const result = formatTaskContext([makeTask({ status: "active" })]);
+    assert.ok(result.includes("[ACTIVE]"));
+  });
+
+  it("shows COMPLETED status tag", () => {
+    const result = formatTaskContext([makeTask({ status: "completed" })]);
+    assert.ok(result.includes("[COMPLETED]"));
+  });
+
+  it("shows PENDING status tag", () => {
+    const result = formatTaskContext([makeTask({ status: "pending" })]);
+    assert.ok(result.includes("[PENDING]"));
+  });
+
+  it("shows recent progress entries (last 3)", () => {
+    const now = Date.now();
+    const result = formatTaskContext([makeTask({
+      progress: [
+        { at: now - 300_000, summary: "old entry" },
+        { at: now - 120_000, summary: "second entry" },
+        { at: now - 60_000, summary: "recent entry" },
+        { at: now - 30_000, summary: "latest entry" },
+      ],
+    })]);
+    // should show last 3, not the first one
+    assert.ok(!result.includes("old entry"));
+    assert.ok(result.includes("second entry"));
+    assert.ok(result.includes("recent entry"));
+    assert.ok(result.includes("latest entry"));
+  });
+
+  it("formats time ago correctly", () => {
+    const now = Date.now();
+    const result = formatTaskContext([makeTask({
+      progress: [{ at: now - 10_000, summary: "just happened" }],
+    })]);
+    assert.ok(result.includes("just now") || result.includes("0m ago"));
+  });
+
+  it("handles multiple tasks", () => {
+    const result = formatTaskContext([
+      makeTask({ sessionTitle: "adventure", repo: "github/adventure" }),
+      makeTask({ sessionTitle: "chv", repo: "github/cloud-hypervisor" }),
+    ]);
+    assert.ok(result.includes('"adventure"'));
+    assert.ok(result.includes('"chv"'));
+  });
+
+  it("includes instruction lines about report_progress and complete_task", () => {
+    const result = formatTaskContext([makeTask()]);
+    assert.ok(result.includes("report_progress"));
+    assert.ok(result.includes("complete_task"));
   });
 });
