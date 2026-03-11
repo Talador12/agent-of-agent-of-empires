@@ -1,11 +1,20 @@
-// tui.ts — in-place terminal UI for aoaoe daemon
-// replaces scrolling log output with an OpenCode-style repaintable view.
-// layout: header (1 line) + sessions panel + separator + scroll region (activity) + input line
+// tui.ts — block-style terminal UI for aoaoe daemon
+// OpenCode-inspired design: box-drawn panels, 256-color palette, phase spinner,
+// visual hierarchy. no external deps — raw ANSI escape codes only.
 //
-// uses ANSI scroll regions so activity log scrolls naturally while header/sessions
-// and input line stay fixed. no external deps — raw escape codes only.
-import type { DaemonSessionState, DaemonPhase, TaskState } from "./types.js";
-import { BOLD, DIM, RESET, GREEN, YELLOW, RED, CYAN, WHITE, BG_DARK } from "./colors.js";
+// layout (top to bottom):
+//   ┌─ header bar (1 row, BG_DARK) ─────────────────────────────────────────┐
+//   │ sessions panel (box-drawn, 1 row per session + 2 border rows)         │
+//   ├─ separator with hints ────────────────────────────────────────────────┤
+//   │ activity scroll region (all daemon output scrolls here)               │
+//   └─ input line (phase-aware prompt) ─────────────────────────────────────┘
+import type { DaemonSessionState, DaemonPhase } from "./types.js";
+import {
+  BOLD, DIM, RESET, GREEN, YELLOW, RED, CYAN, WHITE,
+  BG_DARK,
+  INDIGO, TEAL, AMBER, SLATE, ROSE, LIME, SKY,
+  BOX, SPINNER, DOT,
+} from "./colors.js";
 
 // ── ANSI helpers ────────────────────────────────────────────────────────────
 
@@ -27,15 +36,31 @@ const moveTo = (row: number, col: number) => `${CSI}${row};${col}H`;
 const setScrollRegion = (top: number, bottom: number) => `${CSI}${top};${bottom}r`;
 const resetScrollRegion = () => `${CSI}r`;
 
-// status icons
-const STATUS_ICONS: Record<string, string> = {
-  working: `${GREEN}~${RESET}`,
-  idle: `${DIM}.${RESET}`,
-  waiting: `${YELLOW}~${RESET}`,
-  done: `${GREEN}+${RESET}`,
-  error: `${RED}!${RESET}`,
-  stopped: `${DIM}x${RESET}`,
+// ── Status rendering ────────────────────────────────────────────────────────
+
+const STATUS_DOT: Record<string, string> = {
+  working: `${LIME}${DOT.filled}${RESET}`,
+  running: `${LIME}${DOT.filled}${RESET}`,
+  idle:    `${SLATE}${DOT.hollow}${RESET}`,
+  waiting: `${AMBER}${DOT.half}${RESET}`,
+  done:    `${GREEN}${DOT.filled}${RESET}`,
+  error:   `${ROSE}${DOT.filled}${RESET}`,
+  stopped: `${SLATE}${DOT.hollow}${RESET}`,
 };
+
+// phase colors and labels
+function phaseDisplay(phase: DaemonPhase, paused: boolean, spinnerFrame: number): string {
+  if (paused) return `${AMBER}${BOLD}PAUSED${RESET}`;
+  const frame = SPINNER[spinnerFrame % SPINNER.length];
+  switch (phase) {
+    case "reasoning":  return `${SKY}${frame} reasoning${RESET}`;
+    case "executing":  return `${AMBER}${frame} executing${RESET}`;
+    case "polling":    return `${LIME}${frame} polling${RESET}`;
+    case "interrupted": return `${ROSE}${BOLD}interrupted${RESET}`;
+    case "sleeping":   return `${SLATE}sleeping${RESET}`;
+    default:           return `${SLATE}${phase}${RESET}`;
+  }
+}
 
 // ── Activity log entry ──────────────────────────────────────────────────────
 
@@ -53,13 +78,14 @@ export class TUI {
   private cols = 80;
   private rows = 24;
   private headerHeight = 1;      // top bar
-  private sessionRows = 0;       // dynamic based on session count
+  private sessionRows = 0;       // dynamic: 2 (borders) + N sessions
   private separatorRow = 0;      // line between sessions and activity
   private scrollTop = 0;         // first row of scroll region
   private scrollBottom = 0;      // last row of scroll region
   private inputRow = 0;          // bottom input line
   private activityBuffer: ActivityEntry[] = []; // ring buffer for activity log
   private maxActivity = 500;     // max entries to keep
+  private spinnerFrame = 0;      // current spinner animation frame
 
   // current state for repaints
   private phase: DaemonPhase = "sleeping";
@@ -81,12 +107,15 @@ export class TUI {
 
     // handle terminal resize
     process.stdout.on("resize", () => this.onResize());
-    // repaint header every second so countdown timer ticks down
+    // tick timer: countdown + spinner animation (~4 fps for smooth braille spin)
     this.countdownTimer = setInterval(() => {
-      if (this.active && this.phase === "sleeping" && this.nextTickAt > 0) {
+      if (!this.active) return;
+      this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER.length;
+      // repaint header for countdown and spinner
+      if (this.phase !== "sleeping" || this.nextTickAt > 0) {
         this.paintHeader();
       }
-    }, 1000);
+    }, 250);
     // initial layout
     this.computeLayout(0);
     this.paintAll();
@@ -160,8 +189,10 @@ export class TUI {
   private computeLayout(sessionCount: number): void {
     this.updateDimensions();
     // header: 1 row
-    // sessions: 1 header + N sessions + 1 blank = N+2 rows (min 2 if no sessions)
-    this.sessionRows = Math.max(sessionCount, 0) + 2;
+    // sessions: top border (1) + N session rows + bottom border (1) = N+2
+    // if no sessions, just show an empty box (2 rows: top + bottom borders)
+    const sessBodyRows = Math.max(sessionCount, 1); // at least 1 row for "no agents"
+    this.sessionRows = sessBodyRows + 2; // + top/bottom borders
     this.separatorRow = this.headerHeight + this.sessionRows + 1;
     // input line is the last row
     this.inputRow = this.rows;
@@ -170,7 +201,6 @@ export class TUI {
     this.scrollBottom = this.rows - 1;
 
     if (this.active) {
-      // set scroll region so activity log scrolls within bounds
       process.stderr.write(setScrollRegion(this.scrollTop, this.scrollBottom));
     }
   }
@@ -194,53 +224,61 @@ export class TUI {
   }
 
   private paintHeader(): void {
-    const phaseText = this.paused
-      ? `${YELLOW}PAUSED${RESET}`
-      : this.phase === "reasoning"
-      ? `${CYAN}reasoning...${RESET}`
-      : this.phase === "executing"
-      ? `${YELLOW}executing...${RESET}`
-      : this.phase === "polling"
-      ? `${GREEN}polling${RESET}`
-      : `${DIM}sleeping${RESET}`;
-
-    const sessCount = `${this.sessions.length} session${this.sessions.length !== 1 ? "s" : ""}`;
+    const phaseText = phaseDisplay(this.phase, this.paused, this.spinnerFrame);
+    const sessCount = `${this.sessions.length} agent${this.sessions.length !== 1 ? "s" : ""}`;
     const activeCount = this.sessions.filter((s) => s.userActive).length;
-    const activeTag = activeCount > 0 ? `  ${DIM}|${RESET}  ${YELLOW}${activeCount} user active${RESET}` : "";
+    const activeTag = activeCount > 0 ? `  ${SLATE}│${RESET}  ${AMBER}${activeCount} user${RESET}` : "";
 
     // countdown to next tick (only in sleeping phase)
     let countdownTag = "";
     if (this.phase === "sleeping" && this.nextTickAt > 0) {
       const remaining = Math.max(0, Math.ceil((this.nextTickAt - Date.now()) / 1000));
-      countdownTag = `  ${DIM}|${RESET}  ${DIM}next: ${remaining}s${RESET}`;
+      countdownTag = `  ${SLATE}│${RESET}  ${SLATE}${remaining}s${RESET}`;
     }
 
-    // reasoner name
-    const reasonerTag = this.reasonerName ? `  ${DIM}|${RESET}  ${DIM}${this.reasonerName}${RESET}` : "";
+    // reasoner badge
+    const reasonerTag = this.reasonerName ? `  ${SLATE}│${RESET}  ${TEAL}${this.reasonerName}${RESET}` : "";
 
-    const line = ` ${BOLD}aoaoe${RESET} ${DIM}${this.version}${RESET}  ${DIM}|${RESET}  poll #${this.pollCount}  ${DIM}|${RESET}  ${sessCount}  ${DIM}|${RESET}  ${phaseText}${activeTag}${countdownTag}${reasonerTag}`;
+    const line = ` ${INDIGO}${BOLD}aoaoe${RESET} ${SLATE}${this.version}${RESET}  ${SLATE}│${RESET}  #${this.pollCount}  ${SLATE}│${RESET}  ${sessCount}  ${SLATE}│${RESET}  ${phaseText}${activeTag}${countdownTag}${reasonerTag}`;
     process.stderr.write(
       SAVE_CURSOR +
-      moveTo(1, 1) + CLEAR_LINE + BG_DARK + WHITE + truncateAnsi(line, this.cols) + RESET +
+      moveTo(1, 1) + CLEAR_LINE + BG_DARK + WHITE + truncateAnsi(line, this.cols) + padToWidth(line, this.cols) + RESET +
       RESTORE_CURSOR
     );
   }
 
   private paintSessions(): void {
     const startRow = this.headerHeight + 1;
-    // session header — friendly label instead of column abbreviations
-    const hdr = `  ${DIM}agents:${RESET}`;
-    process.stderr.write(SAVE_CURSOR + moveTo(startRow, 1) + CLEAR_LINE + hdr);
+    const innerWidth = this.cols - 2; // inside the box borders
 
-    for (let i = 0; i < this.sessions.length; i++) {
-      const s = this.sessions[i];
-      const line = `  ${formatSessionSentence(s, this.cols - 4)}`;
-      process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + line);
+    // top border with label
+    const label = " agents ";
+    const borderAfterLabel = Math.max(0, innerWidth - label.length);
+    const topBorder = `${SLATE}${BOX.rtl}${BOX.h}${RESET}${SLATE}${label}${RESET}${SLATE}${BOX.h.repeat(borderAfterLabel)}${BOX.rtr}${RESET}`;
+    process.stderr.write(SAVE_CURSOR + moveTo(startRow, 1) + CLEAR_LINE + truncateAnsi(topBorder, this.cols));
+
+    if (this.sessions.length === 0) {
+      // empty state
+      const empty = `${SLATE}${BOX.v}${RESET}  ${DIM}no agents connected${RESET}`;
+      const padded = padBoxLine(empty, this.cols);
+      process.stderr.write(moveTo(startRow + 1, 1) + CLEAR_LINE + padded);
+    } else {
+      for (let i = 0; i < this.sessions.length; i++) {
+        const s = this.sessions[i];
+        const line = `${SLATE}${BOX.v}${RESET} ${formatSessionCard(s, innerWidth - 1)}`;
+        const padded = padBoxLine(line, this.cols);
+        process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
+      }
     }
 
-    // clear any leftover rows if session count decreased
-    const totalSessionLines = this.sessions.length + 1; // +1 for header
-    for (let r = startRow + totalSessionLines; r < this.separatorRow; r++) {
+    // bottom border
+    const bodyRows = Math.max(this.sessions.length, 1);
+    const bottomRow = startRow + 1 + bodyRows;
+    const bottomBorder = `${SLATE}${BOX.rbl}${BOX.h.repeat(Math.max(0, this.cols - 2))}${BOX.rbr}${RESET}`;
+    process.stderr.write(moveTo(bottomRow, 1) + CLEAR_LINE + truncateAnsi(bottomBorder, this.cols));
+
+    // clear any leftover rows below the box
+    for (let r = bottomRow + 1; r < this.separatorRow; r++) {
       process.stderr.write(moveTo(r, 1) + CLEAR_LINE);
     }
 
@@ -248,11 +286,13 @@ export class TUI {
   }
 
   private paintSeparator(): void {
-    const hints = " ESC ESC: interrupt  /help  /explain  /pause ";
-    const prefix = "── activity ";
-    const totalDecor = prefix.length + hints.length + 2; // 2 for surrounding ──
-    const fill = Math.max(0, this.cols - totalDecor);
-    const line = `${DIM}${prefix}${"─".repeat(Math.floor(fill / 2))}${hints}${"─".repeat(Math.ceil(fill / 2))}${RESET}`;
+    const hints = " esc esc: interrupt  /help  /explain  /pause ";
+    const prefix = `${BOX.h}${BOX.h} activity `;
+    const totalLen = prefix.length + hints.length;
+    const fill = Math.max(0, this.cols - totalLen);
+    const left = Math.floor(fill / 2);
+    const right = Math.ceil(fill / 2);
+    const line = `${SLATE}${prefix}${BOX.h.repeat(left)}${DIM}${hints}${RESET}${SLATE}${BOX.h.repeat(right)}${RESET}`;
     process.stderr.write(
       SAVE_CURSOR + moveTo(this.separatorRow, 1) + CLEAR_LINE + truncateAnsi(line, this.cols) + RESTORE_CURSOR
     );
@@ -271,7 +311,6 @@ export class TUI {
   }
 
   private repaintActivityRegion(): void {
-    // repaint visible portion of activity buffer
     const visibleLines = this.scrollBottom - this.scrollTop + 1;
     const entries = this.activityBuffer.slice(-visibleLines);
     for (let i = 0; i < visibleLines; i++) {
@@ -286,10 +325,15 @@ export class TUI {
   }
 
   private paintInputLine(): void {
+    // phase-aware prompt styling
+    const prompt = this.paused
+      ? `${AMBER}${BOLD}paused >${RESET} `
+      : this.phase === "reasoning"
+      ? `${SKY}thinking >${RESET} `
+      : `${LIME}>${RESET} `;
     process.stderr.write(
       SAVE_CURSOR +
-      moveTo(this.inputRow, 1) + CLEAR_LINE +
-      `${GREEN}you >${RESET} ` +
+      moveTo(this.inputRow, 1) + CLEAR_LINE + prompt +
       RESTORE_CURSOR
     );
   }
@@ -297,26 +341,74 @@ export class TUI {
 
 // ── Formatting helpers ──────────────────────────────────────────────────────
 
+// format a session as a card-style line (inside the box)
+function formatSessionCard(s: DaemonSessionState, maxWidth: number): string {
+  const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
+  const name = `${BOLD}${s.title}${RESET}`;
+  const toolBadge = `${SLATE}${s.tool}${RESET}`;
+
+  // status description
+  let desc: string;
+  if (s.userActive) {
+    desc = `${AMBER}you're active${RESET}`;
+  } else if (s.status === "working" || s.status === "running") {
+    desc = s.currentTask
+      ? truncatePlain(s.currentTask, Math.max(20, maxWidth - s.title.length - s.tool.length - 16))
+      : `${LIME}working${RESET}`;
+  } else if (s.status === "idle" || s.status === "stopped") {
+    desc = `${SLATE}idle${RESET}`;
+  } else if (s.status === "error") {
+    desc = `${ROSE}error${RESET}`;
+  } else if (s.status === "done") {
+    desc = `${GREEN}done${RESET}`;
+  } else if (s.status === "waiting") {
+    desc = `${AMBER}waiting${RESET}`;
+  } else {
+    desc = `${SLATE}${s.status}${RESET}`;
+  }
+
+  return truncateAnsi(`${dot} ${name} ${toolBadge} ${SLATE}${BOX.h}${RESET} ${desc}`, maxWidth);
+}
+
 // colorize an activity entry based on its tag
 function formatActivity(entry: ActivityEntry, maxCols: number): string {
   const { time, tag, text } = entry;
-  let color = DIM;
+  let color = SLATE;
   let prefix = tag;
 
   switch (tag) {
-    case "observation": color = DIM; prefix = "obs"; break;
-    case "reasoner": color = CYAN; break;
-    case "explain": color = `${BOLD}${CYAN}`; prefix = "AI"; break;
-    case "+ action": case "action": color = YELLOW; prefix = "+ action"; break;
-    case "! action": case "error": color = RED; prefix = "! action"; break;
-    case "you": color = GREEN; break;
-    case "system": color = DIM; break;
-    case "status": color = DIM; break;
-    default: color = DIM; break;
+    case "observation": color = SLATE; prefix = "obs"; break;
+    case "reasoner":    color = SKY; break;
+    case "explain":     color = `${BOLD}${CYAN}`; prefix = "AI"; break;
+    case "+ action": case "action": color = AMBER; prefix = "→ action"; break;
+    case "! action": case "error":  color = ROSE; prefix = "✗ error"; break;
+    case "you":         color = LIME; break;
+    case "system":      color = SLATE; break;
+    case "status":      color = SLATE; break;
+    default:            color = SLATE; break;
   }
 
-  const formatted = `  ${DIM}${time}${RESET} ${color}[${prefix}]${RESET} ${text}`;
+  const formatted = `  ${SLATE}${time}${RESET} ${color}${prefix}${RESET} ${DIM}│${RESET} ${text}`;
   return truncateAnsi(formatted, maxCols);
+}
+
+// pad a box line to end with the right border character
+function padBoxLine(line: string, totalWidth: number): string {
+  const visible = stripAnsiForLen(line);
+  const pad = Math.max(0, totalWidth - visible - 1); // -1 for closing border
+  return line + " ".repeat(pad) + `${SLATE}${BOX.v}${RESET}`;
+}
+
+// pad the header bar to fill the full width with background color
+function padToWidth(line: string, totalWidth: number): string {
+  const visible = stripAnsiForLen(line);
+  const pad = Math.max(0, totalWidth - visible);
+  return " ".repeat(pad);
+}
+
+// count visible characters (strip ANSI escapes)
+function stripAnsiForLen(str: string): number {
+  return str.replace(/\x1b\[[0-9;]*m/g, "").length;
 }
 
 // truncate a string with ANSI codes to fit a column width (approximate)
@@ -335,42 +427,37 @@ function truncatePlain(str: string, max: number): string {
 
 /**
  * Format a session state as a plain-English sentence.
- * Examples:
- *   "~ Adventure (opencode) — working on authentication"
- *   "! Cloud Hypervisor (opencode) — error"
- *   ". CHV (claude) — idle"
- *   "~ Adventure (opencode) — you're working here"
+ * Kept for backward compatibility — used by non-TUI output paths.
  */
 export function formatSessionSentence(s: DaemonSessionState, maxCols: number): string {
-  const icon = STATUS_ICONS[s.status] ?? `${YELLOW}?${RESET}`;
+  const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
   const name = s.title;
-  const tool = `${DIM}(${s.tool})${RESET}`;
+  const tool = `${SLATE}(${s.tool})${RESET}`;
 
-  // human-readable status descriptions
   let statusDesc: string;
   if (s.userActive) {
-    statusDesc = `${YELLOW}you're working here${RESET}`;
+    statusDesc = `${AMBER}you're working here${RESET}`;
   } else if (s.status === "working") {
     if (s.currentTask) {
       statusDesc = truncatePlain(s.currentTask, Math.max(30, maxCols - name.length - s.tool.length - 20));
     } else {
-      statusDesc = `${GREEN}working${RESET}`;
+      statusDesc = `${LIME}working${RESET}`;
     }
   } else if (s.status === "idle" || s.status === "stopped") {
-    statusDesc = `${DIM}idle${RESET}`;
+    statusDesc = `${SLATE}idle${RESET}`;
   } else if (s.status === "error") {
-    statusDesc = `${RED}hit an error${RESET}`;
+    statusDesc = `${ROSE}hit an error${RESET}`;
   } else if (s.status === "done") {
     statusDesc = `${GREEN}finished${RESET}`;
   } else if (s.status === "waiting") {
-    statusDesc = `${YELLOW}waiting for input${RESET}`;
+    statusDesc = `${AMBER}waiting for input${RESET}`;
   } else {
     statusDesc = s.status;
   }
 
-  return truncateAnsi(`${icon} ${BOLD}${name}${RESET} ${tool} ${DIM}—${RESET} ${statusDesc}`, maxCols);
+  return truncateAnsi(`${dot} ${BOLD}${name}${RESET} ${tool} ${SLATE}—${RESET} ${statusDesc}`, maxCols);
 }
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
-export { formatActivity, truncateAnsi, truncatePlain };
+export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay };

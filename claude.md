@@ -5,29 +5,71 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.46.0
+## Version: v0.47.0
 
 ## Current Focus
 
-655 tests across 26 files. v0.46.0 shipped: correctness & hygiene — README action schema fix, type-safe session status validation, 6 config fields validated, silent catch fixes, non-null assertion fix, dead code removal.
+681 tests across 26 files. v0.47.0 shipped: UI polish — OpenCode-inspired block-style TUI with box-drawn panels, 256-color palette, braille spinner animation, session cards, phase-aware input prompt.
 
 ## Roadmap
-
-### v0.47.0 — "UI Polish" (next)
-OpenCode-inspired TUI overhaul. Minimalist + slick, smooth color design, not monochrome but not a rave.
-- **Block-style rendering** — structured sections with visual hierarchy (OpenCode's panel approach)
-- **Highlighted sections** — last-ran commands and recent AI decisions get visual emphasis
-- **Scroll-through history** — navigate back through session activity without losing context
-- **Persisted history per session** — survive restarts, pick up where you left off
-- **Smooth color gradients** — tasteful use of full ANSI palette, easy on the eyes
-- **Slick animations** — subtle transitions for phase changes, countdowns, new events
-- Design principle: pizzaz without being annoying. Minimalist with confident color choices.
 
 ### v0.48.0+ — Ideas Backlog
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Notification hooks** — Slack, webhook for significant events (errors, completions)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
+
+### What shipped in v0.47.0
+
+**Theme: "UI Polish"** — OpenCode-inspired block-style TUI overhaul. Visual hierarchy, tasteful 256-color palette, animated phase indicators.
+
+#### 1. Expanded color palette (`src/colors.ts`)
+Added 256-color ANSI accents: INDIGO (branding), TEAL (info), AMBER (warnings/active),
+SLATE (secondary text), ROSE (errors), LIME (success), SKY (reasoning). Background variants:
+BG_DARKER, BG_PANEL, BG_HIGHLIGHT. Box-drawing character set (BOX.tl/tr/bl/br/h/v + rounded
+variants rtl/rtr/rbl/rbr). Braille spinner frames (SPINNER). Status dots (DOT.filled/hollow/half).
+Also added ITALIC.
+
+#### 2. Box-drawn session panel (`src/tui.ts` paintSessions)
+Sessions are now rendered inside a rounded-corner box with `╭─╮│╰─╯` borders.
+Each session is a "card" line: status dot (●/○/◐) + bold name + tool badge + separator
++ status description. Empty state shows "no agents connected" inside the box.
+Right border character is auto-padded to align with terminal width.
+
+#### 3. Phase spinner animation (`src/tui.ts`)
+Active phases (reasoning, executing, polling) now show a braille dot spinner
+(`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) that animates at 4fps via the 250ms timer. Sleeping phase has no
+spinner. Paused shows bold amber "PAUSED". Interrupted shows bold rose "interrupted".
+`phaseDisplay()` is exported and tested independently.
+
+#### 4. Improved header bar (`src/tui.ts` paintHeader)
+Brand name uses INDIGO bold. Version in SLATE. Separator pipes are SLATE instead of DIM.
+Reasoner name badge in TEAL. Session count says "agents" instead of "sessions". Countdown
+in SLATE. Full-width background fill with BG_DARK via `padToWidth()`.
+
+#### 5. Improved activity panel (`src/tui.ts` formatActivity)
+Action tags now use arrow prefix (`→ action`) instead of plus. Error tags use cross mark
+(`✗ error`). Pipe separator (`│`) between tag and text for cleaner visual. All tags use
+the new 256-color palette (SKY for reasoner, AMBER for actions, ROSE for errors, LIME for
+user, SLATE for system/status/observation).
+
+#### 6. Phase-aware input prompt (`src/tui.ts` paintInputLine)
+Input prompt changes based on phase: `>` (lime) during normal operation, `thinking >`
+(sky) during reasoning, `paused >` (amber bold) when paused. Minimal but informative.
+
+#### 7. New exported helpers (`src/tui.ts`)
+`formatSessionCard()`, `padBoxLine()`, `padToWidth()`, `stripAnsiForLen()`, `phaseDisplay()`
+are all exported pure functions with full test coverage.
+
+#### 8. Comprehensive TUI tests (`src/tui.test.ts`)
+26 new tests: `stripAnsiForLen` (4), `padToWidth` (3), `padBoxLine` (2), `phaseDisplay` (7),
+`formatSessionCard` (8), plus updated tests for `formatActivity` and `formatSessionSentence`
+to verify new formatting (dots, separators, tag prefixes).
+
+Config additions: none.
+Modified: `src/colors.ts`, `src/tui.ts`, `src/tui.test.ts`, `package.json`, `Makefile`,
+`AGENTS.md`, `claude.md`
+Test changes: +26, net 681 tests.
 
 ### What shipped in v0.46.0
 
