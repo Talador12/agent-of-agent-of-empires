@@ -348,6 +348,37 @@ describe("resolveProjectDirWithSource", () => {
 
 });
 
+describe("resolveProjectDir cache", () => {
+  it("returns cached result on second call with same args", () => {
+    mkdirSync(join(TMP, "github", "cached-proj"), { recursive: true });
+    clearContextCache(); // ensure clean slate
+    const first = resolveProjectDir(TMP, "cached-proj");
+    const second = resolveProjectDir(TMP, "cached-proj");
+    assert.equal(first, second);
+    assert.equal(first, join(TMP, "github", "cached-proj"));
+  });
+
+  it("cache is invalidated by clearContextCache", () => {
+    mkdirSync(join(TMP, "github", "cache-clear"), { recursive: true });
+    clearContextCache();
+    const first = resolveProjectDir(TMP, "cache-clear");
+    assert.equal(first, join(TMP, "github", "cache-clear"));
+    // remove the dir, clear cache, resolve again
+    rmSync(join(TMP, "github", "cache-clear"), { recursive: true });
+    clearContextCache();
+    const second = resolveProjectDir(TMP, "cache-clear");
+    assert.equal(second, null);
+  });
+
+  it("cache distinguishes different titles", () => {
+    mkdirSync(join(TMP, "proj-a"), { recursive: true });
+    mkdirSync(join(TMP, "proj-b"), { recursive: true });
+    clearContextCache();
+    assert.equal(resolveProjectDir(TMP, "proj-a"), join(TMP, "proj-a"));
+    assert.equal(resolveProjectDir(TMP, "proj-b"), join(TMP, "proj-b"));
+  });
+});
+
 describe("loadSessionContext with sessionDirs", () => {
   it("uses sessionDirs to resolve project directory", () => {
     mkdirSync(join(TMP, "custom", "myproj"), { recursive: true });

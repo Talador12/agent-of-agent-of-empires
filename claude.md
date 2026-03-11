@@ -5,11 +5,75 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.41.0
+## Version: v0.42.0
 
 ## Current Focus
 
-580 tests across 28 files. v0.41.0 shipped: consolidation — bug fix, UX fix, shared colors module, action field helpers.
+590 tests across 28 files. v0.42.0 shipped: robustness — early NaN errors, resolveProjectDir cache, writeState debounce, dead export cleanup, discriminated union switch, empty catch fixes.
+
+## Roadmap
+
+### v0.43.0 — "UI Polish" (next)
+OpenCode-inspired TUI overhaul. Minimalist + slick, smooth color design, not monochrome but not a rave.
+- **Block-style rendering** — structured sections with visual hierarchy (OpenCode's panel approach)
+- **Highlighted sections** — last-ran commands and recent AI decisions get visual emphasis
+- **Scroll-through history** — navigate back through session activity without losing context
+- **Persisted history per session** — survive restarts, pick up where you left off
+- **Smooth color gradients** — tasteful use of full ANSI palette, easy on the eyes
+- **Slick animations** — subtle transitions for phase changes, countdowns, new events
+- Design principle: pizzaz without being annoying. Minimalist with confident color choices.
+
+### v0.44.0+ — Ideas Backlog
+- **Homebrew tap fix** — PAT needs `repo` scope for `peter-evans/repository-dispatch`
+- **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
+- **Notification hooks** — Slack, webhook for significant events (errors, completions)
+- **Multi-profile support** — manage multiple AoE profiles simultaneously
+- **Web dashboard** — browser UI via `opencode web` (not wired yet)
+- **README refresh** — update test counts, new features, architecture diagram
+
+### What shipped in v0.42.0
+
+**Theme: "Robustness"** — internal quality improvements that reduce I/O, eliminate dead code,
+improve error messages, and add proper caching.
+
+#### 1. Early NaN error for `--poll-interval` and `--port` (`src/config.ts`)
+`parseInt` results checked immediately in `parseCliArgs()`. Throws descriptive errors
+like `"--poll-interval value 'abc' is not a valid number"` instead of passing NaN through
+to `validateConfig()` which produced a confusing range-check message. 4 new tests.
+
+#### 2. Cache `resolveProjectDir` results (`src/context.ts`)
+Added `resolutionCache` Map with 60s TTL keyed by `${basePath}\0${titleLower}`. Wired into
+`loadSessionContext()` via `cachedResolveProjectDirWithSource()`. Eliminates redundant
+`readdirSync` calls (one per session per poll). Cache cleared in `clearContextCache()`.
+3 new tests.
+
+#### 3. Rewrite `actionSession`/`actionDetail` with switch (`src/types.ts`)
+Replaced `"field" in action` + `as` cast pattern with proper discriminated union `switch`
+statements. Zero type assertions — TypeScript narrows the type in each case branch.
+
+#### 4. Fix empty catch blocks (`src/task-manager.ts`)
+Two `catch {}` blocks at lines 49 (config parse) and 109 (state save) silently swallowed
+errors. Added `console.error` logging so parse/save failures are visible in the daemon log.
+
+#### 5. Remove dead exports (`src/reasoner/prompt.ts`, `src/task-parser.ts`, `src/daemon-state.ts`, `src/chat.ts`)
+- `SYSTEM_PROMPT` (prompt.ts) — exported but never imported externally. Made module-private.
+- `PaneOverview` (task-parser.ts) — interface defined but never used anywhere. Made module-private.
+- `releaseLock` (daemon-state.ts) — only called internally by `cleanupState()`. Made module-private.
+- `MAGENTA` import in chat.ts — imported from colors.ts but never used. Removed from import.
+- `readContextFile` (context.ts) — kept exported, used by test file.
+
+#### 6. Debounce `writeState` calls (`src/daemon-state.ts`)
+The daemon called `writeState` 3-5 times per tick, each a synchronous `writeFileSync`.
+Now debounced: flushes immediately on phase transition (chat UI needs to see transitions),
+otherwise at most once per 500ms within the same phase. Cuts disk writes per tick from 3-5
+to 1-2. Debounce state reset in `resetInternalState()` for test isolation. 3 new tests.
+
+Config additions: none.
+Modified: `src/config.ts`, `src/context.ts`, `src/types.ts`, `src/task-manager.ts`,
+`src/reasoner/prompt.ts`, `src/task-parser.ts`, `src/daemon-state.ts`, `src/chat.ts`,
+`src/config.test.ts`, `src/daemon-state.test.ts`, `src/context.test.ts`, `package.json`,
+`claude.md`
+Test changes: +10 (4 NaN parse, 3 debounce, 3 resolution cache), net 590 tests.
 
 ### What shipped in v0.41.0
 
@@ -511,10 +575,27 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 
 ## Backlog
 
-- Homebrew tap PAT needs `repo` scope for dispatch
+- Homebrew tap PAT needs `repo` scope for dispatch (tracked in roadmap)
 
 ## Completed
 
+- v0.42.0: Robustness (590 tests):
+  - **`config.ts`**: Early NaN validation in `parseCliArgs()` for `--poll-interval`
+    and `--port` — throws descriptive error instead of passing NaN to validateConfig.
+  - **`context.ts`**: `resolveProjectDir` results cached with 60s TTL. Eliminates
+    redundant `readdirSync` calls per session per poll.
+  - **`types.ts`**: Rewrote `actionSession()`/`actionDetail()` with discriminated union
+    `switch` — zero `as` casts.
+  - **`task-manager.ts`**: Added error logging to empty `catch {}` blocks.
+  - **`reasoner/prompt.ts`**: Unexported dead `SYSTEM_PROMPT` constant.
+  - **`task-parser.ts`**: Unexported dead `PaneOverview` interface.
+  - **`daemon-state.ts`**: Unexported dead `releaseLock()`. Debounced `writeState()`
+    — flushes on phase change, otherwise at most once per 500ms.
+  - **`chat.ts`**: Removed unused `MAGENTA` import.
+  - **`config.test.ts`**: +4 NaN parse tests.
+  - **`daemon-state.test.ts`**: +3 debounce tests (same-phase skip, phase change
+    flush, 500ms expiry).
+  - **`context.test.ts`**: +3 resolution cache tests (hit, invalidation, key isolation).
 - v0.41.0: Consolidation (580 tests):
   - **`config.ts`**: Fixed NaN port validation bug (`!isFinite` guard).
   - **`input.ts`**: Fixed `/tasks` routing to task table (was aliased to dashboard).

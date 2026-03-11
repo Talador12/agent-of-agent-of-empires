@@ -315,4 +315,40 @@ describe("writeState and readState", () => {
     // (but it may have been recreated by another test, so just verify no throw)
     assert.doesNotThrow(() => readState());
   });
+
+  it("debounce: same-phase writes within 500ms skip disk flush", async () => {
+    const { writeState, readState, resetInternalState } = await import("./daemon-state.js");
+    resetInternalState();
+    // first write always flushes (phase transition from null -> polling)
+    writeState("polling", { pollCount: 1 });
+    const state1 = readState();
+    assert.equal(state1!.pollCount, 1);
+
+    // second write with same phase within 500ms should be debounced
+    writeState("polling", { pollCount: 2 });
+    const state2 = readState();
+    // debounced: disk still has pollCount=1
+    assert.equal(state2!.pollCount, 1);
+  });
+
+  it("debounce: phase change always flushes immediately", async () => {
+    const { writeState, readState, resetInternalState } = await import("./daemon-state.js");
+    resetInternalState();
+    writeState("polling", { pollCount: 1 });
+    // change phase -> flushes immediately regardless of debounce window
+    writeState("reasoning", { pollCount: 1 });
+    const state = readState();
+    assert.equal(state!.phase, "reasoning");
+  });
+
+  it("debounce: flush happens after 500ms even with same phase", async () => {
+    const { writeState, readState, resetInternalState } = await import("./daemon-state.js");
+    resetInternalState();
+    writeState("polling", { pollCount: 1 });
+    // wait 550ms to exceed debounce window
+    await new Promise((r) => setTimeout(r, 550));
+    writeState("polling", { pollCount: 99 });
+    const state = readState();
+    assert.equal(state!.pollCount, 99);
+  });
 });

@@ -46,7 +46,9 @@ export function loadTaskDefinitions(basePath: string): TaskDefinition[] {
             log(`loaded ${config.tasks.length} task(s) from ${p}`);
             return validateDefinitions(config.tasks, basePath);
           }
-        } catch {}
+        } catch (e) {
+          console.error(`warning: failed to parse tasks from ${p}: ${e}`);
+        }
       }
     }
   }
@@ -106,7 +108,9 @@ export function saveTaskState(states: Map<string, TaskState>): void {
       obj[repo] = state;
     }
     writeFileSync(STATE_FILE, JSON.stringify({ tasks: obj }, null, 2) + "\n");
-  } catch {}
+  } catch (e) {
+    console.error(`warning: failed to save task state: ${e}`);
+  }
 }
 
 // ── Task manager ────────────────────────────────────────────────────────────

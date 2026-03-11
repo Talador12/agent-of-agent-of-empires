@@ -44,8 +44,8 @@ Rules:
 - Use "complete_task" when a task's goal has been fully achieved and the agent has nothing left to do.
   This will clean up the session. Only use when truly done, not just idle.`;
 
-// for backwards compat -- consumers that import SYSTEM_PROMPT get the base version
-export const SYSTEM_PROMPT = BASE_SYSTEM_PROMPT;
+// for backwards compat -- kept as module-level alias for the base prompt
+const SYSTEM_PROMPT = BASE_SYSTEM_PROMPT;
 
 // build the full system prompt with global context appended
 export function buildSystemPrompt(globalContext?: string): string {

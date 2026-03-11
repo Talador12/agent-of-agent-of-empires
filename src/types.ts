@@ -60,19 +60,31 @@ export type Action =
   | { action: "complete_task"; session: string; summary: string }
   | { action: "wait"; reason?: string };
 
-// extract the session/title identifier from any action (avoids repeated type assertions)
+// extract the session/title identifier from any action (uses discriminated union narrowing)
 export function actionSession(action: Action): string | undefined {
-  if ("session" in action) return (action as { session: string }).session;
-  if ("title" in action) return (action as { title: string }).title;
-  return undefined;
+  switch (action.action) {
+    case "send_input": case "start_session": case "stop_session":
+    case "remove_agent": case "report_progress": case "complete_task":
+      return action.session;
+    case "create_agent":
+      return action.title;
+    case "wait":
+      return undefined;
+  }
 }
 
 // extract the human-readable detail (text, summary, reason) from any action
 export function actionDetail(action: Action): string | undefined {
-  if ("text" in action) return (action as { text: string }).text;
-  if ("summary" in action) return (action as { summary: string }).summary;
-  if ("reason" in action) return (action as { reason?: string }).reason;
-  return undefined;
+  switch (action.action) {
+    case "send_input":
+      return action.text;
+    case "report_progress": case "complete_task":
+      return action.summary;
+    case "wait":
+      return action.reason;
+    case "start_session": case "stop_session": case "remove_agent": case "create_agent":
+      return undefined;
+  }
 }
 
 export interface ReasonerResult {

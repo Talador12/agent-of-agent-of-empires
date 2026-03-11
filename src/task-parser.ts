@@ -13,7 +13,7 @@ export interface ParsedTask {
   status: "done" | "in_progress" | "pending" | "failed";
 }
 
-export interface PaneOverview {
+interface PaneOverview {
   sessionId: string;
   title: string;
   tool: string;

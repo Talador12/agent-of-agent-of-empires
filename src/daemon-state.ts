@@ -38,6 +38,8 @@ let currentState: DaemonState = { ...INITIAL_STATE, phaseStartedAt: Date.now() }
 // reset module-level state (for test isolation)
 export function resetInternalState(): void {
   currentState = { ...INITIAL_STATE, phaseStartedAt: Date.now() };
+  lastFlushedPhase = null;
+  lastFlushTime = 0;
 }
 
 // track last task sent to each session (persists across ticks)
@@ -50,6 +52,25 @@ export function setSessionTask(sessionId: string, task: string): void {
   sessionTasks.set(sessionId, task.length > 80 ? task.slice(0, 77) + "..." : task);
 }
 
+// ── writeState debounce ─────────────────────────────────────────────────────
+// The daemon calls writeState 3-5 times per tick. Each call is a synchronous
+// writeFileSync. Debounce: flush immediately on phase change (chat UI needs to
+// see transitions), otherwise at most once per DEBOUNCE_MS within the same phase.
+const DEBOUNCE_MS = 500;
+let lastFlushedPhase: DaemonPhase | null = null;
+let lastFlushTime = 0;
+
+function flushState(): void {
+  try {
+    ensureDir();
+    writeFileSync(STATE_FILE, JSON.stringify(currentState) + "\n");
+    lastFlushedPhase = currentState.phase;
+    lastFlushTime = Date.now();
+  } catch {
+    // best-effort, don't crash the daemon
+  }
+}
+
 export function writeState(
   phase: DaemonPhase,
   updates: Partial<Omit<DaemonState, "phase" | "phaseStartedAt">> = {}
@@ -60,11 +81,10 @@ export function writeState(
     phase,
     phaseStartedAt: Date.now(),
   };
-  try {
-    ensureDir();
-    writeFileSync(STATE_FILE, JSON.stringify(currentState) + "\n");
-  } catch {
-    // best-effort, don't crash the daemon
+  // always flush on phase transition; debounce same-phase writes
+  const phaseChanged = phase !== lastFlushedPhase;
+  if (phaseChanged || Date.now() - lastFlushTime >= DEBOUNCE_MS) {
+    flushState();
   }
 }
 
@@ -176,7 +196,7 @@ export function acquireLock(): { acquired: boolean; existingPid?: number } {
   }
 }
 
-export function releaseLock(): void {
+function releaseLock(): void {
   try {
     // only remove if we own the lock (our PID)
     if (existsSync(LOCK_FILE)) {

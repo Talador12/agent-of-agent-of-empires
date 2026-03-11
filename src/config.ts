@@ -253,14 +253,20 @@ export function parseCliArgs(argv: string[]): {
         overrides.reasoner = nextArg(i, arg) as ReasonerBackend;
         i++;
         break;
-      case "--poll-interval":
-        overrides.pollIntervalMs = parseInt(nextArg(i, arg), 10);
+      case "--poll-interval": {
+        const val = parseInt(nextArg(i, arg), 10);
+        if (isNaN(val)) throw new Error(`--poll-interval value '${argv[i + 1]}' is not a valid number`);
+        overrides.pollIntervalMs = val;
         i++;
         break;
-      case "--port":
-        overrides.opencode = { ...overrides.opencode, port: parseInt(nextArg(i, arg), 10) } as AoaoeConfig["opencode"];
+      }
+      case "--port": {
+        const val = parseInt(nextArg(i, arg), 10);
+        if (isNaN(val)) throw new Error(`--port value '${argv[i + 1]}' is not a valid number`);
+        overrides.opencode = { ...overrides.opencode, port: val } as AoaoeConfig["opencode"];
         i++;
         break;
+      }
       case "--model": {
         // applies to whichever backend is selected
         const model = nextArg(i, arg);

@@ -330,10 +330,10 @@ export function loadSessionContext(
 ): string {
   if (!sessionPath) return "";
 
-  // try to resolve the actual project directory from the title
+  // try to resolve the actual project directory from the title (cached, 60s TTL)
   let projectDir: string | null = null;
   if (sessionTitle) {
-    projectDir = resolveProjectDir(sessionPath, sessionTitle, sessionDirs);
+    projectDir = cachedResolveProjectDirWithSource(sessionPath, sessionTitle, sessionDirs).dir;
   }
 
   if (projectDir) {
@@ -372,7 +372,33 @@ function isFile(p: string): boolean {
   }
 }
 
-// clear the cache (for testing)
+// ── resolveProjectDir cache (60s TTL, same as readContextFile) ──────────────
+
+interface CachedResolution {
+  result: ResolutionResult;
+  resolvedAt: number;
+}
+
+const resolutionCache = new Map<string, CachedResolution>();
+
+function cachedResolveProjectDirWithSource(
+  basePath: string,
+  sessionTitle: string,
+  sessionDirs?: Record<string, string>,
+): ResolutionResult {
+  const key = `${basePath}\0${sessionTitle.toLowerCase()}`;
+  const now = Date.now();
+  const cached = resolutionCache.get(key);
+  if (cached && now - cached.resolvedAt < CACHE_TTL_MS) {
+    return cached.result;
+  }
+  const result = resolveProjectDirWithSource(basePath, sessionTitle, sessionDirs);
+  resolutionCache.set(key, { result, resolvedAt: now });
+  return result;
+}
+
+// clear all caches (for testing)
 export function clearContextCache(): void {
   cache.clear();
+  resolutionCache.clear();
 }

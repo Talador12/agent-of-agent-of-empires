@@ -81,6 +81,33 @@ describe("parseCliArgs", () => {
     assert.equal(result.overrides.opencode?.port, 9999);
   });
 
+  it("throws on non-numeric --poll-interval", () => {
+    assert.throws(
+      () => parseCliArgs(argv("--poll-interval", "abc")),
+      { message: /--poll-interval value 'abc' is not a valid number/ },
+    );
+  });
+
+  it("throws on non-numeric --port", () => {
+    assert.throws(
+      () => parseCliArgs(argv("--port", "xyz")),
+      { message: /--port value 'xyz' is not a valid number/ },
+    );
+  });
+
+  it("throws on empty-string --poll-interval", () => {
+    assert.throws(
+      () => parseCliArgs(argv("--poll-interval", "")),
+      { message: /--poll-interval value '' is not a valid number/ },
+    );
+  });
+
+  it("parseInt truncates floats for --port (no throw)", () => {
+    // parseInt("3.14", 10) => 3 — valid number, no NaN
+    const result = parseCliArgs(argv("--port", "3.14"));
+    assert.equal(result.overrides.opencode?.port, 3);
+  });
+
   it("parses --model (sets both backends)", () => {
     const result = parseCliArgs(argv("--model", "gpt-4o"));
     assert.equal(result.overrides.opencode?.model, "gpt-4o");
