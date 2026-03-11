@@ -4,13 +4,7 @@
 import { createInterface, emitKeypressEvents, type Interface } from "node:readline";
 import { requestInterrupt } from "./daemon-state.js";
 
-// ANSI
-const GREEN = "\x1b[32m";
-const DIM = "\x1b[2m";
-const YELLOW = "\x1b[33m";
-const RED = "\x1b[31m";
-const BOLD = "\x1b[1m";
-const RESET = "\x1b[0m";
+import { GREEN, DIM, YELLOW, RED, BOLD, RESET } from "./colors.js";
 
 // ESC-ESC interrupt detection
 const ESC_DOUBLE_TAP_MS = 500;
@@ -132,7 +126,7 @@ ${BOLD}controls:${RESET}
 ${BOLD}info:${RESET}
   /status            show daemon state
   /dashboard         show full dashboard
-  /tasks             show task assignments
+  /tasks             show task progress table
   /task [sub] [args] task management (list, start, stop, edit, new, rm)
 
 ${BOLD}other:${RESET}
@@ -173,7 +167,7 @@ ${BOLD}other:${RESET}
         break;
 
       case "/tasks":
-        this.queue.push("__CMD_DASHBOARD__"); // reuse dashboard for now
+        this.queue.push("__CMD_TASK__list");
         break;
 
       case "/task": {

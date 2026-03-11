@@ -20,15 +20,7 @@ const CONVO_LOG = join(AOAOE_DIR, "conversation.log");
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt");
 const PID_FILE = join(AOAOE_DIR, "chat.pid");
 
-// ANSI
-const DIM = "\x1b[2m";
-const BOLD = "\x1b[1m";
-const GREEN = "\x1b[32m";
-const CYAN = "\x1b[36m";
-const YELLOW = "\x1b[33m";
-const RED = "\x1b[31m";
-const MAGENTA = "\x1b[35m";
-const RESET = "\x1b[0m";
+import { DIM, BOLD, GREEN, CYAN, YELLOW, RED, MAGENTA, RESET } from "./colors.js";
 
 // ESC-ESC interrupt detection
 let lastEscTime = 0;

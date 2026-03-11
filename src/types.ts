@@ -60,6 +60,21 @@ export type Action =
   | { action: "complete_task"; session: string; summary: string }
   | { action: "wait"; reason?: string };
 
+// extract the session/title identifier from any action (avoids repeated type assertions)
+export function actionSession(action: Action): string | undefined {
+  if ("session" in action) return (action as { session: string }).session;
+  if ("title" in action) return (action as { title: string }).title;
+  return undefined;
+}
+
+// extract the human-readable detail (text, summary, reason) from any action
+export function actionDetail(action: Action): string | undefined {
+  if ("text" in action) return (action as { text: string }).text;
+  if ("summary" in action) return (action as { summary: string }).summary;
+  if ("reason" in action) return (action as { reason?: string }).reason;
+  return undefined;
+}
+
 export interface ReasonerResult {
   actions: Action[];
   reasoning?: string; // optional explanation from the LLM

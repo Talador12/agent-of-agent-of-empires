@@ -98,7 +98,7 @@ export function validateConfig(config: AoaoeConfig): void {
   if (typeof config.captureLinesCount !== "number" || config.captureLinesCount < 1 || !isFinite(config.captureLinesCount)) {
     errors.push(`captureLinesCount must be a positive number, got ${config.captureLinesCount}`);
   }
-  if (typeof config.opencode?.port !== "number" || config.opencode.port < 1 || config.opencode.port > 65535) {
+  if (typeof config.opencode?.port !== "number" || !isFinite(config.opencode.port) || config.opencode.port < 1 || config.opencode.port > 65535) {
     errors.push(`opencode.port must be 1-65535, got ${config.opencode?.port}`);
   }
   if (typeof config.policies?.maxErrorsBeforeRestart !== "number" || config.policies.maxErrorsBeforeRestart < 1) {

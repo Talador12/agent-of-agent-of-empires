@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { parseCliArgs, deepMerge, validateConfig, findConfigFile, configFileExists, defaultConfigPath } from "./config.js";
-import type { AoaoeConfig } from "./types.js";
+import type { AoaoeConfig, Action } from "./types.js";
+import { actionSession, actionDetail } from "./types.js";
 
 describe("config file resolution", () => {
   it("defaultConfigPath points to ~/.aoaoe/aoaoe.config.json", () => {
@@ -250,6 +251,10 @@ describe("validateConfig", () => {
     assert.throws(() => validateConfig(makeConfig({ opencode: { port: 70000 } })), /opencode\.port/);
   });
 
+  it("rejects opencode.port NaN", () => {
+    assert.throws(() => validateConfig(makeConfig({ opencode: { port: NaN } })), /opencode\.port/);
+  });
+
   it("rejects maxErrorsBeforeRestart below 1", () => {
     const config = makeConfig();
     config.policies.maxErrorsBeforeRestart = 0;
@@ -386,5 +391,61 @@ describe("parseCliArgs missing flag values", () => {
 
   it("throws when --reasoner is the last arg", () => {
     assert.throws(() => parseCliArgs(argv("--verbose", "--reasoner")), /--reasoner requires a value/);
+  });
+});
+
+// ── actionSession / actionDetail helpers ────────────────────────────────────
+
+describe("actionSession", () => {
+  it("returns session for send_input", () => {
+    const a: Action = { action: "send_input", session: "abc", text: "hello" };
+    assert.equal(actionSession(a), "abc");
+  });
+
+  it("returns session for start_session", () => {
+    const a: Action = { action: "start_session", session: "xyz" };
+    assert.equal(actionSession(a), "xyz");
+  });
+
+  it("returns title for create_agent", () => {
+    const a: Action = { action: "create_agent", path: "/tmp", title: "test", tool: "opencode" };
+    assert.equal(actionSession(a), "test");
+  });
+
+  it("returns undefined for wait", () => {
+    const a: Action = { action: "wait", reason: "idle" };
+    assert.equal(actionSession(a), undefined);
+  });
+});
+
+describe("actionDetail", () => {
+  it("returns text for send_input", () => {
+    const a: Action = { action: "send_input", session: "abc", text: "do stuff" };
+    assert.equal(actionDetail(a), "do stuff");
+  });
+
+  it("returns summary for report_progress", () => {
+    const a: Action = { action: "report_progress", session: "abc", summary: "fixed bug" };
+    assert.equal(actionDetail(a), "fixed bug");
+  });
+
+  it("returns summary for complete_task", () => {
+    const a: Action = { action: "complete_task", session: "abc", summary: "done" };
+    assert.equal(actionDetail(a), "done");
+  });
+
+  it("returns reason for wait", () => {
+    const a: Action = { action: "wait", reason: "all good" };
+    assert.equal(actionDetail(a), "all good");
+  });
+
+  it("returns undefined for start_session (no detail field)", () => {
+    const a: Action = { action: "start_session", session: "abc" };
+    assert.equal(actionDetail(a), undefined);
+  });
+
+  it("returns undefined for wait without reason", () => {
+    const a: Action = { action: "wait" };
+    assert.equal(actionDetail(a), undefined);
   });
 });

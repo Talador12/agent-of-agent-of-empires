@@ -6,14 +6,7 @@ import { resolve, basename } from "node:path";
 import { loadTaskState, saveTaskState, formatTaskTable } from "./task-manager.js";
 import type { TaskState, TaskStatus } from "./types.js";
 
-// ANSI
-const BOLD = "\x1b[1m";
-const DIM = "\x1b[2m";
-const GREEN = "\x1b[32m";
-const YELLOW = "\x1b[33m";
-const RED = "\x1b[31m";
-const CYAN = "\x1b[36m";
-const RESET = "\x1b[0m";
+import { BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET } from "./colors.js";
 
 // resolve a fuzzy reference to a task: match by title, repo basename, or session ID prefix
 export function resolveTask(ref: string, tasks: TaskState[]): TaskState | undefined {

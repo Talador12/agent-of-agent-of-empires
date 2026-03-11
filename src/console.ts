@@ -12,13 +12,7 @@ const CONVO_LOG = join(AOAOE_DIR, "conversation.log");
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt");
 const PID_FILE = join(AOAOE_DIR, "chat.pid");
 
-// ANSI colors for inline mode
-const DIM = "\x1b[2m";
-const GREEN = "\x1b[32m";
-const CYAN = "\x1b[36m";
-const YELLOW = "\x1b[33m";
-const RED = "\x1b[31m";
-const RESET = "\x1b[0m";
+import { DIM, GREEN, CYAN, YELLOW, RED, BOLD, RESET } from "./colors.js";
 
 export class ReasonerConsole {
   private started = false;
@@ -414,7 +408,6 @@ export function colorizeConsoleLine(line: string): string {
   const tagMatch = line.match(/^(.*?\[)(observation|you|reasoner|explain|\+ action|! action|system|status)(\].*$)/);
   if (tagMatch) {
     const [, pre, tag, post] = tagMatch;
-    const BOLD = "\x1b[1m";
     switch (tag) {
       case "observation": return `${DIM}${pre}${tag}${post}${RESET}`;
       case "you": return `${GREEN}${pre}${tag}${post}${RESET}`;

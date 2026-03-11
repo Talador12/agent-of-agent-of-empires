@@ -5,6 +5,7 @@
 // uses ANSI scroll regions so activity log scrolls naturally while header/sessions
 // and input line stay fixed. no external deps — raw escape codes only.
 import type { DaemonSessionState, DaemonPhase, TaskState } from "./types.js";
+import { BOLD, DIM, RESET, GREEN, YELLOW, RED, CYAN, WHITE, BG_DARK } from "./colors.js";
 
 // ── ANSI helpers ────────────────────────────────────────────────────────────
 
@@ -25,17 +26,6 @@ const RESTORE_CURSOR = `${ESC}8`;
 const moveTo = (row: number, col: number) => `${CSI}${row};${col}H`;
 const setScrollRegion = (top: number, bottom: number) => `${CSI}${top};${bottom}r`;
 const resetScrollRegion = () => `${CSI}r`;
-
-// colors
-const BOLD = `${CSI}1m`;
-const DIM = `${CSI}2m`;
-const RESET = `${CSI}0m`;
-const GREEN = `${CSI}32m`;
-const YELLOW = `${CSI}33m`;
-const RED = `${CSI}31m`;
-const CYAN = `${CSI}36m`;
-const WHITE = `${CSI}37m`;
-const BG_DARK = `${CSI}48;5;236m`; // dark gray background for header
 
 // status icons
 const STATUS_ICONS: Record<string, string> = {

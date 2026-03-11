@@ -5,11 +5,48 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.40.0
+## Version: v0.41.0
 
 ## Current Focus
 
-569 tests across 28 files. v0.40.0 shipped: test coverage — three new test files for previously untested source modules.
+580 tests across 28 files. v0.41.0 shipped: consolidation — bug fix, UX fix, shared colors module, action field helpers.
+
+### What shipped in v0.41.0
+
+**Theme: "Consolidation"** — bug fixes, code dedup, and type safety improvements.
+
+#### 1. Fix NaN validation for `--port` (`src/config.ts`)
+`validateConfig()` accepted `NaN` for `opencode.port` because `NaN < 1` and
+`NaN > 65535` both evaluate to `false`, passing all range checks. Added
+`!isFinite()` guard (matches existing `pollIntervalMs` validation). 1 new test.
+
+#### 2. Fix `/tasks` routing (`src/input.ts`)
+`/tasks` slash command was aliased to `__CMD_DASHBOARD__`, showing the full
+daemon dashboard instead of the task progress table. Changed to
+`__CMD_TASK__list` which routes through `handleTaskSlashCommand("list")` →
+`formatTaskTable()`. Updated help text to say "show task progress table".
+
+#### 3. Shared ANSI color module (`src/colors.ts`, 8 files updated)
+Created `src/colors.ts` with all ANSI escape constants (RESET, BOLD, DIM, RED,
+GREEN, YELLOW, CYAN, MAGENTA, WHITE, BG_DARK). Replaced duplicate definitions
+across 8 source files: `input.ts`, `console.ts`, `init.ts`, `task-cli.ts`,
+`chat.ts`, `tui.ts`, `task-manager.ts`, `index.ts`. Removed 10 definition
+sites (module-level and function-scoped). Net reduction: ~55 lines of
+duplicate constants.
+
+#### 4. Action field helpers (`src/types.ts`, `src/index.ts`)
+Added `actionSession(action)` and `actionDetail(action)` helper functions to
+`types.ts`. These extract `session`/`title` and `text`/`summary`/`reason`
+fields from the `Action` union type without unsafe `as` casts or `"field" in`
+checks at call sites. Replaced 4 type assertions in `index.ts` (confirm mode
+and execution results). 11 new tests (4 actionSession, 6 actionDetail, 1 NaN).
+
+Config additions: none.
+New files: `src/colors.ts`
+Modified: `src/types.ts`, `src/config.ts`, `src/config.test.ts`, `src/index.ts`,
+`src/input.ts`, `src/console.ts`, `src/init.ts`, `src/task-cli.ts`, `src/chat.ts`,
+`src/tui.ts`, `src/task-manager.ts`, `package.json`, `claude.md`
+Test changes: +11 (1 NaN port, 4 actionSession, 6 actionDetail), net 580 tests.
 
 ### What shipped in v0.40.0
 
@@ -478,6 +515,14 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 
 ## Completed
 
+- v0.41.0: Consolidation (580 tests):
+  - **`config.ts`**: Fixed NaN port validation bug (`!isFinite` guard).
+  - **`input.ts`**: Fixed `/tasks` routing to task table (was aliased to dashboard).
+  - **`colors.ts`**: New shared ANSI color module, replaced 10 definition sites
+    across 8 files.
+  - **`types.ts`**: Added `actionSession()` and `actionDetail()` helpers.
+  - **`index.ts`**: Replaced 4 `as` casts with `actionSession`/`actionDetail`.
+  - **`config.test.ts`**: +11 tests (NaN port, actionSession, actionDetail).
 - v0.40.0: Test Coverage (569 tests):
   - **`task-manager.ts`**: Exported `deriveTitle` for testing.
   - **`prompt-watcher.ts`**: Exported `generateWatcherScript` for testing.

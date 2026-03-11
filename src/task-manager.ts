@@ -6,6 +6,7 @@ import { join, resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import { exec } from "./shell.js";
 import type { TaskDefinition, TaskState, TaskProgress, TaskStatus } from "./types.js";
+import { RESET, BOLD, DIM, GREEN, YELLOW, RED, CYAN } from "./colors.js";
 
 const AOAOE_DIR = join(homedir(), ".aoaoe");
 const STATE_FILE = join(AOAOE_DIR, "task-state.json");
@@ -285,13 +286,6 @@ export function formatTaskTable(states: Map<string, TaskState> | TaskState[]): s
   if (tasks.length === 0) return "  (no tasks defined)";
 
   const lines: string[] = [];
-  const RESET = "\x1b[0m";
-  const BOLD = "\x1b[1m";
-  const DIM = "\x1b[2m";
-  const GREEN = "\x1b[32m";
-  const YELLOW = "\x1b[33m";
-  const RED = "\x1b[31m";
-  const CYAN = "\x1b[36m";
 
   const statusColor = (s: TaskStatus) =>
     s === "active" ? GREEN : s === "completed" ? CYAN : s === "failed" ? RED : s === "paused" ? YELLOW : DIM;

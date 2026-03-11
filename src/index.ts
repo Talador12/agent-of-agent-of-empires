@@ -18,6 +18,8 @@ import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from
 import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
 import { TUI } from "./tui.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState } from "./types.js";
+import { actionSession, actionDetail } from "./types.js";
+import { YELLOW, GREEN, DIM, BOLD, RED, RESET } from "./colors.js";
 import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -532,8 +534,8 @@ async function daemonTick(
       if (action.action === "wait") return true;
       const plainText = formatPlainEnglishAction(
         action.action,
-        "session" in action ? (action as { session: string }).session : ("title" in action ? (action as { title: string }).title : undefined),
-        "text" in action ? (action as { text: string }).text : ("summary" in action ? (action as { summary: string }).summary : action.action),
+        actionSession(action),
+        actionDetail(action) ?? action.action,
         true,
       );
       const answer = await askConfirm(plainText, tui);
@@ -682,9 +684,9 @@ async function daemonTick(
     if (entry.action.action === "wait") continue;
     const tag = entry.success ? "+ action" : "! action";
     // resolve session title for rich display
-    const sessionId = "session" in entry.action ? (entry.action as { session: string }).session : undefined;
+    const sessionId = actionSession(entry.action);
     const sessionTitle = sessionId ? (sessionTitleMap.get(sessionId) ?? sessionId) : undefined;
-    const actionText = "text" in entry.action ? (entry.action as { text: string }).text : entry.detail;
+    const actionText = actionDetail(entry.action) ?? entry.detail;
 
     // plain-English display for humans
     const plainEnglish = formatPlainEnglishAction(entry.action.action, sessionTitle, actionText, entry.success);
@@ -714,12 +716,6 @@ class InterruptError extends Error { constructor() { super("interrupted"); this.
 // prompt the user for y/n confirmation before an action runs.
 // used by --confirm mode. returns true if approved, false if rejected.
 function askConfirm(description: string, tui?: TUI | null): Promise<boolean> {
-  const YELLOW = "\x1b[33m";
-  const GREEN = "\x1b[32m";
-  const DIM = "\x1b[2m";
-  const BOLD = "\x1b[1m";
-  const RESET = "\x1b[0m";
-
   return new Promise((resolve) => {
     const prompt = `\n${YELLOW}${BOLD}The AI wants to:${RESET} ${description}\n${DIM}Allow? (y/n):${RESET} `;
     if (tui) {
@@ -1042,11 +1038,6 @@ async function showActionHistory(): Promise<void> {
 
   // show last 50 actions
   const recent = lines.slice(-50);
-  const GREEN = "\x1b[32m";
-  const RED = "\x1b[31m";
-  const DIM = "\x1b[2m";
-  const YELLOW = "\x1b[33m";
-  const RESET = "\x1b[0m";
 
   console.log("");
   console.log(`  action history (last ${recent.length} of ${lines.length} total)`);
