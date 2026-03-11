@@ -15,6 +15,8 @@ import { sleep } from "./shell.js";
 import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
+import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
+import { TUI } from "./tui.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState } from "./types.js";
 import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -26,7 +28,7 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
-  const { overrides, help, version, attach, register, testContext: isTestContext, runTest, showTasks, runInit, initForce, registerTitle } = parseCliArgs(process.argv);
+  const { overrides, help, version, attach, register, testContext: isTestContext, runTest, showTasks, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -73,6 +75,12 @@ async function main() {
     return;
   }
 
+  // `aoaoe task` -- task management CLI
+  if (isTaskCli) {
+    await runTaskCli(process.argv);
+    return;
+  }
+
   // `aoaoe init` -- auto-discover environment and generate config
   if (runInit) {
     const { runInit: doInit } = await import("./init.js");
@@ -98,13 +106,19 @@ async function main() {
 
   const config = loadConfig(overrides);
 
-  // startup banner
+  // startup banner + TUI setup
   const pkg = readPkgVersion();
-  console.error("");
-  console.error("  aoaoe" + (pkg ? ` v${pkg}` : "") + "  —  autonomous supervisor");
-  console.error(`  reasoner: ${config.reasoner}  |  poll: ${config.pollIntervalMs / 1000}s`);
-  if (config.dryRun) console.error("  ** DRY RUN — will observe and reason but not execute **");
-  console.error("");
+  const useTui = process.stdin.isTTY === true;
+  const tui = useTui ? new TUI() : null;
+
+  if (!useTui) {
+    // fallback: plain scrolling output (non-TTY / piped)
+    console.error("");
+    console.error("  aoaoe" + (pkg ? ` v${pkg}` : "") + "  —  autonomous supervisor");
+    console.error(`  reasoner: ${config.reasoner}  |  poll: ${config.pollIntervalMs / 1000}s`);
+    if (config.dryRun) console.error("  ** DRY RUN — will observe and reason but not execute **");
+    console.error("");
+  }
 
   // validate tools are installed
   await validateEnvironment(config);
@@ -163,12 +177,20 @@ async function main() {
   input.start();
   await reasonerConsole.start();
 
+  // start TUI (alternate screen buffer) after input is ready
+  if (tui) {
+    tui.start(pkg || "dev");
+    tui.log("system", `reasoner: ${config.reasoner}  |  poll: ${config.pollIntervalMs / 1000}s`);
+    if (config.dryRun) tui.log("system", "DRY RUN — will observe and reason but not execute");
+  }
+
   // graceful shutdown — wrap in .catch so unhandled rejections from
   // reasoner.shutdown() or reasonerConsole.stop() don't get swallowed
   let running = true;
   const shutdown = () => {
     if (!running) return;
     running = false;
+    if (tui) tui.stop();
     log("shutting down...");
     input.stop();
     Promise.resolve()
@@ -188,7 +210,11 @@ async function main() {
   let forceDashboard = false;
   let paused = false; // can be set by /pause from stdin or chat.ts
   const policyStates = new Map<string, SessionPolicyState>(); // per-session idle/error tracking
-  log("entering main loop (Ctrl+C to stop)\n");
+  if (tui) {
+    tui.log("system", "entering main loop (Ctrl+C to stop)");
+  } else {
+    log("entering main loop (Ctrl+C to stop)\n");
+  }
 
   // clear any stale interrupt from a previous run
   clearInterrupt();
@@ -217,40 +243,56 @@ async function main() {
     for (const cmd of commands) {
       if (cmd === "__CMD_STATUS__") {
         const isPausedNow = paused || input.isPaused();
-        log(`status: poll #${pollCount}, reasoner=${config.reasoner}, paused=${isPausedNow}, dry-run=${config.dryRun}`);
-        reasonerConsole.writeSystem(`status: poll #${pollCount}, reasoner=${config.reasoner}, paused=${isPausedNow}, dry-run=${config.dryRun}`);
+        const msg = `status: poll #${pollCount}, reasoner=${config.reasoner}, paused=${isPausedNow}, dry-run=${config.dryRun}`;
+        if (tui) tui.log("status", msg); else log(msg);
+        reasonerConsole.writeSystem(msg);
       } else if (cmd === "__CMD_DASHBOARD__") {
         forceDashboard = true;
       } else if (cmd === "__CMD_VERBOSE__") {
         config.verbose = !config.verbose;
-        log(`verbose: ${config.verbose ? "on" : "off"}`);
-        reasonerConsole.writeSystem(`verbose: ${config.verbose ? "on" : "off"}`);
+        const msg = `verbose: ${config.verbose ? "on" : "off"}`;
+        if (tui) tui.log("system", msg); else log(msg);
+        reasonerConsole.writeSystem(msg);
       } else if (cmd === "__CMD_PAUSE__") {
         paused = true;
-        log("paused via console");
+        if (tui) { tui.log("system", "paused via console"); tui.updateState({ paused: true }); } else log("paused via console");
         reasonerConsole.writeSystem("paused -- reasoner will not be called until /resume");
       } else if (cmd === "__CMD_RESUME__") {
         paused = false;
-        log("resumed via console");
+        if (tui) { tui.log("system", "resumed"); tui.updateState({ paused: false }); } else log("resumed via console");
         reasonerConsole.writeSystem("resumed");
       } else if (cmd === "__CMD_INTERRUPT__") {
         // interrupt is handled inside tick() via the flag file; clear it here if no tick is running
-        log("interrupt requested (will take effect during next reasoning call)");
+        if (tui) tui.log("system", "interrupt requested (will take effect during next reasoning call)"); else log("interrupt requested (will take effect during next reasoning call)");
+      } else if (cmd.startsWith("__CMD_TASK__")) {
+        const taskArgs = cmd.slice("__CMD_TASK__".length);
+        try {
+          const output = await handleTaskSlashCommand(taskArgs);
+          if (tui) tui.log("system", output); else log(output);
+          reasonerConsole.writeSystem(output);
+        } catch (err) {
+          const msg = `task command error: ${err}`;
+          if (tui) tui.log("error", msg); else log(msg);
+        }
       }
     }
 
     // check pause from both stdin input and console commands
     const isPaused = paused || input.isPaused();
     if (isPaused) {
-      if (pollCount % 6 === 1) log("paused (type /resume to continue)");
+      if (pollCount % 6 === 1) {
+        if (tui) tui.log("system", "paused (type /resume to continue)"); else log("paused (type /resume to continue)");
+      }
+      if (tui) tui.updateState({ phase: "sleeping", paused: true, pollCount });
       writeState("sleeping", { paused: true, pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt: Date.now() + config.pollIntervalMs });
       await wakeableSleep(config.pollIntervalMs, AOAOE_DIR);
       continue;
     }
 
     try {
+      if (tui) tui.updateState({ phase: "polling", pollCount, paused: false });
       const activeTaskContext = taskManager ? taskManager.tasks.filter((t) => t.status !== "completed") : undefined;
-      const interrupted = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager);
+      const interrupted = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager, tui);
       forceDashboard = false;
 
       // if the reasoner was interrupted, continue to next tick immediately.
@@ -259,15 +301,16 @@ async function main() {
       if (interrupted) {
         writeState("interrupted", { pollCount, pollIntervalMs: config.pollIntervalMs });
         reasonerConsole.writeSystem("reasoner interrupted -- type a message and it will be picked up immediately");
-        log("interrupted -- continuing to next tick (wakeable sleep will pick up input)");
+        if (tui) tui.log("system", "interrupted -- continuing to next tick"); else log("interrupted -- continuing to next tick (wakeable sleep will pick up input)");
         clearInterrupt();
       }
     } catch (err) {
-      console.error(`[error] tick ${pollCount} failed: ${err}`);
+      const msg = `tick ${pollCount} failed: ${err}`;
+      if (tui) tui.log("error", msg); else console.error(`[error] ${msg}`);
     }
 
-    // re-show input prompt after tick output
-    input.prompt();
+    // re-show input prompt after tick output (no-op when TUI is active since it has its own input line)
+    if (!tui) input.prompt();
 
     if (running) {
       // skip sleep entirely if there are already-queued messages waiting
@@ -278,14 +321,15 @@ async function main() {
       });
 
       if (skipSleep) {
-        log("skipping sleep — pending input detected");
+        if (tui) tui.log("system", "skipping sleep — pending input detected"); else log("skipping sleep — pending input detected");
       } else {
+        if (tui) tui.updateState({ phase: "sleeping" });
         const nextTickAt = Date.now() + config.pollIntervalMs;
         writeState("sleeping", { pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt, paused: false });
 
         const wake = await wakeableSleep(config.pollIntervalMs, AOAOE_DIR);
         if (wake.reason === "wake") {
-          log(`woke early after ${wake.elapsed}ms (file change detected)`);
+          if (tui) tui.log("system", `woke early after ${wake.elapsed}ms`); else log(`woke early after ${wake.elapsed}ms (file change detected)`);
         }
       }
     }
@@ -305,14 +349,16 @@ async function daemonTick(
   userMessage?: string,
   forceDashboard?: boolean,
   taskContext?: TaskState[],
-  taskManager?: TaskManager
+  taskManager?: TaskManager,
+  tui?: TUI | null,
 ): Promise<boolean> {
   // pre-tick: write IPC state + tick separator in conversation log
   writeState("polling", { pollCount, pollIntervalMs: config.pollIntervalMs, tickStartedAt: Date.now() });
   reasonerConsole.writeTickSeparator(pollCount);
 
-  // user message -> console
+  // user message -> console + TUI
   if (userMessage) {
+    if (tui) tui.log("you", userMessage);
     reasonerConsole.writeUserMessage(userMessage);
   }
 
@@ -322,7 +368,7 @@ async function daemonTick(
     shutdown: () => reasoner.shutdown(),
     decide: async (obs) => {
       writeState("reasoning", { pollCount, pollIntervalMs: config.pollIntervalMs });
-      process.stdout.write(" | reasoning...");
+      if (tui) tui.updateState({ phase: "reasoning" }); else process.stdout.write(" | reasoning...");
 
       const { result: r, interrupted } = await withTimeoutAndInterrupt(
         (signal) => reasoner.decide(obs, signal),
@@ -330,7 +376,7 @@ async function daemonTick(
         { actions: [{ action: "wait" as const, reason: "reasoner timeout" }] }
       );
       if (interrupted) {
-        process.stdout.write(" INTERRUPTED\n");
+        if (tui) tui.log("system", "reasoner INTERRUPTED"); else process.stdout.write(" INTERRUPTED\n");
         reasonerConsole.writeSystem("reasoner interrupted by operator");
         throw new InterruptError();
       }
@@ -358,23 +404,30 @@ async function daemonTick(
   const taskStates = taskManager ? taskManager.tasks : undefined;
   writeState("polling", { pollCount, sessionCount, changeCount, sessions: sessionStates, tasks: taskStates });
 
+  // update TUI session panel
+  if (tui) tui.updateState({ phase: "polling", pollCount, sessions: sessionStates });
+
   // skip cases
   if (skippedReason === "no sessions") {
-    if (pollCount % 6 === 1) log("no active aoe sessions found");
+    if (pollCount % 6 === 1) {
+      if (tui) tui.log("observation", "no active aoe sessions found"); else log("no active aoe sessions found");
+    }
     return false;
   }
 
-  // dashboard
-  if (forceDashboard || pollCount % 6 === 1) {
+  // dashboard (only in non-TUI mode — TUI has its own session panel)
+  if (!tui && (forceDashboard || pollCount % 6 === 1)) {
     printDashboard(observation, executor.getRecentLog(), pollCount, config);
   }
 
-  // status line
-  const statuses = summarizeStatuses(observation);
-  const userTag = userMessage ? " | +operator msg" : "";
-  process.stdout.write(
-    `\r[poll #${pollCount}] ${sessionCount} sessions (${statuses}) | ${changeCount} changed${userTag}`
-  );
+  // status line (only in non-TUI mode — TUI header shows phase)
+  if (!tui) {
+    const statuses = summarizeStatuses(observation);
+    const userTag = userMessage ? " | +operator msg" : "";
+    process.stdout.write(
+      `\r[poll #${pollCount}] ${sessionCount} sessions (${statuses}) | ${changeCount} changed${userTag}`
+    );
+  }
 
   // console: observation summary with per-session activity
   {
@@ -396,19 +449,31 @@ async function daemonTick(
     reasonerConsole.writeObservation(sessionCount, changeCount, changeSummary, summaries);
   }
 
+  // TUI: log observation summary
+  if (tui) {
+    tui.log("observation", `${sessionCount} sessions, ${changeCount} changed${userMessage ? " +operator msg" : ""}`);
+  }
+
   if (skippedReason === "no changes") {
-    if (config.verbose) process.stdout.write(" | no changes, skipping reasoner\n");
+    if (config.verbose) {
+      if (tui) tui.log("observation", "no changes, skipping reasoner"); else process.stdout.write(" | no changes, skipping reasoner\n");
+    }
     return false;
   }
 
   // reasoning happened
   if (result) {
     const actionSummary = result.actions.map((a) => a.action).join(", ");
-    process.stdout.write(` -> ${actionSummary}\n`);
+    if (tui) {
+      tui.log("reasoner", `decided: ${actionSummary}`);
+    } else {
+      process.stdout.write(` -> ${actionSummary}\n`);
+    }
 
     if (result.reasoning) {
       reasonerConsole.writeReasoning(result.reasoning);
-      if (config.verbose) log(`reasoning: ${result.reasoning}`);
+      if (tui) tui.log("reasoner", result.reasoning);
+      else if (config.verbose) log(`reasoning: ${result.reasoning}`);
     }
   }
 
@@ -416,24 +481,30 @@ async function daemonTick(
   if (dryRunActions && dryRunActions.length > 0) {
     for (const action of dryRunActions) {
       const msg = `would ${action.action}: ${JSON.stringify(action)}`;
-      log(`[dry-run] ${msg}`);
+      if (tui) tui.log("+ action", `[dry-run] ${msg}`); else log(`[dry-run] ${msg}`);
       reasonerConsole.writeAction(action.action, "dry-run", true);
     }
     return false;
   }
 
   // execution results — resolve session IDs to titles for display
+  if (tui) tui.updateState({ phase: "executing" });
   writeState("executing", { pollCount, sessionCount, changeCount, sessions: sessionStates });
   const sessionTitleMap = new Map(observation.sessions.map((s) => [s.session.id, s.session.title]));
   for (const entry of executed) {
     if (entry.action.action === "wait") continue;
-    const icon = entry.success ? "+" : "!";
+    const tag = entry.success ? "+ action" : "! action";
     // resolve session title for rich display
     const sessionId = "session" in entry.action ? (entry.action as { session: string }).session : undefined;
     const sessionTitle = sessionId ? (sessionTitleMap.get(sessionId) ?? sessionId) : undefined;
     const actionText = "text" in entry.action ? (entry.action as { text: string }).text : entry.detail;
     const richDetail = formatActionDetail(entry.action.action, sessionTitle, actionText);
-    log(`[${icon}] ${richDetail}`);
+    if (tui) {
+      tui.log(tag, richDetail);
+    } else {
+      const icon = entry.success ? "+" : "!";
+      log(`[${icon}] ${richDetail}`);
+    }
     reasonerConsole.writeAction(entry.action.action, richDetail, entry.success);
   }
   return false;

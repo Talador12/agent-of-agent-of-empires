@@ -181,6 +181,7 @@ export function parseCliArgs(argv: string[]): {
   showTasks: boolean;
   runInit: boolean;
   initForce: boolean;
+  runTaskCli: boolean;
   registerTitle?: string;
 } {
   const overrides: Partial<AoaoeConfig> = {};
@@ -193,9 +194,10 @@ export function parseCliArgs(argv: string[]): {
   let showTasks = false;
   let runInit = false;
   let initForce = false;
+  let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, attach: false, register: false, testContext: false, runTest: false, showTasks: false, runInit: false, initForce: false };
+  const defaults = { overrides, help: false, version: false, attach: false, register: false, testContext: false, runTest: false, showTasks: false, runInit: false, initForce: false, runTaskCli: false };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "attach") {
@@ -206,6 +208,9 @@ export function parseCliArgs(argv: string[]): {
   }
   if (argv[2] === "test") {
     return { ...defaults, runTest: true };
+  }
+  if (argv[2] === "task") {
+    return { ...defaults, runTaskCli: true };
   }
   if (argv[2] === "tasks") {
     return { ...defaults, showTasks: true };
@@ -289,7 +294,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, attach, register: false, testContext: false, runTest: false, showTasks: false, runInit: false, initForce: false };
+  return { overrides, help, version, attach, register: false, testContext: false, runTest: false, showTasks: false, runInit: false, initForce: false, runTaskCli: false };
 }
 
 export function printHelp() {
@@ -304,8 +309,9 @@ getting started:
   aoaoe                        # full autonomous mode
 
 commands:
-  init           detect tools + sessions, generate ~/.aoaoe/aoaoe.config.json
-  (none)         start the supervisor daemon (interactive, polls + reasons)
+  init           detect tools + sessions, import history, generate config
+  (none)         start the supervisor daemon (interactive TUI)
+  task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)
   test           run integration test (creates sessions, tests, cleans up)
   test-context   scan sessions + context files (read-only, no LLM, safe)

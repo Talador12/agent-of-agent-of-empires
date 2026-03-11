@@ -126,6 +126,7 @@ ${BOLD}commands:${RESET}
   /resume            resume the daemon loop
   /dashboard         force a dashboard print on next tick
   /tasks             show per-session task assignments
+  /task [sub] [args] task CRUD (list, start, stop, edit, new, rm)
   /interrupt         interrupt the current reasoner call
   /verbose           toggle verbose mode
   /clear             clear the screen
@@ -166,6 +167,13 @@ ${BOLD}anything else${RESET} is sent to the reasoner as an operator message
       case "/tasks":
         this.queue.push("__CMD_DASHBOARD__"); // reuse dashboard for now
         break;
+
+      case "/task": {
+        // pass arguments after "/task" as __CMD_TASK__ marker with args
+        const taskArgs = line.slice("/task".length).trim();
+        this.queue.push(`__CMD_TASK__${taskArgs}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

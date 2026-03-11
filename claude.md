@@ -5,43 +5,59 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.32.0
+## Version: v0.33.0
 
 ## Current Focus
 
-458 tests across 22 files. Building v0.33.0: in-place TUI + smart init + task management.
+482 tests across 24 files. v0.33.0 shipped: in-place TUI, smart init, task management.
 
-### What's shipping in v0.33.0
+### What shipped in v0.33.0
 
 **Theme: "Control Center"** — aoaoe becomes a proper TUI that you can live in,
 with instant task management and full session history awareness.
 
-#### In-place TUI
-Replace scrolling log output with an OpenCode-style terminal UI that repaints
+#### In-place TUI (`src/tui.ts`)
+Replaced scrolling log output with an OpenCode-style terminal UI that repaints
 in place. Single view: session status panel at top, reasoner activity stream in
 the middle, input prompt at the bottom. Uses alternate screen buffer
-(`\x1b[?1049h`), cursor positioning, and in-place redraws. The daemon should
-feel like OpenCode's TUI, not a scrolling log. No more 10 blocks of per-tab
-updates — one compact, updating view.
+(`\x1b[?1049h`), ANSI scroll regions, and cursor positioning. The daemon now
+feels like OpenCode's TUI, not a scrolling log. Auto-detects TTY — falls back
+to scrolling output when piped.
 
-#### Smart init with session history
-`aoaoe init` pulls in the full history of active AND inactive aoe sessions so
-the reasoner has immediate context about current and past work. Imports session
-titles, tools, statuses, creation dates, and last activity timestamps. The
-reasoner starts with a complete picture instead of discovering sessions cold.
+- `TUI` class: `start(version)`, `stop()`, `updateState(opts)`, `log(tag, text)`
+- Scroll region keeps header/sessions fixed while activity scrolls
+- Resize-aware (`process.stdout.on("resize")` → recompute layout + repaint)
+- Activity buffer ring (500 entries max)
+- Tests: truncatePlain, truncateAnsi, formatActivity, TUI class basics
 
-#### Task management CLI
+#### Smart init with session history (`src/init.ts`)
+`aoaoe init` now imports active AND inactive aoe session history as tasks into
+`~/.aoaoe/task-state.json`. The reasoner starts with a complete picture instead
+of discovering sessions cold. Step 5 of init discovers sessions and imports them.
+
+#### Task management CLI (`src/task-cli.ts`)
 Dead-simple task CRUD — no config file editing. All from the terminal:
 - `aoaoe task list` — show all tasks (active, inactive, completed)
-- `aoaoe task start <session>` — start an inactive session
-- `aoaoe task stop <session>` — stop an active session
-- `aoaoe task edit <session> <new-task>` — change a session's current task
-- `aoaoe task new <title> <path> [tool]` — create a new session + task
-- `aoaoe task rm <session>` — delete a task and its session entirely
-- Interactive: `/task` slash commands from within the running TUI
+- `aoaoe task start <name>` — start an inactive session
+- `aoaoe task stop <name>` — stop an active session
+- `aoaoe task edit <name> <new goal>` — change a task's goal text
+- `aoaoe task new <title> <path> [--tool opencode]` — create a new session + task
+- `aoaoe task rm <name>` — delete a task and its session
+- `/task` slash commands from within the running TUI
 
-Goal: managing what aoaoe works on should be as easy as `git stash` — one
-command, instant effect, no context switching.
+Fuzzy resolution: matches by title, repo basename, session ID prefix, or substring.
+Tests: resolveTask (7), handleTaskSlashCommand (3).
+
+#### Wiring (`src/index.ts`, `src/input.ts`)
+- `isTaskCli` dispatch block routes `aoaoe task` to `runTaskCli()`
+- `/task` slash command in input.ts pushes `__CMD_TASK__` marker
+- Main loop handles `__CMD_TASK__` via `handleTaskSlashCommand()`
+- TUI gated on `process.stdin.isTTY` — alternate screen when interactive, scrolling when piped
+- `daemonTick()` accepts optional `tui` param, routes all output through TUI when active
+- Shutdown calls `tui.stop()` to restore normal screen
+
+New files: `src/tui.ts`, `src/tui.test.ts`, `src/task-cli.ts`, `src/task-cli.test.ts`
+Modified: `src/index.ts`, `src/input.ts`, `src/config.ts`, `src/init.ts`
 
 ### What shipped in v0.32.0
 

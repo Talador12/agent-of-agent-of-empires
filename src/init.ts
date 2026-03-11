@@ -15,7 +15,8 @@ import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 import { exec } from "./shell.js";
 import { resolveProjectDirWithSource, type ResolutionSource } from "./context.js";
-import type { AoeSession } from "./types.js";
+import { saveTaskState, loadTaskState } from "./task-manager.js";
+import type { AoeSession, TaskState } from "./types.js";
 import { createServer } from "node:net";
 
 // ANSI
@@ -244,7 +245,57 @@ export async function runInit(forceOverwrite = false): Promise<InitResult> {
     }
   }
 
-  // ── step 5: write config ───────────────────────────────────────────────
+  // ── step 5: import session history as tasks ─────────────────────────────
+  if (rawSessions.length > 0) {
+    console.log(`\n${BOLD}task import${RESET}`);
+    const existing = loadTaskState();
+    let imported = 0;
+
+    for (const disc of sessions) {
+      const s = disc.session;
+      const dir = disc.resolvedDir;
+      if (!dir) continue;
+
+      // skip if already tracked
+      const alreadyTracked = [...existing.values()].some(
+        (t) => t.sessionTitle.toLowerCase() === s.title.toLowerCase()
+      );
+      if (alreadyTracked) continue;
+
+      // derive a repo key (relative path if possible, else absolute)
+      const cwd = process.cwd();
+      const repo = dir.startsWith(cwd) ? dir.slice(cwd.length + 1) : dir;
+
+      const isActive = s.status === "working" || s.status === "idle" || s.status === "waiting";
+      const status: TaskState["status"] = isActive ? "active" : s.status === "stopped" ? "paused" : "pending";
+
+      const task: TaskState = {
+        repo,
+        sessionTitle: s.title,
+        tool: s.tool || "opencode",
+        goal: "Continue the roadmap in claude.md",
+        status,
+        sessionId: s.id,
+        createdAt: s.created_at ? new Date(s.created_at).getTime() : Date.now(),
+        progress: [],
+      };
+
+      existing.set(repo, task);
+      imported++;
+
+      const statusLabel = isActive ? `${GREEN}active${RESET}` : `${DIM}${status}${RESET}`;
+      console.log(`  ${GREEN}+${RESET} ${s.title} → ${statusLabel} ${DIM}(${repo})${RESET}`);
+    }
+
+    if (imported > 0) {
+      saveTaskState(existing);
+      console.log(`  ${GREEN}✓${RESET} imported ${imported} session${imported !== 1 ? "s" : ""} as tasks`);
+    } else {
+      console.log(`  ${DIM}all sessions already tracked${RESET}`);
+    }
+  }
+
+  // ── step 6: write config ───────────────────────────────────────────────
   console.log(`\n${BOLD}config${RESET}`);
 
   if (existsSync(configPath) && !forceOverwrite) {
