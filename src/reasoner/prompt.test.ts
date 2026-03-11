@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { formatObservation, detectPermissionPrompt, buildSystemPrompt, sliceToByteLimit } from "./prompt.js";
-import type { Observation, SessionSnapshot } from "../types.js";
+import type { Observation, SessionSnapshot, AoeSessionStatus, SessionChange } from "../types.js";
 
 // helper to build a minimal observation
 function makeObs(overrides?: Partial<Observation>): Observation {
@@ -13,7 +13,7 @@ function makeObs(overrides?: Partial<Observation>): Observation {
   };
 }
 
-function makeSnap(id: string, title: string, tool = "opencode", status = "working", output = ""): SessionSnapshot {
+function makeSnap(id: string, title: string, tool = "opencode", status: AoeSessionStatus = "working", output = ""): SessionSnapshot {
   return {
     session: { id, title, path: "/tmp", tool, status, tmux_name: `aoe_${title}_${id.slice(0, 8)}` },
     output,
@@ -383,11 +383,11 @@ describe("formatObservation total prompt budget (MAX_PROMPT_BYTES)", () => {
     const sessions = Array.from({ length: 4 }, (_, i) =>
       makeSnap(`id${i}pad1234567890`, `agent-${i}`),
     );
-    const changes = Array.from({ length: 4 }, (_, i) => ({
+    const changes: SessionChange[] = Array.from({ length: 4 }, (_, i) => ({
       sessionId: `id${i}pad1234567890`,
       title: `agent-${i}`,
       tool: "opencode",
-      status: "working",
+      status: "working" as const,
       newLines: "x".repeat(30_000),
     }));
     const obs = makeObs({ sessions, changes });
@@ -407,7 +407,7 @@ describe("formatObservation total prompt budget (MAX_PROMPT_BYTES)", () => {
         tool: "opencode",
         status: "working",
         newLines: "small output",
-      }],
+      } satisfies SessionChange],
     });
     const result = formatObservation(obs);
     assert.ok(!result.includes("[...prompt truncated to fit context budget]"));
@@ -417,11 +417,11 @@ describe("formatObservation total prompt budget (MAX_PROMPT_BYTES)", () => {
     const sessions = Array.from({ length: 4 }, (_, i) =>
       makeSnap(`id${i}pad1234567890`, `agent-${i}`),
     );
-    const changes = Array.from({ length: 4 }, (_, i) => ({
+    const changes: SessionChange[] = Array.from({ length: 4 }, (_, i) => ({
       sessionId: `id${i}pad1234567890`,
       title: `agent-${i}`,
       tool: "opencode",
-      status: "working",
+      status: "working" as const,
       newLines: "y".repeat(30_000),
     }));
     const obs = makeObs({ sessions, changes });
@@ -437,7 +437,7 @@ describe("formatObservation total prompt budget (MAX_PROMPT_BYTES)", () => {
     const sessions = [
       { ...makeSnap("abc12345678901", "agent-1"), projectContext: bigContext },
     ];
-    const changes = [{
+    const changes: SessionChange[] = [{
       sessionId: "abc12345678901",
       title: "agent-1",
       tool: "opencode",
@@ -476,7 +476,7 @@ describe("formatObservation total prompt budget (MAX_PROMPT_BYTES)", () => {
     const sessions = [
       { ...makeSnap("def12345678901", "agent-2"), projectContext: bigContext },
     ];
-    const changes = [{
+    const changes: SessionChange[] = [{
       sessionId: "def12345678901",
       title: "agent-2",
       tool: "opencode",

@@ -5,11 +5,59 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.37.0
+## Version: v0.38.0
 
 ## Current Focus
 
-543 tests across 25 files. v0.37.0 shipped: narration — everything aoaoe says feels human and conversational.
+542 tests across 25 files. v0.38.0 shipped: polish — code quality, type safety, cleanup, and documentation.
+
+### What shipped in v0.38.0
+
+**Theme: "Polish"** — code quality, type safety, dead code removal, and documentation.
+
+#### 1. Orphan server PID tracking (`src/init.ts`)
+`ensureOpencodeServe()` now writes `child.pid` to `~/.aoaoe/opencode-server.pid`
+so `OpencodeReasoner.killOrphanedServer()` can find and kill detached servers.
+Previously, spawning a detached server left no PID record.
+
+#### 2. Static imports cleanup (`src/index.ts`)
+Removed all redundant `await import()` calls in `testContext()`,
+`showActionHistory()`, `registerAsAoeSession()`, `runIntegrationTest()`.
+Added `statSync`, `mkdirSync`, `writeFileSync`, `chmodSync` to top-level
+`node:fs` import. Added `shellExec`, `computeTmuxName`,
+`resolveProjectDirWithSource`, `discoverContextFiles`, `loadSessionContext`
+to top-level imports.
+
+#### 3. `AoeSessionStatus` union type (`src/types.ts`, 5 files)
+Replaced `string` with a proper union type for session status:
+`"working" | "running" | "idle" | "waiting" | "done" | "error" | "stopped" | "unknown"`.
+Applied to `AoeSession.status`, `SessionChange.status`,
+`DaemonSessionState.status`. Updated `poller.ts`, `init.ts`, and all test
+files with proper type annotations.
+
+#### 4. Removed deprecated `aoaoe attach` (`src/config.ts`, `src/index.ts`)
+Removed the `attach` subcommand entirely — deprecated since v0.32.0.
+Removed from CLI parser, help text, index.ts dispatch, and all tests.
+
+#### 5. README overhaul (`README.md`)
+- Added `--observe`, `--confirm` to mode table and CLI docs
+- Added `init`, `task`, `history` commands to CLI reference
+- Added missing config fields: `allowDestructive`, `userActivityThresholdMs`,
+  `actionCooldownMs`, `protectedSessions`
+- Updated config location docs (now `~/.aoaoe/` canonical)
+- Updated project structure with all current source files
+- Removed `attach` from CLI docs
+
+#### 6. Backlog cleanup (`claude.md`)
+Closed resolved backlog items: CI already has `pull_request` trigger,
+orphan server tracking fixed, dynamic imports cleaned up, session status
+union type applied, attach removed.
+
+Config additions: none.
+Modified: `src/types.ts`, `src/index.ts`, `src/init.ts`, `src/poller.ts`,
+`src/config.ts`, `src/config.test.ts`, `src/dashboard.test.ts`,
+`src/loop.test.ts`, `src/reasoner/prompt.test.ts`, `README.md`, `claude.md`
+Test changes: -1 (removed attach test), net 542 tests.
 
 ### What shipped in v0.37.0
 
@@ -335,14 +383,23 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 
 ## Backlog
 
-- **CI on PR creation** — add `pull_request` trigger to `.github/workflows/ci.yml`
-- `OpencodeReasoner.shutdown()` doesn't clean up orphaned servers from prior runs
-- `index.ts` dynamic imports in `testContext` that could be static
-- `types.ts` `AoeSession.status` is `string` instead of union type
 - Homebrew tap PAT needs `repo` scope for dispatch
 
 ## Completed
 
+- v0.38.0: Polish (542 tests):
+  - **`types.ts`**: `AoeSessionStatus` union type replacing `string`.
+  - **`init.ts`**: PID file write for orphan server cleanup, `AoeSessionStatus`
+    import and return type fix.
+  - **`index.ts`**: Removed all redundant dynamic imports, removed `attachToConsole()`.
+  - **`poller.ts`**: Updated `getSessionStatus()` return type.
+  - **`config.ts`**: Removed `attach` subcommand from CLI parser and help text.
+  - **`config.test.ts`**: Removed attach test, updated mutually-exclusive test.
+  - **`dashboard.test.ts`**, **`loop.test.ts`**, **`reasoner/prompt.test.ts`**:
+    Type annotations for `AoeSessionStatus` and `SessionChange`.
+  - **`README.md`**: Added --observe, --confirm, init, task, history, missing
+    config fields, updated project structure, removed attach.
+  - Closed 4 backlog items (CI trigger, orphan servers, dynamic imports, union type).
 - v0.37.0: Narration (543 tests):
   - **`tui.ts`**: `formatSessionSentence()` — conversational session panel with
     status-aware descriptions, `paintSessions()` rewritten to use sentences.

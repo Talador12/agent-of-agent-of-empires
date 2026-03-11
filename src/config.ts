@@ -178,7 +178,6 @@ export function parseCliArgs(argv: string[]): {
   overrides: Partial<AoaoeConfig>;
   help: boolean;
   version: boolean;
-  attach: boolean;
   register: boolean;
   testContext: boolean;
   runTest: boolean;
@@ -192,7 +191,6 @@ export function parseCliArgs(argv: string[]): {
   const overrides: Partial<AoaoeConfig> = {};
   let help = false;
   let version = false;
-  let attach = false;
   let register = false;
   let testContext = false;
   let runTest = false;
@@ -202,12 +200,9 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, attach: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, runInit: false, initForce: false, runTaskCli: false };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, runInit: false, initForce: false, runTaskCli: false };
 
   // check for subcommand as first non-flag arg
-  if (argv[2] === "attach") {
-    return { ...defaults, attach: true };
-  }
   if (argv[2] === "test-context") {
     return { ...defaults, testContext: true };
   }
@@ -308,7 +303,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, attach, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, runInit: false, initForce: false, runTaskCli: false };
+  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, runInit: false, initForce: false, runTaskCli: false };
 }
 
 export function printHelp() {

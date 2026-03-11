@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { tick, type PollerLike, type ExecutorLike, type ActionResult } from "./loop.js";
-import type { Observation, Reasoner, ReasonerResult, Action, AoaoeConfig, SessionSnapshot, AoeSession } from "./types.js";
+import type { Observation, Reasoner, ReasonerResult, Action, AoaoeConfig, SessionSnapshot, AoeSession, SessionChange } from "./types.js";
 import type { SessionPolicyState } from "./reasoner/prompt.js";
 
 // --- helpers to build test fixtures ---
@@ -218,7 +218,7 @@ describe("tick — full observe/reason/execute loop", () => {
   it("handles multiple actions from reasoner", async () => {
     const snap1 = makeSnapshot({ session: makeSession({ id: "id-1", title: "agent-a" }) });
     const snap2 = makeSnapshot({ session: makeSession({ id: "id-2", title: "agent-b", status: "error" }) });
-    const changes = [
+    const changes: SessionChange[] = [
       { sessionId: "id-1", title: "agent-a", tool: "opencode", status: "working", newLines: "done" },
       { sessionId: "id-2", title: "agent-b", tool: "opencode", status: "error", newLines: "crash" },
     ];
@@ -377,7 +377,7 @@ describe("tick — full observe/reason/execute loop", () => {
   it("resets error counter when session recovers", async () => {
     const session = makeSession({ id: "recov-1", status: "working" });
     const snap = makeSnapshot({ session });
-    const changes = [{
+    const changes: SessionChange[] = [{
       sessionId: "recov-1", title: session.title,
       tool: session.tool, status: "working", newLines: "back to normal",
     }];

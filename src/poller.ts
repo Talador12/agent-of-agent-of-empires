@@ -5,6 +5,7 @@ import { getActivityForSessions } from "./activity.js";
 import type {
   AoaoeConfig,
   AoeSession,
+  AoeSessionStatus,
   SessionSnapshot,
   SessionChange,
   Observation,
@@ -128,12 +129,12 @@ export class Poller {
     return sessions;
   }
 
-  private async getSessionStatus(id: string): Promise<string> {
+  private async getSessionStatus(id: string): Promise<AoeSessionStatus> {
     const result = await exec("aoe", ["session", "show", id, "--json"]);
     if (result.exitCode !== 0) return "unknown";
     try {
       const data = JSON.parse(result.stdout);
-      return String(data.status ?? "unknown");
+      return (String(data.status ?? "unknown")) as AoeSessionStatus;
     } catch {
       return "unknown";
     }

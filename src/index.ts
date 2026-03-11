@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { loadConfig, validateEnvironment, parseCliArgs, printHelp, configFileExists } from "./config.js";
-import { Poller } from "./poller.js";
+import { Poller, computeTmuxName } from "./poller.js";
 import { createReasoner } from "./reasoner/index.js";
 import { Executor } from "./executor.js";
 import { printDashboard } from "./dashboard.js";
@@ -9,16 +9,16 @@ import { ReasonerConsole } from "./console.js";
 import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState, acquireLock } from "./daemon-state.js";
 import { formatSessionSummaries, formatActionDetail, formatPlainEnglishAction, narrateObservation, summarizeRecentActions, friendlyError } from "./console.js";
 import { type SessionPolicyState } from "./reasoner/prompt.js";
-import { loadGlobalContext } from "./context.js";
+import { loadGlobalContext, resolveProjectDirWithSource, discoverContextFiles, loadSessionContext } from "./context.js";
 import { tick as loopTick } from "./loop.js";
-import { sleep } from "./shell.js";
+import { sleep, exec as shellExec } from "./shell.js";
 import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
 import { TUI } from "./tui.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState } from "./types.js";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -28,7 +28,7 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
-  const { overrides, help, version, attach, register, testContext: isTestContext, runTest, showTasks, showHistory, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -43,12 +43,6 @@ async function main() {
       console.log("aoaoe (version unknown)");
     }
     process.exit(0);
-  }
-
-  // `aoaoe attach` -- drop into the reasoner console tmux session
-  if (attach) {
-    await attachToConsole();
-    return;
   }
 
   // `aoaoe register` -- register aoaoe as an AoE session
@@ -822,13 +816,6 @@ function withTimeoutAndInterrupt<T>(
 // `aoaoe test-context` -- safe read-only scan: list sessions, resolve project dirs,
 // discover context files. touches nothing, just prints what it finds.
 async function testContext(): Promise<void> {
-  // hoist all imports to top of function (not inside loops)
-  const { exec: shellExec } = await import("./shell.js");
-  const { resolveProjectDirWithSource, discoverContextFiles, loadSessionContext, loadGlobalContext: loadGlobal } = await import("./context.js");
-  const { computeTmuxName } = await import("./poller.js");
-  const { statSync } = await import("node:fs");
-  const { resolve: pathResolve } = await import("node:path");
-
   const basePath = process.cwd();
   const config = loadConfig();
   const sessionDirs = Object.keys(config.sessionDirs).length ? config.sessionDirs : undefined;
@@ -893,7 +880,7 @@ async function testContext(): Promise<void> {
 
     // also check parent dir for group-level context
     if (projectDir) {
-      const parentDir = pathResolve(projectDir, "..");
+      const parentDir = resolve(projectDir, "..");
       const parentFiles = discoverContextFiles(parentDir);
       const parentOnly = parentFiles.filter((f) => !discovered.includes(f));
       if (parentOnly.length > 0) {
@@ -920,7 +907,7 @@ async function testContext(): Promise<void> {
       const rel = f.startsWith(basePath) ? f.slice(basePath.length + 1) : f;
       console.log(`  ${rel}`);
     }
-    const globalCtx = loadGlobal(basePath);
+    const globalCtx = loadGlobalContext(basePath);
     console.log(`  total: ${(Buffer.byteLength(globalCtx, "utf-8") / 1024).toFixed(1)}KB\n`);
   }
 
@@ -934,8 +921,7 @@ async function registerAsAoeSession(title?: string): Promise<void> {
 
   // resolve the path to chat.js -- works whether installed globally via npm or run from source
   const chatPath = resolve(__dirname, "chat.js");
-  const { existsSync: exists } = await import("node:fs");
-  if (!exists(chatPath)) {
+  if (!existsSync(chatPath)) {
     console.error(`error: chat.js not found at ${chatPath}`);
     console.error("run 'npm run build' first if running from source");
     process.exit(1);
@@ -953,16 +939,14 @@ async function registerAsAoeSession(title?: string): Promise<void> {
   // 3. yolo mode with EnvVar tools (opencode) breaks exec -- use claude (CliFlag) instead
   // 4. wrapper name contains "claude" so `-c "<path> --"` passes tool validation
   const wrapperPath = join(homedir(), ".aoaoe", "claude-aoaoe-chat.sh");
-  const { mkdirSync: mkdirS, writeFileSync: writeS, chmodSync } = await import("node:fs");
-  mkdirS(join(homedir(), ".aoaoe"), { recursive: true });
+  mkdirSync(join(homedir(), ".aoaoe"), { recursive: true });
   const nodePath = process.execPath; // full path to current node binary
-  writeS(wrapperPath, `#!/bin/sh\nexec "${nodePath}" "${chatPath}"\n`);
+  writeFileSync(wrapperPath, `#!/bin/sh\nexec "${nodePath}" "${chatPath}"\n`);
   chmodSync(wrapperPath, 0o755);
   // trailing "--" ensures the command contains a space so AoE stores it
   const chatCmd = `${wrapperPath} --`;
 
   // check if already registered by looking at aoe list
-  const { exec: shellExec } = await import("./shell.js");
   try {
     const listResult = await shellExec("aoe", ["list", "--json"]);
     if (listResult.exitCode === 0 && listResult.stdout.trim()) {
@@ -1005,17 +989,6 @@ async function registerAsAoeSession(title?: string): Promise<void> {
   console.log(`or start + enter immediately: aoe session start ${sessionTitle} && aoe`);
 }
 
-// `aoaoe attach` -- deprecated in v0.32.0, the daemon is now interactive inline
-async function attachToConsole(): Promise<void> {
-  console.error("aoaoe attach is no longer needed.");
-  console.error("");
-  console.error("since v0.32, the daemon is interactive in the same terminal.");
-  console.error("just run: aoaoe");
-  console.error("");
-  console.error("type messages directly, use /help for commands, ESC ESC to interrupt.");
-  process.exit(0);
-}
-
 function readPkgVersion(): string | null {
   try {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, "..", "package.json"), "utf-8"));
@@ -1048,19 +1021,15 @@ async function showTaskStatus(): Promise<void> {
 
 // `aoaoe history` -- review recent actions from the persistent action log
 async function showActionHistory(): Promise<void> {
-  const { readFileSync: readF, existsSync: existsF } = await import("node:fs");
-  const { join: joinP } = await import("node:path");
-  const { homedir: homeD } = await import("node:os");
-
-  const logFile = joinP(homeD(), ".aoaoe", "actions.log");
-  if (!existsF(logFile)) {
+  const logFile = join(homedir(), ".aoaoe", "actions.log");
+  if (!existsSync(logFile)) {
     console.log("no action history found (no actions have been taken yet)");
     return;
   }
 
   let lines: string[];
   try {
-    lines = readF(logFile, "utf-8").trim().split("\n").filter((l) => l.trim());
+    lines = readFileSync(logFile, "utf-8").trim().split("\n").filter((l) => l.trim());
   } catch {
     console.error("failed to read action log");
     return;
@@ -1119,8 +1088,7 @@ async function showActionHistory(): Promise<void> {
 // `aoaoe test` -- dynamically import and run the integration test
 async function runIntegrationTest(): Promise<void> {
   const testModule = resolve(__dirname, "integration-test.js");
-  const { existsSync: exists } = await import("node:fs");
-  if (!exists(testModule)) {
+  if (!existsSync(testModule)) {
     console.error("error: integration-test.js not found (run 'npm run build' first)");
     process.exit(1);
   }

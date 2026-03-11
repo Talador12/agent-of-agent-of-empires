@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import type { Observation, SessionSnapshot, AoeSession, AoaoeConfig } from "./types.js";
+import type { Observation, SessionSnapshot, AoeSession, AoeSessionStatus, AoaoeConfig } from "./types.js";
 import type { ActionLogEntry } from "./executor.js";
 
 // dashboard.ts calls readState() + console.error(); we test the formatting
@@ -195,7 +195,7 @@ describe("printDashboard", () => {
 
   it("renders all status icons correctly", async () => {
     const { printDashboard } = await import("./dashboard.js");
-    const statuses = ["working", "idle", "waiting", "done", "error", "stopped"];
+    const statuses = ["working", "idle", "waiting", "done", "error", "stopped"] as const;
     const expectedIcons = ["~", ".", "?", "+", "!", "x"];
 
     for (let i = 0; i < statuses.length; i++) {
@@ -221,7 +221,7 @@ describe("printDashboard", () => {
     const { printDashboard } = await import("./dashboard.js");
     captured = [];
     const snap = makeSnapshot({
-      session: makeSession({ status: "banana", id: "unkn1234" + "0".repeat(8) }),
+      session: makeSession({ status: "banana" as AoeSessionStatus, id: "unkn1234" + "0".repeat(8) }),
     });
     const obs = makeObservation([snap]);
     printDashboard(obs, [], 1, defaultConfig());

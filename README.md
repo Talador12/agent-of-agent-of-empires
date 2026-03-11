@@ -94,7 +94,9 @@ The real deal. Polls, reasons, and executes -- sending keystrokes to agents, res
 | Mode | Reads sessions? | Calls LLM? | Touches agents? |
 |------|:-:|:-:|:-:|
 | `test-context` | Yes | No | No |
+| `--observe` | Yes | No | No |
 | `--dry-run` | Yes | Yes | No |
+| `--confirm` | Yes | Yes | You approve each action |
 | `aoaoe` | Yes | Yes | Yes |
 
 ## Quick Start
@@ -232,14 +234,16 @@ When the daemon is reasoning, press **ESC ESC** (or type `/interrupt`) to stop t
 aoaoe [command] [options]
 
 commands:
-  (none)         start the supervisor daemon (polls, reasons, executes)
-  tasks          show task progress from persistent state
+  (none)         start the supervisor daemon (interactive TUI)
+  init           detect tools + sessions, import history, generate config
+  task           manage tasks and sessions (list, start, stop, new, rm, edit)
+  tasks          show task progress (from aoaoe.tasks.json)
+  history        review recent actions (from ~/.aoaoe/actions.log)
   test-context   scan sessions + context files (read-only, no LLM, safe)
   test           run integration tests (requires aoe, opencode, tmux)
   register       register aoaoe as an AoE session (one-time setup)
-  attach         enter the reasoner console (Ctrl+B D to detach)
 
-daemon options:
+options:
   --reasoner <opencode|claude-code>  reasoning backend (default: opencode)
   --poll-interval <ms>               poll interval in ms (default: 10000)
   --port <number>                    opencode server port (default: 4097)
@@ -247,9 +251,16 @@ daemon options:
   --profile <name>                   aoe profile (default: default)
   --dry-run                          run full loop but only log actions (costs
                                      LLM tokens, but never touches sessions)
+  --observe                          observe only — no LLM calls, no execution,
+                                      zero cost. shows what the daemon sees.
+  --confirm                          ask before each action — the AI proposes,
+                                      you approve with y/n before it runs.
   --verbose, -v                      verbose logging
   --help, -h                         show help
   --version                          show version
+
+init options:
+  --force, -f                        overwrite existing config
 
 register options:
   --title, -t <name>                 session title in AoE (default: aoaoe)
@@ -257,7 +268,7 @@ register options:
 
 ## Configuration
 
-Create `aoaoe.config.json` in the directory where you run the daemon (optional -- defaults work fine):
+Config lives at `~/.aoaoe/aoaoe.config.json` (canonical, written by `aoaoe init`). A local `aoaoe.config.json` in cwd overrides for development. Defaults work fine without a config file:
 
 ```json
 {
@@ -301,6 +312,10 @@ Create `aoaoe.config.json` in the directory where you run the daemon (optional -
 | `policies.maxIdleBeforeNudgeMs` | Nudge idle agents after this long | `120000` |
 | `policies.maxErrorsBeforeRestart` | Restart after N consecutive errors | `3` |
 | `policies.autoAnswerPermissions` | Auto-approve permission prompts | `true` |
+| `policies.allowDestructive` | Allow `remove_agent` and `stop_session` actions | `false` |
+| `policies.userActivityThresholdMs` | Ignore sessions with recent human keystrokes | `30000` |
+| `policies.actionCooldownMs` | Minimum ms between actions on the same session | `30000` |
+| `protectedSessions` | Session titles that are observe-only (no actions) | `[]` |
 | `sessionDirs` | Map session titles to project directories (relative to cwd or absolute). Bypasses heuristic directory search. | `{}` |
 | `contextFiles` | Extra AI instruction file paths to load from each project root | `[]` |
 
@@ -429,19 +444,27 @@ The daemon and chat UI communicate via files in `~/.aoaoe/`:
 
 ```
 src/
-  index.ts          # daemon entry point, main loop, register/attach subcommands
+  index.ts          # daemon entry point, main loop, subcommands
   loop.ts           # extracted tick logic (poll->reason->execute), testable with mocks
   chat.ts           # interactive chat UI (aoaoe-chat binary)
   config.ts         # config loader and CLI arg parser
-  daemon-state.ts   # shared IPC state file + interrupt flag
-  task-parser.ts    # parse OpenCode TODO patterns, model, tokens, cost from tmux
-  console.ts        # conversation log + file-based IPC
+  types.ts          # shared types (SessionSnapshot, Action, DaemonState, etc.)
   poller.ts         # aoe CLI + tmux capture-pane wrapper
   executor.ts       # maps action decisions to shell commands
+  console.ts        # conversation log + file-based IPC
   dashboard.ts      # periodic CLI status table with task column
+  daemon-state.ts   # shared IPC state file + interrupt flag
+  tui.ts            # in-place terminal UI (alternate screen, scroll regions)
   input.ts          # stdin readline listener with inject() for post-interrupt
+  init.ts           # `aoaoe init`: auto-discover tools, sessions, generate config
+  context.ts        # discoverContextFiles, resolveProjectDir, loadSessionContext
+  activity.ts       # detect human keystrokes in tmux sessions
+  task-manager.ts   # task orchestration: definitions, persistent state
+  task-cli.ts       # `aoaoe task` subcommand: list, start, stop, new, rm, edit
+  task-parser.ts    # parse OpenCode TODO patterns, model, tokens, cost from tmux
+  message.ts        # classifyMessages, formatUserMessages, shouldSkipSleep
+  wake.ts           # wakeableSleep with fs.watch for instant message delivery
   shell.ts          # exec() wrappers with AbortSignal support
-  types.ts          # shared types (SessionSnapshot, Action, DaemonState, etc.)
   reasoner/
     index.ts        # common Reasoner interface + factory
     prompt.ts       # system prompt + observation formatting

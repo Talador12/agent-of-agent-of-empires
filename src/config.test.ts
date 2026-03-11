@@ -48,16 +48,9 @@ describe("parseCliArgs", () => {
     assert.equal(result.version, true);
   });
 
-  it("parses attach subcommand", () => {
-    const result = parseCliArgs(argv("attach"));
-    assert.equal(result.attach, true);
-    assert.equal(result.register, false);
-  });
-
   it("parses register subcommand", () => {
     const result = parseCliArgs(argv("register"));
     assert.equal(result.register, true);
-    assert.equal(result.attach, false);
   });
 
   it("parses register --title", () => {
@@ -124,7 +117,6 @@ describe("parseCliArgs", () => {
   it("parses test-context subcommand", () => {
     const result = parseCliArgs(argv("test-context"));
     assert.equal(result.testContext, true);
-    assert.equal(result.attach, false);
     assert.equal(result.register, false);
   });
 
@@ -132,7 +124,6 @@ describe("parseCliArgs", () => {
     const result = parseCliArgs(argv());
     assert.equal(result.help, false);
     assert.equal(result.version, false);
-    assert.equal(result.attach, false);
     assert.equal(result.register, false);
     assert.equal(result.testContext, false);
     assert.equal(result.runInit, false);
@@ -182,7 +173,6 @@ describe("parseCliArgs", () => {
     const result = parseCliArgs(argv("init"));
     assert.equal(result.runInit, true);
     assert.equal(result.initForce, false);
-    assert.equal(result.attach, false);
     assert.equal(result.register, false);
   });
 
@@ -199,26 +189,17 @@ describe("parseCliArgs", () => {
   });
 
   it("subcommands are mutually exclusive", () => {
-    const attachResult = parseCliArgs(argv("attach"));
-    assert.equal(attachResult.attach, true);
-    assert.equal(attachResult.register, false);
-    assert.equal(attachResult.testContext, false);
-    assert.equal(attachResult.runInit, false);
-
     const registerResult = parseCliArgs(argv("register"));
-    assert.equal(registerResult.attach, false);
     assert.equal(registerResult.register, true);
     assert.equal(registerResult.testContext, false);
     assert.equal(registerResult.runInit, false);
 
     const testCtxResult = parseCliArgs(argv("test-context"));
-    assert.equal(testCtxResult.attach, false);
     assert.equal(testCtxResult.register, false);
     assert.equal(testCtxResult.testContext, true);
     assert.equal(testCtxResult.runInit, false);
 
     const initResult = parseCliArgs(argv("init"));
-    assert.equal(initResult.attach, false);
     assert.equal(initResult.register, false);
     assert.equal(initResult.testContext, false);
     assert.equal(initResult.runInit, true);

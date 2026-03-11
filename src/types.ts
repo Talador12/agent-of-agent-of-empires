@@ -1,10 +1,13 @@
+// known session status values from AoE CLI + internal states
+export type AoeSessionStatus = "working" | "running" | "idle" | "waiting" | "done" | "error" | "stopped" | "unknown";
+
 // session snapshot from aoe status --json + tmux capture
 export interface AoeSession {
   id: string;
   title: string;
   path: string;
   tool: string;
-  status: string; // "working" | "idle" | "waiting" | "done" | "error" | "stopped"
+  status: AoeSessionStatus;
   tmux_name: string;
   group?: string;
   created_at?: string;
@@ -41,7 +44,7 @@ export interface SessionChange {
   sessionId: string;
   title: string;
   tool: string;
-  status: string;
+  status: AoeSessionStatus;
   newLines: string; // lines that appeared since last capture
 }
 
@@ -110,7 +113,7 @@ export interface DaemonSessionState {
   id: string;
   title: string;
   tool: string;
-  status: string;
+  status: AoeSessionStatus;
   currentTask?: string; // last send_input text sent to this session
   lastActivity?: string; // last non-empty line of output
   todoSummary?: string; // formatted OpenCode-style TODO list parsed from pane output

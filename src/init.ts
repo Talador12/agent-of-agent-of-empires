@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import { exec } from "./shell.js";
 import { resolveProjectDirWithSource, type ResolutionSource } from "./context.js";
 import { saveTaskState, loadTaskState } from "./task-manager.js";
-import type { AoeSession, TaskState } from "./types.js";
+import type { AoeSession, AoeSessionStatus, TaskState } from "./types.js";
 import { createServer } from "node:net";
 
 // ANSI
@@ -94,12 +94,12 @@ async function discoverSessions(): Promise<AoeSession[]> {
   }
 }
 
-async function getSessionStatus(id: string): Promise<string> {
+async function getSessionStatus(id: string): Promise<AoeSessionStatus> {
   const result = await exec("aoe", ["session", "show", id, "--json"], 5_000);
   if (result.exitCode !== 0) return "unknown";
   try {
     const data = JSON.parse(result.stdout);
-    return String(data.status ?? "unknown");
+    return String(data.status ?? "unknown") as AoeSessionStatus;
   } catch {
     return "unknown";
   }
@@ -369,11 +369,24 @@ export async function ensureOpencodeServe(port: number): Promise<boolean> {
   try {
     // spawn detached so it survives daemon shutdown
     const { spawn } = await import("node:child_process");
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { homedir } = await import("node:os");
     const child = spawn("opencode", ["serve", "--port", String(port)], {
       detached: true,
       stdio: "ignore",
     });
     child.unref();
+
+    // write PID file so OpencodeReasoner.killOrphanedServer() can clean up
+    // if the daemon restarts. Without this, detached servers become orphans.
+    if (child.pid) {
+      try {
+        const pidFile = join(homedir(), ".aoaoe", "opencode-server.pid");
+        mkdirSync(join(homedir(), ".aoaoe"), { recursive: true });
+        writeFileSync(pidFile, String(child.pid));
+      } catch {} // best-effort
+    }
 
     // wait up to 10s for it to become healthy
     for (let i = 0; i < 20; i++) {
