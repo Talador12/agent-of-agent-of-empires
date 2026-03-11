@@ -32,17 +32,21 @@ export function loadTaskDefinitions(basePath: string): TaskDefinition[] {
     }
   }
 
-  // fall back to "tasks" key in aoaoe.config.json
-  for (const name of ["aoaoe.config.json", ".aoaoe.json"]) {
-    const p = resolve(basePath, name);
-    if (existsSync(p)) {
-      try {
-        const config = JSON.parse(readFileSync(p, "utf-8"));
-        if (Array.isArray(config.tasks) && config.tasks.length > 0) {
-          log(`loaded ${config.tasks.length} task(s) from ${name}`);
-          return validateDefinitions(config.tasks, basePath);
-        }
-      } catch {}
+  // fall back to "tasks" key in config (search ~/.aoaoe/ then basePath)
+  const configNames = ["aoaoe.config.json", ".aoaoe.json"];
+  const configDirs = [AOAOE_DIR, basePath];
+  for (const dir of configDirs) {
+    for (const name of configNames) {
+      const p = resolve(dir, name);
+      if (existsSync(p)) {
+        try {
+          const config = JSON.parse(readFileSync(p, "utf-8"));
+          if (Array.isArray(config.tasks) && config.tasks.length > 0) {
+            log(`loaded ${config.tasks.length} task(s) from ${p}`);
+            return validateDefinitions(config.tasks, basePath);
+          }
+        } catch {}
+      }
     }
   }
 

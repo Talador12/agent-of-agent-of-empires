@@ -7,11 +7,12 @@
 //   4. running opencode serve instances (port probe)
 //   5. best reasoner backend (opencode > claude-code > error)
 //
-// writes aoaoe.config.json to cwd with sessionDirs, reasoner, port.
+// writes config to ~/.aoaoe/aoaoe.config.json (canonical location).
 // non-interactive — prints what it found, writes config, done.
 
-import { existsSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { homedir } from "node:os";
 import { exec } from "./shell.js";
 import { resolveProjectDirWithSource, type ResolutionSource } from "./context.js";
 import type { AoeSession } from "./types.js";
@@ -139,7 +140,8 @@ async function findFreePort(preferred: number): Promise<number> {
 }
 
 export async function runInit(forceOverwrite = false): Promise<InitResult> {
-  const configPath = resolve(process.cwd(), "aoaoe.config.json");
+  const aoaoeDir = join(homedir(), ".aoaoe");
+  const configPath = join(aoaoeDir, "aoaoe.config.json");
 
   console.log(`\n${BOLD}${CYAN}aoaoe init${RESET} — setting up your supervisor config\n`);
 
@@ -273,6 +275,7 @@ export async function runInit(forceOverwrite = false): Promise<InitResult> {
   }
 
   const json = JSON.stringify(config, null, 2) + "\n";
+  mkdirSync(aoaoeDir, { recursive: true });
   writeFileSync(configPath, json);
 
   console.log(`  ${GREEN}✓${RESET} wrote ${configPath}`);

@@ -5,13 +5,45 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.32.0 (unreleased)
+## Version: v0.32.0
 
 ## Current Focus
 
-454 tests across 22 files. Interactive daemon + auto-init + API error surfacing.
+458 tests across 22 files. Building v0.33.0: in-place TUI + smart init + task management.
 
-### What's shipping in v0.32.0
+### What's shipping in v0.33.0
+
+**Theme: "Control Center"** — aoaoe becomes a proper TUI that you can live in,
+with instant task management and full session history awareness.
+
+#### In-place TUI
+Replace scrolling log output with an OpenCode-style terminal UI that repaints
+in place. Single view: session status panel at top, reasoner activity stream in
+the middle, input prompt at the bottom. Uses alternate screen buffer
+(`\x1b[?1049h`), cursor positioning, and in-place redraws. The daemon should
+feel like OpenCode's TUI, not a scrolling log. No more 10 blocks of per-tab
+updates — one compact, updating view.
+
+#### Smart init with session history
+`aoaoe init` pulls in the full history of active AND inactive aoe sessions so
+the reasoner has immediate context about current and past work. Imports session
+titles, tools, statuses, creation dates, and last activity timestamps. The
+reasoner starts with a complete picture instead of discovering sessions cold.
+
+#### Task management CLI
+Dead-simple task CRUD — no config file editing. All from the terminal:
+- `aoaoe task list` — show all tasks (active, inactive, completed)
+- `aoaoe task start <session>` — start an inactive session
+- `aoaoe task stop <session>` — stop an active session
+- `aoaoe task edit <session> <new-task>` — change a session's current task
+- `aoaoe task new <title> <path> [tool]` — create a new session + task
+- `aoaoe task rm <session>` — delete a task and its session entirely
+- Interactive: `/task` slash commands from within the running TUI
+
+Goal: managing what aoaoe works on should be as easy as `git stash` — one
+command, instant effect, no context switching.
+
+### What shipped in v0.32.0
 
 **Theme: "Interactive by Default"** — the daemon is now a single interactive
 terminal session. No more `aoaoe attach`. No more hand-crafting config.
@@ -20,8 +52,12 @@ terminal session. No more `aoaoe attach`. No more hand-crafting config.
   output, slash commands, and ESC-ESC interrupt all in the same terminal. The
   separate `aoaoe_reasoner` tmux session is removed. `aoaoe attach` prints a
   deprecation notice and exits.
-- **Auto-init on startup** — if no `aoaoe.config.json` exists when you run
-  `aoaoe`, it automatically runs `aoaoe init` first. Zero manual steps.
+- **Auto-init on startup** — if no config exists when you run `aoaoe`, it
+  automatically runs `aoaoe init` first. Zero manual steps.
+- **Config moved to ~/.aoaoe/** — config now lives at `~/.aoaoe/aoaoe.config.json`
+  (canonical), with cwd as local override for development. Works correctly for
+  npm, brew, and source installs. `aoaoe init` writes to `~/.aoaoe/`.
+  Search order: `~/.aoaoe/` → `./aoaoe.config.json` → `./.aoaoe.json`.
 - **API error surfacing** — the opencode SDK `sendMessage()` now checks
   `info.error` in the response and throws with the actual error message
   (e.g. "401 Unauthorized — run `opencode auth login`") instead of silently
@@ -33,7 +69,7 @@ terminal session. No more `aoaoe attach`. No more hand-crafting config.
   /clear, /interrupt, improved /help with all available commands.
 
 Modified: `src/reasoner/opencode.ts`, `src/console.ts`, `src/input.ts`,
-`src/index.ts`, `src/config.ts`.
+`src/index.ts`, `src/config.ts`, `src/init.ts`, `src/task-manager.ts`.
 
 ### What shipped in v0.31.0
 
@@ -88,12 +124,6 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 
 ## Backlog
 
-- **In-place TUI (v0.33.0)** — replace scrolling log output with an OpenCode-style
-  terminal UI that repaints in place. Single view with session status panel, reasoner
-  activity stream, and input prompt at the bottom. Uses alternate screen buffer
-  (`\x1b[?1049h`), cursor positioning, and in-place redraws instead of append-only
-  log blocks. Goal: the daemon should feel like OpenCode's TUI, not a scrolling log.
-  User feedback: "10 blocks of per-tab updates should be a single updating view."
 - **User activity guard** — detect when user is actively typing in an aoe session
   pane and refuse `send_input` to that pane. Uses tmux `client_activity` + pane
   focus detection. Prevents reasoner from injecting text while user is working.

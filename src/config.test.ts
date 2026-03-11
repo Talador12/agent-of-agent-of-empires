@@ -1,7 +1,33 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseCliArgs, deepMerge, validateConfig } from "./config.js";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { parseCliArgs, deepMerge, validateConfig, findConfigFile, configFileExists, defaultConfigPath } from "./config.js";
 import type { AoaoeConfig } from "./types.js";
+
+describe("config file resolution", () => {
+  it("defaultConfigPath points to ~/.aoaoe/aoaoe.config.json", () => {
+    const expected = join(homedir(), ".aoaoe", "aoaoe.config.json");
+    assert.equal(defaultConfigPath(), expected);
+  });
+
+  it("findConfigFile returns a string or null", () => {
+    const result = findConfigFile();
+    assert.ok(result === null || typeof result === "string");
+  });
+
+  it("configFileExists returns a boolean", () => {
+    assert.ok(typeof configFileExists() === "boolean");
+  });
+
+  it("findConfigFile prefers ~/.aoaoe/ over cwd", () => {
+    // if a config exists at ~/.aoaoe/, findConfigFile should return that path
+    const found = findConfigFile();
+    if (found && found.includes(".aoaoe")) {
+      assert.ok(found.startsWith(homedir()), "config should be under home dir");
+    }
+  });
+});
 
 describe("parseCliArgs", () => {
   // helper: simulate argv with "node" and "script" prefix

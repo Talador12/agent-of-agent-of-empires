@@ -1,10 +1,17 @@
 import { readFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { homedir } from "node:os";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import type { AoaoeConfig, ReasonerBackend } from "./types.js";
 
 const execFileAsync = promisify(execFileCb);
+
+const AOAOE_DIR = join(homedir(), ".aoaoe");
+const CONFIG_NAMES = ["aoaoe.config.json", ".aoaoe.json"];
+
+// search order: ~/.aoaoe/ first (canonical), then cwd (local override for dev)
+const CONFIG_SEARCH_DIRS = [AOAOE_DIR, process.cwd()];
 
 const DEFAULTS: AoaoeConfig = {
   reasoner: "opencode",
@@ -31,26 +38,37 @@ const DEFAULTS: AoaoeConfig = {
   dryRun: false,
 };
 
-const CONFIG_NAMES = ["aoaoe.config.json", ".aoaoe.json"];
+// find the first config file that exists across search dirs
+export function findConfigFile(): string | null {
+  for (const dir of CONFIG_SEARCH_DIRS) {
+    for (const name of CONFIG_NAMES) {
+      const p = resolve(dir, name);
+      if (existsSync(p)) return p;
+    }
+  }
+  return null;
+}
 
-// check if any config file exists in cwd
+// check if any config file exists (searches ~/.aoaoe/ then cwd)
 export function configFileExists(): boolean {
-  return CONFIG_NAMES.some((name) => existsSync(resolve(process.cwd(), name)));
+  return findConfigFile() !== null;
+}
+
+// canonical config path: ~/.aoaoe/aoaoe.config.json
+export function defaultConfigPath(): string {
+  return join(AOAOE_DIR, CONFIG_NAMES[0]);
 }
 
 export function loadConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig {
   let fileConfig: Partial<AoaoeConfig> = {};
 
-  for (const name of CONFIG_NAMES) {
-    const p = resolve(process.cwd(), name);
-    if (existsSync(p)) {
-      try {
-        fileConfig = JSON.parse(readFileSync(p, "utf-8"));
-        log(`loaded config from ${p}`);
-      } catch (e) {
-        console.error(`warning: failed to parse ${p}, using defaults`);
-      }
-      break;
+  const found = findConfigFile();
+  if (found) {
+    try {
+      fileConfig = JSON.parse(readFileSync(found, "utf-8"));
+      log(`loaded config from ${found}`);
+    } catch (e) {
+      console.error(`warning: failed to parse ${found}, using defaults`);
     }
   }
 
@@ -286,7 +304,7 @@ getting started:
   aoaoe                        # full autonomous mode
 
 commands:
-  init           detect tools + sessions, generate aoaoe.config.json
+  init           detect tools + sessions, generate ~/.aoaoe/aoaoe.config.json
   (none)         start the supervisor daemon (interactive, polls + reasons)
   tasks          show task progress (from aoaoe.tasks.json)
   test           run integration test (creates sessions, tests, cleans up)
@@ -311,7 +329,12 @@ init options:
 register options:
   --title, -t <name>                 session title in AoE (default: aoaoe)
 
-example config (aoaoe.config.json):
+config file location (searched in order):
+  1. ~/.aoaoe/aoaoe.config.json   (canonical, written by 'aoaoe init')
+  2. ./aoaoe.config.json           (local override for development)
+  3. ./.aoaoe.json                  (alternate name)
+
+example config:
   {
     "reasoner": "opencode",
     "pollIntervalMs": 15000,

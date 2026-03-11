@@ -83,7 +83,7 @@ async function main() {
   // auto-init: if no config file exists, run init automatically
   if (!configFileExists()) {
     console.error("");
-    console.error("  no aoaoe.config.json found — running auto-init...");
+    console.error("  no config found (~/.aoaoe/ or cwd) — running auto-init...");
     console.error("");
     const { runInit } = await import("./init.js");
     await runInit(false);
