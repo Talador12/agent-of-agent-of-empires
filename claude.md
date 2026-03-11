@@ -5,23 +5,50 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.49.0
+## Version: v0.50.0
 
 ## Current Focus
 
-725 tests across 26 files. v0.49.0 shipped: Test coverage — filled gaps in prompt, daemon-state, and executor test suites.
+734 tests across 26 files. v0.50.0 shipped: Config hardening — unknown key warnings, config path in startup banner.
 
 ## Roadmap
 
-### v0.50.0+ — Ideas Backlog
+### v0.51.0+ — Ideas Backlog
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Notification hooks** — Slack, webhook for significant events (errors, completions)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- **Config unknown key warnings** — warn on typos in config file keys
 - **Persisted TUI history** — survive daemon restarts, scroll through history
-- **TaskState validation on JSON.parse from disk** — done in v0.48.0
 - **Refactor index.ts remaining as casts** — config.ts deepMerge casts are safe but ugly
+- **Scroll-through history navigation in TUI**
+
+### What shipped in v0.50.0
+
+**Theme: "Config Hardening"** — catch typos in config files at startup, show which config file is loaded.
+
+#### 1. Unknown config key warnings (`src/config.ts`)
+New `warnUnknownKeys(raw, source)` function that checks config file keys against a `KNOWN_KEYS`
+schema. Validates both top-level keys (reasoner, pollIntervalMs, verbose, etc.) and nested keys
+(opencode.port, policies.maxErrorsBeforeRestart, etc.). Warns on stderr with the key name and
+source file path so users can spot typos immediately. Called automatically by `loadConfig()` before
+merging. Non-object input is a safe no-op.
+
+#### 2. Config path in startup banner (`src/index.ts`)
+`loadConfig()` now returns `{ ...config, _configPath?: string }` so the caller knows which config
+file was loaded (or that defaults are being used). The startup banner displays this in both TUI
+and non-TUI modes:
+- Non-TUI: `  config: ~/.aoaoe/aoaoe.config.json` or `  config: defaults (no config file found)`
+- TUI: `config: ~/.aoaoe/aoaoe.config.json` in the welcome system log
+
+#### 3. `warnUnknownKeys` tests (`src/config.test.ts`)
+9 new tests: valid keys produce no warnings, unknown top-level key warns, multiple unknown keys,
+valid nested keys, unknown nested key (opencode), unknown nested key (policies), non-object input
+is no-op, non-object nested value skips nested check, source path included in warning message.
+
+Config additions: none (internal type extension only — `_configPath` on loadConfig return).
+Modified: `src/config.ts`, `src/index.ts`, `src/config.test.ts`, `package.json`, `Makefile`,
+`AGENTS.md`, `claude.md`
+Test changes: +9 (warnUnknownKeys), net 734 tests.
 
 ### What shipped in v0.49.0
 

@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { parseCliArgs, deepMerge, validateConfig, findConfigFile, configFileExists, defaultConfigPath } from "./config.js";
+import { parseCliArgs, deepMerge, validateConfig, findConfigFile, configFileExists, defaultConfigPath, warnUnknownKeys } from "./config.js";
 import type { AoaoeConfig, Action } from "./types.js";
 import { actionSession, actionDetail, toSessionStatus, toTaskState, toDaemonState, toAoeSessionList, toReasonerBackend } from "./types.js";
 
@@ -767,5 +767,91 @@ describe("toReasonerBackend", () => {
   it("throws for invalid backend", () => {
     assert.throws(() => toReasonerBackend("gpt-4"), /must be "opencode" or "claude-code"/);
     assert.throws(() => toReasonerBackend(""), /must be "opencode" or "claude-code"/);
+  });
+});
+
+// ── warnUnknownKeys ─────────────────────────────────────────────────────────
+
+describe("warnUnknownKeys", () => {
+  // capture stderr warnings emitted by warnUnknownKeys
+  function captureWarnings(fn: () => void): string[] {
+    const original = console.error;
+    const warnings: string[] = [];
+    console.error = (msg: string) => warnings.push(msg);
+    try { fn(); } finally { console.error = original; }
+    return warnings;
+  }
+
+  it("produces no warnings for valid top-level keys", () => {
+    const warnings = captureWarnings(() =>
+      warnUnknownKeys({ reasoner: "opencode", pollIntervalMs: 10000, verbose: true }, "test.json"),
+    );
+    assert.equal(warnings.length, 0);
+  });
+
+  it("warns on unknown top-level key", () => {
+    const warnings = captureWarnings(() =>
+      warnUnknownKeys({ reasoner: "opencode", typo_key: true }, "test.json"),
+    );
+    assert.equal(warnings.length, 1);
+    assert.ok(warnings[0].includes("typo_key"));
+    assert.ok(warnings[0].includes("test.json"));
+  });
+
+  it("warns on multiple unknown top-level keys", () => {
+    const warnings = captureWarnings(() =>
+      warnUnknownKeys({ foo: 1, bar: 2, reasoner: "opencode" }, "test.json"),
+    );
+    assert.equal(warnings.length, 2);
+  });
+
+  it("produces no warnings for valid nested keys", () => {
+    const warnings = captureWarnings(() =>
+      warnUnknownKeys({ opencode: { port: 4097, model: "gpt-4o" }, policies: { maxErrorsBeforeRestart: 3 } }, "test.json"),
+    );
+    assert.equal(warnings.length, 0);
+  });
+
+  it("warns on unknown nested key", () => {
+    const warnings = captureWarnings(() =>
+      warnUnknownKeys({ opencode: { port: 4097, bogus: true } }, "test.json"),
+    );
+    assert.equal(warnings.length, 1);
+    assert.ok(warnings[0].includes("opencode.bogus"));
+    assert.ok(warnings[0].includes("test.json"));
+  });
+
+  it("warns on unknown nested key in policies", () => {
+    const warnings = captureWarnings(() =>
+      warnUnknownKeys({ policies: { maxErrorsBeforeRestart: 3, fakePolicy: true } }, "test.json"),
+    );
+    assert.equal(warnings.length, 1);
+    assert.ok(warnings[0].includes("policies.fakePolicy"));
+  });
+
+  it("is a no-op for non-object input", () => {
+    const warnings = captureWarnings(() => {
+      warnUnknownKeys(null, "test.json");
+      warnUnknownKeys(undefined, "test.json");
+      warnUnknownKeys("string", "test.json");
+      warnUnknownKeys(42, "test.json");
+      warnUnknownKeys([], "test.json");
+    });
+    assert.equal(warnings.length, 0);
+  });
+
+  it("skips nested check when nested value is not an object", () => {
+    // opencode expects a Set of valid sub-keys, but if the value is a string, skip
+    const warnings = captureWarnings(() =>
+      warnUnknownKeys({ opencode: "not-an-object" }, "test.json"),
+    );
+    assert.equal(warnings.length, 0);
+  });
+
+  it("includes source path in warning messages", () => {
+    const warnings = captureWarnings(() =>
+      warnUnknownKeys({ unknownField: true }, "/home/user/.aoaoe/aoaoe.config.json"),
+    );
+    assert.ok(warnings[0].includes("/home/user/.aoaoe/aoaoe.config.json"));
   });
 });

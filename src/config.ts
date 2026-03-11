@@ -64,16 +64,22 @@ export function defaultConfigPath(): string {
   return join(AOAOE_DIR, CONFIG_NAMES[0]);
 }
 
-export function loadConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig {
+export function loadConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig & { _configPath?: string } {
   let fileConfig: Partial<AoaoeConfig> = {};
 
   const found = findConfigFile();
   if (found) {
     try {
-      fileConfig = JSON.parse(readFileSync(found, "utf-8"));
+      const raw = JSON.parse(readFileSync(found, "utf-8"));
+      warnUnknownKeys(raw, found);
+      fileConfig = raw;
       log(`loaded config from ${found}`);
     } catch (e) {
-      console.error(`warning: failed to parse ${found}, using defaults`);
+      if (e instanceof SyntaxError) {
+        console.error(`warning: failed to parse ${found}, using defaults`);
+      } else {
+        throw e; // re-throw validation errors from warnUnknownKeys
+      }
     }
   }
 
@@ -83,7 +89,41 @@ export function loadConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig {
     (overrides ?? {}) as Record<string, unknown>,
   );
   validateConfig(config);
-  return config;
+  return { ...config, _configPath: found ?? undefined };
+}
+
+// known top-level and nested config keys — used to warn on typos
+const KNOWN_KEYS: Record<string, Set<string> | true> = {
+  reasoner: true, pollIntervalMs: true, captureLinesCount: true,
+  verbose: true, dryRun: true, observe: true, confirm: true,
+  contextFiles: true, sessionDirs: true, protectedSessions: true,
+  opencode: new Set(["port", "model"]),
+  claudeCode: new Set(["model", "yolo", "resume"]),
+  aoe: new Set(["profile"]),
+  policies: new Set([
+    "maxIdleBeforeNudgeMs", "maxErrorsBeforeRestart", "autoAnswerPermissions",
+    "actionCooldownMs", "userActivityThresholdMs", "allowDestructive",
+  ]),
+};
+
+export function warnUnknownKeys(raw: unknown, source: string): void {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+  const obj = raw as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!(key in KNOWN_KEYS)) {
+      console.error(`warning: unknown config key "${key}" in ${source} (typo?)`);
+      continue;
+    }
+    // check nested keys for known sub-objects
+    const schema = KNOWN_KEYS[key];
+    if (schema instanceof Set && obj[key] && typeof obj[key] === "object" && !Array.isArray(obj[key])) {
+      for (const subKey of Object.keys(obj[key] as Record<string, unknown>)) {
+        if (!schema.has(subKey)) {
+          console.error(`warning: unknown config key "${key}.${subKey}" in ${source} (typo?)`);
+        }
+      }
+    }
+  }
 }
 
 // validate config values to catch bad configs at startup rather than runtime

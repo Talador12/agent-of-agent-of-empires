@@ -106,7 +106,9 @@ async function main() {
     }
   }
 
-  const config = loadConfig(overrides);
+  const configResult = loadConfig(overrides);
+  const configPath = configResult._configPath;
+  const config: AoaoeConfig = configResult; // strip _configPath from type for downstream
 
   // acquire daemon lock — prevent two daemons from running simultaneously
   const lock = acquireLock();
@@ -129,6 +131,7 @@ async function main() {
     console.error("");
     console.error("  aoaoe" + (pkg ? ` v${pkg}` : "") + "  —  autonomous supervisor");
     console.error(`  reasoner: ${config.reasoner}  |  poll: ${config.pollIntervalMs / 1000}s`);
+    console.error(`  config: ${configPath ?? "defaults (no config file found)"}`);
     if (config.observe) console.error("  OBSERVE MODE — watching only, no AI, no actions");
     else if (config.confirm) console.error("  CONFIRM MODE — the AI will ask before every action");
     else if (config.dryRun) console.error("  DRY RUN — the AI thinks but doesn't act");
@@ -226,6 +229,7 @@ async function main() {
       tui.log("system", `The AI supervisor is watching your agents and will help when needed.`);
     }
     tui.log("system", "");
+    tui.log("system", `config: ${configPath ?? "using defaults (no config file found)"}`);
     tui.log("system", "Type a message to talk to the AI, or use /help for commands.");
     tui.log("system", "Press ESC twice to interrupt the AI mid-thought.");
     tui.log("system", "");
