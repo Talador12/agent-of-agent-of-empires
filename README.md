@@ -208,6 +208,8 @@ Once inside the chat UI (via `aoe` -> select "aoaoe"):
 | `/dashboard` | Request full dashboard output from daemon |
 | `/pause` | Pause the daemon (stops reasoning) |
 | `/resume` | Resume after pause |
+| `/sessions` | Instant session list from daemon state (no tmux capture needed) |
+| `/explain` | Ask the AI to explain what's happening right now in plain English |
 | `/verbose` | Toggle verbose logging |
 | `/clear` | Clear the screen |
 | `/help` | Show all commands |
@@ -318,6 +320,7 @@ Config lives at `~/.aoaoe/aoaoe.config.json` (canonical, written by `aoaoe init`
 | `protectedSessions` | Session titles that are observe-only (no actions) | `[]` |
 | `sessionDirs` | Map session titles to project directories (relative to cwd or absolute). Bypasses heuristic directory search. | `{}` |
 | `contextFiles` | Extra AI instruction file paths to load from each project root | `[]` |
+| `captureLinesCount` | Number of tmux lines to capture per session (`-S` flag) | `100` |
 
 Also reads `.aoaoe.json` as an alternative config filename.
 
@@ -457,8 +460,10 @@ src/
   tui.ts            # in-place terminal UI (alternate screen, scroll regions)
   input.ts          # stdin readline listener with inject() for post-interrupt
   init.ts           # `aoaoe init`: auto-discover tools, sessions, generate config
+  colors.ts         # shared ANSI color/style constants
   context.ts        # discoverContextFiles, resolveProjectDir, loadSessionContext
   activity.ts       # detect human keystrokes in tmux sessions
+  prompt-watcher.ts # reactive permission prompt clearing via tmux pipe-pane
   task-manager.ts   # task orchestration: definitions, persistent state
   task-cli.ts       # `aoaoe task` subcommand: list, start, stop, new, rm, edit
   task-parser.ts    # parse OpenCode TODO patterns, model, tokens, cost from tmux
@@ -468,6 +473,7 @@ src/
   reasoner/
     index.ts        # common Reasoner interface + factory
     prompt.ts       # system prompt + observation formatting
+    parse.ts        # response parsing, JSON extraction, action validation
     opencode.ts     # OpenCode SDK backend
     claude-code.ts  # Claude Code CLI backend
 ```

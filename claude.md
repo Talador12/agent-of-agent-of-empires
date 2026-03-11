@@ -5,15 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.44.0
+## Version: v0.45.0
 
 ## Current Focus
 
-598 tests across 28 files. v0.44.0 shipped: resilience — atomic IPC writes, atomic lock file, signal-safe shutdown, task state corruption backup, unhandled promise fix, confirm mode terminal safety.
+639 tests across 26 files. v0.45.0 shipped: packaging & coverage — npm package slimmed from 219→59 files, dead .npmignore removed, release CI tests before publish, comprehensive parse.test.ts added, README/Makefile/AGENTS.md refreshed.
 
 ## Roadmap
 
-### v0.45.0 — "UI Polish" (next)
+### v0.46.0 — "UI Polish" (next)
 OpenCode-inspired TUI overhaul. Minimalist + slick, smooth color design, not monochrome but not a rave.
 - **Block-style rendering** — structured sections with visual hierarchy (OpenCode's panel approach)
 - **Highlighted sections** — last-ran commands and recent AI decisions get visual emphasis
@@ -23,13 +23,61 @@ OpenCode-inspired TUI overhaul. Minimalist + slick, smooth color design, not mon
 - **Slick animations** — subtle transitions for phase changes, countdowns, new events
 - Design principle: pizzaz without being annoying. Minimalist with confident color choices.
 
-### v0.46.0+ — Ideas Backlog
+### v0.47.0+ — Ideas Backlog
 - **Homebrew tap fix** — PAT needs `repo` scope for `peter-evans/repository-dispatch`
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Notification hooks** — Slack, webhook for significant events (errors, completions)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- **README refresh** — update test counts, new features, architecture diagram
+
+### What shipped in v0.45.0
+
+**Theme: "Packaging & Coverage"** — npm package hygiene, CI safety net, and critical untested code gets covered.
+
+#### 1. Fix `package.json` `files` field (`package.json`)
+Changed from `"dist"` to specific globs (`dist/**/*.js`, `dist/**/*.d.ts`) with exclusions
+for test files and integration-test. npm package went from 219 files (~6MB of test code) to
+59 files (88KB). Zero test files ship to users.
+
+#### 2. Remove dead `.npmignore` (`.npmignore`)
+When `files` field exists in `package.json`, `.npmignore` is largely ignored by npm. Deleted
+entirely — one less file to confuse contributors.
+
+#### 3. Add `npm test` to release CI (`.github/workflows/release.yml`)
+The `publish-npm` job previously ran only `npm run build` before `npm publish`. Now runs
+`npm test` (which includes build) before publishing. Prevents shipping a package that
+compiles but has broken behavior.
+
+#### 4. Create `src/reasoner/parse.test.ts` (41 tests)
+`parse.ts` is the core JSON parsing module — both reasoner backends depend on it. Previously
+had no direct test file (partially tested via `opencode.test.ts` re-exports).
+- `validateResult` (22 tests): shape validation (undefined, numeric, array input),
+  per-action field checks for all 8 action types (start_session, stop_session, remove_agent,
+  create_agent, send_input, wait, report_progress, complete_task), empty string rejection,
+  mixed valid/invalid action ordering.
+- `parseReasonerResponse` (7 tests): leading/trailing newlines, markdown with language tag,
+  fallback to brace scanner on bad code block, empty actions, missing actions field,
+  mixed valid/invalid in fenced JSON, full multi-action response.
+- `extractFirstValidJson` (12 tests): empty string, only closing/opening braces, object at
+  start/end, malformed-then-valid, escaped braces in strings, nested arrays, empty object,
+  deeply nested, stray closing brace reset, quote at depth 0.
+
+#### 5. Update README (`README.md`)
+- Added missing files to project structure: `colors.ts`, `prompt-watcher.ts`, `reasoner/parse.ts`
+- Added `captureLinesCount` to config reference table
+- Added `/sessions` and `/explain` to Chat UI Commands table
+
+#### 6. Fix Makefile test count (`Makefile`)
+Updated from "371 tests" to "639 tests".
+
+#### 7. Fix AGENTS.md test file count (`AGENTS.md`)
+Updated from "598 unit tests across 28 files" to "639 unit tests across 26 files".
+
+Config additions: none.
+New files: `src/reasoner/parse.test.ts`
+Deleted files: `.npmignore`
+Modified: `package.json`, `.github/workflows/release.yml`, `README.md`, `Makefile`, `AGENTS.md`, `claude.md`
+Test changes: +41 (parse.test.ts), net 639 tests.
 
 ### What shipped in v0.44.0
 
