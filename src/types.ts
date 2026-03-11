@@ -140,7 +140,14 @@ export interface AoaoeConfig {
   dryRun: boolean; // observe + reason but don't execute; log what would happen
   observe: boolean; // observe only — no LLM, no execution, zero cost
   confirm: boolean; // ask the user to approve each action before execution
+  notifications?: {
+    webhookUrl?: string; // generic webhook — POST JSON payload on events
+    slackWebhookUrl?: string; // Slack incoming webhook — POST Slack block format
+    events?: NotificationEvent[]; // filter which events trigger notifications (default: all)
+  };
 }
+
+export type NotificationEvent = "session_error" | "session_done" | "action_executed" | "action_failed" | "daemon_started" | "daemon_stopped";
 
 // daemon state written to ~/.aoaoe/daemon-state.json for chat UI IPC
 export type DaemonPhase = "sleeping" | "polling" | "reasoning" | "executing" | "interrupted";

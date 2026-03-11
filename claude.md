@@ -5,23 +5,69 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.51.0
+## Version: v0.52.0
 
 ## Current Focus
 
-736 tests across 26 files. v0.51.0 shipped: Diagnostics — `aoaoe status`, `aoaoe config`, and 15 empty catch blocks replaced with logging.
+762 tests across 27 files. v0.52.0 shipped: Notifications — webhook + Slack notification system for significant daemon events.
 
 ## Roadmap
 
-### v0.52.0+ — Ideas Backlog
+### v0.53.0+ — Ideas Backlog
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
-- **Notification hooks** — Slack, webhook for significant events (errors, completions)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Persisted TUI history** — survive daemon restarts, scroll through history
 - **Refactor index.ts remaining as casts** — config.ts deepMerge casts are safe but ugly
 - **Scroll-through history navigation in TUI**
 - **Remaining empty catch cleanup** — 58 more catches across production code (most are legitimate best-effort)
+
+### What shipped in v0.52.0
+
+**Theme: "Notifications"** — webhook + Slack notification system for significant daemon events. Fire-and-forget, never blocks the daemon.
+
+#### 1. Notification module (`src/notify.ts`)
+New `sendNotification(config, payload)` function that fires notifications to configured webhooks.
+Supports two webhook types:
+- **Generic webhook**: POST JSON `{ event, timestamp, session, detail }` to any URL
+- **Slack webhook**: POST Slack block kit format with event icons, session names, and timestamps
+Both are fire-and-forget with 5s timeout — notification failures are logged but never crash the daemon.
+Event filtering via `config.notifications.events` array (default: send all events).
+
+#### 2. Notification events wired into daemon lifecycle (`src/index.ts`)
+Six event types fire at key moments:
+- `daemon_started` — after startup banner, before entering main loop
+- `daemon_stopped` — in shutdown handler, before cleanup
+- `session_error` — when a session transitions to error status (fires for both TUI and non-TUI)
+- `session_done` — when a session transitions to done status
+- `action_executed` — after each successful action execution
+- `action_failed` — after each failed action execution
+
+#### 3. Config schema + validation (`src/config.ts`, `src/types.ts`)
+- Added `notifications?: { webhookUrl?, slackWebhookUrl?, events?: NotificationEvent[] }` to `AoaoeConfig`
+- Added `NotificationEvent` type union: `"session_error" | "session_done" | "action_executed" | "action_failed" | "daemon_started" | "daemon_stopped"`
+- Added `notifications` to `KNOWN_KEYS` schema with sub-keys `webhookUrl`, `slackWebhookUrl`, `events`
+- Validation: webhook URLs must be strings starting with `http://` or `https://`, events must be valid `NotificationEvent` values
+- Entirely optional — no existing configs need updating
+
+#### 4. Slack message formatting (`src/notify.ts`)
+`formatSlackPayload()` generates Slack block kit messages with:
+- Event-specific emoji icons (🚨 error, ✅ done, ⚙️ executed, ❌ failed, 🚀 started, 🛑 stopped)
+- Bold event titles, session names, detail text
+- Context block with "aoaoe" branding and ISO timestamp
+- Fallback `text` field for clients that don't support blocks
+
+#### 5. Tests (`src/notify.test.ts`, `src/config.test.ts`)
+- 16 new tests in `src/notify.test.ts`: formatSlackPayload (8), sendNotification (8)
+- 10 new tests in `src/config.test.ts`: notifications validation (8), warnUnknownKeys notifications (2)
+
+Config additions:
+- `notifications?: { webhookUrl?, slackWebhookUrl?, events?: NotificationEvent[] }` (optional)
+
+New files: `src/notify.ts`, `src/notify.test.ts`
+Modified: `src/types.ts`, `src/config.ts`, `src/config.test.ts`, `src/index.ts`,
+`package.json`, `Makefile`, `AGENTS.md`, `claude.md`
+Test changes: +26 (16 notify, 10 config), net 762 tests.
 
 ### What shipped in v0.51.0
 

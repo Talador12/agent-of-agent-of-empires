@@ -18,6 +18,7 @@ import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from
 import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
 import { TUI } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
+import { sendNotification } from "./notify.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState } from "./types.js";
 import { actionSession, actionDetail } from "./types.js";
 import { YELLOW, GREEN, DIM, BOLD, RED, RESET } from "./colors.js";
@@ -301,6 +302,8 @@ async function main() {
     console.error("");
 
     log("shutting down...");
+    // notify: daemon stopped (fire-and-forget, don't block shutdown)
+    sendNotification(config, { event: "daemon_stopped", timestamp: Date.now(), detail: `polls: ${totalPolls}, actions: ${totalActionsExecuted}` });
     input.stop();
     Promise.resolve()
       .then(() => reasonerConsole.stop())
@@ -324,6 +327,9 @@ async function main() {
   } else {
     log("entering main loop (Ctrl+C to stop)\n");
   }
+
+  // notify: daemon started
+  sendNotification(config, { event: "daemon_started", timestamp: Date.now(), detail: `reasoner: ${config.reasoner}` });
 
   // clear any stale interrupt from a previous run
   clearInterrupt();
@@ -668,6 +674,20 @@ async function daemonTick(
     }
   }
 
+  // notify: session error/done events (fires for both TUI and non-TUI modes)
+  {
+    const changedSet = new Set(observation.changes.map((c) => c.title));
+    for (const snap of observation.sessions) {
+      const s = snap.session;
+      if (s.status === "error" && changedSet.has(s.title)) {
+        sendNotification(config, { event: "session_error", timestamp: Date.now(), session: s.title, detail: `status: ${s.status}` });
+      }
+      if (s.status === "done" && changedSet.has(s.title)) {
+        sendNotification(config, { event: "session_done", timestamp: Date.now(), session: s.title });
+      }
+    }
+  }
+
   if (skippedReason === "no changes") {
     if (config.verbose) {
       if (tui) tui.log("observation", "no changes, skipping reasoner"); else process.stdout.write(" | no changes, skipping reasoner\n");
@@ -734,6 +754,13 @@ async function daemonTick(
       log(`[${icon}] ${displayText}`);
     }
     reasonerConsole.writeAction(entry.action.action, richDetail, entry.success);
+    // notify: action executed or failed
+    sendNotification(config, {
+      event: entry.success ? "action_executed" : "action_failed",
+      timestamp: Date.now(),
+      session: sessionTitle,
+      detail: `${entry.action.action}${actionText ? `: ${actionText.slice(0, 200)}` : ""}`,
+    });
   }
   const actionsOk = executed.filter((e) => e.success && e.action.action !== "wait").length;
   const actionsFail = executed.filter((e) => !e.success && e.action.action !== "wait").length;

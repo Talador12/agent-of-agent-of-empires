@@ -104,6 +104,7 @@ const KNOWN_KEYS: Record<string, Set<string> | true> = {
     "maxIdleBeforeNudgeMs", "maxErrorsBeforeRestart", "autoAnswerPermissions",
     "actionCooldownMs", "userActivityThresholdMs", "allowDestructive",
   ]),
+  notifications: new Set(["webhookUrl", "slackWebhookUrl", "events"]),
 };
 
 export function warnUnknownKeys(raw: unknown, source: string): void {
@@ -196,6 +197,33 @@ export function validateConfig(config: AoaoeConfig): void {
   // policies.allowDestructive must be a boolean
   if (config.policies?.allowDestructive !== undefined && typeof config.policies.allowDestructive !== "boolean") {
     errors.push(`policies.allowDestructive must be a boolean, got ${typeof config.policies.allowDestructive}`);
+  }
+  // notifications.webhookUrl must be a string starting with http:// or https://
+  if (config.notifications?.webhookUrl !== undefined) {
+    const u = config.notifications.webhookUrl;
+    if (typeof u !== "string" || (!u.startsWith("http://") && !u.startsWith("https://"))) {
+      errors.push(`notifications.webhookUrl must be a URL starting with http:// or https://, got ${JSON.stringify(u)}`);
+    }
+  }
+  // notifications.slackWebhookUrl must be a string starting with http:// or https://
+  if (config.notifications?.slackWebhookUrl !== undefined) {
+    const u = config.notifications.slackWebhookUrl;
+    if (typeof u !== "string" || (!u.startsWith("http://") && !u.startsWith("https://"))) {
+      errors.push(`notifications.slackWebhookUrl must be a URL starting with http:// or https://, got ${JSON.stringify(u)}`);
+    }
+  }
+  // notifications.events must be an array of valid NotificationEvent values
+  if (config.notifications?.events !== undefined) {
+    const VALID_EVENTS = new Set(["session_error", "session_done", "action_executed", "action_failed", "daemon_started", "daemon_stopped"]);
+    if (!Array.isArray(config.notifications.events)) {
+      errors.push(`notifications.events must be an array, got ${typeof config.notifications.events}`);
+    } else {
+      for (const e of config.notifications.events) {
+        if (!VALID_EVENTS.has(e)) {
+          errors.push(`notifications.events contains invalid event "${e}"`);
+        }
+      }
+    }
   }
 
   if (errors.length > 0) {

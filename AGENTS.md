@@ -57,6 +57,7 @@ The main loop is split into two layers:
 | `src/activity.ts` | User activity detection via `tmux list-clients` |
 | `src/message.ts` | Message classification, formatting, receipts, skip-sleep logic |
 | `src/wake.ts` | Wakeable sleep using `fs.watch` — message latency ~100ms |
+| `src/notify.ts` | Webhook + Slack notification dispatcher for daemon events |
 | `src/colors.ts` | Shared ANSI color/style constants |
 | `src/prompt-watcher.ts` | Reactive permission prompt clearing via `tmux pipe-pane` |
 | `src/reasoner/index.ts` | `createReasoner()` factory |
@@ -99,7 +100,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Testing
-- 736 unit tests across 26 files, `node:test` (stdlib, zero deps)
+- 762 unit tests across 27 files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

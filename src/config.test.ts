@@ -465,6 +465,55 @@ describe("validateConfig", () => {
     config.policies.allowDestructive = true;
     assert.doesNotThrow(() => validateConfig(config));
   });
+
+  // notifications validation
+  it("accepts valid notifications config", () => {
+    const config = makeConfig();
+    config.notifications = { webhookUrl: "https://example.com/hook", slackWebhookUrl: "https://hooks.slack.com/x", events: ["session_error", "daemon_started"] };
+    assert.doesNotThrow(() => validateConfig(config));
+  });
+
+  it("accepts notifications with no events filter", () => {
+    const config = makeConfig();
+    config.notifications = { webhookUrl: "https://example.com/hook" };
+    assert.doesNotThrow(() => validateConfig(config));
+  });
+
+  it("rejects notifications.webhookUrl that is not a URL", () => {
+    const config = makeConfig();
+    config.notifications = { webhookUrl: "not-a-url" };
+    assert.throws(() => validateConfig(config), /webhookUrl must be a URL/);
+  });
+
+  it("rejects notifications.webhookUrl that is not a string", () => {
+    const config = makeConfig();
+    (config as unknown as Record<string, unknown>).notifications = { webhookUrl: 12345 };
+    assert.throws(() => validateConfig(config), /webhookUrl must be a URL/);
+  });
+
+  it("rejects notifications.slackWebhookUrl that is not a URL", () => {
+    const config = makeConfig();
+    config.notifications = { slackWebhookUrl: "ftp://nope" };
+    assert.throws(() => validateConfig(config), /slackWebhookUrl must be a URL/);
+  });
+
+  it("rejects notifications.events with invalid event name", () => {
+    const config = makeConfig();
+    (config as unknown as Record<string, unknown>).notifications = { events: ["session_error", "bogus_event"] };
+    assert.throws(() => validateConfig(config), /invalid event "bogus_event"/);
+  });
+
+  it("rejects notifications.events when not an array", () => {
+    const config = makeConfig();
+    (config as unknown as Record<string, unknown>).notifications = { events: "session_error" };
+    assert.throws(() => validateConfig(config), /events must be an array/);
+  });
+
+  it("accepts empty notifications object", () => {
+    const config = makeConfig();
+    config.notifications = {};
+    assert.doesNotThrow(() => validateConfig(config));
+  });
 });
 
 describe("deepMerge", () => {
@@ -884,5 +933,20 @@ describe("warnUnknownKeys", () => {
       warnUnknownKeys({ unknownField: true }, "/home/user/.aoaoe/aoaoe.config.json"),
     );
     assert.ok(warnings[0].includes("/home/user/.aoaoe/aoaoe.config.json"));
+  });
+
+  it("produces no warnings for valid notifications nested keys", () => {
+    const warnings = captureWarnings(() =>
+      warnUnknownKeys({ notifications: { webhookUrl: "https://x.com", slackWebhookUrl: "https://y.com", events: [] } }, "test.json"),
+    );
+    assert.equal(warnings.length, 0);
+  });
+
+  it("warns on unknown nested key in notifications", () => {
+    const warnings = captureWarnings(() =>
+      warnUnknownKeys({ notifications: { webhookUrl: "https://x.com", bogusField: true } }, "test.json"),
+    );
+    assert.equal(warnings.length, 1);
+    assert.ok(warnings[0].includes("notifications.bogusField"));
   });
 });
