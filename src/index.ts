@@ -7,7 +7,7 @@ import { printDashboard } from "./dashboard.js";
 import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
 import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState, acquireLock } from "./daemon-state.js";
-import { formatSessionSummaries, formatActionDetail } from "./console.js";
+import { formatSessionSummaries, formatActionDetail, formatPlainEnglishAction } from "./console.js";
 import { type SessionPolicyState } from "./reasoner/prompt.js";
 import { loadGlobalContext } from "./context.js";
 import { tick as loopTick } from "./loop.js";
@@ -133,7 +133,9 @@ async function main() {
     console.error("");
     console.error("  aoaoe" + (pkg ? ` v${pkg}` : "") + "  —  autonomous supervisor");
     console.error(`  reasoner: ${config.reasoner}  |  poll: ${config.pollIntervalMs / 1000}s`);
-    if (config.dryRun) console.error("  ** DRY RUN — will observe and reason but not execute **");
+    if (config.observe) console.error("  OBSERVE MODE — watching only, no AI, no actions");
+    else if (config.confirm) console.error("  CONFIRM MODE — the AI will ask before every action");
+    else if (config.dryRun) console.error("  DRY RUN — the AI thinks but doesn't act");
     console.error("");
   }
 
@@ -208,14 +210,24 @@ async function main() {
   if (tui) {
     tui.start(pkg || "dev");
     tui.updateState({ reasonerName: config.observe ? "observe-only" : config.reasoner });
+
+    // welcome banner — plain-English explanation of what's happening
+    tui.log("system", "");
     if (config.observe) {
-      tui.log("system", `OBSERVE MODE — polling only, no LLM, no execution`);
+      tui.log("system", "OBSERVE MODE — watching your agents without touching anything.");
+      tui.log("system", "No AI calls, no actions, zero cost. Just monitoring.");
+    } else if (config.confirm) {
+      tui.log("system", `The AI supervisor is watching your agents and will ask before acting.`);
+      tui.log("system", `You'll see a y/n prompt before any action runs.`);
+    } else if (config.dryRun) {
+      tui.log("system", `DRY RUN — the AI will think about what to do, but won't actually do it.`);
     } else {
-      tui.log("system", `reasoner: ${config.reasoner}  |  poll: ${config.pollIntervalMs / 1000}s`);
+      tui.log("system", `The AI supervisor is watching your agents and will help when needed.`);
     }
-    if (config.dryRun && !config.observe) tui.log("system", "DRY RUN — will observe and reason but not execute");
-    const threshold = config.policies.userActivityThresholdMs ?? 30_000;
-    tui.log("system", `user activity guard: ${threshold / 1000}s threshold`);
+    tui.log("system", "");
+    tui.log("system", "Type a message to talk to the AI, or use /help for commands.");
+    tui.log("system", "Press ESC twice to interrupt the AI mid-thought.");
+    tui.log("system", "");
   }
 
   // ── session stats (for shutdown summary) ──────────────────────────────────
@@ -247,6 +259,7 @@ async function main() {
       console.error(`  actions:    ${totalActionsExecuted} executed, ${totalActionsFailed} failed`);
     }
     if (config.observe) console.error(`  mode:       observe-only (no LLM, no execution)`);
+    else if (config.confirm) console.error(`  mode:       confirm (human-approved actions)`);
     else if (config.dryRun) console.error(`  mode:       dry-run (no execution)`);
     console.error("");
 
@@ -289,6 +302,16 @@ async function main() {
     // classify into commands vs. real user messages
     const { commands, userMessages } = classifyMessages(allMessages);
 
+    // /explain: inject a smart prompt into userMessages before formatting
+    if (commands.includes("__CMD_EXPLAIN__")) {
+      const explainPrompt = "Please explain what's happening right now in plain English. " +
+        "For each agent, say what it's working on, whether it's making progress or stuck, " +
+        "and whether you plan to do anything. Write as if explaining to someone who just walked in.";
+      userMessages.push(explainPrompt);
+      if (tui) tui.log("you", "/explain"); else log("/explain — asking AI for a summary");
+      reasonerConsole.writeUserMessage("/explain");
+    }
+
     // acknowledge receipt of user messages in the conversation log
     const receipts = buildReceipts(userMessages);
     for (const receipt of receipts) {
@@ -323,6 +346,8 @@ async function main() {
       } else if (cmd === "__CMD_INTERRUPT__") {
         // interrupt is handled inside tick() via the flag file; clear it here if no tick is running
         if (tui) tui.log("system", "interrupt requested (will take effect during next reasoning call)"); else log("interrupt requested (will take effect during next reasoning call)");
+      } else if (cmd === "__CMD_EXPLAIN__") {
+        // handled above (before formatUserMessages) — just skip here
       } else if (cmd.startsWith("__CMD_TASK__")) {
         const taskArgs = cmd.slice("__CMD_TASK__".length);
         try {
@@ -478,11 +503,33 @@ async function daemonTick(
     },
   };
 
+  // confirm mode: build a beforeExecute hook that prompts the user for each action
+  let beforeExecute: ((action: import("./types.js").Action) => Promise<boolean>) | undefined;
+  if (config.confirm && process.stdin.isTTY) {
+    // resolve session titles for confirm prompts
+    beforeExecute = async (action) => {
+      if (action.action === "wait") return true;
+      const plainText = formatPlainEnglishAction(
+        action.action,
+        "session" in action ? (action as { session: string }).session : ("title" in action ? (action as { title: string }).title : undefined),
+        "text" in action ? (action as { text: string }).text : ("summary" in action ? (action as { summary: string }).summary : action.action),
+        true,
+      );
+      const answer = await askConfirm(plainText, tui);
+      if (!answer) {
+        const msg = `Skipped: ${plainText}`;
+        if (tui) tui.log("system", msg); else log(msg);
+        reasonerConsole.writeSystem(msg);
+      }
+      return answer;
+    };
+  }
+
   // run core tick logic (same code path the tests exercise)
   let tickResult: import("./loop.js").TickResult;
   try {
     tickResult = await loopTick({
-      config, poller, reasoner: wrappedReasoner, executor, policyStates, pollCount, userMessage, taskContext,
+      config, poller, reasoner: wrappedReasoner, executor, policyStates, pollCount, userMessage, taskContext, beforeExecute,
     });
   } catch (err) {
     if (err instanceof InterruptError) return { interrupted: true, decisionsThisTick: 0, actionsOk: 0, actionsFail: 0 };
@@ -557,19 +604,23 @@ async function daemonTick(
     return noStats;
   }
 
-  // reasoning happened
+  // reasoning happened — show the AI's explanation prominently
   if (result) {
+    if (result.reasoning) {
+      // show reasoning as a plain-English explanation (always visible, not just verbose)
+      reasonerConsole.writeExplanation(result.reasoning);
+      if (tui) {
+        tui.log("explain", result.reasoning);
+      } else {
+        process.stdout.write(`\n  AI: ${result.reasoning}\n`);
+      }
+    }
+
     const actionSummary = result.actions.map((a) => a.action).join(", ");
     if (tui) {
       tui.log("reasoner", `decided: ${actionSummary}`);
     } else {
       process.stdout.write(` -> ${actionSummary}\n`);
-    }
-
-    if (result.reasoning) {
-      reasonerConsole.writeReasoning(result.reasoning);
-      if (tui) tui.log("reasoner", result.reasoning);
-      else if (config.verbose) log(`reasoning: ${result.reasoning}`);
     }
   }
 
@@ -594,12 +645,16 @@ async function daemonTick(
     const sessionId = "session" in entry.action ? (entry.action as { session: string }).session : undefined;
     const sessionTitle = sessionId ? (sessionTitleMap.get(sessionId) ?? sessionId) : undefined;
     const actionText = "text" in entry.action ? (entry.action as { text: string }).text : entry.detail;
+
+    // plain-English display for humans
+    const plainEnglish = formatPlainEnglishAction(entry.action.action, sessionTitle, actionText, entry.success);
+    // technical detail for the log file
     const richDetail = formatActionDetail(entry.action.action, sessionTitle, actionText);
     if (tui) {
-      tui.log(tag, richDetail);
+      tui.log(tag, plainEnglish);
     } else {
       const icon = entry.success ? "+" : "!";
-      log(`[${icon}] ${richDetail}`);
+      log(`[${icon}] ${plainEnglish}`);
     }
     reasonerConsole.writeAction(entry.action.action, richDetail, entry.success);
   }
@@ -609,6 +664,41 @@ async function daemonTick(
 }
 
 class InterruptError extends Error { constructor() { super("interrupted"); this.name = "InterruptError"; } }
+
+// prompt the user for y/n confirmation before an action runs.
+// used by --confirm mode. returns true if approved, false if rejected.
+function askConfirm(description: string, tui?: TUI | null): Promise<boolean> {
+  const YELLOW = "\x1b[33m";
+  const GREEN = "\x1b[32m";
+  const DIM = "\x1b[2m";
+  const BOLD = "\x1b[1m";
+  const RESET = "\x1b[0m";
+
+  return new Promise((resolve) => {
+    const prompt = `\n${YELLOW}${BOLD}The AI wants to:${RESET} ${description}\n${DIM}Allow? (y/n):${RESET} `;
+    if (tui) {
+      tui.log("system", `The AI wants to: ${description}`);
+    }
+    process.stderr.write(prompt);
+
+    // temporarily listen for a single keypress
+    const onData = (data: Buffer) => {
+      const ch = data.toString().trim().toLowerCase();
+      process.stdin.removeListener("data", onData);
+      if (process.stdin.isTTY) process.stdin.setRawMode(false);
+      if (ch === "y" || ch === "yes") {
+        process.stderr.write(`${GREEN}approved${RESET}\n`);
+        resolve(true);
+      } else {
+        process.stderr.write(`${DIM}skipped${RESET}\n`);
+        resolve(false);
+      }
+    };
+
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+    process.stdin.once("data", onData);
+  });
+}
 
 function summarizeStatuses(obs: Observation): string {
   const counts = new Map<string, number>();

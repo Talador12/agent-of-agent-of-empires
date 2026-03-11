@@ -5,11 +5,62 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.35.0
+## Version: v0.36.0
 
 ## Current Focus
 
-490 tests across 25 files. v0.35.0 shipped: trust & safety features for production use.
+509 tests across 25 files. v0.36.0 shipped: clarity & usability for human operators.
+
+### What shipped in v0.36.0
+
+**Theme: "Clarity"** — six features that make aoaoe transparent, conversational,
+and accessible to anyone watching over the AI's shoulder.
+
+#### 1. Reasoner explanations (`src/reasoner/prompt.ts`, `src/index.ts`)
+The AI now explains WHY it's acting (or waiting) in plain English. The system
+prompt requires a `reasoning` field written as if explaining to a non-programmer.
+Displayed prominently as `[AI]` in the TUI and `[explain]` in the log — always
+visible, not gated behind `--verbose`.
+
+#### 2. Plain-English action display (`src/console.ts`, `src/index.ts`)
+Actions are shown as human-readable sentences instead of technical shorthand:
+- "Sent a message to Adventure: 'implement the login flow'"
+- "Starting Cloud Hypervisor"
+- "Waiting — all agents are making progress"
+New `formatPlainEnglishAction()` function covers all 8 action types.
+
+#### 3. Welcome banner (`src/index.ts`)
+On startup, the TUI shows a plain-English explanation of what mode aoaoe is in
+and how to interact. Adapts to observe/confirm/dry-run/normal mode.
+"Type a message to talk to the AI, or use /help for commands."
+
+#### 4. `--confirm` mode (`src/types.ts`, `src/config.ts`, `src/loop.ts`, `src/index.ts`)
+New `confirm: boolean` config field + `--confirm` CLI flag. Before executing any
+non-wait action, shows the plain-English description and asks "Allow? (y/n)".
+Implemented via a `beforeExecute` hook in `loop.ts:tick()` — testable with mocks.
+Rejected actions are logged. Non-TTY environments skip confirmation.
+
+#### 5. `/explain` command (`src/input.ts`, `src/index.ts`)
+New slash command that injects a smart prompt: "Please explain what's happening
+right now in plain English." Handled before `formatUserMessages()` so it's
+included as an operator message on the next tick. The reasoner responds through
+normal channels.
+
+#### 6. Friendly prompt and acknowledgment (`src/input.ts`, `src/tui.ts`)
+- Prompt changed from `> ` to `you > ` (TUI and readline)
+- Message acknowledgment: "Got it! The AI will read your message on the next cycle."
+- Startup hint rewired: "type a message to talk to the AI supervisor"
+- `/help` reorganized into categories: "talking to the AI", "controls", "info"
+
+Config additions:
+- `confirm: boolean` (default: false) — human-approved actions
+
+Modified: `src/index.ts`, `src/config.ts`, `src/types.ts`, `src/loop.ts`,
+`src/executor.ts` (unchanged), `src/reasoner/prompt.ts`, `src/console.ts`,
+`src/input.ts`, `src/tui.ts`
+Test fixes: 5 test files + 19 new tests (formatPlainEnglishAction 10,
+colorizeConsoleLine explain 2, config --confirm/--observe 2, beforeExecute 3,
+TUI explain tag 2)
 
 ### What shipped in v0.35.0
 
@@ -237,6 +288,23 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 
 ## Completed
 
+- v0.36.0: Clarity & usability (509 tests):
+  - **`reasoner/prompt.ts`**: System prompt requires plain-English `reasoning`
+    field, written for non-programmers.
+  - **`console.ts`**: `formatPlainEnglishAction()` — human sentences for all 8
+    action types. `writeExplanation()` method. `colorizeConsoleLine` handles
+    `[explain]` tag with bold cyan.
+  - **`index.ts`**: Welcome banner (mode-aware), plain-English action display,
+    `[AI]` explanation display, `--confirm` wiring with `askConfirm()`,
+    `/explain` handled before message formatting.
+  - **`loop.ts`**: `beforeExecute` callback hook in `tick()` — filters actions
+    through user approval before execution.
+  - **`config.ts`**: `--confirm` flag, `/explain` in help text, reorganized help.
+  - **`types.ts`**: Added `confirm: boolean`.
+  - **`input.ts`**: `/explain` command, `you > ` prompt, "Got it!" acknowledgment,
+    reorganized `/help` into categories.
+  - **`tui.ts`**: `[AI]` tag for explain entries, `you > ` input prompt.
+  - 19 new tests across console, config, loop, and TUI test files.
 - v0.35.0: Trust & safety features (490 tests):
   - **`daemon-state.ts`**: PID-based lock file (`~/.aoaoe/daemon.lock`).
     `acquireLock()`, `releaseLock()`, `isProcessRunning()`. Stale lock cleanup

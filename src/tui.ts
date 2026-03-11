@@ -51,7 +51,7 @@ const STATUS_ICONS: Record<string, string> = {
 
 export interface ActivityEntry {
   time: string;   // "HH:MM:SS"
-  tag: string;    // "observation", "reasoner", "+ action", "! action", "you", "system", "status"
+  tag: string;    // "observation", "reasoner", "explain", "+ action", "! action", "you", "system", "status"
   text: string;   // the message
 }
 
@@ -305,7 +305,7 @@ export class TUI {
     process.stderr.write(
       SAVE_CURSOR +
       moveTo(this.inputRow, 1) + CLEAR_LINE +
-      `${GREEN}>${RESET} ` +
+      `${GREEN}you >${RESET} ` +
       RESTORE_CURSOR
     );
   }
@@ -322,6 +322,7 @@ function formatActivity(entry: ActivityEntry, maxCols: number): string {
   switch (tag) {
     case "observation": color = DIM; prefix = "obs"; break;
     case "reasoner": color = CYAN; break;
+    case "explain": color = `${BOLD}${CYAN}`; prefix = "AI"; break;
     case "+ action": case "action": color = YELLOW; prefix = "+ action"; break;
     case "! action": case "error": color = RED; prefix = "! action"; break;
     case "you": color = GREEN; break;

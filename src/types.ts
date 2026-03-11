@@ -100,6 +100,7 @@ export interface AoaoeConfig {
   verbose: boolean;
   dryRun: boolean; // observe + reason but don't execute; log what would happen
   observe: boolean; // observe only — no LLM, no execution, zero cost
+  confirm: boolean; // ask the user to approve each action before execution
 }
 
 // daemon state written to ~/.aoaoe/daemon-state.json for chat UI IPC

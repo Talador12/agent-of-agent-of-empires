@@ -39,6 +39,7 @@ const DEFAULTS: AoaoeConfig = {
   verbose: false,
   dryRun: false,
   observe: false,
+  confirm: false,
 };
 
 // find the first config file that exists across search dirs
@@ -247,7 +248,7 @@ export function parseCliArgs(argv: string[]): {
 
   const knownFlags = new Set([
     "--reasoner", "--poll-interval", "--port", "--model", "--profile",
-    "--verbose", "-v", "--dry-run", "--observe", "--help", "-h", "--version",
+    "--verbose", "-v", "--dry-run", "--observe", "--confirm", "--help", "-h", "--version",
   ]);
 
   for (let i = 2; i < argv.length; i++) {
@@ -286,6 +287,9 @@ export function parseCliArgs(argv: string[]): {
         break;
       case "--observe":
         overrides.observe = true;
+        break;
+      case "--confirm":
+        overrides.confirm = true;
         break;
       case "--help":
       case "-h":
@@ -337,7 +341,9 @@ options:
   --dry-run                          run full loop but only log actions (costs
                                       LLM tokens, but never touches sessions)
   --observe                          observe only — no LLM calls, no execution,
-                                      zero cost. shows what the daemon sees.
+                                       zero cost. shows what the daemon sees.
+  --confirm                          ask before each action — the AI proposes,
+                                       you approve with y/n before it runs.
   --verbose, -v                      verbose logging
   --help, -h                         show this help
   --version                          show version
@@ -370,6 +376,7 @@ example config:
 
 interactive commands (while daemon is running):
   /help          show available commands
+  /explain       ask the AI to explain what's happening in plain English
   /status        request daemon status
   /dashboard     request full dashboard output
   /pause         pause the daemon
@@ -378,5 +385,5 @@ interactive commands (while daemon is running):
   /verbose       toggle verbose logging
   /clear         clear the screen
   ESC ESC        interrupt the current reasoner (shortcut)
-  (anything)     send a message to the reasoner`);
+  (anything)     send a message to the AI — it reads your input next cycle`);
 }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, renameSync, statSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { formatTickSeparator, formatSessionSummaries, formatActionDetail } from "./console.js";
+import { formatTickSeparator, formatSessionSummaries, formatActionDetail, formatPlainEnglishAction, colorizeConsoleLine } from "./console.js";
 
 // ReasonerConsole.drainInput uses hardcoded paths (~/.aoaoe/pending-input.txt)
 // so we test the atomic swap logic pattern here with temp files instead.
@@ -263,6 +263,77 @@ describe("formatActionDetail", () => {
   it("falls back to detail when no session title", () => {
     const result = formatActionDetail("wait", undefined, "nothing to do");
     assert.equal(result, "wait: nothing to do");
+  });
+});
+
+// --- formatPlainEnglishAction ---
+
+describe("formatPlainEnglishAction", () => {
+  it("formats send_input as a friendly sentence", () => {
+    const result = formatPlainEnglishAction("send_input", "Adventure", "implement login flow", true);
+    assert.ok(result.startsWith("Sent a message to Adventure:"), `got: ${result}`);
+    assert.ok(result.includes("implement login flow"));
+  });
+
+  it("truncates long send_input text", () => {
+    const longText = "x".repeat(100);
+    const result = formatPlainEnglishAction("send_input", "Proj", longText, true);
+    assert.ok(result.includes("..."), "should truncate");
+  });
+
+  it("formats start_session", () => {
+    assert.equal(formatPlainEnglishAction("start_session", "CHV", "", true), "Starting CHV");
+  });
+
+  it("formats stop_session", () => {
+    assert.equal(formatPlainEnglishAction("stop_session", "CHV", "", true), "Stopping CHV");
+  });
+
+  it("formats create_agent", () => {
+    assert.equal(formatPlainEnglishAction("create_agent", "NewProj", "", true), "Creating a new agent: NewProj");
+  });
+
+  it("formats remove_agent", () => {
+    assert.equal(formatPlainEnglishAction("remove_agent", "OldProj", "", true), "Removing OldProj");
+  });
+
+  it("formats report_progress", () => {
+    const result = formatPlainEnglishAction("report_progress", "Adventure", "auth feature complete", true);
+    assert.ok(result.includes("Progress on Adventure:"));
+    assert.ok(result.includes("auth feature complete"));
+  });
+
+  it("formats complete_task", () => {
+    assert.equal(formatPlainEnglishAction("complete_task", "Adventure", "", true), "Marked Adventure as complete");
+  });
+
+  it("formats wait with reason", () => {
+    const result = formatPlainEnglishAction("wait", undefined, "all agents progressing normally", true);
+    assert.ok(result.includes("Waiting"));
+    assert.ok(result.includes("all agents progressing normally"));
+  });
+
+  it("appends (failed) on failure", () => {
+    const result = formatPlainEnglishAction("start_session", "CHV", "", false);
+    assert.equal(result, "Starting CHV (failed)");
+  });
+});
+
+// --- colorizeConsoleLine: explain tag ---
+
+describe("colorizeConsoleLine — explain tag", () => {
+  it("colorizes [explain] tag with bold cyan", () => {
+    const line = "12:00:00 [explain] Adventure is making progress";
+    const result = colorizeConsoleLine(line);
+    assert.ok(result.includes("\x1b[1m"), "should include bold");
+    assert.ok(result.includes("\x1b[36m"), "should include cyan");
+    assert.ok(result.includes("explain"), "should preserve tag name");
+  });
+
+  it("still colorizes standard tags", () => {
+    const line = "12:00:00 [reasoner] decided: wait";
+    const result = colorizeConsoleLine(line);
+    assert.ok(result.includes("\x1b[36m"), "reasoner should be cyan");
   });
 });
 

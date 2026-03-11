@@ -55,6 +55,7 @@ function defaultConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig {
     verbose: false,
     dryRun: false,
     observe: false,
+    confirm: false,
     protectedSessions: [],
     ...overrides,
   };
@@ -578,5 +579,106 @@ describe("tick — multi-tick sequences", () => {
     const r2 = await tick({ config, poller, reasoner, executor, policyStates, pollCount: 2 });
     assert.equal(r2.skippedReason, "no changes");
     assert.equal(executor.executed.length, 1); // unchanged from tick 1
+  });
+});
+
+// --- beforeExecute (confirm mode) ---
+
+describe("tick — beforeExecute hook (confirm mode)", () => {
+  it("skips actions rejected by beforeExecute", async () => {
+    const session = makeSession({ id: "confirm-1-dead-beef-cafe-000000000001" });
+    const snap = makeSnapshot({ session });
+    const changes = [{
+      sessionId: session.id, title: session.title,
+      tool: session.tool, status: session.status,
+      newLines: "new output",
+    }];
+    const poller = new MockPoller();
+    poller.enqueue(makeObservation([snap], changes));
+
+    const reasoner = new MockReasoner();
+    reasoner.enqueue({
+      actions: [
+        { action: "send_input", session: session.id, text: "hello" },
+        { action: "start_session", session: session.id },
+      ],
+    });
+
+    const executor = new MockExecutor();
+    const config = defaultConfig();
+    const policyStates = new Map<string, SessionPolicyState>();
+
+    // reject all actions
+    const result = await tick({
+      config, poller, reasoner, executor, policyStates, pollCount: 1,
+      beforeExecute: async () => false,
+    });
+
+    assert.equal(result.executed.length, 0, "no actions should be executed");
+    assert.equal(executor.executed.length, 0, "executor should not have been called");
+  });
+
+  it("allows actions approved by beforeExecute", async () => {
+    const session = makeSession({ id: "confirm-2-dead-beef-cafe-000000000001" });
+    const snap = makeSnapshot({ session });
+    const changes = [{
+      sessionId: session.id, title: session.title,
+      tool: session.tool, status: session.status,
+      newLines: "new output",
+    }];
+    const poller = new MockPoller();
+    poller.enqueue(makeObservation([snap], changes));
+
+    const reasoner = new MockReasoner();
+    reasoner.enqueue({
+      actions: [{ action: "send_input", session: session.id, text: "go" }],
+    });
+
+    const executor = new MockExecutor();
+    const config = defaultConfig();
+    const policyStates = new Map<string, SessionPolicyState>();
+
+    // approve all actions
+    const result = await tick({
+      config, poller, reasoner, executor, policyStates, pollCount: 1,
+      beforeExecute: async () => true,
+    });
+
+    assert.equal(result.executed.length, 1, "one action should be executed");
+    assert.equal(executor.executed.length, 1);
+  });
+
+  it("selectively filters actions", async () => {
+    const session = makeSession({ id: "confirm-3-dead-beef-cafe-000000000001" });
+    const snap = makeSnapshot({ session });
+    const changes = [{
+      sessionId: session.id, title: session.title,
+      tool: session.tool, status: session.status,
+      newLines: "new output",
+    }];
+    const poller = new MockPoller();
+    poller.enqueue(makeObservation([snap], changes));
+
+    const reasoner = new MockReasoner();
+    reasoner.enqueue({
+      actions: [
+        { action: "send_input", session: session.id, text: "ok" },
+        { action: "start_session", session: session.id },
+      ],
+    });
+
+    const executor = new MockExecutor();
+    const config = defaultConfig();
+    const policyStates = new Map<string, SessionPolicyState>();
+
+    // only approve send_input
+    const result = await tick({
+      config, poller, reasoner, executor, policyStates, pollCount: 1,
+      beforeExecute: async (action) => action.action === "send_input",
+    });
+
+    assert.equal(result.executed.length, 1);
+    // executor.executed stores { actions, snapshots } for each execute() call
+    assert.equal(executor.executed[0].actions[0].action, "send_input");
   });
 });

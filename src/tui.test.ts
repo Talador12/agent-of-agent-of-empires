@@ -92,3 +92,20 @@ describe("TUI class", () => {
     tui.updateState({ phase: "reasoning", pollCount: 5, sessions: [] });
   });
 });
+
+describe("formatActivity — explain tag", () => {
+  it("uses 'AI' short name for explain tag", () => {
+    const entry: ActivityEntry = { time: "12:00:00", tag: "explain", text: "Adventure is doing great" };
+    const result = formatActivity(entry, 120);
+    const plain = result.replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("[AI]"), `should show [AI] tag, got: ${plain}`);
+    assert.ok(plain.includes("Adventure is doing great"));
+  });
+
+  it("applies bold cyan color to explain tag", () => {
+    const entry: ActivityEntry = { time: "12:00:00", tag: "explain", text: "test" };
+    const result = formatActivity(entry, 120);
+    assert.ok(result.includes("\x1b[1m"), "should include bold");
+    assert.ok(result.includes("\x1b[36m"), "should include cyan");
+  });
+});

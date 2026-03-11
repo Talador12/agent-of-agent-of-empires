@@ -41,8 +41,9 @@ export async function tick(opts: {
   pollCount: number;
   userMessage?: string;
   taskContext?: TaskState[];
+  beforeExecute?: (action: Action) => Promise<boolean>; // confirm hook: return false to skip action
 }): Promise<TickResult> {
-  const { config, poller, reasoner, executor, policyStates, pollCount, userMessage, taskContext } = opts;
+  const { config, poller, reasoner, executor, policyStates, pollCount, userMessage, taskContext, beforeExecute } = opts;
 
   // 1. poll
   const observation = await poller.poll();
@@ -124,6 +125,20 @@ export async function tick(opts: {
     return { observation, result, executed: [], dryRunActions: nonWaitActions };
   }
 
-  const executed = await executor.execute(nonWaitActions, observation.sessions);
+  // confirm mode: filter actions through the beforeExecute hook
+  let actionsToExecute: typeof nonWaitActions = nonWaitActions;
+  if (beforeExecute) {
+    const approved: typeof nonWaitActions = [];
+    for (const action of nonWaitActions) {
+      const ok = await beforeExecute(action);
+      if (ok) approved.push(action);
+    }
+    actionsToExecute = approved;
+    if (actionsToExecute.length === 0) {
+      return { observation, result, executed: [] };
+    }
+  }
+
+  const executed = await executor.execute(actionsToExecute, observation.sessions);
   return { observation, result, executed };
 }

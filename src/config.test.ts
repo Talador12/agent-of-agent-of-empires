@@ -168,6 +168,16 @@ describe("parseCliArgs", () => {
     }
   });
 
+  it("parses --confirm flag", () => {
+    const result = parseCliArgs(argv("--confirm"));
+    assert.equal(result.overrides.confirm, true);
+  });
+
+  it("parses --observe flag", () => {
+    const result = parseCliArgs(argv("--observe"));
+    assert.equal(result.overrides.observe, true);
+  });
+
   it("parses init subcommand", () => {
     const result = parseCliArgs(argv("init"));
     assert.equal(result.runInit, true);
@@ -231,6 +241,7 @@ describe("validateConfig", () => {
       verbose: false,
       dryRun: false,
       observe: false,
+      confirm: false,
       protectedSessions: [],
     };
     return { ...base, ...overrides } as AoaoeConfig;

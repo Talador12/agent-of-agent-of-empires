@@ -84,6 +84,10 @@ export class ReasonerConsole {
     this.append(`${this.ts()} [reasoner] ${reasoning}`);
   }
 
+  writeExplanation(explanation: string): void {
+    this.append(`${this.ts()} [explain] ${explanation}`);
+  }
+
   writeAction(action: string, detail: string, success: boolean): void {
     const icon = success ? "+" : "!";
     this.append(`${this.ts()} [${icon} action] ${action}: ${detail}`);
@@ -208,6 +212,48 @@ export function formatActionDetail(action: string, sessionTitle: string | undefi
   return `${action} → ${sessionTitle}`;
 }
 
+/**
+ * Format an action as a plain-English sentence for human-friendly display.
+ * Examples:
+ *   "Sent a message to Adventure: 'implement the login flow'"
+ *   "Starting Cloud Hypervisor"
+ *   "Waiting — all agents are making progress"
+ */
+export function formatPlainEnglishAction(
+  action: string,
+  sessionTitle: string | undefined,
+  detail: string,
+  success: boolean,
+): string {
+  const name = sessionTitle ?? "unknown session";
+  const failed = !success ? " (failed)" : "";
+
+  switch (action) {
+    case "send_input": {
+      const preview = detail.length > 80 ? detail.slice(0, 77) + "..." : detail;
+      return `Sent a message to ${name}: '${preview}'${failed}`;
+    }
+    case "start_session":
+      return `Starting ${name}${failed}`;
+    case "stop_session":
+      return `Stopping ${name}${failed}`;
+    case "create_agent":
+      return `Creating a new agent: ${name}${failed}`;
+    case "remove_agent":
+      return `Removing ${name}${failed}`;
+    case "report_progress": {
+      const preview = detail.length > 60 ? detail.slice(0, 57) + "..." : detail;
+      return `Progress on ${name}: ${preview}${failed}`;
+    }
+    case "complete_task":
+      return `Marked ${name} as complete${failed}`;
+    case "wait":
+      return `Waiting — ${detail || "no action needed"}`;
+    default:
+      return `${action} on ${name}${failed}`;
+  }
+}
+
 // colorize a single console line for inline terminal output
 // applied to each line as it's written (not batch like chat.ts colorize)
 export function colorizeConsoleLine(line: string): string {
@@ -215,14 +261,16 @@ export function colorizeConsoleLine(line: string): string {
   if (/^─{2,}/.test(line.trim())) {
     return `${DIM}${line}${RESET}`;
   }
-  // tagged entries: [observation], [you], [reasoner], [+ action], [! action], [system], [status]
-  const tagMatch = line.match(/^(.*?\[)(observation|you|reasoner|\+ action|! action|system|status)(\].*$)/);
+  // tagged entries: [observation], [you], [reasoner], [explain], [+ action], [! action], [system], [status]
+  const tagMatch = line.match(/^(.*?\[)(observation|you|reasoner|explain|\+ action|! action|system|status)(\].*$)/);
   if (tagMatch) {
     const [, pre, tag, post] = tagMatch;
+    const BOLD = "\x1b[1m";
     switch (tag) {
       case "observation": return `${DIM}${pre}${tag}${post}${RESET}`;
       case "you": return `${GREEN}${pre}${tag}${post}${RESET}`;
       case "reasoner": return `${CYAN}${pre}${tag}${post}${RESET}`;
+      case "explain": return `${BOLD}${CYAN}${pre}${tag}${post}${RESET}`;
       case "+ action": return `${YELLOW}${pre}${tag}${post}${RESET}`;
       case "! action": return `${RED}${pre}${tag}${post}${RESET}`;
       case "system": return `${DIM}${pre}${tag}${post}${RESET}`;

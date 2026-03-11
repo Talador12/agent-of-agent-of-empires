@@ -28,7 +28,7 @@ export class InputReader {
     this.rl = createInterface({
       input: process.stdin,
       output: process.stderr, // prompt goes to stderr so stdout stays clean
-      prompt: `${GREEN}>${RESET} `,
+      prompt: `${GREEN}you >${RESET} `,
       terminal: true,
     });
 
@@ -52,7 +52,7 @@ export class InputReader {
     });
 
     // show hint on startup
-    console.error(`${DIM}type a message to send to the reasoner, /help for commands, ESC ESC to interrupt${RESET}`);
+    console.error(`${DIM}type a message to talk to the AI supervisor, /help for commands, ESC ESC to interrupt${RESET}`);
     this.rl.prompt();
   }
 
@@ -109,7 +109,7 @@ export class InputReader {
 
     // queue as a user message for the reasoner
     this.queue.push(line);
-    console.error(`${DIM}queued for next reasoning cycle${RESET}`);
+    console.error(`${GREEN}Got it!${RESET} ${DIM}The AI will read your message on the next cycle.${RESET}`);
     this.rl?.prompt();
   }
 
@@ -119,22 +119,25 @@ export class InputReader {
     switch (cmd) {
       case "/help":
         console.error(`
-${BOLD}commands:${RESET}
-  /help              show this help
-  /status            print current daemon state
-  /pause             pause the daemon loop
-  /resume            resume the daemon loop
-  /dashboard         force a dashboard print on next tick
-  /tasks             show per-session task assignments
-  /task [sub] [args] task CRUD (list, start, stop, edit, new, rm)
-  /interrupt         interrupt the current reasoner call
-  /verbose           toggle verbose mode
+${BOLD}talking to the AI:${RESET}
+  just type          send a message to the AI supervisor
+  /explain           ask the AI to explain what's happening right now
+
+${BOLD}controls:${RESET}
+  /pause             pause the supervisor
+  /resume            resume the supervisor
+  /interrupt         interrupt the AI mid-thought
+  ESC ESC            same as /interrupt (shortcut)
+
+${BOLD}info:${RESET}
+  /status            show daemon state
+  /dashboard         show full dashboard
+  /tasks             show task assignments
+  /task [sub] [args] task management (list, start, stop, edit, new, rm)
+
+${BOLD}other:${RESET}
+  /verbose           toggle detailed logging
   /clear             clear the screen
-
-${BOLD}shortcuts:${RESET}
-  ESC ESC            interrupt the current reasoner (same as /interrupt)
-
-${BOLD}anything else${RESET} is sent to the reasoner as an operator message
 `);
         break;
 
@@ -154,6 +157,11 @@ ${BOLD}anything else${RESET} is sent to the reasoner as an operator message
 
       case "/dashboard":
         this.queue.push("__CMD_DASHBOARD__");
+        break;
+
+      case "/explain":
+        this.queue.push("__CMD_EXPLAIN__");
+        console.error(`${GREEN}Got it!${RESET} ${DIM}Asking the AI for a plain-English summary...${RESET}`);
         break;
 
       case "/verbose":

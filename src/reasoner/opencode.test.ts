@@ -326,6 +326,7 @@ function makeConfig(port: number): import("../types.js").AoaoeConfig {
     verbose: false,
     dryRun: false,
     observe: false,
+    confirm: false,
     protectedSessions: [],
   };
 }

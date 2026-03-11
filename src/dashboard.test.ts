@@ -56,6 +56,7 @@ function defaultConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig {
     verbose: false,
     dryRun: false,
     observe: false,
+    confirm: false,
     protectedSessions: [],
     ...overrides,
   };
