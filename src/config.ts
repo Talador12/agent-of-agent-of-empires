@@ -130,6 +130,32 @@ export function validateConfig(config: AoaoeConfig): void {
   if (config.contextFiles !== undefined && !Array.isArray(config.contextFiles)) {
     errors.push(`contextFiles must be an array of file paths, got ${typeof config.contextFiles}`);
   }
+  // claudeCode.yolo and claudeCode.resume must be booleans (string "false" is truthy)
+  if (config.claudeCode?.yolo !== undefined && typeof config.claudeCode.yolo !== "boolean") {
+    errors.push(`claudeCode.yolo must be a boolean, got ${typeof config.claudeCode.yolo}`);
+  }
+  if (config.claudeCode?.resume !== undefined && typeof config.claudeCode.resume !== "boolean") {
+    errors.push(`claudeCode.resume must be a boolean, got ${typeof config.claudeCode.resume}`);
+  }
+  // aoe.profile must be a non-empty string
+  if (config.aoe?.profile !== undefined && (typeof config.aoe.profile !== "string" || !config.aoe.profile)) {
+    errors.push(`aoe.profile must be a non-empty string, got ${JSON.stringify(config.aoe?.profile)}`);
+  }
+  // policies.autoAnswerPermissions must be a boolean
+  if (config.policies?.autoAnswerPermissions !== undefined && typeof config.policies.autoAnswerPermissions !== "boolean") {
+    errors.push(`policies.autoAnswerPermissions must be a boolean, got ${typeof config.policies.autoAnswerPermissions}`);
+  }
+  // policies.userActivityThresholdMs must be a non-negative number
+  if (config.policies?.userActivityThresholdMs !== undefined) {
+    const t = config.policies.userActivityThresholdMs;
+    if (typeof t !== "number" || !isFinite(t) || t < 0) {
+      errors.push(`policies.userActivityThresholdMs must be a number >= 0, got ${t}`);
+    }
+  }
+  // policies.allowDestructive must be a boolean
+  if (config.policies?.allowDestructive !== undefined && typeof config.policies.allowDestructive !== "boolean") {
+    errors.push(`policies.allowDestructive must be a boolean, got ${typeof config.policies.allowDestructive}`);
+  }
 
   if (errors.length > 0) {
     throw new Error(`invalid config:\n  ${errors.join("\n  ")}`);

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { parseCliArgs, deepMerge, validateConfig, findConfigFile, configFileExists, defaultConfigPath } from "./config.js";
 import type { AoaoeConfig, Action } from "./types.js";
-import { actionSession, actionDetail } from "./types.js";
+import { actionSession, actionDetail, toSessionStatus } from "./types.js";
 
 describe("config file resolution", () => {
   it("defaultConfigPath points to ~/.aoaoe/aoaoe.config.json", () => {
@@ -362,6 +362,78 @@ describe("validateConfig", () => {
   it("accepts contextFiles as an array", () => {
     assert.doesNotThrow(() => validateConfig(makeConfig({ contextFiles: ["AGENTS.md"] })));
   });
+
+  it("rejects claudeCode.yolo as a string", () => {
+    assert.throws(
+      () => validateConfig(makeConfig({ claudeCode: { yolo: "true", resume: true } })),
+      /claudeCode\.yolo must be a boolean/,
+    );
+  });
+
+  it("rejects claudeCode.resume as a number", () => {
+    assert.throws(
+      () => validateConfig(makeConfig({ claudeCode: { yolo: true, resume: 1 } })),
+      /claudeCode\.resume must be a boolean/,
+    );
+  });
+
+  it("accepts claudeCode.yolo and resume as booleans", () => {
+    assert.doesNotThrow(() => validateConfig(makeConfig({ claudeCode: { yolo: false, resume: false } })));
+  });
+
+  it("rejects aoe.profile as empty string", () => {
+    assert.throws(
+      () => validateConfig(makeConfig({ aoe: { profile: "" } })),
+      /aoe\.profile must be a non-empty string/,
+    );
+  });
+
+  it("rejects aoe.profile as a number", () => {
+    assert.throws(
+      () => validateConfig(makeConfig({ aoe: { profile: 42 } })),
+      /aoe\.profile must be a non-empty string/,
+    );
+  });
+
+  it("accepts aoe.profile as a valid string", () => {
+    assert.doesNotThrow(() => validateConfig(makeConfig({ aoe: { profile: "work" } })));
+  });
+
+  it("rejects policies.autoAnswerPermissions as a string", () => {
+    const config = makeConfig();
+    (config.policies as Record<string, unknown>).autoAnswerPermissions = "true";
+    assert.throws(() => validateConfig(config), /autoAnswerPermissions must be a boolean/);
+  });
+
+  it("rejects policies.userActivityThresholdMs as a string", () => {
+    const config = makeConfig();
+    (config.policies as Record<string, unknown>).userActivityThresholdMs = "30000";
+    assert.throws(() => validateConfig(config), /userActivityThresholdMs must be a number/);
+  });
+
+  it("rejects policies.userActivityThresholdMs as negative", () => {
+    const config = makeConfig();
+    config.policies.userActivityThresholdMs = -1;
+    assert.throws(() => validateConfig(config), /userActivityThresholdMs must be a number >= 0/);
+  });
+
+  it("accepts policies.userActivityThresholdMs as 0", () => {
+    const config = makeConfig();
+    config.policies.userActivityThresholdMs = 0;
+    assert.doesNotThrow(() => validateConfig(config));
+  });
+
+  it("rejects policies.allowDestructive as a string", () => {
+    const config = makeConfig();
+    (config.policies as Record<string, unknown>).allowDestructive = "false";
+    assert.throws(() => validateConfig(config), /allowDestructive must be a boolean/);
+  });
+
+  it("accepts policies.allowDestructive as true", () => {
+    const config = makeConfig();
+    config.policies.allowDestructive = true;
+    assert.doesNotThrow(() => validateConfig(config));
+  });
 });
 
 describe("deepMerge", () => {
@@ -512,5 +584,29 @@ describe("actionDetail", () => {
   it("returns undefined for wait without reason", () => {
     const a: Action = { action: "wait" };
     assert.equal(actionDetail(a), undefined);
+  });
+});
+
+describe("toSessionStatus", () => {
+  it("returns valid status unchanged", () => {
+    assert.equal(toSessionStatus("working"), "working");
+    assert.equal(toSessionStatus("idle"), "idle");
+    assert.equal(toSessionStatus("error"), "error");
+    assert.equal(toSessionStatus("stopped"), "stopped");
+  });
+
+  it("returns 'unknown' for invalid string", () => {
+    assert.equal(toSessionStatus("banana"), "unknown");
+    assert.equal(toSessionStatus("WORKING"), "unknown"); // case-sensitive
+  });
+
+  it("returns 'unknown' for null/undefined", () => {
+    assert.equal(toSessionStatus(null), "unknown");
+    assert.equal(toSessionStatus(undefined), "unknown");
+  });
+
+  it("returns 'unknown' for non-string input", () => {
+    assert.equal(toSessionStatus(42), "unknown");
+    assert.equal(toSessionStatus(true), "unknown");
   });
 });

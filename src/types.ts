@@ -1,6 +1,14 @@
 // known session status values from AoE CLI + internal states
 export type AoeSessionStatus = "working" | "running" | "idle" | "waiting" | "done" | "error" | "stopped" | "unknown";
 
+const VALID_STATUSES = new Set<AoeSessionStatus>(["working", "running", "idle", "waiting", "done", "error", "stopped", "unknown"]);
+
+// coerce an arbitrary string (e.g. from CLI JSON output) to a valid AoeSessionStatus
+export function toSessionStatus(raw: unknown): AoeSessionStatus {
+  const s = String(raw ?? "unknown");
+  return VALID_STATUSES.has(s as AoeSessionStatus) ? (s as AoeSessionStatus) : "unknown";
+}
+
 // session snapshot from aoe status --json + tmux capture
 export interface AoeSession {
   id: string;

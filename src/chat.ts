@@ -391,7 +391,8 @@ export function getCountdownFromState(state: DaemonState | null, daemonRunning: 
 
 function checkDaemon() {
   if (isDaemonRunning()) {
-    const state = readState()!;
+    const state = readState();
+    if (!state) return;
     const eta = getCountdown();
     console.log(`${GREEN}daemon connected${RESET} ${DIM}(${state.sessionCount} sessions, poll #${state.pollCount})${RESET}`);
     if (eta !== null) console.log(`${DIM}next reasoning cycle in ${eta}s${RESET}`);

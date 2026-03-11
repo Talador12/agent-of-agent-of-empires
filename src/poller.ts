@@ -2,13 +2,14 @@ import { createHash } from "node:crypto";
 import { exec } from "./shell.js";
 import { loadSessionContext } from "./context.js";
 import { getActivityForSessions } from "./activity.js";
-import type {
-  AoaoeConfig,
-  AoeSession,
-  AoeSessionStatus,
-  SessionSnapshot,
-  SessionChange,
-  Observation,
+import {
+  toSessionStatus,
+  type AoaoeConfig,
+  type AoeSession,
+  type AoeSessionStatus,
+  type SessionSnapshot,
+  type SessionChange,
+  type Observation,
 } from "./types.js";
 
 export class Poller {
@@ -134,7 +135,7 @@ export class Poller {
     if (result.exitCode !== 0) return "unknown";
     try {
       const data = JSON.parse(result.stdout);
-      return (String(data.status ?? "unknown")) as AoeSessionStatus;
+      return toSessionStatus(data.status);
     } catch {
       return "unknown";
     }
@@ -258,7 +259,6 @@ export function quickHash(s: string): string {
 // covers: CSI (\x1b[...X), OSC (\x1b]...ST), and simple two-char escapes (\x1bX)
 // also strips \x9b (8-bit CSI) sequences
 export function stripAnsi(s: string): string {
-  // eslint-disable-next-line no-control-regex
   return s.replace(/[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[^[\]()#;?0-9A-ORZcf-nqry=><~]/g, "");
 }
 

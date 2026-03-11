@@ -182,7 +182,9 @@ export class TaskManager {
     const listResult = await exec("aoe", ["list", "--json"]);
     let sessions: Array<{ id: string; title: string; path: string }> = [];
     if (listResult.exitCode === 0) {
-      try { sessions = JSON.parse(listResult.stdout); } catch {}
+      try { sessions = JSON.parse(listResult.stdout); } catch (e) {
+        console.error(`[tasks] failed to parse aoe list output: ${e}`);
+      }
     }
 
     for (const task of this.tasks) {
@@ -221,7 +223,9 @@ export class TaskManager {
                 task.createdAt = Date.now();
                 created.push(task.sessionTitle);
               }
-            } catch {}
+            } catch (e) {
+              console.error(`[tasks] failed to parse refreshed session list: ${e}`);
+            }
           }
         } else {
           log(`failed to create session for ${task.repo}: ${result.stderr}`);

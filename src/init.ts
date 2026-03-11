@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import { exec } from "./shell.js";
 import { resolveProjectDirWithSource, type ResolutionSource } from "./context.js";
 import { saveTaskState, loadTaskState } from "./task-manager.js";
-import type { AoeSession, AoeSessionStatus, TaskState } from "./types.js";
+import { toSessionStatus, type AoeSession, type AoeSessionStatus, type TaskState } from "./types.js";
 import { createServer } from "node:net";
 
 import { BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET } from "./colors.js";
@@ -94,7 +94,7 @@ async function getSessionStatus(id: string): Promise<AoeSessionStatus> {
   if (result.exitCode !== 0) return "unknown";
   try {
     const data = JSON.parse(result.stdout);
-    return String(data.status ?? "unknown") as AoeSessionStatus;
+    return toSessionStatus(data.status);
   } catch {
     return "unknown";
   }

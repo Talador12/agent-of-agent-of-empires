@@ -5,15 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.45.0
+## Version: v0.46.0
 
 ## Current Focus
 
-639 tests across 26 files. v0.45.0 shipped: packaging & coverage — npm package slimmed from 219→59 files, dead .npmignore removed, release CI tests before publish, comprehensive parse.test.ts added, README/Makefile/AGENTS.md refreshed.
+655 tests across 26 files. v0.46.0 shipped: correctness & hygiene — README action schema fix, type-safe session status validation, 6 config fields validated, silent catch fixes, non-null assertion fix, dead code removal.
 
 ## Roadmap
 
-### v0.46.0 — "UI Polish" (next)
+### v0.47.0 — "UI Polish" (next)
 OpenCode-inspired TUI overhaul. Minimalist + slick, smooth color design, not monochrome but not a rave.
 - **Block-style rendering** — structured sections with visual hierarchy (OpenCode's panel approach)
 - **Highlighted sections** — last-ran commands and recent AI decisions get visual emphasis
@@ -23,12 +23,56 @@ OpenCode-inspired TUI overhaul. Minimalist + slick, smooth color design, not mon
 - **Slick animations** — subtle transitions for phase changes, countdowns, new events
 - Design principle: pizzaz without being annoying. Minimalist with confident color choices.
 
-### v0.47.0+ — Ideas Backlog
-- **Homebrew tap fix** — PAT needs `repo` scope for `peter-evans/repository-dispatch`
+### v0.48.0+ — Ideas Backlog
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Notification hooks** — Slack, webhook for significant events (errors, completions)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
+
+### What shipped in v0.46.0
+
+**Theme: "Correctness & Hygiene"** — audit-driven fixes: type safety, config validation, dead code, silent failures.
+
+#### 1. Fix README action schema bug (`README.md`)
+`report_progress` and `complete_task` actions showed `"repo"` field but the actual code uses
+`"session"`. Anyone reading the docs would build the wrong JSON. Fixed to match `types.ts`.
+
+#### 2. Type-safe session status validation (`src/types.ts`, `src/poller.ts`, `src/init.ts`)
+Added `toSessionStatus(raw)` function that validates arbitrary CLI output strings against the
+`AoeSessionStatus` union type. Returns `"unknown"` for any unrecognized value instead of using
+`as AoeSessionStatus` casts that could propagate garbage values. Applied to both `poller.ts`
+`getSessionStatus()` and `init.ts` `getSessionStatus()`. 4 new tests.
+
+#### 3. Config validation for 6 fields (`src/config.ts`)
+`validateConfig()` now checks types for fields that could cause subtle runtime bugs:
+- `claudeCode.yolo` must be boolean (string `"false"` is truthy — would enable YOLO mode)
+- `claudeCode.resume` must be boolean (same issue)
+- `aoe.profile` must be non-empty string (empty string breaks aoe CLI calls)
+- `policies.autoAnswerPermissions` must be boolean
+- `policies.userActivityThresholdMs` must be number >= 0
+- `policies.allowDestructive` must be boolean (string `"false"` truthy → enables destructive)
+12 new tests covering accept/reject cases.
+
+#### 4. Fix silent catches in task-manager.ts (`src/task-manager.ts`)
+Two `catch {}` blocks at lines 185 and 224 silently swallowed JSON parse errors during session
+reconciliation. If `aoe list --json` returned malformed output, all task-session linking would
+fail silently. Now logs errors to stderr.
+
+#### 5. Fix non-null assertion in chat.ts (`src/chat.ts`)
+`checkDaemon()` called `readState()!` assuming the state file exists because `isDaemonRunning()`
+returned true. But the state could become null between the two calls (race). Now captures the
+return value and returns early if null.
+
+#### 6. Dead code removal (`src/colors.ts`, `src/poller.ts`)
+- Removed unused `MAGENTA` export from `colors.ts` — not imported anywhere.
+- Removed orphaned `// eslint-disable-next-line no-control-regex` comment in `poller.ts` —
+  ESLint is not a project dependency.
+
+Config additions: none (validation only, no new fields).
+Modified: `README.md`, `src/types.ts`, `src/poller.ts`, `src/init.ts`, `src/config.ts`,
+`src/config.test.ts`, `src/task-manager.ts`, `src/chat.ts`, `src/colors.ts`, `package.json`,
+`Makefile`, `AGENTS.md`, `claude.md`
+Test changes: +16 (12 config validation, 4 toSessionStatus), net 655 tests.
 
 ### What shipped in v0.45.0
 
@@ -713,10 +757,6 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 - Wakeable sleep (`src/wake.ts`) — message latency 10s → ~100ms
 - Fix stdin `/interrupt`, live status in conversation log
 - Remove blocking post-interrupt wait, 12 tests in wake.test.ts
-
-## Backlog
-
-- Homebrew tap PAT needs `repo` scope for dispatch (tracked in roadmap)
 
 ## Completed
 

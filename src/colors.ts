@@ -6,6 +6,5 @@ export const RED = "\x1b[31m";
 export const GREEN = "\x1b[32m";
 export const YELLOW = "\x1b[33m";
 export const CYAN = "\x1b[36m";
-export const MAGENTA = "\x1b[35m";
 export const WHITE = "\x1b[37m";
 export const BG_DARK = "\x1b[48;5;236m";

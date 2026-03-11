@@ -305,7 +305,7 @@ export function resolveProjectDirWithSource(
   return { dir: null, source: null };
 }
 
-// convenience wrapper — returns just the path (backward compatible)
+// convenience wrapper — returns just the path (used by tests and external callers)
 export function resolveProjectDir(
   basePath: string,
   sessionTitle: string,

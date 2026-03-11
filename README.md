@@ -410,8 +410,8 @@ The reasoner returns structured JSON decisions:
 { "action": "stop_session", "session": "<id>" }
 { "action": "create_agent", "path": "<dir>", "title": "<name>", "tool": "<agent>" }
 { "action": "remove_agent", "session": "<id>" }
-{ "action": "report_progress", "repo": "<path>", "summary": "<milestone>" }
-{ "action": "complete_task", "repo": "<path>", "summary": "<final status>" }
+{ "action": "report_progress", "session": "<id>", "summary": "<milestone>" }
+{ "action": "complete_task", "session": "<id>", "summary": "<final status>" }
 { "action": "wait" }
 ```
 
