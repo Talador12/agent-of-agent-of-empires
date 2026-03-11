@@ -30,6 +30,7 @@ const DEFAULTS: AoaoeConfig = {
     maxIdleBeforeNudgeMs: 120_000,
     maxErrorsBeforeRestart: 3,
     autoAnswerPermissions: true,
+    userActivityThresholdMs: 30_000,
   },
   contextFiles: [],
   sessionDirs: {},

@@ -16,6 +16,7 @@ export interface SessionSnapshot {
   outputHash: string; // quick hash to detect changes
   capturedAt: number; // Date.now()
   projectContext?: string; // AGENTS.md / claude.md content from session's path
+  userActive?: boolean; // true if a human user is interacting with this tmux pane
 }
 
 export interface Observation {
@@ -89,6 +90,7 @@ export interface AoaoeConfig {
     maxErrorsBeforeRestart: number;
     autoAnswerPermissions: boolean;
     actionCooldownMs?: number; // rate limit cooldown per session (default: 30000)
+    userActivityThresholdMs?: number; // skip send_input when user was active within this window (default: 30000)
   };
   contextFiles: string[]; // extra AI instruction file paths to load (relative to project root)
   sessionDirs: Record<string, string>; // explicit session title -> project directory mapping (absolute or relative to cwd)
@@ -108,6 +110,7 @@ export interface DaemonSessionState {
   currentTask?: string; // last send_input text sent to this session
   lastActivity?: string; // last non-empty line of output
   todoSummary?: string; // formatted OpenCode-style TODO list parsed from pane output
+  userActive?: boolean; // true if a human user is interacting with this tmux pane
 }
 
 export interface DaemonState {

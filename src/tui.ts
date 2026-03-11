@@ -59,6 +59,7 @@ export interface ActivityEntry {
 
 export class TUI {
   private active = false;
+  private countdownTimer: ReturnType<typeof setInterval> | null = null;
   private cols = 80;
   private rows = 24;
   private headerHeight = 1;      // top bar
@@ -76,6 +77,8 @@ export class TUI {
   private sessions: DaemonSessionState[] = [];
   private paused = false;
   private version = "";
+  private reasonerName = "";
+  private nextTickAt = 0; // epoch ms for countdown display
 
   start(version: string): void {
     if (this.active) return;
@@ -88,6 +91,12 @@ export class TUI {
 
     // handle terminal resize
     process.stdout.on("resize", () => this.onResize());
+    // repaint header every second so countdown timer ticks down
+    this.countdownTimer = setInterval(() => {
+      if (this.active && this.phase === "sleeping" && this.nextTickAt > 0) {
+        this.paintHeader();
+      }
+    }, 1000);
     // initial layout
     this.computeLayout(0);
     this.paintAll();
@@ -96,6 +105,7 @@ export class TUI {
   stop(): void {
     if (!this.active) return;
     this.active = false;
+    if (this.countdownTimer) { clearInterval(this.countdownTimer); this.countdownTimer = null; }
     // restore normal screen, show cursor, reset scroll region
     process.stderr.write(resetScrollRegion() + CURSOR_SHOW + ALT_SCREEN_OFF);
   }
@@ -111,10 +121,14 @@ export class TUI {
     pollCount?: number;
     sessions?: DaemonSessionState[];
     paused?: boolean;
+    reasonerName?: string;
+    nextTickAt?: number;
   }): void {
     if (opts.phase !== undefined) this.phase = opts.phase;
     if (opts.pollCount !== undefined) this.pollCount = opts.pollCount;
     if (opts.paused !== undefined) this.paused = opts.paused;
+    if (opts.reasonerName !== undefined) this.reasonerName = opts.reasonerName;
+    if (opts.nextTickAt !== undefined) this.nextTickAt = opts.nextTickAt;
     if (opts.sessions !== undefined) {
       const sessionCountChanged = opts.sessions.length !== this.sessions.length;
       this.sessions = opts.sessions;
@@ -201,7 +215,20 @@ export class TUI {
       : `${DIM}sleeping${RESET}`;
 
     const sessCount = `${this.sessions.length} session${this.sessions.length !== 1 ? "s" : ""}`;
-    const line = ` ${BOLD}aoaoe${RESET} ${DIM}${this.version}${RESET}  ${DIM}|${RESET}  poll #${this.pollCount}  ${DIM}|${RESET}  ${sessCount}  ${DIM}|${RESET}  ${phaseText}`;
+    const activeCount = this.sessions.filter((s) => s.userActive).length;
+    const activeTag = activeCount > 0 ? `  ${DIM}|${RESET}  ${YELLOW}${activeCount} user active${RESET}` : "";
+
+    // countdown to next tick (only in sleeping phase)
+    let countdownTag = "";
+    if (this.phase === "sleeping" && this.nextTickAt > 0) {
+      const remaining = Math.max(0, Math.ceil((this.nextTickAt - Date.now()) / 1000));
+      countdownTag = `  ${DIM}|${RESET}  ${DIM}next: ${remaining}s${RESET}`;
+    }
+
+    // reasoner name
+    const reasonerTag = this.reasonerName ? `  ${DIM}|${RESET}  ${DIM}${this.reasonerName}${RESET}` : "";
+
+    const line = ` ${BOLD}aoaoe${RESET} ${DIM}${this.version}${RESET}  ${DIM}|${RESET}  poll #${this.pollCount}  ${DIM}|${RESET}  ${sessCount}  ${DIM}|${RESET}  ${phaseText}${activeTag}${countdownTag}${reasonerTag}`;
     process.stderr.write(
       SAVE_CURSOR +
       moveTo(1, 1) + CLEAR_LINE + BG_DARK + WHITE + truncateAnsi(line, this.cols) + RESET +
@@ -218,11 +245,12 @@ export class TUI {
     for (let i = 0; i < this.sessions.length; i++) {
       const s = this.sessions[i];
       const icon = STATUS_ICONS[s.status] ?? `${YELLOW}?${RESET}`;
+      const userFlag = s.userActive ? `${YELLOW}*${RESET}` : " ";
       const tool = s.tool.length > 10 ? s.tool.slice(0, 10) : s.tool.padEnd(11);
       const title = s.title.length > 20 ? s.title.slice(0, 20) + ".." : s.title.padEnd(22);
       const id = (s.id || "").slice(0, 8).padEnd(10);
       const task = s.currentTask ? truncatePlain(s.currentTask, 30) : `${DIM}-${RESET}`;
-      const line = `  ${icon}  ${tool} ${title} ${id} ${task}`;
+      const line = `  ${icon}${userFlag} ${tool} ${title} ${id} ${task}`;
       process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + line);
     }
 
@@ -236,9 +264,13 @@ export class TUI {
   }
 
   private paintSeparator(): void {
-    const line = `${DIM}${"─".repeat(this.cols)}${RESET}`;
+    const hints = " ESC ESC: interrupt  /help  /task  /pause ";
+    const prefix = "── activity ";
+    const totalDecor = prefix.length + hints.length + 2; // 2 for surrounding ──
+    const fill = Math.max(0, this.cols - totalDecor);
+    const line = `${DIM}${prefix}${"─".repeat(Math.floor(fill / 2))}${hints}${"─".repeat(Math.ceil(fill / 2))}${RESET}`;
     process.stderr.write(
-      SAVE_CURSOR + moveTo(this.separatorRow, 1) + CLEAR_LINE + line + RESTORE_CURSOR
+      SAVE_CURSOR + moveTo(this.separatorRow, 1) + CLEAR_LINE + truncateAnsi(line, this.cols) + RESTORE_CURSOR
     );
   }
 

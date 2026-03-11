@@ -74,9 +74,10 @@ export function printDashboard(
       const id = s.id.slice(0, 8).padEnd(10);
       // show current task from daemon state
       const sessionState = state?.sessions?.find((ss) => ss.id === s.id);
+      const userFlag = sessionState?.userActive ? "*" : " ";
       const task = sessionState?.currentTask ?? "";
       const taskStr = task ? truncate(task, 30) : "-";
-      lines.push(`   ${icon}   ${tool} ${title} ${id} ${taskStr}`);
+      lines.push(`   ${icon}${userFlag}  ${tool} ${title} ${id} ${taskStr}`);
       // show todo items if present
       if (sessionState?.todoSummary) {
         const todoLines = sessionState.todoSummary.split("\n").slice(0, 5);

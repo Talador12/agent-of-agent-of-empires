@@ -180,8 +180,11 @@ async function main() {
   // start TUI (alternate screen buffer) after input is ready
   if (tui) {
     tui.start(pkg || "dev");
+    tui.updateState({ reasonerName: config.reasoner });
     tui.log("system", `reasoner: ${config.reasoner}  |  poll: ${config.pollIntervalMs / 1000}s`);
     if (config.dryRun) tui.log("system", "DRY RUN — will observe and reason but not execute");
+    const threshold = config.policies.userActivityThresholdMs ?? 30_000;
+    tui.log("system", `user activity guard: ${threshold / 1000}s threshold`);
   }
 
   // graceful shutdown — wrap in .catch so unhandled rejections from
@@ -283,8 +286,9 @@ async function main() {
       if (pollCount % 6 === 1) {
         if (tui) tui.log("system", "paused (type /resume to continue)"); else log("paused (type /resume to continue)");
       }
-      if (tui) tui.updateState({ phase: "sleeping", paused: true, pollCount });
-      writeState("sleeping", { paused: true, pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt: Date.now() + config.pollIntervalMs });
+      const pausedNextTickAt = Date.now() + config.pollIntervalMs;
+      if (tui) tui.updateState({ phase: "sleeping", paused: true, pollCount, nextTickAt: pausedNextTickAt });
+      writeState("sleeping", { paused: true, pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt: pausedNextTickAt });
       await wakeableSleep(config.pollIntervalMs, AOAOE_DIR);
       continue;
     }
@@ -323,8 +327,8 @@ async function main() {
       if (skipSleep) {
         if (tui) tui.log("system", "skipping sleep — pending input detected"); else log("skipping sleep — pending input detected");
       } else {
-        if (tui) tui.updateState({ phase: "sleeping" });
         const nextTickAt = Date.now() + config.pollIntervalMs;
+        if (tui) tui.updateState({ phase: "sleeping", nextTickAt });
         writeState("sleeping", { pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt, paused: false });
 
         const wake = await wakeableSleep(config.pollIntervalMs, AOAOE_DIR);

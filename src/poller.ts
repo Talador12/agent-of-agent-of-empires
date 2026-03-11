@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { exec } from "./shell.js";
 import { loadSessionContext } from "./context.js";
+import { getActivityForSessions } from "./activity.js";
 import type {
   AoaoeConfig,
   AoeSession,
@@ -29,6 +30,17 @@ export class Poller {
     const failedCount = results.filter((r) => r.status === "rejected").length;
     if (failedCount > 0) {
       this.log(`${failedCount} session capture(s) failed, proceeding with ${snapshots.length}`);
+    }
+
+    // detect user activity in tmux panes (batch, parallel)
+    const threshold = this.config.policies.userActivityThresholdMs ?? 30_000;
+    if (snapshots.length > 0) {
+      const tmuxNames = snapshots.map((s) => s.session.tmux_name);
+      const activityMap = await getActivityForSessions(tmuxNames, threshold);
+      for (const snap of snapshots) {
+        const info = activityMap.get(snap.session.tmux_name);
+        snap.userActive = info?.userActive ?? false;
+      }
     }
 
     const changes = this.diffSnapshots(snapshots);

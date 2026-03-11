@@ -112,6 +112,16 @@ export class Executor {
     text: string,
     snapshots: SessionSnapshot[]
   ): Promise<ActionLogEntry> {
+    // user activity guard: refuse to send input when a human is interacting
+    const snap = this.resolveSession(sessionId, snapshots);
+    if (snap?.userActive) {
+      return this.logAction(
+        { action: "send_input", session: sessionId, text },
+        false,
+        `skipped: user active in ${snap.session.title} — will not interfere`
+      );
+    }
+
     // resolve tmux session name from session ID
     const tmuxName = this.resolveTmuxName(sessionId, snapshots);
     if (!tmuxName) {

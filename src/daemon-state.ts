@@ -92,6 +92,7 @@ export function buildSessionStates(obs: Observation): DaemonSessionState[] {
         ? lastActivity.slice(0, 97) + "..."
         : lastActivity,
       todoSummary,
+      userActive: snap.userActive ?? false,
     };
   });
 }

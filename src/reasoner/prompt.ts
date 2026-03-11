@@ -142,9 +142,17 @@ export function formatObservation(obs: Observation): string {
 
   // session summary table
   parts.push("Sessions:");
+  const activeSessions: string[] = [];
   for (const snap of obs.sessions) {
     const s = snap.session;
-    parts.push(`  [${s.id.slice(0, 8)}] "${s.title}" tool=${s.tool} status=${s.status} path=${s.path}`);
+    const activeTag = snap.userActive ? " [USER ACTIVE]" : "";
+    parts.push(`  [${s.id.slice(0, 8)}] "${s.title}" tool=${s.tool} status=${s.status} path=${s.path}${activeTag}`);
+    if (snap.userActive) activeSessions.push(s.title);
+  }
+  if (activeSessions.length > 0) {
+    parts.push("");
+    parts.push(`WARNING: A human user is currently interacting with: ${activeSessions.join(", ")}.`);
+    parts.push("Do NOT send input to these sessions. The user is actively working and your input would interfere.");
   }
   parts.push("");
 

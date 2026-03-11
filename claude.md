@@ -5,11 +5,51 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.33.0
+## Version: v0.34.0
 
 ## Current Focus
 
-482 tests across 24 files. v0.33.0 shipped: in-place TUI, smart init, task management.
+490 tests across 25 files. v0.34.0 shipped: user activity guard, TUI polish.
+
+### What shipped in v0.34.0
+
+**Theme: "Awareness"** — the daemon now detects when a human user is actively
+interacting with an AoE tmux pane and prevents the reasoner from injecting
+input into that pane. TUI gets countdown timer, reasoner name, and keyboard
+shortcut hints.
+
+#### User Activity Guard (`src/activity.ts`)
+New module that detects human keystrokes in tmux sessions using
+`tmux list-clients -t <session> -F '#{client_activity}'`. Returns the Unix
+epoch of the last keystroke per attached client. If the most recent keystroke
+is within the threshold (default 30s), the session is marked `userActive`.
+
+Two enforcement levels:
+1. **Prompt-level**: `formatObservation()` adds `[USER ACTIVE]` tags per
+   session and a WARNING paragraph telling the reasoner not to send input.
+2. **Executor-level**: `sendInput()` checks `snap.userActive` and refuses to
+   send, returning "skipped: user active in {title}" as a safety net.
+
+- `getSessionActivity(tmuxName, thresholdMs)` — single session check
+- `getActivityForSessions(tmuxNames, thresholdMs)` — batch check (one exec per session)
+- Config: `policies.userActivityThresholdMs` (default: 30000)
+- Wired into poller (`poll()` sets `snap.userActive`), daemon-state
+  (`buildSessionStates()` propagates to IPC), and prompt (`formatObservation()`).
+
+#### TUI Polish (`src/tui.ts`)
+- **Header**: Shows countdown timer (`next: 8s`), reasoner name, user-active
+  count (`2 user active`)
+- **Session rows**: `*` indicator next to status icon when user is active
+- **Separator**: Keyboard shortcut hints
+  (`── activity ── ESC ESC: interrupt  /help  /task  /pause ──`)
+- **Countdown interval**: 1-second `setInterval` repaints header during sleep
+  phases so the countdown ticks down live. `stop()` cleans up the interval.
+- `updateState()` accepts `reasonerName` and `nextTickAt` options.
+
+New files: `src/activity.ts`, `src/activity.test.ts`
+Modified: `src/types.ts`, `src/config.ts`, `src/poller.ts`, `src/executor.ts`,
+`src/reasoner/prompt.ts`, `src/daemon-state.ts`, `src/tui.ts`, `src/dashboard.ts`,
+`src/index.ts`
 
 ### What shipped in v0.33.0
 
@@ -140,9 +180,6 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 
 ## Backlog
 
-- **User activity guard** — detect when user is actively typing in an aoe session
-  pane and refuse `send_input` to that pane. Uses tmux `client_activity` + pane
-  focus detection. Prevents reasoner from injecting text while user is working.
 - **CI on PR creation** — add `pull_request` trigger to `.github/workflows/ci.yml`
 - `OpencodeReasoner.shutdown()` doesn't clean up orphaned servers from prior runs
 - `index.ts` dynamic imports in `testContext` that could be static
@@ -151,6 +188,25 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 
 ## Completed
 
+- v0.34.0: User activity guard + TUI polish (490 tests):
+  - **`activity.ts`**: New module — `getSessionActivity`, `getActivityForSessions`.
+    Uses `tmux list-clients` to detect recent keystrokes per session.
+  - **`activity.test.ts`**: 8 tests (getSessionActivity 4, getActivityForSessions 4).
+  - **`types.ts`**: Added `userActive` to `SessionSnapshot`, `DaemonSessionState`;
+    `userActivityThresholdMs` to policies.
+  - **`config.ts`**: Added `userActivityThresholdMs: 30_000` default.
+  - **`poller.ts`**: Batch activity check after session capture.
+  - **`executor.ts`**: User activity guard in `sendInput()`.
+  - **`reasoner/prompt.ts`**: `[USER ACTIVE]` tags + WARNING paragraph.
+  - **`daemon-state.ts`**: Propagates `userActive` to IPC state.
+  - **`tui.ts`**: Countdown timer, reasoner name, user-active count, keyboard
+    shortcut hints, 1s repaint interval.
+  - **`dashboard.ts`**: `*` user-active indicator in session rows.
+  - **`index.ts`**: Wired `reasonerName`, `nextTickAt`, activity threshold log.
+- v0.33.0: In-place TUI, smart init, task management (482 tests):
+  - `tui.ts`: OpenCode-style TUI with scroll region, resize, activity buffer.
+  - `init.ts`: `aoaoe init` imports active + inactive session history as tasks.
+  - `task-cli.ts`: Task CRUD from terminal + `/task` slash commands.
 - v0.29.1: Message processing module + instant skip-sleep (426 tests):
   - **`message.ts`**: Pure functions — classifyMessages, formatUserMessages,
     buildReceipts, shouldSkipSleep, hasPendingFile.
