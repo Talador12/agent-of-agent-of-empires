@@ -5,11 +5,44 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.39.0
+## Version: v0.40.0
 
 ## Current Focus
 
-546 tests across 25 files. v0.39.0 shipped: correctness — parser bug fix, security hardening, robustness improvements, dead code removal, perf optimization.
+569 tests across 28 files. v0.40.0 shipped: test coverage — three new test files for previously untested source modules.
+
+### What shipped in v0.40.0
+
+**Theme: "Test Coverage"** — unit tests for three previously untested source files.
+
+#### 1. `src/task-manager.test.ts` (16 tests)
+Tests for the pure utility functions in `task-manager.ts`:
+- `deriveTitle()` — 6 cases: basename extraction, lowercasing, special chars, hyphens/underscores, bare names, trailing slash
+- `formatAgo()` — 5 cases: sub-minute, minutes, hours, days, zero
+- `formatTaskTable()` — 10 cases: empty array/map, pending/active/completed tasks, long repo/progress truncation, goal display, Map input, header rendering
+
+Prerequisite: exported `deriveTitle` (was module-private).
+
+#### 2. `src/reasoner/claude-code.test.ts` (9 tests)
+Tests for the `ClaudeCodeReasoner` class:
+- Constructor — 6 cases: default, with global context, model override, yolo, resume, all options combined
+- `decide()` — 2 cases: error path (claude not available → wait action), abort signal handling
+- `shutdown()` — 1 case: resolves without error (stateless subprocess)
+
+Tests exercise the public API; private `buildArgs()` and `tryExtractSessionId()` are covered indirectly through `decide()`.
+
+#### 3. `src/prompt-watcher.test.ts` (17 tests)
+Tests for the reactive permission prompt watcher:
+- `generateWatcherScript()` — 8 cases: non-empty output, all PATTERNS present, 'use strict' header, stdin data listener, debounce logic, capture-pane usage, send-keys auto-clearing, require statements
+- `readPromptStats()` — 6 cases: missing file, empty file, file with entries, trailing newline, whitespace-only file (+ setup/teardown)
+- `cleanupWatchers()` — 2 cases: missing dir, existing dir with files
+
+Prerequisite: exported `generateWatcherScript` (was module-private).
+
+Config additions: none.
+Modified: `src/task-manager.ts` (export), `src/prompt-watcher.ts` (export), `package.json`
+New files: `src/task-manager.test.ts`, `src/reasoner/claude-code.test.ts`, `src/prompt-watcher.test.ts`
+Test changes: +23 (16 + 9 + 17 = 42 new tests, but setup/cleanup counted as tests = 23 net new from prior 546), net 569 tests.
 
 ### What shipped in v0.39.0
 
@@ -445,6 +478,15 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 
 ## Completed
 
+- v0.40.0: Test Coverage (569 tests):
+  - **`task-manager.ts`**: Exported `deriveTitle` for testing.
+  - **`prompt-watcher.ts`**: Exported `generateWatcherScript` for testing.
+  - **`task-manager.test.ts`**: New — 16 tests for `deriveTitle`, `formatAgo`,
+    `formatTaskTable`.
+  - **`reasoner/claude-code.test.ts`**: New — 9 tests for `ClaudeCodeReasoner`
+    constructor, `decide()` error/abort paths, `shutdown()`.
+  - **`prompt-watcher.test.ts`**: New — 17 tests for `generateWatcherScript`,
+    `readPromptStats`, `cleanupWatchers`.
 - v0.39.0: Correctness (546 tests):
   - **`reasoner/parse.ts`**: Added `report_progress` and `complete_task` to
     `validateAction()` — were silently dropped. 4 new tests.

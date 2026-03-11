@@ -269,7 +269,7 @@ export class TaskManager {
 }
 
 // derive a session title from a repo path: "github/adventure" → "adventure"
-function deriveTitle(repo: string): string {
+export function deriveTitle(repo: string): string {
   return basename(repo).toLowerCase().replace(/[^a-z0-9_-]/g, "-");
 }
 

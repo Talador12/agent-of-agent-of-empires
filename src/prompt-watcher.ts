@@ -43,7 +43,7 @@ const WATCHER_DIR = "/tmp/aoaoe-watchers";
 //   \\b in template → \b in file → regex word boundary
 //   \\n in template → \n in file → newline character
 //   \\/ in template → \/ in file → literal slash in regex
-function generateWatcherScript(): string {
+export function generateWatcherScript(): string {
   return `'use strict';
 const { execFile } = require('child_process');
 const { appendFileSync } = require('fs');
