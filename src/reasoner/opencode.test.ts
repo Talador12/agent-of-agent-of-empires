@@ -210,9 +210,16 @@ describe("parseReasonerResponse", () => {
     assert.equal(result.actions[0].action, "wait");
   });
 
-  it("falls back to wait on empty input", () => {
+  it("falls back to wait on empty input with descriptive reason", () => {
     const result = parseReasonerResponse("");
     assert.equal(result.actions[0].action, "wait");
+    assert.ok((result.actions[0] as { reason?: string }).reason?.includes("empty response"));
+  });
+
+  it("falls back to wait on whitespace-only input", () => {
+    const result = parseReasonerResponse("   \n  \t  ");
+    assert.equal(result.actions[0].action, "wait");
+    assert.ok((result.actions[0] as { reason?: string }).reason?.includes("empty response"));
   });
 
   it("handles whitespace-padded JSON", () => {

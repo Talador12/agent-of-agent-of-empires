@@ -1,7 +1,7 @@
 // task-manager.ts — persistent task orchestration for aoaoe
 // loads task definitions from aoaoe.tasks.json (or config), creates/manages AoE
 // sessions for each, tracks progress that survives session cleanup.
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import { exec } from "./shell.js";
@@ -94,8 +94,13 @@ export function loadTaskState(): Map<string, TaskState> {
         }
       }
     }
-  } catch {
-    // corrupt state file — start fresh
+  } catch (e) {
+    // corrupt state file — back up for recovery, then start fresh
+    console.error(`warning: task state file is corrupt, starting fresh: ${e}`);
+    try {
+      renameSync(STATE_FILE, STATE_FILE + ".corrupt");
+      console.error(`  backed up to ${STATE_FILE}.corrupt`);
+    } catch { /* best-effort backup */ }
   }
   return map;
 }

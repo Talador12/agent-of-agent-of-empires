@@ -118,28 +118,33 @@ function main() {
   }, 5000);
 
   rl.on("line", async (line: string) => {
-    const trimmed = line.trim();
-    if (!trimmed) { rl.prompt(); return; }
+    try {
+      const trimmed = line.trim();
+      if (!trimmed) { rl.prompt(); return; }
 
-    // slash commands
-    if (trimmed.startsWith("/")) {
-      await handleCommand(trimmed, rl);
+      // slash commands
+      if (trimmed.startsWith("/")) {
+        await handleCommand(trimmed, rl);
+        rl.prompt();
+        return;
+      }
+
+      // regular message -> queue for reasoner (file write wakes daemon instantly)
+      appendToInput(trimmed);
+      const state = readState();
+      if (!isDaemonRunning()) {
+        console.log(`${YELLOW}queued, but daemon is not running!${RESET}`);
+        console.log(`${DIM}start it with: aoaoe${RESET}`);
+      } else if (state?.phase === "reasoning") {
+        console.log(`${DIM}queued -- reasoner is active, will process on next tick${RESET}`);
+      } else {
+        console.log(`${DIM}queued -- daemon will pick this up momentarily${RESET}`);
+      }
       rl.prompt();
-      return;
+    } catch (err) {
+      console.error(`${RED}error: ${err}${RESET}`);
+      rl.prompt();
     }
-
-    // regular message -> queue for reasoner (file write wakes daemon instantly)
-    appendToInput(trimmed);
-    const state = readState();
-    if (!isDaemonRunning()) {
-      console.log(`${YELLOW}queued, but daemon is not running!${RESET}`);
-      console.log(`${DIM}start it with: aoaoe${RESET}`);
-    } else if (state?.phase === "reasoning") {
-      console.log(`${DIM}queued -- reasoner is active, will process on next tick${RESET}`);
-    } else {
-      console.log(`${DIM}queued -- daemon will pick this up momentarily${RESET}`);
-    }
-    rl.prompt();
   });
 
   rl.on("close", () => { clearInterval(statusInterval); cleanup(); process.exit(0); });

@@ -257,6 +257,12 @@ async function main() {
   const shutdown = () => {
     if (!running) return;
     running = false;
+    // swallow further signals during cleanup — prevents stale lock files
+    // when user hits Ctrl+C again while async cleanup is in progress
+    process.removeAllListeners("SIGINT");
+    process.removeAllListeners("SIGTERM");
+    process.on("SIGINT", () => {}); // swallow
+    process.on("SIGTERM", () => {}); // swallow
     if (tui) tui.stop();
 
     // ── shutdown summary ──────────────────────────────────────────────────
@@ -728,11 +734,16 @@ function askConfirm(description: string, tui?: TUI | null): Promise<boolean> {
     }
     process.stderr.write(prompt);
 
+    // cleanup helper — ensures terminal is restored regardless of how we exit
+    const cleanup = () => {
+      process.stdin.removeListener("data", onData);
+      if (process.stdin.isTTY) try { process.stdin.setRawMode(false); } catch { /* already restored */ }
+    };
+
     // temporarily listen for a single keypress
     const onData = (data: Buffer) => {
       const ch = data.toString().trim().toLowerCase();
-      process.stdin.removeListener("data", onData);
-      if (process.stdin.isTTY) process.stdin.setRawMode(false);
+      cleanup();
       if (ch === "y" || ch === "yes") {
         process.stderr.write(`${GREEN}approved${RESET}\n`);
         resolve(true);
@@ -744,6 +755,11 @@ function askConfirm(description: string, tui?: TUI | null): Promise<boolean> {
 
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.once("data", onData);
+
+    // if the process receives SIGINT while waiting, restore terminal and reject
+    const onSignal = () => { cleanup(); resolve(false); };
+    process.once("SIGINT", onSignal);
+    process.once("SIGTERM", onSignal);
   });
 }
 

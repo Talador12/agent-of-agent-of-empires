@@ -80,6 +80,11 @@ function validateAction(raw: unknown): Action | null {
 export function parseReasonerResponse(raw: string): ReasonerResult {
   const trimmed = raw.trim();
 
+  // empty or whitespace-only response — the LLM returned nothing
+  if (!trimmed) {
+    return { actions: [{ action: "wait", reason: "LLM returned empty response" }] };
+  }
+
   // try direct JSON parse
   try {
     return validateResult(JSON.parse(trimmed));

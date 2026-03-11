@@ -1,7 +1,7 @@
 // daemon-state.ts -- shared state file for IPC between daemon and chat UI
 // the daemon writes this file each time its phase changes;
 // chat.ts reads it on a 1-second interval to display countdown + session tasks.
-import { writeFileSync, readFileSync, existsSync, unlinkSync, mkdirSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, unlinkSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { DaemonState, DaemonPhase, DaemonSessionState, Observation } from "./types.js";
@@ -60,10 +60,15 @@ const DEBOUNCE_MS = 500;
 let lastFlushedPhase: DaemonPhase | null = null;
 let lastFlushTime = 0;
 
+const STATE_TMP = STATE_FILE + ".tmp";
+
 function flushState(): void {
   try {
     ensureDir();
-    writeFileSync(STATE_FILE, JSON.stringify(currentState) + "\n");
+    // atomic write: write to temp file, then rename into place.
+    // prevents chat.ts from reading a partially-written JSON file.
+    writeFileSync(STATE_TMP, JSON.stringify(currentState) + "\n");
+    renameSync(STATE_TMP, STATE_FILE);
     lastFlushedPhase = currentState.phase;
     lastFlushTime = Date.now();
   } catch {
@@ -180,19 +185,28 @@ export function cleanupState(): void {
 export function acquireLock(): { acquired: boolean; existingPid?: number } {
   ensureDir();
   try {
-    if (existsSync(LOCK_FILE)) {
+    // try exclusive create (atomic — fails if file already exists)
+    writeFileSync(LOCK_FILE, String(process.pid), { flag: "wx" });
+    return { acquired: true };
+  } catch {
+    // file exists — check if the owning process is still alive
+    try {
       const content = readFileSync(LOCK_FILE, "utf-8").trim();
       const pid = parseInt(content, 10);
       if (!isNaN(pid) && isProcessRunning(pid)) {
         return { acquired: false, existingPid: pid };
       }
-      // stale lock file — previous daemon crashed without cleanup
+      // stale lock — previous daemon crashed without cleanup. reclaim it.
       unlinkSync(LOCK_FILE);
+      try {
+        writeFileSync(LOCK_FILE, String(process.pid), { flag: "wx" });
+        return { acquired: true };
+      } catch {
+        return { acquired: false }; // another process beat us to the reclaim
+      }
+    } catch {
+      return { acquired: false };
     }
-    writeFileSync(LOCK_FILE, String(process.pid));
-    return { acquired: true };
-  } catch {
-    return { acquired: false };
   }
 }
 

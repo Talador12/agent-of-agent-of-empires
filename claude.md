@@ -5,15 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.43.0
+## Version: v0.44.0
 
 ## Current Focus
 
-597 tests across 28 files. v0.43.0 shipped: developer experience — prepublishOnly safety, dead code/import cleanup, config validation hardening, observe mode fix, AGENTS.md overhaul.
+598 tests across 28 files. v0.44.0 shipped: resilience — atomic IPC writes, atomic lock file, signal-safe shutdown, task state corruption backup, unhandled promise fix, confirm mode terminal safety.
 
 ## Roadmap
 
-### v0.44.0 — "UI Polish" (next)
+### v0.45.0 — "UI Polish" (next)
 OpenCode-inspired TUI overhaul. Minimalist + slick, smooth color design, not monochrome but not a rave.
 - **Block-style rendering** — structured sections with visual hierarchy (OpenCode's panel approach)
 - **Highlighted sections** — last-ran commands and recent AI decisions get visual emphasis
@@ -23,13 +23,61 @@ OpenCode-inspired TUI overhaul. Minimalist + slick, smooth color design, not mon
 - **Slick animations** — subtle transitions for phase changes, countdowns, new events
 - Design principle: pizzaz without being annoying. Minimalist with confident color choices.
 
-### v0.45.0+ — Ideas Backlog
+### v0.46.0+ — Ideas Backlog
 - **Homebrew tap fix** — PAT needs `repo` scope for `peter-evans/repository-dispatch`
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Notification hooks** — Slack, webhook for significant events (errors, completions)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **README refresh** — update test counts, new features, architecture diagram
+
+### What shipped in v0.44.0
+
+**Theme: "Resilience"** — fixing real runtime bugs: race conditions, data corruption, signal handling,
+unhandled promises. Every fix addresses a scenario that could bite users in production.
+
+#### 1. Atomic state file writes (`src/daemon-state.ts`)
+`flushState()` previously used `writeFileSync` directly, which is not atomic — chat.ts could read
+a partially-written JSON file and get a parse error, showing "daemon not running" when it's actually
+running. Now writes to a temp file then `renameSync` into place (POSIX atomic).
+
+#### 2. Atomic lock file (`src/daemon-state.ts`)
+`acquireLock()` previously did `existsSync` → `readFileSync` → `writeFileSync` with a TOCTOU race —
+two daemon processes could both pass the existence check and write their PIDs. Now uses `writeFileSync`
+with `{ flag: "wx" }` (exclusive create) which atomically fails if the file exists. Stale lock reclaim
+uses a second `wx` attempt after unlinking, so concurrent reclaim attempts also can't race.
+
+#### 3. Signal-safe shutdown (`src/index.ts`)
+Previously, hitting Ctrl+C during async cleanup (reasoner shutdown, opencode server kill) would trigger
+Node's default SIGINT handler, calling `process.exit()` before `cleanupState()` ran — leaving a stale
+`daemon.lock` file that blocks the next start. Now the shutdown handler immediately swallows further
+SIGINT/SIGTERM signals during cleanup, ensuring the lock file is always cleaned up.
+
+#### 4. Task state corruption backup (`src/task-manager.ts`)
+`loadTaskState()` previously caught parse errors silently and returned an empty Map. The next
+`saveTaskState()` call would overwrite the corrupt file with empty state, losing all progress.
+Now renames the corrupt file to `task-state.json.corrupt` before starting fresh, so the user can
+recover manually. Logs a warning with the error.
+
+#### 5. Unhandled promise rejection in chat.ts (`src/chat.ts`)
+The readline `line` event handler was an `async` function whose returned promise was not caught.
+If `handleCommand` (e.g., `/overview`) threw, the rejection was unhandled — in Node 22+ this
+crashes the process. Now wrapped in try/catch with error output to the terminal.
+
+#### 6. Empty LLM response — better error message (`src/reasoner/parse.ts`)
+`parseReasonerResponse("")` previously fell through all parse attempts and returned
+`"failed to parse reasoner response"`. Now detects empty/whitespace-only input upfront and
+returns `"LLM returned empty response"` — clearer for debugging.
+
+#### 7. Confirm mode terminal safety (`src/index.ts`)
+`askConfirm()` previously set stdin to raw mode but had no cleanup path for SIGINT — if the user
+hit Ctrl+C during a confirm prompt, the terminal was left in raw mode (broken until `reset`).
+Now registers a one-shot signal handler that restores terminal state and resolves as "rejected".
+
+Config additions: none.
+Modified: `src/daemon-state.ts`, `src/index.ts`, `src/task-manager.ts`, `src/chat.ts`,
+`src/reasoner/parse.ts`, `src/reasoner/opencode.test.ts`, `package.json`, `AGENTS.md`, `claude.md`
+Test changes: +1 (whitespace-only LLM response), 1 assertion tightened (empty response reason), net 598 tests.
 
 ### What shipped in v0.43.0
 
@@ -624,6 +672,15 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 
 ## Completed
 
+- v0.44.0: Resilience (598 tests):
+  - **`daemon-state.ts`**: Atomic state file writes (write-to-temp + renameSync).
+    Atomic lock file (exclusive create via `wx` flag). Eliminates TOCTOU races.
+  - **`index.ts`**: Signal-safe shutdown (swallow SIGINT/SIGTERM during async cleanup).
+    Confirm mode terminal safety (restore raw mode on signal).
+  - **`task-manager.ts`**: Corrupt task state backed up to `.corrupt` before starting fresh.
+  - **`chat.ts`**: Wrapped readline handler in try/catch (prevents unhandled promise crash).
+  - **`reasoner/parse.ts`**: Empty LLM response returns descriptive reason.
+  - **`opencode.test.ts`**: +1 test (whitespace-only response), tightened empty response assertion.
 - v0.43.0: Developer Experience (597 tests):
   - **`package.json`**: `prepublishOnly` now runs `npm test` (build + test) instead of
     just `npm run build` — prevents publishing broken packages.
