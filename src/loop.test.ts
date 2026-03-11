@@ -54,6 +54,8 @@ function defaultConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig {
     captureLinesCount: 100,
     verbose: false,
     dryRun: false,
+    observe: false,
+    protectedSessions: [],
     ...overrides,
   };
 }

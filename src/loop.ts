@@ -105,6 +105,11 @@ export async function tick(opts: {
     sessionStates: [...policyStates.values()],
   };
 
+  // attach protected sessions list for the prompt formatter
+  if (config.protectedSessions && config.protectedSessions.length > 0) {
+    (observation as { protectedSessions?: string[] }).protectedSessions = config.protectedSessions;
+  }
+
   // 2. reason
   const result = await reasoner.decide(observation);
 

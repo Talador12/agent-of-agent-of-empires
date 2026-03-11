@@ -325,6 +325,8 @@ function makeConfig(port: number): import("../types.js").AoaoeConfig {
     captureLinesCount: 100,
     verbose: false,
     dryRun: false,
+    observe: false,
+    protectedSessions: [],
   };
 }
 

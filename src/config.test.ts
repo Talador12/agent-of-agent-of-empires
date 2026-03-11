@@ -230,6 +230,8 @@ describe("validateConfig", () => {
       captureLinesCount: 100,
       verbose: false,
       dryRun: false,
+      observe: false,
+      protectedSessions: [],
     };
     return { ...base, ...overrides } as AoaoeConfig;
   }

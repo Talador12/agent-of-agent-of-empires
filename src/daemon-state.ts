@@ -10,6 +10,7 @@ import { parseTasks, formatTaskList } from "./task-parser.js";
 const AOAOE_DIR = join(homedir(), ".aoaoe");
 const STATE_FILE = join(AOAOE_DIR, "daemon-state.json");
 const INTERRUPT_FILE = join(AOAOE_DIR, "interrupt");
+const LOCK_FILE = join(AOAOE_DIR, "daemon.lock");
 
 // cache: only mkdirSync once per process (no need to stat the dir on every phase change)
 let dirEnsured = false;
@@ -139,4 +140,50 @@ export function cleanupState(): void {
     // ENOENT is expected
   }
   clearInterrupt();
+  releaseLock();
+}
+
+// ── Daemon lock file ────────────────────────────────────────────────────────
+// prevents two daemons from running simultaneously (race condition on sessions)
+
+export function acquireLock(): { acquired: boolean; existingPid?: number } {
+  ensureDir();
+  try {
+    if (existsSync(LOCK_FILE)) {
+      const content = readFileSync(LOCK_FILE, "utf-8").trim();
+      const pid = parseInt(content, 10);
+      if (!isNaN(pid) && isProcessRunning(pid)) {
+        return { acquired: false, existingPid: pid };
+      }
+      // stale lock file — previous daemon crashed without cleanup
+      unlinkSync(LOCK_FILE);
+    }
+    writeFileSync(LOCK_FILE, String(process.pid));
+    return { acquired: true };
+  } catch {
+    return { acquired: false };
+  }
+}
+
+export function releaseLock(): void {
+  try {
+    // only remove if we own the lock (our PID)
+    if (existsSync(LOCK_FILE)) {
+      const content = readFileSync(LOCK_FILE, "utf-8").trim();
+      if (content === String(process.pid)) {
+        unlinkSync(LOCK_FILE);
+      }
+    }
+  } catch {
+    // best-effort
+  }
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0); // signal 0 = existence check, doesn't kill
+    return true;
+  } catch {
+    return false; // ESRCH = process doesn't exist
+  }
 }

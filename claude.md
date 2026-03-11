@@ -5,11 +5,60 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.34.0
+## Version: v0.35.0
 
 ## Current Focus
 
-490 tests across 25 files. v0.34.0 shipped: user activity guard, TUI polish.
+490 tests across 25 files. v0.35.0 shipped: trust & safety features for production use.
+
+### What shipped in v0.35.0
+
+**Theme: "Trust"** — six safety and usability features that make aoaoe
+trustworthy for open source, personal, and work projects.
+
+#### 1. Daemon lock file (`src/daemon-state.ts`)
+Prevents two daemons from running simultaneously. Uses a PID-based lock file
+at `~/.aoaoe/daemon.lock`. Checks if the PID in the lock file is still alive
+(via `process.kill(pid, 0)`) — stale locks from crashed daemons are
+automatically cleaned up. Lock is released on graceful shutdown.
+
+#### 2. `--observe` mode (`src/index.ts`, `src/config.ts`)
+Zero-risk, zero-cost observation mode. Polls sessions and displays output
+without calling the LLM or executing any actions. No reasoner initialization,
+no opencode server required. Ideal for onboarding: see exactly what aoaoe sees
+before enabling autonomous mode.
+
+#### 3. Destructive action gate (`src/executor.ts`, `src/types.ts`)
+`remove_agent` and `stop_session` are blocked by default. Must explicitly set
+`policies.allowDestructive: true` in config to enable. The reasoner prompt
+includes a NOTE telling the LLM not to attempt destructive actions when
+disabled. Safety net at the executor level catches it even if the LLM ignores
+the prompt instruction.
+
+#### 4. `aoaoe history` command (`src/index.ts`, `src/config.ts`)
+Reviews recent actions from `~/.aoaoe/actions.log`. Shows last 50 actions with
+timestamps, action types, session targets, success/failure status. Includes
+summary stats: total actions, success/failure counts, breakdown by action type.
+
+#### 5. Session protection (`src/types.ts`, `src/executor.ts`, `src/reasoner/prompt.ts`)
+`protectedSessions` config array: list session titles that are observe-only.
+Executor blocks ALL actions (send_input, start, stop, remove) targeting
+protected sessions. Sessions show `[PROTECTED]` tag in the reasoner prompt.
+Case-insensitive matching.
+
+#### 6. Shutdown summary (`src/index.ts`)
+On graceful exit (Ctrl+C / SIGTERM), prints a session summary: duration,
+poll count, decisions made, actions executed/failed, mode (observe/dry-run).
+
+Config additions:
+- `observe: boolean` (default: false) — observe-only mode
+- `protectedSessions: string[]` (default: []) — session titles to protect
+- `policies.allowDestructive: boolean` (default: false) — gate for remove/stop
+
+Modified: `src/index.ts`, `src/config.ts`, `src/types.ts`, `src/executor.ts`,
+`src/reasoner/prompt.ts`, `src/daemon-state.ts`, `src/loop.ts`
+Test fixes: `src/config.test.ts`, `src/dashboard.test.ts`, `src/loop.test.ts`,
+`src/reasoner/opencode.test.ts`, `src/reasoner/reasoner-factory.test.ts`
 
 ### What shipped in v0.34.0
 
@@ -188,6 +237,24 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 
 ## Completed
 
+- v0.35.0: Trust & safety features (490 tests):
+  - **`daemon-state.ts`**: PID-based lock file (`~/.aoaoe/daemon.lock`).
+    `acquireLock()`, `releaseLock()`, `isProcessRunning()`. Stale lock cleanup
+    via `process.kill(pid, 0)`.
+  - **`index.ts`**: Lock acquisition on startup, `--observe` mode branching
+    (skips reasoner/executor), `aoaoe history` subcommand, shutdown summary
+    stats (duration, polls, decisions, actions OK/failed, mode).
+  - **`config.ts`**: `--observe` flag, `showHistory` CLI field, `history`
+    subcommand parsing, help text updates, defaults for new config fields.
+  - **`types.ts`**: Added `observe: boolean`, `protectedSessions: string[]`,
+    `policies.allowDestructive: boolean`.
+  - **`executor.ts`**: Protected session gate (`isProtected()` helper),
+    destructive action gate (blocks `remove_agent`/`stop_session` unless
+    `allowDestructive: true`).
+  - **`reasoner/prompt.ts`**: `[PROTECTED]` tag in session table, destructive
+    action NOTE when disabled.
+  - **`loop.ts`**: Passes `protectedSessions` to observation for prompt formatter.
+  - Test fixes in 5 files for new required config fields.
 - v0.34.0: User activity guard + TUI polish (490 tests):
   - **`activity.ts`**: New module — `getSessionActivity`, `getActivityForSessions`.
     Uses `tmux list-clients` to detect recent keystrokes per session.

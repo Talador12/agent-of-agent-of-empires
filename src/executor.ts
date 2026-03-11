@@ -77,6 +77,27 @@ export class Executor {
     action: Action,
     snapshots: SessionSnapshot[]
   ): Promise<ActionLogEntry> {
+    // session protection gate: block all actions targeting protected sessions
+    if ("session" in action && action.session) {
+      const snap = this.resolveSession(action.session, snapshots);
+      if (snap && this.isProtected(snap.session.title)) {
+        return this.logAction(
+          action,
+          false,
+          `blocked: session "${snap.session.title}" is protected (observe-only)`
+        );
+      }
+    }
+
+    // destructive action gate: block remove_agent and stop_session unless explicitly allowed
+    if ((action.action === "remove_agent" || action.action === "stop_session") && !this.config.policies.allowDestructive) {
+      return this.logAction(
+        action,
+        false,
+        `blocked: ${action.action} requires policies.allowDestructive=true in config`
+      );
+    }
+
     switch (action.action) {
       case "send_input":
         return this.sendInput(action.session, action.text, snapshots);
@@ -343,6 +364,14 @@ export class Executor {
 
   private resolveSessionId(ref: string, snapshots: SessionSnapshot[]): string {
     return this.resolveSession(ref, snapshots)?.session.id ?? ref;
+  }
+
+  // check if a session title is in the protectedSessions list (case-insensitive)
+  private isProtected(title: string): boolean {
+    const list = this.config.protectedSessions;
+    if (!list || list.length === 0) return false;
+    const lower = title.toLowerCase();
+    return list.some((p) => p.toLowerCase() === lower);
   }
 
   private get cooldownMs(): number {

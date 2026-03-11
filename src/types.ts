@@ -91,12 +91,15 @@ export interface AoaoeConfig {
     autoAnswerPermissions: boolean;
     actionCooldownMs?: number; // rate limit cooldown per session (default: 30000)
     userActivityThresholdMs?: number; // skip send_input when user was active within this window (default: 30000)
+    allowDestructive?: boolean; // allow remove_agent and stop_session (default: false — blocked unless explicitly enabled)
   };
   contextFiles: string[]; // extra AI instruction file paths to load (relative to project root)
   sessionDirs: Record<string, string>; // explicit session title -> project directory mapping (absolute or relative to cwd)
+  protectedSessions: string[]; // session titles that are observe-only (no actions allowed, case-insensitive)
   captureLinesCount: number; // how many lines to capture from each tmux pane
   verbose: boolean;
   dryRun: boolean; // observe + reason but don't execute; log what would happen
+  observe: boolean; // observe only — no LLM, no execution, zero cost
 }
 
 // daemon state written to ~/.aoaoe/daemon-state.json for chat UI IPC

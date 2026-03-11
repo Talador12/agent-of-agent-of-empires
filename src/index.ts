@@ -6,7 +6,7 @@ import { Executor } from "./executor.js";
 import { printDashboard } from "./dashboard.js";
 import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
-import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState } from "./daemon-state.js";
+import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState, acquireLock } from "./daemon-state.js";
 import { formatSessionSummaries, formatActionDetail } from "./console.js";
 import { type SessionPolicyState } from "./reasoner/prompt.js";
 import { loadGlobalContext } from "./context.js";
@@ -28,7 +28,7 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
-  const { overrides, help, version, attach, register, testContext: isTestContext, runTest, showTasks, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
+  const { overrides, help, version, attach, register, testContext: isTestContext, runTest, showTasks, showHistory, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -75,6 +75,12 @@ async function main() {
     return;
   }
 
+  // `aoaoe history` -- review recent actions
+  if (showHistory) {
+    await showActionHistory();
+    return;
+  }
+
   // `aoaoe task` -- task management CLI
   if (isTaskCli) {
     await runTaskCli(process.argv);
@@ -106,6 +112,17 @@ async function main() {
 
   const config = loadConfig(overrides);
 
+  // acquire daemon lock — prevent two daemons from running simultaneously
+  const lock = acquireLock();
+  if (!lock.acquired) {
+    console.error("");
+    console.error(`  another aoaoe daemon is already running (pid ${lock.existingPid ?? "unknown"})`);
+    console.error("  only one daemon can manage sessions at a time.");
+    console.error("");
+    console.error("  if this is stale, remove ~/.aoaoe/daemon.lock and retry.");
+    process.exit(1);
+  }
+
   // startup banner + TUI setup
   const pkg = readPkgVersion();
   const useTui = process.stdin.isTTY === true;
@@ -120,11 +137,19 @@ async function main() {
     console.error("");
   }
 
-  // validate tools are installed
-  await validateEnvironment(config);
+  // validate tools are installed (in observe mode, only need aoe+tmux, not the reasoner)
+  if (config.observe) {
+    // lightweight validation — only poller deps
+    const { validateEnvironment: ve } = await import("./config.js");
+    // override config.reasoner temporarily to skip reasoner tool check
+    const obsConfig = { ...config, reasoner: "opencode" as const };
+    await ve(obsConfig).catch(() => {}); // best-effort, aoe+tmux checked below
+  } else {
+    await validateEnvironment(config);
+  }
 
-  // auto-start opencode serve if not running (opencode backend only)
-  if (config.reasoner === "opencode") {
+  // auto-start opencode serve if not running (opencode backend only, skip in observe mode)
+  if (!config.observe && config.reasoner === "opencode") {
     const { ensureOpencodeServe } = await import("./init.js");
     const serverReady = await ensureOpencodeServe(config.opencode.port);
     if (!serverReady) {
@@ -135,7 +160,7 @@ async function main() {
   }
 
   // load global context (AGENTS.md / claude.md from cwd or parent)
-  const globalContext = loadGlobalContext();
+  const globalContext = config.observe ? null : loadGlobalContext();
   if (globalContext) {
     log("loaded global context (AGENTS.md / claude.md)");
   }
@@ -162,16 +187,18 @@ async function main() {
   }
 
   const poller = new Poller(config);
-  const reasoner = createReasoner(config, globalContext || undefined);
-  const executor = new Executor(config);
-  if (taskManager) executor.setTaskManager(taskManager);
+  const reasoner = config.observe ? null : createReasoner(config, globalContext || undefined);
+  const executor = config.observe ? null : new Executor(config);
+  if (taskManager && executor) executor.setTaskManager(taskManager);
   const input = new InputReader();
   const reasonerConsole = new ReasonerConsole();
 
-  // init reasoner (starts opencode serve, verifies claude, etc)
-  log("initializing reasoner...");
-  await reasoner.init();
-  log("reasoner ready");
+  // init reasoner (starts opencode serve, verifies claude, etc) — skip in observe mode
+  if (reasoner) {
+    log("initializing reasoner...");
+    await reasoner.init();
+    log("reasoner ready");
+  }
 
   // start interactive input listener and conversation log
   input.start();
@@ -180,12 +207,23 @@ async function main() {
   // start TUI (alternate screen buffer) after input is ready
   if (tui) {
     tui.start(pkg || "dev");
-    tui.updateState({ reasonerName: config.reasoner });
-    tui.log("system", `reasoner: ${config.reasoner}  |  poll: ${config.pollIntervalMs / 1000}s`);
-    if (config.dryRun) tui.log("system", "DRY RUN — will observe and reason but not execute");
+    tui.updateState({ reasonerName: config.observe ? "observe-only" : config.reasoner });
+    if (config.observe) {
+      tui.log("system", `OBSERVE MODE — polling only, no LLM, no execution`);
+    } else {
+      tui.log("system", `reasoner: ${config.reasoner}  |  poll: ${config.pollIntervalMs / 1000}s`);
+    }
+    if (config.dryRun && !config.observe) tui.log("system", "DRY RUN — will observe and reason but not execute");
     const threshold = config.policies.userActivityThresholdMs ?? 30_000;
     tui.log("system", `user activity guard: ${threshold / 1000}s threshold`);
   }
+
+  // ── session stats (for shutdown summary) ──────────────────────────────────
+  const daemonStartedAt = Date.now();
+  let totalDecisions = 0;
+  let totalActionsExecuted = 0;
+  let totalActionsFailed = 0;
+  let totalPolls = 0;
 
   // graceful shutdown — wrap in .catch so unhandled rejections from
   // reasoner.shutdown() or reasonerConsole.stop() don't get swallowed
@@ -194,11 +232,29 @@ async function main() {
     if (!running) return;
     running = false;
     if (tui) tui.stop();
+
+    // ── shutdown summary ──────────────────────────────────────────────────
+    const elapsed = Date.now() - daemonStartedAt;
+    const mins = Math.floor(elapsed / 60_000);
+    const secs = Math.floor((elapsed % 60_000) / 1000);
+    const duration = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    console.error("");
+    console.error("  ── aoaoe session summary ──");
+    console.error(`  duration:   ${duration}`);
+    console.error(`  polls:      ${totalPolls}`);
+    if (!config.observe) {
+      console.error(`  decisions:  ${totalDecisions}`);
+      console.error(`  actions:    ${totalActionsExecuted} executed, ${totalActionsFailed} failed`);
+    }
+    if (config.observe) console.error(`  mode:       observe-only (no LLM, no execution)`);
+    else if (config.dryRun) console.error(`  mode:       dry-run (no execution)`);
+    console.error("");
+
     log("shutting down...");
     input.stop();
     Promise.resolve()
       .then(() => reasonerConsole.stop())
-      .then(() => reasoner.shutdown())
+      .then(() => reasoner?.shutdown())
       .catch((err) => console.error(`[shutdown] error during cleanup: ${err}`))
       .finally(() => {
         cleanupState();
@@ -294,9 +350,41 @@ async function main() {
     }
 
     try {
+      totalPolls++;
       if (tui) tui.updateState({ phase: "polling", pollCount, paused: false });
+
+      // ── observe mode: poll + display, skip reasoning + execution ──────
+      if (config.observe) {
+        const observation = await poller.poll();
+        const sessionStates = buildSessionStates(observation);
+        if (tui) tui.updateState({ phase: "polling", pollCount, sessions: sessionStates });
+        writeState("polling", { pollCount, sessionCount: observation.sessions.length, changeCount: observation.changes.length, sessions: sessionStates });
+
+        if (observation.sessions.length === 0 && pollCount % 6 === 1) {
+          if (tui) tui.log("observation", "no active aoe sessions found"); else log("no active aoe sessions found");
+        } else if (observation.changes.length > 0) {
+          for (const ch of observation.changes) {
+            const preview = ch.newLines.split("\n").filter((l) => l.trim()).slice(-3).join(" | ").slice(0, 80);
+            if (tui) tui.log("observation", `${ch.title}: ${preview}`); else log(`[${ch.title}] ${preview}`);
+          }
+        } else if (config.verbose) {
+          if (tui) tui.log("observation", `${observation.sessions.length} sessions, no changes`);
+        }
+
+        // user message in observe mode — just acknowledge, don't send to reasoner
+        if (userMessage) {
+          const msg = "observe mode: message received but no reasoner to forward to";
+          if (tui) tui.log("system", msg); else log(msg);
+        }
+        // skip the rest — no reasoning, no execution
+      } else {
+      // ── normal mode: full tick ─────────────────────────────────────────
+
       const activeTaskContext = taskManager ? taskManager.tasks.filter((t) => t.status !== "completed") : undefined;
-      const interrupted = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager, tui);
+      const { interrupted, decisionsThisTick, actionsOk, actionsFail } = await daemonTick(config, poller, reasoner!, executor!, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager, tui);
+      totalDecisions += decisionsThisTick;
+      totalActionsExecuted += actionsOk;
+      totalActionsFailed += actionsFail;
       forceDashboard = false;
 
       // if the reasoner was interrupted, continue to next tick immediately.
@@ -308,6 +396,8 @@ async function main() {
         if (tui) tui.log("system", "interrupted -- continuing to next tick"); else log("interrupted -- continuing to next tick (wakeable sleep will pick up input)");
         clearInterrupt();
       }
+
+      } // end normal mode else block
     } catch (err) {
       const msg = `tick ${pollCount} failed: ${err}`;
       if (tui) tui.log("error", msg); else console.error(`[error] ${msg}`);
@@ -355,7 +445,7 @@ async function daemonTick(
   taskContext?: TaskState[],
   taskManager?: TaskManager,
   tui?: TUI | null,
-): Promise<boolean> {
+): Promise<{ interrupted: boolean; decisionsThisTick: number; actionsOk: number; actionsFail: number }> {
   // pre-tick: write IPC state + tick separator in conversation log
   writeState("polling", { pollCount, pollIntervalMs: config.pollIntervalMs, tickStartedAt: Date.now() });
   reasonerConsole.writeTickSeparator(pollCount);
@@ -395,7 +485,7 @@ async function daemonTick(
       config, poller, reasoner: wrappedReasoner, executor, policyStates, pollCount, userMessage, taskContext,
     });
   } catch (err) {
-    if (err instanceof InterruptError) return true;
+    if (err instanceof InterruptError) return { interrupted: true, decisionsThisTick: 0, actionsOk: 0, actionsFail: 0 };
     throw err;
   }
 
@@ -411,12 +501,14 @@ async function daemonTick(
   // update TUI session panel
   if (tui) tui.updateState({ phase: "polling", pollCount, sessions: sessionStates });
 
+  const noStats = { interrupted: false, decisionsThisTick: 0, actionsOk: 0, actionsFail: 0 };
+
   // skip cases
   if (skippedReason === "no sessions") {
     if (pollCount % 6 === 1) {
       if (tui) tui.log("observation", "no active aoe sessions found"); else log("no active aoe sessions found");
     }
-    return false;
+    return noStats;
   }
 
   // dashboard (only in non-TUI mode — TUI has its own session panel)
@@ -462,7 +554,7 @@ async function daemonTick(
     if (config.verbose) {
       if (tui) tui.log("observation", "no changes, skipping reasoner"); else process.stdout.write(" | no changes, skipping reasoner\n");
     }
-    return false;
+    return noStats;
   }
 
   // reasoning happened
@@ -488,7 +580,7 @@ async function daemonTick(
       if (tui) tui.log("+ action", `[dry-run] ${msg}`); else log(`[dry-run] ${msg}`);
       reasonerConsole.writeAction(action.action, "dry-run", true);
     }
-    return false;
+    return { interrupted: false, decisionsThisTick: 1, actionsOk: 0, actionsFail: 0 };
   }
 
   // execution results — resolve session IDs to titles for display
@@ -511,7 +603,9 @@ async function daemonTick(
     }
     reasonerConsole.writeAction(entry.action.action, richDetail, entry.success);
   }
-  return false;
+  const actionsOk = executed.filter((e) => e.success && e.action.action !== "wait").length;
+  const actionsFail = executed.filter((e) => !e.success && e.action.action !== "wait").length;
+  return { interrupted: false, decisionsThisTick: result ? 1 : 0, actionsOk, actionsFail };
 }
 
 class InterruptError extends Error { constructor() { super("interrupted"); this.name = "InterruptError"; } }
@@ -807,6 +901,76 @@ async function showTaskStatus(): Promise<void> {
   const tm = new TaskManager(basePath, defs);
   console.log("");
   console.log(formatTaskTable(tm.tasks));
+  console.log("");
+}
+
+// `aoaoe history` -- review recent actions from the persistent action log
+async function showActionHistory(): Promise<void> {
+  const { readFileSync: readF, existsSync: existsF } = await import("node:fs");
+  const { join: joinP } = await import("node:path");
+  const { homedir: homeD } = await import("node:os");
+
+  const logFile = joinP(homeD(), ".aoaoe", "actions.log");
+  if (!existsF(logFile)) {
+    console.log("no action history found (no actions have been taken yet)");
+    return;
+  }
+
+  let lines: string[];
+  try {
+    lines = readF(logFile, "utf-8").trim().split("\n").filter((l) => l.trim());
+  } catch {
+    console.error("failed to read action log");
+    return;
+  }
+
+  if (lines.length === 0) {
+    console.log("action log is empty");
+    return;
+  }
+
+  // show last 50 actions
+  const recent = lines.slice(-50);
+  const GREEN = "\x1b[32m";
+  const RED = "\x1b[31m";
+  const DIM = "\x1b[2m";
+  const YELLOW = "\x1b[33m";
+  const RESET = "\x1b[0m";
+
+  console.log("");
+  console.log(`  action history (last ${recent.length} of ${lines.length} total)`);
+  console.log(`  ${"─".repeat(70)}`);
+
+  for (const line of recent) {
+    try {
+      const entry = JSON.parse(line) as { timestamp: number; action: { action: string; session?: string; text?: string; title?: string }; success: boolean; detail: string };
+      const time = new Date(entry.timestamp).toLocaleTimeString();
+      const date = new Date(entry.timestamp).toLocaleDateString();
+      const icon = entry.success ? `${GREEN}+${RESET}` : `${RED}!${RESET}`;
+      const actionName = entry.action.action;
+      const session = entry.action.session?.slice(0, 8) ?? entry.action.title ?? "";
+      const detail = entry.detail.length > 50 ? entry.detail.slice(0, 47) + "..." : entry.detail;
+      console.log(`  ${icon} ${DIM}${date} ${time}${RESET}  ${YELLOW}${actionName.padEnd(16)}${RESET} ${session.padEnd(10)} ${detail}`);
+    } catch {
+      // skip malformed lines
+    }
+  }
+
+  console.log(`  ${"─".repeat(70)}`);
+
+  // summary stats
+  let successes = 0, failures = 0;
+  const actionCounts = new Map<string, number>();
+  for (const line of lines) {
+    try {
+      const e = JSON.parse(line) as { action: { action: string }; success: boolean };
+      if (e.success) successes++; else failures++;
+      actionCounts.set(e.action.action, (actionCounts.get(e.action.action) ?? 0) + 1);
+    } catch {}
+  }
+  const breakdown = [...actionCounts.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}: ${v}`).join(", ");
+  console.log(`  total: ${lines.length} actions (${GREEN}${successes} ok${RESET}, ${RED}${failures} failed${RESET})`);
+  console.log(`  breakdown: ${breakdown}`);
   console.log("");
 }
 

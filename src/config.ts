@@ -34,9 +34,11 @@ const DEFAULTS: AoaoeConfig = {
   },
   contextFiles: [],
   sessionDirs: {},
+  protectedSessions: [],
   captureLinesCount: 100,
   verbose: false,
   dryRun: false,
+  observe: false,
 };
 
 // find the first config file that exists across search dirs
@@ -180,6 +182,7 @@ export function parseCliArgs(argv: string[]): {
   testContext: boolean;
   runTest: boolean;
   showTasks: boolean;
+  showHistory: boolean;
   runInit: boolean;
   initForce: boolean;
   runTaskCli: boolean;
@@ -198,7 +201,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, attach: false, register: false, testContext: false, runTest: false, showTasks: false, runInit: false, initForce: false, runTaskCli: false };
+  const defaults = { overrides, help: false, version: false, attach: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, runInit: false, initForce: false, runTaskCli: false };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "attach") {
@@ -215,6 +218,9 @@ export function parseCliArgs(argv: string[]): {
   }
   if (argv[2] === "tasks") {
     return { ...defaults, showTasks: true };
+  }
+  if (argv[2] === "history") {
+    return { ...defaults, showHistory: true };
   }
   if (argv[2] === "init") {
     const force = argv.includes("--force") || argv.includes("-f");
@@ -241,7 +247,7 @@ export function parseCliArgs(argv: string[]): {
 
   const knownFlags = new Set([
     "--reasoner", "--poll-interval", "--port", "--model", "--profile",
-    "--verbose", "-v", "--dry-run", "--help", "-h", "--version",
+    "--verbose", "-v", "--dry-run", "--observe", "--help", "-h", "--version",
   ]);
 
   for (let i = 2; i < argv.length; i++) {
@@ -278,6 +284,9 @@ export function parseCliArgs(argv: string[]): {
       case "--dry-run":
         overrides.dryRun = true;
         break;
+      case "--observe":
+        overrides.observe = true;
+        break;
       case "--help":
       case "-h":
         help = true;
@@ -295,7 +304,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, attach, register: false, testContext: false, runTest: false, showTasks: false, runInit: false, initForce: false, runTaskCli: false };
+  return { overrides, help, version, attach, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, runInit: false, initForce: false, runTaskCli: false };
 }
 
 export function printHelp() {
@@ -314,6 +323,7 @@ commands:
   (none)         start the supervisor daemon (interactive TUI)
   task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)
+  history        review recent actions (from ~/.aoaoe/actions.log)
   test           run integration test (creates sessions, tests, cleans up)
   test-context   scan sessions + context files (read-only, no LLM, safe)
   register       register aoaoe as an AoE session (one-time setup)
@@ -325,7 +335,9 @@ options:
   --model <model>                    model to use
   --profile <name>                   aoe profile (default: default)
   --dry-run                          run full loop but only log actions (costs
-                                     LLM tokens, but never touches sessions)
+                                      LLM tokens, but never touches sessions)
+  --observe                          observe only — no LLM calls, no execution,
+                                      zero cost. shows what the daemon sees.
   --verbose, -v                      verbose logging
   --help, -h                         show this help
   --version                          show version

@@ -1,4 +1,4 @@
-import type { Observation, AoaoeConfig, TaskState } from "../types.js";
+import type { Observation, AoaoeConfig, TaskState, SessionSnapshot } from "../types.js";
 
 // base system prompt -- global context appended at runtime via buildSystemPrompt()
 const BASE_SYSTEM_PROMPT = `You are a supervisor managing multiple AI coding agents in an agent-of-empires (AoE) tmux session.
@@ -140,13 +140,17 @@ export function formatObservation(obs: Observation): string {
   parts.push(`Active sessions: ${obs.sessions.length}`);
   parts.push("");
 
+  // resolve protected sessions list from config (injected via policyContext)
+  const protectedList = (obs as { protectedSessions?: string[] }).protectedSessions ?? [];
+
   // session summary table
   parts.push("Sessions:");
   const activeSessions: string[] = [];
   for (const snap of obs.sessions) {
     const s = snap.session;
     const activeTag = snap.userActive ? " [USER ACTIVE]" : "";
-    parts.push(`  [${s.id.slice(0, 8)}] "${s.title}" tool=${s.tool} status=${s.status} path=${s.path}${activeTag}`);
+    const protectedTag = protectedList.some((p) => p.toLowerCase() === s.title.toLowerCase()) ? " [PROTECTED]" : "";
+    parts.push(`  [${s.id.slice(0, 8)}] "${s.title}" tool=${s.tool} status=${s.status} path=${s.path}${activeTag}${protectedTag}`);
     if (snap.userActive) activeSessions.push(s.title);
   }
   if (activeSessions.length > 0) {
@@ -192,8 +196,14 @@ export function formatObservation(obs: Observation): string {
     }
   }
 
-  // policy alerts: inject concrete idle/error/permission data so the reasoner has facts
+  // destructive action gate warning
   const policies = obs.policyContext?.policies;
+  if (policies && !policies.allowDestructive) {
+    parts.push("NOTE: Destructive actions (remove_agent, stop_session) are DISABLED by policy. Do not attempt them.");
+    parts.push("");
+  }
+
+  // policy alerts: inject concrete idle/error/permission data so the reasoner has facts
   const policyStates = obs.policyContext?.sessionStates;
   if (policies && policyStates && policyStates.length > 0) {
     const alerts: string[] = [];
