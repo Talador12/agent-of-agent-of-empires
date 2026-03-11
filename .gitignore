@@ -3,4 +3,5 @@ dist/
 .env
 *.tsbuildinfo
 daemon.log
+aoaoe.config.json
 

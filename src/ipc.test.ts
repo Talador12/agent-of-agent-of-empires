@@ -1,4 +1,4 @@
-import { describe, it, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
 // IPC integration tests: validates the cross-module daemon<->chat contract
@@ -6,10 +6,15 @@ import assert from "node:assert/strict";
 // - daemon-state.ts (writeState, readState, interrupt flag)
 // - chat.ts (isDaemonRunning, getCountdown, buildStatusLine)
 
-import { writeState, readState, requestInterrupt, checkInterrupt, clearInterrupt, cleanupState } from "./daemon-state.js";
+import { writeState, readState, requestInterrupt, checkInterrupt, clearInterrupt, cleanupState, resetInternalState } from "./daemon-state.js";
 import { isDaemonRunningFromState, getCountdownFromState, buildStatusLineFromState } from "./chat.js";
 
 describe("IPC — daemon lifecycle simulation", () => {
+  beforeEach(() => {
+    cleanupState();
+    resetInternalState();
+  });
+
   afterEach(() => {
     cleanupState();
     clearInterrupt();

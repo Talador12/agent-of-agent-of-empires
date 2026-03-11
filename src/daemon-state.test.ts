@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, before, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -261,6 +261,17 @@ describe("interrupt flag logic", () => {
 });
 
 describe("writeState and readState", () => {
+  beforeEach(async () => {
+    const { cleanupState, resetInternalState } = await import("./daemon-state.js");
+    cleanupState();
+    resetInternalState();
+  });
+
+  afterEach(async () => {
+    const { cleanupState } = await import("./daemon-state.js");
+    cleanupState();
+  });
+
   it("writeState followed by readState returns consistent state", async () => {
     const { writeState, readState } = await import("./daemon-state.js");
     writeState("polling", { pollCount: 42, sessionCount: 3 });

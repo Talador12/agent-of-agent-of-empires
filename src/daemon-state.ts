@@ -19,18 +19,25 @@ function ensureDir(): void {
   dirEnsured = true;
 }
 
-let currentState: DaemonState = {
+const INITIAL_STATE: DaemonState = {
   tickStartedAt: 0,
   nextTickAt: 0,
   pollIntervalMs: 10_000,
   phase: "sleeping",
-  phaseStartedAt: Date.now(),
+  phaseStartedAt: 0,
   pollCount: 0,
   paused: false,
   sessionCount: 0,
   changeCount: 0,
   sessions: [],
 };
+
+let currentState: DaemonState = { ...INITIAL_STATE, phaseStartedAt: Date.now() };
+
+// reset module-level state (for test isolation)
+export function resetInternalState(): void {
+  currentState = { ...INITIAL_STATE, phaseStartedAt: Date.now() };
+}
 
 // track last task sent to each session (persists across ticks)
 const sessionTasks = new Map<string, string>();

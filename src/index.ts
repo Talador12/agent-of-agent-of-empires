@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { loadConfig, validateEnvironment, parseCliArgs, printHelp } from "./config.js";
+import { loadConfig, validateEnvironment, parseCliArgs, printHelp, configFileExists } from "./config.js";
 import { Poller } from "./poller.js";
 import { createReasoner } from "./reasoner/index.js";
 import { Executor } from "./executor.js";
@@ -26,7 +26,7 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
-  const { overrides, help, version, attach, register, testContext: isTestContext, runTest, showTasks, registerTitle } = parseCliArgs(process.argv);
+  const { overrides, help, version, attach, register, testContext: isTestContext, runTest, showTasks, runInit, initForce, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -73,6 +73,29 @@ async function main() {
     return;
   }
 
+  // `aoaoe init` -- auto-discover environment and generate config
+  if (runInit) {
+    const { runInit: doInit } = await import("./init.js");
+    await doInit(initForce);
+    return;
+  }
+
+  // auto-init: if no config file exists, run init automatically
+  if (!configFileExists()) {
+    console.error("");
+    console.error("  no aoaoe.config.json found — running auto-init...");
+    console.error("");
+    const { runInit } = await import("./init.js");
+    await runInit(false);
+    // if init still didn't create a config (e.g. no aoe sessions), warn but continue with defaults
+    if (!configFileExists()) {
+      console.error("");
+      console.error("  init completed but no config was written (no sessions found?)");
+      console.error("  continuing with defaults...");
+      console.error("");
+    }
+  }
+
   const config = loadConfig(overrides);
 
   // startup banner
@@ -85,6 +108,17 @@ async function main() {
 
   // validate tools are installed
   await validateEnvironment(config);
+
+  // auto-start opencode serve if not running (opencode backend only)
+  if (config.reasoner === "opencode") {
+    const { ensureOpencodeServe } = await import("./init.js");
+    const serverReady = await ensureOpencodeServe(config.opencode.port);
+    if (!serverReady) {
+      console.error("  opencode serve failed to start — cannot reason without it");
+      console.error(`  start manually: opencode serve --port ${config.opencode.port}`);
+      process.exit(1);
+    }
+  }
 
   // load global context (AGENTS.md / claude.md from cwd or parent)
   const globalContext = loadGlobalContext();
@@ -125,10 +159,9 @@ async function main() {
   await reasoner.init();
   log("reasoner ready");
 
-  // start interactive input listener (stdin fallback) and console tmux session
+  // start interactive input listener and conversation log
   input.start();
   await reasonerConsole.start();
-  log(`reasoner console ready -- run 'aoaoe attach' to enter`);
 
   // graceful shutdown — wrap in .catch so unhandled rejections from
   // reasoner.shutdown() or reasonerConsole.stop() don't get swallowed
@@ -232,6 +265,9 @@ async function main() {
     } catch (err) {
       console.error(`[error] tick ${pollCount} failed: ${err}`);
     }
+
+    // re-show input prompt after tick output
+    input.prompt();
 
     if (running) {
       // skip sleep entirely if there are already-queued messages waiting
@@ -658,26 +694,15 @@ async function registerAsAoeSession(title?: string): Promise<void> {
   console.log(`or start + enter immediately: aoe session start ${sessionTitle} && aoe`);
 }
 
-// `aoaoe attach` -- enter the reasoner console tmux session
+// `aoaoe attach` -- deprecated in v0.32.0, the daemon is now interactive inline
 async function attachToConsole(): Promise<void> {
-  const { execQuiet } = await import("./shell.js");
-  const name = ReasonerConsole.sessionName();
-
-  // check if the session exists
-  const exists = await execQuiet("tmux", ["has-session", "-t", name]);
-  if (!exists) {
-    console.error(`no running aoaoe session found (looking for tmux session '${name}')`);
-    console.error("start the daemon first: aoaoe");
-    process.exit(1);
-  }
-
-  // attach -- replace this process with tmux attach
-  const { execFileSync } = await import("node:child_process");
-  try {
-    execFileSync("tmux", ["attach-session", "-t", name], { stdio: "inherit" });
-  } catch {
-    // normal exit when user detaches
-  }
+  console.error("aoaoe attach is no longer needed.");
+  console.error("");
+  console.error("since v0.32, the daemon is interactive in the same terminal.");
+  console.error("just run: aoaoe");
+  console.error("");
+  console.error("type messages directly, use /help for commands, ESC ESC to interrupt.");
+  process.exit(0);
 }
 
 function readPkgVersion(): string | null {

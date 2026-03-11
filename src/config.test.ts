@@ -109,6 +109,8 @@ describe("parseCliArgs", () => {
     assert.equal(result.attach, false);
     assert.equal(result.register, false);
     assert.equal(result.testContext, false);
+    assert.equal(result.runInit, false);
+    assert.equal(result.initForce, false);
     assert.deepEqual(result.overrides, {});
   });
 
@@ -140,21 +142,50 @@ describe("parseCliArgs", () => {
     }
   });
 
+  it("parses init subcommand", () => {
+    const result = parseCliArgs(argv("init"));
+    assert.equal(result.runInit, true);
+    assert.equal(result.initForce, false);
+    assert.equal(result.attach, false);
+    assert.equal(result.register, false);
+  });
+
+  it("parses init --force", () => {
+    const result = parseCliArgs(argv("init", "--force"));
+    assert.equal(result.runInit, true);
+    assert.equal(result.initForce, true);
+  });
+
+  it("parses init -f", () => {
+    const result = parseCliArgs(argv("init", "-f"));
+    assert.equal(result.runInit, true);
+    assert.equal(result.initForce, true);
+  });
+
   it("subcommands are mutually exclusive", () => {
     const attachResult = parseCliArgs(argv("attach"));
     assert.equal(attachResult.attach, true);
     assert.equal(attachResult.register, false);
     assert.equal(attachResult.testContext, false);
+    assert.equal(attachResult.runInit, false);
 
     const registerResult = parseCliArgs(argv("register"));
     assert.equal(registerResult.attach, false);
     assert.equal(registerResult.register, true);
     assert.equal(registerResult.testContext, false);
+    assert.equal(registerResult.runInit, false);
 
     const testCtxResult = parseCliArgs(argv("test-context"));
     assert.equal(testCtxResult.attach, false);
     assert.equal(testCtxResult.register, false);
     assert.equal(testCtxResult.testContext, true);
+    assert.equal(testCtxResult.runInit, false);
+
+    const initResult = parseCliArgs(argv("init"));
+    assert.equal(initResult.attach, false);
+    assert.equal(initResult.register, false);
+    assert.equal(initResult.testContext, false);
+    assert.equal(initResult.runInit, true);
   });
 });
 

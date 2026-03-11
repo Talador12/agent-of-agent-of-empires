@@ -1,0 +1,338 @@
+// init.ts -- `aoaoe init`: auto-discover environment and generate config
+//
+// detects:
+//   1. tools on PATH (aoe, tmux, opencode, claude)
+//   2. running aoe sessions (aoe list --json)
+//   3. project directories for each session (resolveProjectDir heuristic)
+//   4. running opencode serve instances (port probe)
+//   5. best reasoner backend (opencode > claude-code > error)
+//
+// writes aoaoe.config.json to cwd with sessionDirs, reasoner, port.
+// non-interactive — prints what it found, writes config, done.
+
+import { existsSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { exec } from "./shell.js";
+import { resolveProjectDirWithSource, type ResolutionSource } from "./context.js";
+import type { AoeSession } from "./types.js";
+import { createServer } from "node:net";
+
+// ANSI
+const BOLD = "\x1b[1m";
+const DIM = "\x1b[2m";
+const GREEN = "\x1b[32m";
+const YELLOW = "\x1b[33m";
+const RED = "\x1b[31m";
+const CYAN = "\x1b[36m";
+const RESET = "\x1b[0m";
+
+interface ToolCheck {
+  name: string;
+  path: string | null;
+  version: string | null;
+  required: boolean;
+}
+
+interface SessionDiscovery {
+  session: AoeSession;
+  resolvedDir: string | null;
+  source: ResolutionSource;
+}
+
+interface InitResult {
+  tools: ToolCheck[];
+  sessions: SessionDiscovery[];
+  reasoner: "opencode" | "claude-code" | null;
+  opencodePort: number;
+  opencodeRunning: boolean;
+  configPath: string;
+  wrote: boolean;
+}
+
+// check if a tool is on PATH and get its version
+async function checkTool(name: string, versionFlag = "--version"): Promise<{ path: string | null; version: string | null }> {
+  const whichResult = await exec("which", [name], 5_000);
+  if (whichResult.exitCode !== 0) return { path: null, version: null };
+
+  const toolPath = whichResult.stdout.trim();
+  const verResult = await exec(name, [versionFlag], 5_000);
+  const version = verResult.exitCode === 0
+    ? verResult.stdout.trim().split("\n")[0]
+    : null;
+
+  return { path: toolPath, version };
+}
+
+// list aoe sessions via CLI, with live tmux status
+async function discoverSessions(): Promise<AoeSession[]> {
+  const result = await exec("aoe", ["list", "--json"], 10_000);
+  if (result.exitCode !== 0) return [];
+
+  try {
+    const raw = JSON.parse(result.stdout) as Record<string, unknown>[];
+    // fetch status for each session in parallel
+    const sessions = await Promise.all(raw.map(async (r) => {
+      const id = String(r.id ?? "");
+      const title = String(r.title ?? "");
+      const status = await getSessionStatus(id);
+      return {
+        id,
+        title,
+        path: String(r.path ?? ""),
+        tool: String(r.tool ?? ""),
+        status,
+        tmux_name: "",
+        group: r.group ? String(r.group) : undefined,
+        created_at: r.created_at ? String(r.created_at) : undefined,
+      };
+    }));
+    return sessions;
+  } catch {
+    return [];
+  }
+}
+
+async function getSessionStatus(id: string): Promise<string> {
+  const result = await exec("aoe", ["session", "show", id, "--json"], 5_000);
+  if (result.exitCode !== 0) return "unknown";
+  try {
+    const data = JSON.parse(result.stdout);
+    return String(data.status ?? "unknown");
+  } catch {
+    return "unknown";
+  }
+}
+
+// check if opencode serve is running on a given port
+async function probeOpencodePort(port: number): Promise<boolean> {
+  try {
+    const result = await exec("curl", ["-s", "-o", "/dev/null", "-w", "%{http_code}", `http://localhost:${port}/`], 3_000);
+    return result.exitCode === 0 && result.stdout.trim() === "200";
+  } catch {
+    return false;
+  }
+}
+
+// find a free port starting from preferred
+async function findFreePort(preferred: number): Promise<number> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.listen(preferred, "127.0.0.1", () => {
+      server.close(() => resolve(preferred));
+    });
+    server.on("error", () => {
+      // preferred port in use, let OS assign one (but try preferred+1 first)
+      const server2 = createServer();
+      server2.listen(preferred + 1, "127.0.0.1", () => {
+        server2.close(() => resolve(preferred + 1));
+      });
+      server2.on("error", () => {
+        const server3 = createServer();
+        server3.listen(0, "127.0.0.1", () => {
+          const addr = server3.address();
+          const port = typeof addr === "object" && addr ? addr.port : 4097;
+          server3.close(() => resolve(port));
+        });
+      });
+    });
+  });
+}
+
+export async function runInit(forceOverwrite = false): Promise<InitResult> {
+  const configPath = resolve(process.cwd(), "aoaoe.config.json");
+
+  console.log(`\n${BOLD}${CYAN}aoaoe init${RESET} — setting up your supervisor config\n`);
+
+  // ── step 1: check tools ────────────────────────────────────────────────
+  console.log(`${BOLD}tools${RESET}`);
+
+  const [aoeCheck, tmuxCheck, opencodeCheck, claudeCheck] = await Promise.all([
+    checkTool("aoe"),
+    checkTool("tmux"),
+    checkTool("opencode"),
+    checkTool("claude"),
+  ]);
+
+  const tools: ToolCheck[] = [
+    { name: "aoe", ...aoeCheck, required: true },
+    { name: "tmux", ...tmuxCheck, required: true },
+    { name: "opencode", ...opencodeCheck, required: false },
+    { name: "claude", ...claudeCheck, required: false },
+  ];
+
+  for (const t of tools) {
+    const icon = t.path ? `${GREEN}✓${RESET}` : t.required ? `${RED}✗${RESET}` : `${DIM}-${RESET}`;
+    const ver = t.version ? ` ${DIM}(${t.version})${RESET}` : "";
+    const note = !t.path && t.required ? ` ${RED}required${RESET}` : "";
+    console.log(`  ${icon} ${t.name}${ver}${note}`);
+  }
+
+  const missingRequired = tools.filter((t) => t.required && !t.path);
+  if (missingRequired.length > 0) {
+    console.log(`\n${RED}missing required tools: ${missingRequired.map((t) => t.name).join(", ")}${RESET}`);
+    console.log(`install them and re-run ${BOLD}aoaoe init${RESET}`);
+    return { tools, sessions: [], reasoner: null, opencodePort: 4097, opencodeRunning: false, configPath, wrote: false };
+  }
+
+  // ── step 2: pick reasoner ──────────────────────────────────────────────
+  let reasoner: "opencode" | "claude-code" | null = null;
+  if (opencodeCheck.path) {
+    reasoner = "opencode";
+  } else if (claudeCheck.path) {
+    reasoner = "claude-code";
+  }
+
+  if (!reasoner) {
+    console.log(`\n${RED}no reasoner backend found${RESET}`);
+    console.log(`install ${BOLD}opencode${RESET} (recommended) or ${BOLD}claude${RESET} CLI`);
+    console.log(`  opencode: ${DIM}https://opencode.ai${RESET}`);
+    console.log(`  claude:   ${DIM}npm install -g @anthropic-ai/claude-code${RESET}`);
+    return { tools, sessions: [], reasoner: null, opencodePort: 4097, opencodeRunning: false, configPath, wrote: false };
+  }
+
+  console.log(`\n${BOLD}reasoner${RESET}`);
+  console.log(`  ${GREEN}→${RESET} ${reasoner}${reasoner === "opencode" && claudeCheck.path ? ` ${DIM}(claude-code also available)${RESET}` : ""}`);
+
+  // ── step 3: check opencode serve ───────────────────────────────────────
+  let opencodePort = 4097;
+  let opencodeRunning = false;
+
+  if (reasoner === "opencode") {
+    opencodeRunning = await probeOpencodePort(opencodePort);
+    if (opencodeRunning) {
+      console.log(`  ${GREEN}✓${RESET} opencode serve running on port ${opencodePort}`);
+    } else {
+      // try to find a free port
+      opencodePort = await findFreePort(4097);
+      console.log(`  ${YELLOW}!${RESET} opencode serve not running — will use port ${opencodePort}`);
+      console.log(`  ${DIM}start it with: opencode serve --port ${opencodePort}${RESET}`);
+    }
+  }
+
+  // ── step 4: discover sessions ──────────────────────────────────────────
+  console.log(`\n${BOLD}sessions${RESET}`);
+  const rawSessions = await discoverSessions();
+
+  if (rawSessions.length === 0) {
+    console.log(`  ${DIM}no aoe sessions found${RESET}`);
+    console.log(`  ${DIM}create some with: aoe add <path> -t <title> -c opencode -y${RESET}`);
+  }
+
+  const sessions: SessionDiscovery[] = [];
+  const sessionDirs: Record<string, string> = {};
+
+  for (const s of rawSessions) {
+    const { dir, source } = resolveProjectDirWithSource(s.path, s.title);
+    sessions.push({ session: s, resolvedDir: dir, source });
+
+    const statusIcon = s.status === "running" || s.status === "working"
+      ? `${GREEN}~${RESET}` : s.status === "idle"
+      ? `${DIM}.${RESET}` : s.status === "waiting"
+      ? `${YELLOW}~${RESET}` : s.status === "stopped"
+      ? `${DIM}x${RESET}` : s.status === "error"
+      ? `${RED}!${RESET}` : `${YELLOW}?${RESET}`;
+    const statusLabel = s.status !== "unknown" ? s.status : "";
+    const dirIcon = dir ? `${GREEN}✓${RESET}` : `${YELLOW}?${RESET}`;
+    const srcLabel = source === "direct-child" ? "direct" : source === "nested-child" ? "nested" : source ?? "—";
+    const dirLabel = dir ? ` → ${DIM}${dir}${RESET}` : ` ${YELLOW}(project dir not found — add to sessionDirs manually)${RESET}`;
+    console.log(`  ${statusIcon} ${s.title} ${DIM}[${s.tool}] ${statusLabel} (${srcLabel})${RESET}${dirLabel}`);
+
+    if (dir) {
+      sessionDirs[s.title] = dir;
+    }
+  }
+
+  // ── step 5: write config ───────────────────────────────────────────────
+  console.log(`\n${BOLD}config${RESET}`);
+
+  if (existsSync(configPath) && !forceOverwrite) {
+    console.log(`  ${YELLOW}!${RESET} ${configPath} already exists`);
+    console.log(`  ${DIM}use ${BOLD}aoaoe init --force${RESET}${DIM} to overwrite${RESET}`);
+    return { tools, sessions, reasoner, opencodePort, opencodeRunning, configPath, wrote: false };
+  }
+
+  const config: Record<string, unknown> = {
+    reasoner,
+    pollIntervalMs: 15_000,
+  };
+
+  if (reasoner === "opencode") {
+    config.opencode = { port: opencodePort };
+  }
+
+  config.aoe = { profile: "default" };
+
+  config.policies = {
+    maxIdleBeforeNudgeMs: 120_000,
+    maxErrorsBeforeRestart: 3,
+    autoAnswerPermissions: true,
+  };
+
+  if (Object.keys(sessionDirs).length > 0) {
+    config.sessionDirs = sessionDirs;
+  }
+
+  const json = JSON.stringify(config, null, 2) + "\n";
+  writeFileSync(configPath, json);
+
+  console.log(`  ${GREEN}✓${RESET} wrote ${configPath}`);
+
+  // ── step 6: next steps ─────────────────────────────────────────────────
+  console.log(`\n${BOLD}next steps${RESET}`);
+
+  if (reasoner === "opencode" && !opencodeRunning) {
+    console.log(`  1. start the reasoner server:`);
+    console.log(`     ${CYAN}opencode serve --port ${opencodePort}${RESET}`);
+    console.log(`  2. run a dry-run to see what aoaoe observes:`);
+    console.log(`     ${CYAN}aoaoe --dry-run${RESET}`);
+    console.log(`  3. go live:`);
+    console.log(`     ${CYAN}aoaoe${RESET}`);
+  } else if (reasoner === "opencode" && opencodeRunning) {
+    console.log(`  1. run a dry-run to see what aoaoe observes:`);
+    console.log(`     ${CYAN}aoaoe --dry-run${RESET}`);
+    console.log(`  2. go live:`);
+    console.log(`     ${CYAN}aoaoe${RESET}`);
+  } else {
+    // claude-code backend
+    console.log(`  1. run a dry-run to see what aoaoe observes:`);
+    console.log(`     ${CYAN}aoaoe --dry-run${RESET}`);
+    console.log(`  2. go live:`);
+    console.log(`     ${CYAN}aoaoe${RESET}`);
+  }
+
+  console.log(`\n  ${DIM}tip: run ${BOLD}aoaoe test-context${RESET}${DIM} to verify session discovery without starting the daemon${RESET}`);
+  console.log();
+
+  return { tools, sessions, reasoner, opencodePort, opencodeRunning, configPath, wrote: true };
+}
+
+// start opencode serve in background if not running (called by daemon at startup)
+export async function ensureOpencodeServe(port: number): Promise<boolean> {
+  const running = await probeOpencodePort(port);
+  if (running) return true;
+
+  console.error(`[init] starting opencode serve on port ${port}...`);
+  try {
+    // spawn detached so it survives daemon shutdown
+    const { spawn } = await import("node:child_process");
+    const child = spawn("opencode", ["serve", "--port", String(port)], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+
+    // wait up to 10s for it to become healthy
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      if (await probeOpencodePort(port)) {
+        console.error(`[init] opencode serve ready on port ${port}`);
+        return true;
+      }
+    }
+    console.error(`[init] opencode serve did not become ready within 10s`);
+    return false;
+  } catch (e) {
+    console.error(`[init] failed to start opencode serve: ${e}`);
+    return false;
+  }
+}

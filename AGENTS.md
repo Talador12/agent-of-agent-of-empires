@@ -11,9 +11,10 @@ tmux, decides when to intervene, acts.
 
 ```bash
 npm run build            # tsc -> dist/
-npm test                 # build + node --test (369 tests, node:test stdlib)
+npm test                 # build + node --test (node:test stdlib)
 npm run integration-test # end-to-end test with real aoe sessions (~30s)
 npm start                # run daemon
+aoaoe init               # detect environment, generate aoaoe.config.json
 aoaoe --dry-run          # observe + reason, don't execute
 aoaoe --verbose          # verbose logging
 aoaoe tasks              # show task progress from persistent state
@@ -44,7 +45,7 @@ The main loop is split into two layers:
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Main daemon loop, `daemonTick()` wrapper, subcommands (attach, register, tasks, test-context) |
+| `src/index.ts` | Main daemon loop, `daemonTick()` wrapper, subcommands (init, attach, register, tasks, test-context) |
 | `src/loop.ts` | Extracted tick logic (poll -> reason -> execute), testable with mocks |
 | `src/config.ts` | Config loader, CLI arg parser, env validation |
 | `src/types.ts` | All interfaces — SessionSnapshot, Observation, Action, Reasoner, AoaoeConfig |
@@ -62,6 +63,7 @@ The main loop is split into two layers:
 | `src/task-parser.ts` | Parse OpenCode TODO patterns, model/context/cost from pane output |
 | `src/console.ts` | Conversation log + file-based IPC |
 | `src/input.ts` | Stdin listener with inject() for post-interrupt text |
+| `src/init.ts` | `aoaoe init`: auto-discover tools, sessions, reasoner; generate config; auto-start opencode serve |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -89,7 +91,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Testing
-- 369 unit tests across 18 files, `node:test` (stdlib, zero deps)
+- 454 unit tests across 22 files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

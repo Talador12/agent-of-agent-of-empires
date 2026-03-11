@@ -5,11 +5,46 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.30.0
+## Version: v0.32.0 (unreleased)
 
 ## Current Focus
 
-451 tests across 22 files. All v0.30 items shipped.
+454 tests across 22 files. Interactive daemon + auto-init + API error surfacing.
+
+### What's shipping in v0.32.0
+
+**Theme: "Interactive by Default"** — the daemon is now a single interactive
+terminal session. No more `aoaoe attach`. No more hand-crafting config.
+
+- **Interactive daemon** — `aoaoe` now runs inline with colorized conversation
+  output, slash commands, and ESC-ESC interrupt all in the same terminal. The
+  separate `aoaoe_reasoner` tmux session is removed. `aoaoe attach` prints a
+  deprecation notice and exits.
+- **Auto-init on startup** — if no `aoaoe.config.json` exists when you run
+  `aoaoe`, it automatically runs `aoaoe init` first. Zero manual steps.
+- **API error surfacing** — the opencode SDK `sendMessage()` now checks
+  `info.error` in the response and throws with the actual error message
+  (e.g. "401 Unauthorized — run `opencode auth login`") instead of silently
+  returning empty text that causes cryptic "failed to parse response" logs.
+- **Inline colorized output** — `ReasonerConsole` writes colorized entries
+  directly to stderr using the same tag-based color scheme as chat.ts.
+  Also writes to `conversation.log` for external chat.ts readers.
+- **Enhanced InputReader** — colored prompt, ESC-ESC interrupt detection,
+  /clear, /interrupt, improved /help with all available commands.
+
+Modified: `src/reasoner/opencode.ts`, `src/console.ts`, `src/input.ts`,
+`src/index.ts`, `src/config.ts`.
+
+### What shipped in v0.31.0
+
+**Theme: "Zero to Running"** — `aoaoe init` makes first-time setup trivial.
+
+- `aoaoe init` — auto-discovers tools, sessions, reasoner; writes config.
+- `aoaoe init --force` — overwrites existing config.
+- Auto-start `opencode serve` at daemon startup.
+- Test isolation fix — `resetInternalState()` in daemon-state.ts.
+- Help text overhaul with getting started section.
+- 3 new tests — init CLI parsing.
 
 ### What shipped in v0.30.0
 
@@ -51,13 +86,21 @@ Files modified: `src/index.ts`, `src/console.ts`, `src/chat.ts`,
 - Fix stdin `/interrupt`, live status in conversation log
 - Remove blocking post-interrupt wait, 12 tests in wake.test.ts
 
-## Backlog (not v0.30)
+## Backlog
 
+- **In-place TUI (v0.33.0)** — replace scrolling log output with an OpenCode-style
+  terminal UI that repaints in place. Single view with session status panel, reasoner
+  activity stream, and input prompt at the bottom. Uses alternate screen buffer
+  (`\x1b[?1049h`), cursor positioning, and in-place redraws instead of append-only
+  log blocks. Goal: the daemon should feel like OpenCode's TUI, not a scrolling log.
+  User feedback: "10 blocks of per-tab updates should be a single updating view."
+- **User activity guard** — detect when user is actively typing in an aoe session
+  pane and refuse `send_input` to that pane. Uses tmux `client_activity` + pane
+  focus detection. Prevents reasoner from injecting text while user is working.
 - **CI on PR creation** — add `pull_request` trigger to `.github/workflows/ci.yml`
 - `OpencodeReasoner.shutdown()` doesn't clean up orphaned servers from prior runs
 - `index.ts` dynamic imports in `testContext` that could be static
 - `types.ts` `AoeSession.status` is `string` instead of union type
-- IPC test isolation (make state dir configurable to prevent daemon race)
 - Homebrew tap PAT needs `repo` scope for dispatch
 
 ## Completed

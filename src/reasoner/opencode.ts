@@ -147,7 +147,12 @@ export class OpencodeReasoner implements Reasoner {
         this.messageCount = 1;
         return parseReasonerResponse(response);
       } catch (retryErr) {
-        this.log(`SDK retry also failed: ${retryErr}`);
+        const errMsg = String(retryErr);
+        this.log(`SDK retry also failed: ${errMsg}`);
+        // surface actionable hints for common errors
+        if (errMsg.includes("401") || errMsg.includes("Unauthorized")) {
+          this.log("hint: auth token may be expired — run `opencode auth login` to re-authenticate");
+        }
         this.sessionId = null;
         this.messageCount = 0;
         return { actions: [{ action: "wait", reason: "SDK session error" }] };
@@ -288,7 +293,19 @@ class OpencodeClient {
     if (!res.ok) throw new Error(`send message failed: ${res.status}`);
     if (noReply) return "";
 
-    const data = (await res.json()) as { parts?: Array<{ type: string; text?: string }> };
+    const data = (await res.json()) as {
+      info?: { error?: { name?: string; data?: { message?: string; statusCode?: number } } };
+      parts?: Array<{ type: string; text?: string }>;
+    };
+
+    // surface API errors (auth expired, rate limit, etc.) instead of returning empty text
+    if (data.info?.error) {
+      const err = data.info.error;
+      const msg = err.data?.message ?? err.name ?? "unknown API error";
+      const code = err.data?.statusCode ? ` (${err.data.statusCode})` : "";
+      throw new Error(`opencode API error${code}: ${msg}`);
+    }
+
     // extract text from assistant response parts
     const textParts = (data.parts ?? [])
       .filter((p) => p.type === "text" && p.text)

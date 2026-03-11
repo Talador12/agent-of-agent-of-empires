@@ -1,11 +1,11 @@
 // console.ts -- manages conversation log and user input IPC for the reasoner
-// supports two modes:
-// 1. standalone tmux session (aoaoe_reasoner) -- legacy fallback when not registered as AoE session
-// 2. file-only mode -- when chat.ts runs inside an AoE-managed tmux pane, we just read/write files
+// supports three modes:
+// 1. inline mode (default) -- prints colorized output directly to the daemon terminal
+// 2. file-only mode -- when chat.ts runs inside an AoE-managed tmux pane
+// 3. legacy tmux session (aoaoe_reasoner) -- removed in v0.32.0
 import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, renameSync, unlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { execQuiet, exec } from "./shell.js";
 
 const AOAOE_DIR = join(homedir(), ".aoaoe");
 const CONVO_LOG = join(AOAOE_DIR, "conversation.log");
@@ -13,9 +13,17 @@ const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt");
 const PID_FILE = join(AOAOE_DIR, "chat.pid");
 const SESSION_NAME = "aoaoe_reasoner";
 
+// ANSI colors for inline mode
+const DIM = "\x1b[2m";
+const GREEN = "\x1b[32m";
+const CYAN = "\x1b[36m";
+const YELLOW = "\x1b[33m";
+const RED = "\x1b[31m";
+const RESET = "\x1b[0m";
+
 export class ReasonerConsole {
   private started = false;
-  private ownsTmux = false; // true if we created the aoaoe_reasoner tmux session
+  private inlineMode = false; // true = print to daemon terminal directly
 
   // detect if chat.ts is running (registered as AoE session)
   private chatIsRunning(): boolean {
@@ -38,46 +46,14 @@ export class ReasonerConsole {
     writeFileSync(CONVO_LOG, "");
     writeFileSync(INPUT_FILE, "");
 
-    // if chat.ts is running in an AoE pane, skip creating our own tmux session
-    if (this.chatIsRunning()) {
-      this.started = true;
-      this.writeSystem("aoaoe daemon connected (chat running in AoE session)");
-      this.writeSystem("---");
-      return;
-    }
-
-    // fallback: create standalone tmux session
-    await execQuiet("tmux", ["kill-session", "-t", SESSION_NAME]);
-
-    await exec("tmux", [
-      "new-session", "-d", "-s", SESSION_NAME, "-x", "200", "-y", "50",
-      `tail -f ${CONVO_LOG}`,
-    ]);
-
-    // write the input-loop script BEFORE starting the tmux pane that uses it
-    // to avoid a race where bash tries to read the script before it exists
-    writeFileSync(join(AOAOE_DIR, "input-loop.sh"), INPUT_LOOP_SCRIPT);
-
-    await exec("tmux", [
-      "split-window", "-t", SESSION_NAME, "-v", "-l", "4",
-      `bash ${join(AOAOE_DIR, "input-loop.sh")}`,
-    ]);
-
-    await execQuiet("tmux", ["select-pane", "-t", `${SESSION_NAME}:.0`]);
-    await execQuiet("tmux", [
-      "set-option", "-t", SESSION_NAME, "pane-border-format",
-      " #{?pane_active,#[fg=green],#[fg=white]}#{pane_title} ",
-    ]);
-    await execQuiet("tmux", ["select-pane", "-t", `${SESSION_NAME}:.0`, "-T", "conversation"]);
-    await execQuiet("tmux", ["select-pane", "-t", `${SESSION_NAME}:.1`, "-T", "input (type here)"]);
-    await execQuiet("tmux", ["select-pane", "-t", `${SESSION_NAME}:.1`]);
-
-    this.ownsTmux = true;
+    // always use inline mode — print directly to the daemon terminal
+    // if chat.ts is also running in an AoE pane, it reads conversation.log independently
+    this.inlineMode = true;
     this.started = true;
-    this.writeSystem("aoaoe reasoner console started");
-    this.writeSystem("type a message below to send to the reasoner");
-    this.writeSystem("detach with Ctrl+B D to return to your shell");
-    this.writeSystem("---");
+
+    if (this.chatIsRunning()) {
+      this.writeSystem("chat UI also connected (running in AoE session)");
+    }
   }
 
   // visual tick boundary — groups observation -> reasoning -> actions
@@ -161,16 +137,19 @@ export class ReasonerConsole {
   }
 
   async stop(): Promise<void> {
-    if (this.started && this.ownsTmux) {
-      await execQuiet("tmux", ["kill-session", "-t", SESSION_NAME]);
-    }
     this.started = false;
   }
 
   private append(line: string): void {
+    // always write to conversation.log (for chat.ts / external readers)
     try {
       appendFileSync(CONVO_LOG, line + "\n");
     } catch {}
+
+    // in inline mode, also print colorized output to stderr
+    if (this.inlineMode) {
+      process.stderr.write(colorizeConsoleLine(line) + "\n");
+    }
   }
 
   private ts(): string {
@@ -229,22 +208,26 @@ export function formatActionDetail(action: string, sessionTitle: string | undefi
   return `${action} → ${sessionTitle}`;
 }
 
-// shell script that runs in the bottom tmux pane -- simple input loop
-const INPUT_LOOP_SCRIPT = `#!/usr/bin/env bash
-INPUT_FILE='${INPUT_FILE}'
-touch "$INPUT_FILE"
-
-# colors
-GREEN="\\033[32m"
-RESET="\\033[0m"
-DIM="\\033[2m"
-
-while true; do
-  printf "\${GREEN}>\${RESET} "
-  read -r msg
-  if [ -n "$msg" ]; then
-    echo "$msg" >> "$INPUT_FILE"
-    printf "\${DIM}queued for next reasoning cycle\${RESET}\\n"
-  fi
-done
-`;
+// colorize a single console line for inline terminal output
+// applied to each line as it's written (not batch like chat.ts colorize)
+export function colorizeConsoleLine(line: string): string {
+  // tick separators
+  if (/^─{2,}/.test(line.trim())) {
+    return `${DIM}${line}${RESET}`;
+  }
+  // tagged entries: [observation], [you], [reasoner], [+ action], [! action], [system], [status]
+  const tagMatch = line.match(/^(.*?\[)(observation|you|reasoner|\+ action|! action|system|status)(\].*$)/);
+  if (tagMatch) {
+    const [, pre, tag, post] = tagMatch;
+    switch (tag) {
+      case "observation": return `${DIM}${pre}${tag}${post}${RESET}`;
+      case "you": return `${GREEN}${pre}${tag}${post}${RESET}`;
+      case "reasoner": return `${CYAN}${pre}${tag}${post}${RESET}`;
+      case "+ action": return `${YELLOW}${pre}${tag}${post}${RESET}`;
+      case "! action": return `${RED}${pre}${tag}${post}${RESET}`;
+      case "system": return `${DIM}${pre}${tag}${post}${RESET}`;
+      case "status": return `${DIM}${pre}${tag}${post}${RESET}`;
+    }
+  }
+  return line;
+}

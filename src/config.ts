@@ -33,6 +33,11 @@ const DEFAULTS: AoaoeConfig = {
 
 const CONFIG_NAMES = ["aoaoe.config.json", ".aoaoe.json"];
 
+// check if any config file exists in cwd
+export function configFileExists(): boolean {
+  return CONFIG_NAMES.some((name) => existsSync(resolve(process.cwd(), name)));
+}
+
 export function loadConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig {
   let fileConfig: Partial<AoaoeConfig> = {};
 
@@ -156,6 +161,8 @@ export function parseCliArgs(argv: string[]): {
   testContext: boolean;
   runTest: boolean;
   showTasks: boolean;
+  runInit: boolean;
+  initForce: boolean;
   registerTitle?: string;
 } {
   const overrides: Partial<AoaoeConfig> = {};
@@ -166,20 +173,28 @@ export function parseCliArgs(argv: string[]): {
   let testContext = false;
   let runTest = false;
   let showTasks = false;
+  let runInit = false;
+  let initForce = false;
   let registerTitle: string | undefined;
+
+  const defaults = { overrides, help: false, version: false, attach: false, register: false, testContext: false, runTest: false, showTasks: false, runInit: false, initForce: false };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "attach") {
-    return { overrides, help: false, version: false, attach: true, register: false, testContext: false, runTest: false, showTasks: false };
+    return { ...defaults, attach: true };
   }
   if (argv[2] === "test-context") {
-    return { overrides, help: false, version: false, attach: false, register: false, testContext: true, runTest: false, showTasks: false };
+    return { ...defaults, testContext: true };
   }
   if (argv[2] === "test") {
-    return { overrides, help: false, version: false, attach: false, register: false, testContext: false, runTest: true, showTasks: false };
+    return { ...defaults, runTest: true };
   }
   if (argv[2] === "tasks") {
-    return { overrides, help: false, version: false, attach: false, register: false, testContext: false, runTest: false, showTasks: true };
+    return { ...defaults, showTasks: true };
+  }
+  if (argv[2] === "init") {
+    const force = argv.includes("--force") || argv.includes("-f");
+    return { ...defaults, runInit: true, initForce: force };
   }
   if (argv[2] === "register") {
     register = true;
@@ -189,7 +204,7 @@ export function parseCliArgs(argv: string[]): {
         registerTitle = argv[++i];
       }
     }
-    return { overrides, help: false, version: false, attach: false, register, testContext: false, runTest: false, showTasks: false, registerTitle };
+    return { ...defaults, register, registerTitle };
   }
 
   // helper: consume next arg with bounds check
@@ -256,7 +271,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, attach, register: false, testContext: false, runTest: false, showTasks: false };
+  return { overrides, help, version, attach, register: false, testContext: false, runTest: false, showTasks: false, runInit: false, initForce: false };
 }
 
 export function printHelp() {
@@ -264,19 +279,19 @@ export function printHelp() {
 
 usage: aoaoe [command] [options]
 
+getting started:
+  aoaoe init                   # detect environment, generate config
+  aoaoe test-context           # see what aoaoe sees (zero side effects)
+  aoaoe --dry-run              # full loop but actions are only logged
+  aoaoe                        # full autonomous mode
+
 commands:
-  (none)         start the supervisor daemon (polls, reasons, executes)
+  init           detect tools + sessions, generate aoaoe.config.json
+  (none)         start the supervisor daemon (interactive, polls + reasons)
   tasks          show task progress (from aoaoe.tasks.json)
   test           run integration test (creates sessions, tests, cleans up)
   test-context   scan sessions + context files (read-only, no LLM, safe)
   register       register aoaoe as an AoE session (one-time setup)
-  attach         enter the reasoner console (Ctrl+B D to detach)
-
-try it alongside running sessions:
-  aoaoe test-context           # see what aoaoe sees (zero side effects)
-  aoaoe --dry-run              # full loop but actions are only logged
-  aoaoe                        # full autonomous mode
-  aoaoe test                   # end-to-end integration test (~30s)
 
 options:
   --reasoner <opencode|claude-code>  reasoning backend (default: opencode)
@@ -290,15 +305,36 @@ options:
   --help, -h                         show this help
   --version                          show version
 
+init options:
+  --force, -f                        overwrite existing config
+
 register options:
   --title, -t <name>                 session title in AoE (default: aoaoe)
 
-console commands (inside reasoner chat):
+example config (aoaoe.config.json):
+  {
+    "reasoner": "opencode",
+    "pollIntervalMs": 15000,
+    "opencode": { "port": 4097 },
+    "sessionDirs": {
+      "my-project": "/path/to/my-project",
+      "other-repo": "/path/to/other-repo"
+    }
+  }
+
+  sessionDirs maps aoe session titles to project directories.
+  aoaoe loads AGENTS.md, claude.md, and other AI instruction files
+  from each project directory to give the reasoner per-session context.
+
+interactive commands (while daemon is running):
   /help          show available commands
   /status        request daemon status
-  /dashboard     request dashboard output
+  /dashboard     request full dashboard output
   /pause         pause the daemon
   /resume        resume the daemon
+  /interrupt     interrupt the current reasoner call
+  /verbose       toggle verbose logging
   /clear         clear the screen
+  ESC ESC        interrupt the current reasoner (shortcut)
   (anything)     send a message to the reasoner`);
 }

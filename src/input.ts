@@ -1,12 +1,25 @@
 // interactive stdin input -- lets the user send messages to the reasoner
-// and run built-in slash commands while the daemon is running
-import { createInterface, type Interface } from "node:readline";
+// and run built-in slash commands while the daemon is running.
+// in v0.32.0+ the daemon runs interactively in the same terminal (no separate attach).
+import { createInterface, emitKeypressEvents, type Interface } from "node:readline";
 import { requestInterrupt } from "./daemon-state.js";
+
+// ANSI
+const GREEN = "\x1b[32m";
+const DIM = "\x1b[2m";
+const YELLOW = "\x1b[33m";
+const RED = "\x1b[31m";
+const BOLD = "\x1b[1m";
+const RESET = "\x1b[0m";
+
+// ESC-ESC interrupt detection
+const ESC_DOUBLE_TAP_MS = 500;
 
 export class InputReader {
   private rl: Interface | null = null;
   private queue: string[] = []; // pending user messages for the reasoner
   private paused = false;
+  private lastEscTime = 0;
 
   start(): void {
     // only works if stdin is a TTY (not piped)
@@ -15,14 +28,32 @@ export class InputReader {
     this.rl = createInterface({
       input: process.stdin,
       output: process.stderr, // prompt goes to stderr so stdout stays clean
-      prompt: "",
+      prompt: `${GREEN}>${RESET} `,
+      terminal: true,
     });
 
     this.rl.on("line", (line) => this.handleLine(line.trim()));
     this.rl.on("close", () => { this.rl = null; });
 
+    // ESC-ESC interrupt detection (same as chat.ts)
+    emitKeypressEvents(process.stdin);
+    process.stdin.on("keypress", (_ch: string | undefined, key: { name?: string; sequence?: string }) => {
+      if (key?.name === "escape" || key?.sequence === "\x1b") {
+        const now = Date.now();
+        if (now - this.lastEscTime < ESC_DOUBLE_TAP_MS) {
+          this.handleEscInterrupt();
+          this.lastEscTime = 0;
+        } else {
+          this.lastEscTime = now;
+        }
+      } else {
+        this.lastEscTime = 0;
+      }
+    });
+
     // show hint on startup
-    console.error("[input] type a message to send to the reasoner, or /help for commands");
+    console.error(`${DIM}type a message to send to the reasoner, /help for commands, ESC ESC to interrupt${RESET}`);
+    this.rl.prompt();
   }
 
   // drain all pending user messages (called each tick)
@@ -45,55 +76,78 @@ export class InputReader {
     this.queue.push(msg);
   }
 
+  // re-show the prompt (called after daemon prints output)
+  prompt(): void {
+    this.rl?.prompt(true);
+  }
+
   stop(): void {
     this.rl?.close();
     this.rl = null;
   }
 
+  private handleEscInterrupt(): void {
+    requestInterrupt();
+    this.queue.push("__CMD_INTERRUPT__");
+    console.error(`\n${RED}${BOLD}>>> interrupting reasoner <<<${RESET}`);
+    console.error(`${YELLOW}type your message now -- it will be sent before the next cycle${RESET}`);
+    this.rl?.prompt(true);
+  }
+
   private handleLine(line: string): void {
-    if (!line) return;
+    if (!line) {
+      this.rl?.prompt();
+      return;
+    }
 
     // built-in slash commands
     if (line.startsWith("/")) {
       this.handleCommand(line);
+      this.rl?.prompt();
       return;
     }
 
     // queue as a user message for the reasoner
     this.queue.push(line);
-    console.error(`[input] queued message for next reasoning cycle`);
+    console.error(`${DIM}queued for next reasoning cycle${RESET}`);
+    this.rl?.prompt();
   }
 
   private handleCommand(line: string): void {
-    const [cmd, ...args] = line.split(/\s+/);
+    const [cmd] = line.split(/\s+/);
 
     switch (cmd) {
       case "/help":
         console.error(`
+${BOLD}commands:${RESET}
   /help              show this help
   /status            print current daemon state
-  /pause             pause the daemon loop (polling continues, reasoning skipped)
+  /pause             pause the daemon loop
   /resume            resume the daemon loop
   /dashboard         force a dashboard print on next tick
   /tasks             show per-session task assignments
   /interrupt         interrupt the current reasoner call
   /verbose           toggle verbose mode
-  <any text>         send message to the reasoner on next tick
+  /clear             clear the screen
+
+${BOLD}shortcuts:${RESET}
+  ESC ESC            interrupt the current reasoner (same as /interrupt)
+
+${BOLD}anything else${RESET} is sent to the reasoner as an operator message
 `);
         break;
 
       case "/pause":
         this.paused = true;
-        console.error("[input] paused -- reasoner will not be called until /resume");
+        console.error(`${YELLOW}paused -- reasoner will not be called until /resume${RESET}`);
         break;
 
       case "/resume":
         this.paused = false;
-        console.error("[input] resumed");
+        console.error(`${GREEN}resumed${RESET}`);
         break;
 
       case "/status":
-        // handled by the main loop (push a special marker)
         this.queue.push("__CMD_STATUS__");
         break;
 
@@ -106,17 +160,19 @@ export class InputReader {
         break;
 
       case "/interrupt":
-        requestInterrupt(); // create the flag file so daemon sees it from any phase
-        this.queue.push("__CMD_INTERRUPT__");
-        console.error("[input] interrupt requested");
+        this.handleEscInterrupt();
         break;
 
       case "/tasks":
         this.queue.push("__CMD_DASHBOARD__"); // reuse dashboard for now
         break;
 
+      case "/clear":
+        process.stderr.write("\x1b[2J\x1b[H");
+        break;
+
       default:
-        console.error(`[input] unknown command: ${cmd} (try /help)`);
+        console.error(`${DIM}unknown command: ${cmd} (try /help)${RESET}`);
         break;
     }
   }
