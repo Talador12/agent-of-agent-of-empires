@@ -1,5 +1,5 @@
 // tui-history.ts — persisted TUI activity history
-// JSONL file at ~/.aoaoe/tui-history.jsonl with rotation at 500KB.
+// JSONL file at ~/.aoaoe/tui-history.jsonl with rotation at 50MB.
 // pure exported functions for testability — no classes, no singletons.
 
 import { appendFileSync, readFileSync, renameSync, statSync, mkdirSync, existsSync } from "node:fs";
@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 const AOAOE_DIR = join(homedir(), ".aoaoe");
 const HISTORY_FILE = join(AOAOE_DIR, "tui-history.jsonl");
 const HISTORY_OLD = join(AOAOE_DIR, "tui-history.jsonl.old");
-const MAX_FILE_SIZE = 500 * 1024; // 500KB rotation threshold
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB rotation threshold
 
 /** JSONL entry format — extends ActivityEntry with epoch timestamp for filtering */
 export interface HistoryEntry {
@@ -43,27 +43,30 @@ export function appendHistoryEntry(
 /**
  * Load recent TUI history entries from the JSONL file.
  * Returns the last `maxEntries` entries (default 200), newest last.
+ * Filters out entries older than `maxAgeMs` (default: 7 days).
  * Returns empty array if the file doesn't exist or is unreadable.
  */
 export function loadTuiHistory(
   maxEntries: number = 200,
   filePath: string = HISTORY_FILE,
+  maxAgeMs: number = 7 * 24 * 60 * 60 * 1000,
 ): HistoryEntry[] {
   try {
     if (!existsSync(filePath)) return [];
     const content = readFileSync(filePath, "utf-8");
     const lines = content.split("\n").filter((l) => l.trim());
-    const recent = lines.slice(-maxEntries);
+    const cutoff = Date.now() - maxAgeMs;
+    const recent = lines.slice(-maxEntries * 2); // read extra to compensate for age filtering
     const entries: HistoryEntry[] = [];
     for (const line of recent) {
       try {
         const parsed = JSON.parse(line);
-        if (isValidEntry(parsed)) entries.push(parsed);
+        if (isValidEntry(parsed) && parsed.ts >= cutoff) entries.push(parsed);
       } catch {
         // skip malformed lines
       }
     }
-    return entries;
+    return entries.slice(-maxEntries);
   } catch {
     return [];
   }

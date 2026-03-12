@@ -96,7 +96,7 @@ export function loadConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig & { _c
 const KNOWN_KEYS: Record<string, Set<string> | true> = {
   reasoner: true, pollIntervalMs: true, captureLinesCount: true,
   verbose: true, dryRun: true, observe: true, confirm: true,
-  contextFiles: true, sessionDirs: true, protectedSessions: true, healthPort: true,
+  contextFiles: true, sessionDirs: true, protectedSessions: true, healthPort: true, tuiHistoryRetentionDays: true,
   opencode: new Set(["port", "model"]),
   claudeCode: new Set(["model", "yolo", "resume"]),
   aoe: new Set(["profile"]),
@@ -146,6 +146,13 @@ export function validateConfig(config: AoaoeConfig): void {
   if (config.healthPort !== undefined) {
     if (typeof config.healthPort !== "number" || !isFinite(config.healthPort) || config.healthPort < 1 || config.healthPort > 65535) {
       errors.push(`healthPort must be 1-65535, got ${config.healthPort}`);
+    }
+  }
+  // tuiHistoryRetentionDays: must be a positive integer, 1-365
+  if (config.tuiHistoryRetentionDays !== undefined) {
+    const d = config.tuiHistoryRetentionDays;
+    if (typeof d !== "number" || !isFinite(d) || !Number.isInteger(d) || d < 1 || d > 365) {
+      errors.push(`tuiHistoryRetentionDays must be an integer 1-365, got ${d}`);
     }
   }
   if (typeof config.policies?.maxErrorsBeforeRestart !== "number" || config.policies.maxErrorsBeforeRestart < 1) {
@@ -601,6 +608,7 @@ example config:
       "other-repo": "/path/to/other-repo"
     },
     "healthPort": 4098,
+    "tuiHistoryRetentionDays": 7,
     "notifications": {
       "webhookUrl": "https://example.com/webhook",
       "slackWebhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",
@@ -612,6 +620,9 @@ example config:
   sessionDirs maps aoe session titles to project directories.
   aoaoe loads AGENTS.md, claude.md, and other AI instruction files
   from each project directory to give the reasoner per-session context.
+
+  tuiHistoryRetentionDays controls how many days of TUI history to replay
+  on daemon startup (default: 7, range: 1-365). History file rotates at 50MB.
 
   notifications sends webhook alerts for daemon events. Both webhookUrl
   and slackWebhookUrl are optional. events filters which events fire

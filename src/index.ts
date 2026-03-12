@@ -253,7 +253,9 @@ async function main() {
   // start TUI (alternate screen buffer) after input is ready
   if (tui) {
     // replay persisted history from previous runs before entering alt screen
-    const history = loadTuiHistory();
+    const retentionDays = config.tuiHistoryRetentionDays ?? 7;
+    const retentionMs = retentionDays * 24 * 60 * 60 * 1000;
+    const history = loadTuiHistory(200, undefined, retentionMs);
     if (history.length > 0) tui.replayHistory(history);
 
     tui.start(pkg || "dev");

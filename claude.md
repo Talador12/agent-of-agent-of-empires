@@ -5,21 +5,44 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.61.0
+## Version: v0.62.0
 
 ## Current Focus
 
-874 tests across 32 files. v0.61.0 shipped: Persisted TUI history with JSONL file, rotation, and startup replay.
+882 tests across 32 files. v0.62.0 shipped: History retention config, age-based filtering, 50MB rotation threshold.
 
 ## Roadmap
 
-### v0.62.0+ — Ideas Backlog
+### v0.63.0+ — Ideas Backlog
 - **Scroll-through history navigation in TUI** — keyboard shortcuts to page up/down through activity
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Test isolation** — fix flaky state-file races across parallel test files (use TMPDIR or --concurrency 1)
 - **`aoaoe export`** — export session timeline as JSON/markdown for post-mortems
 - **Config hot-reload** — watch config file for changes, apply without restart
+
+### What shipped in v0.62.0
+
+**Theme: "History Retention"** — configurable retention period for TUI history entries, age-based filtering on startup replay, and bumped rotation threshold from 500KB to 50MB. 8 new tests.
+
+#### 1. Rotation threshold bump (`src/tui-history.ts`)
+Changed `MAX_FILE_SIZE` from 500KB to 50MB. Modern SSDs have terabytes of space — 500KB was unnecessarily aggressive and caused frequent rotations for active users.
+
+#### 2. Age-based filtering in `loadTuiHistory()` (`src/tui-history.ts`)
+New `maxAgeMs` parameter (default: 7 days). Entries older than `Date.now() - maxAgeMs` are filtered out during load. Reads extra lines (`maxEntries * 2`) as a buffer to compensate for filtered entries, then slices to `maxEntries` after filtering.
+
+#### 3. `tuiHistoryRetentionDays` config field (`src/types.ts`, `src/config.ts`)
+New optional field on `AoaoeConfig` — positive integer, range 1-365, defaults to 7 when undefined. Added to `KNOWN_KEYS`, config validation, `printHelp()` example config, and README config reference table.
+
+#### 4. Startup replay wiring (`src/index.ts`)
+`main()` reads `config.tuiHistoryRetentionDays ?? 7`, converts to milliseconds, and passes to `loadTuiHistory()` so only recent entries are replayed into the TUI buffer.
+
+#### 5. Tests
+- `src/config.test.ts` (5 tests): tuiHistoryRetentionDays validation — valid integer, undefined, out of range, non-integer, non-number
+- `src/tui-history.test.ts` (3 tests): age filtering — filters old entries, returns empty when all expired, respects both maxEntries and maxAgeMs
+
+Modified: `src/tui-history.ts`, `src/tui-history.test.ts`, `src/types.ts`, `src/config.ts`, `src/config.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `README.md`, `claude.md`
+Test changes: +8, net 882 tests across 32 files.
 
 ### What shipped in v0.61.0
 

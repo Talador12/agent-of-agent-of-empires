@@ -147,6 +147,7 @@ export interface AoaoeConfig {
     maxRetries?: number; // retry failed deliveries with exponential backoff (default: 0 = no retry)
   };
   healthPort?: number; // optional HTTP health check server port (e.g. 4098)
+  tuiHistoryRetentionDays?: number; // how many days of TUI history to keep on startup replay (default: 7)
 }
 
 export type NotificationEvent = "session_error" | "session_done" | "action_executed" | "action_failed" | "daemon_started" | "daemon_stopped";

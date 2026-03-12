@@ -481,6 +481,30 @@ describe("validateConfig", () => {
     assert.throws(() => validateConfig(makeConfig({ healthPort: "4098" as unknown as number })), /healthPort/);
   });
 
+  it("accepts valid tuiHistoryRetentionDays", () => {
+    assert.doesNotThrow(() => validateConfig(makeConfig({ tuiHistoryRetentionDays: 7 })));
+    assert.doesNotThrow(() => validateConfig(makeConfig({ tuiHistoryRetentionDays: 1 })));
+    assert.doesNotThrow(() => validateConfig(makeConfig({ tuiHistoryRetentionDays: 365 })));
+  });
+
+  it("accepts undefined tuiHistoryRetentionDays", () => {
+    assert.doesNotThrow(() => validateConfig(makeConfig()));
+  });
+
+  it("rejects tuiHistoryRetentionDays out of range", () => {
+    assert.throws(() => validateConfig(makeConfig({ tuiHistoryRetentionDays: 0 })), /tuiHistoryRetentionDays/);
+    assert.throws(() => validateConfig(makeConfig({ tuiHistoryRetentionDays: 366 })), /tuiHistoryRetentionDays/);
+    assert.throws(() => validateConfig(makeConfig({ tuiHistoryRetentionDays: -1 })), /tuiHistoryRetentionDays/);
+  });
+
+  it("rejects non-integer tuiHistoryRetentionDays", () => {
+    assert.throws(() => validateConfig(makeConfig({ tuiHistoryRetentionDays: 3.5 })), /tuiHistoryRetentionDays/);
+  });
+
+  it("rejects non-number tuiHistoryRetentionDays", () => {
+    assert.throws(() => validateConfig(makeConfig({ tuiHistoryRetentionDays: "7" as unknown as number })), /tuiHistoryRetentionDays/);
+  });
+
   it("rejects maxErrorsBeforeRestart below 1", () => {
     const config = makeConfig();
     config.policies.maxErrorsBeforeRestart = 0;

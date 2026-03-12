@@ -115,10 +115,11 @@ describe("loadTuiHistory", () => {
   });
 
   it("loads entries from JSONL file", () => {
+    const now = Date.now();
     const entries = [
-      makeEntry({ ts: 1000, text: "first" }),
-      makeEntry({ ts: 2000, text: "second" }),
-      makeEntry({ ts: 3000, text: "third" }),
+      makeEntry({ ts: now - 3000, text: "first" }),
+      makeEntry({ ts: now - 2000, text: "second" }),
+      makeEntry({ ts: now - 1000, text: "third" }),
     ];
     writeFileSync(filePath, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
     const result = loadTuiHistory(100, filePath);
@@ -128,8 +129,9 @@ describe("loadTuiHistory", () => {
   });
 
   it("returns only last maxEntries entries", () => {
+    const now = Date.now();
     const entries = Array.from({ length: 10 }, (_, i) =>
-      makeEntry({ ts: i * 1000, text: `entry-${i}` })
+      makeEntry({ ts: now - (10 - i) * 1000, text: `entry-${i}` })
     );
     writeFileSync(filePath, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
     const result = loadTuiHistory(3, filePath);
@@ -169,6 +171,49 @@ describe("loadTuiHistory", () => {
     writeFileSync(filePath, content);
     const result = loadTuiHistory(100, filePath);
     assert.equal(result.length, 1);
+  });
+
+  it("filters out entries older than maxAgeMs", () => {
+    const now = Date.now();
+    const entries = [
+      makeEntry({ ts: now - 10 * 24 * 60 * 60 * 1000, text: "old" }),  // 10 days ago
+      makeEntry({ ts: now - 3 * 24 * 60 * 60 * 1000, text: "recent" }),  // 3 days ago
+      makeEntry({ ts: now - 1000, text: "fresh" }),  // 1 second ago
+    ];
+    writeFileSync(filePath, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const sevenDays = 7 * 24 * 60 * 60 * 1000;
+    const result = loadTuiHistory(100, filePath, sevenDays);
+    assert.equal(result.length, 2);
+    assert.equal(result[0].text, "recent");
+    assert.equal(result[1].text, "fresh");
+  });
+
+  it("returns empty when all entries are older than maxAgeMs", () => {
+    const now = Date.now();
+    const entries = [
+      makeEntry({ ts: now - 30 * 24 * 60 * 60 * 1000, text: "ancient" }),
+      makeEntry({ ts: now - 20 * 24 * 60 * 60 * 1000, text: "old" }),
+    ];
+    writeFileSync(filePath, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const oneDay = 24 * 60 * 60 * 1000;
+    const result = loadTuiHistory(100, filePath, oneDay);
+    assert.equal(result.length, 0);
+  });
+
+  it("respects both maxEntries and maxAgeMs together", () => {
+    const now = Date.now();
+    // entries written oldest-first: entry-9 (9h ago) ... entry-0 (just now)
+    const entries = Array.from({ length: 10 }, (_, i) =>
+      makeEntry({ ts: now - i * 60 * 60 * 1000, text: `entry-${i}` })  // 0h, 1h, 2h... ago
+    ).reverse(); // oldest first in file
+    writeFileSync(filePath, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    // all within 7 days, but limit to 3 entries — should get the 3 newest
+    const sevenDays = 7 * 24 * 60 * 60 * 1000;
+    const result = loadTuiHistory(3, filePath, sevenDays);
+    assert.equal(result.length, 3);
+    assert.equal(result[0].text, "entry-2"); // 2h ago
+    assert.equal(result[1].text, "entry-1"); // 1h ago
+    assert.equal(result[2].text, "entry-0"); // just now
   });
 });
 
