@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { loadConfig, validateEnvironment, parseCliArgs, printHelp, configFileExists, findConfigFile } from "./config.js";
+import { loadConfig, validateEnvironment, parseCliArgs, printHelp, configFileExists, findConfigFile, DEFAULTS, computeConfigDiff } from "./config.js";
 import { Poller, computeTmuxName } from "./poller.js";
 import { createReasoner } from "./reasoner/index.js";
 import { Executor } from "./executor.js";
@@ -32,7 +32,7 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, notifyTest, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, configDiff, notifyTest, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -85,10 +85,12 @@ async function main() {
     return;
   }
 
-  // `aoaoe config` -- show effective resolved config (with optional --validate)
+  // `aoaoe config` -- show effective resolved config (with optional --validate or --diff)
   if (showConfig) {
     if (configValidate) {
       await runConfigValidation();
+    } else if (configDiff) {
+      showConfigDiff();
     } else {
       showEffectiveConfig();
     }
@@ -1269,6 +1271,39 @@ function showDaemonStatus(): void {
     }
   }
 
+  // last action from actions.log
+  try {
+    const actionsLogPath = join(homedir(), ".aoaoe", "actions.log");
+    if (existsSync(actionsLogPath)) {
+      const content = readFileSync(actionsLogPath, "utf-8").trim();
+      if (content) {
+        const logLines = content.split("\n").filter((l) => l.trim());
+        // find last non-wait action
+        for (let i = logLines.length - 1; i >= 0; i--) {
+          try {
+            const entry = toActionLogEntry(JSON.parse(logLines[i]));
+            if (!entry || entry.action.action === "wait") continue;
+            const ago = Date.now() - entry.timestamp;
+            const agoStr = ago < 60_000 ? `${Math.floor(ago / 1000)}s ago` :
+                           ago < 3_600_000 ? `${Math.floor(ago / 60_000)}m ago` :
+                           `${Math.floor(ago / 3_600_000)}h ago`;
+            const icon = entry.success ? `${GREEN}+${RESET}` : `${RED}!${RESET}`;
+            const session = entry.action.session?.slice(0, 8) ?? entry.action.title ?? "";
+            const detail = entry.detail.length > 40 ? entry.detail.slice(0, 37) + "..." : entry.detail;
+            console.log("");
+            console.log(`  last action: ${icon} ${entry.action.action} ${session} ${DIM}(${agoStr})${RESET}`);
+            if (detail) console.log(`    ${DIM}${detail}${RESET}`);
+            break;
+          } catch {
+            // skip malformed lines
+          }
+        }
+      }
+    }
+  } catch {
+    // best-effort — actions.log might not exist
+  }
+
   console.log("");
 }
 
@@ -1388,6 +1423,36 @@ async function runConfigValidation(): Promise<void> {
   console.log("");
 
   if (failed > 0) process.exit(1);
+}
+
+// `aoaoe config --diff` -- show only fields that differ from defaults
+function showConfigDiff(): void {
+  const configPath = findConfigFile();
+  const configResult = loadConfig();
+  const { _configPath, ...config } = configResult as unknown as Record<string, unknown>;
+
+  const diffs = computeConfigDiff(config, DEFAULTS as unknown as Record<string, unknown>);
+
+  console.log("");
+  console.log("  aoaoe — config diff (vs. defaults)");
+  console.log(`  ${"─".repeat(50)}`);
+  console.log(`  source: ${configPath ?? "defaults (no config file found)"}`);
+  console.log("");
+
+  if (diffs.length === 0) {
+    console.log("  (no differences — config matches defaults)");
+  } else {
+    for (const d of diffs) {
+      const curStr = d.current === undefined ? `${DIM}(not set)${RESET}` : `${GREEN}${JSON.stringify(d.current)}${RESET}`;
+      const defStr = d.default === undefined ? `${DIM}(not set)${RESET}` : `${DIM}${JSON.stringify(d.default)}${RESET}`;
+      console.log(`  ${YELLOW}${d.path}${RESET}`);
+      console.log(`    current:  ${curStr}`);
+      console.log(`    default:  ${defStr}`);
+    }
+    console.log("");
+    console.log(`  ${diffs.length} field(s) differ from defaults`);
+  }
+  console.log("");
 }
 
 // `aoaoe config` -- show the effective resolved config (defaults + file + any notes)

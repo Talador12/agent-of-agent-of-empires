@@ -5,15 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.54.0
+## Version: v0.55.0
 
 ## Current Focus
 
-785 tests across 27 files. v0.54.0 shipped: Config Validation — `aoaoe config --validate` subcommand, runtime-safe action log parsing, documentation updates.
+795 tests across 27 files. v0.55.0 shipped: Status Enhancements — `aoaoe config --diff`, last action in `aoaoe status`, config diff computation.
 
 ## Roadmap
 
-### v0.55.0+ — Ideas Backlog
+### v0.56.0+ — Ideas Backlog
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
@@ -21,8 +21,27 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Refactor config.ts deepMerge as casts** — safe but ugly, could use generics
 - **Scroll-through history navigation in TUI**
 - **Notification delivery retry** — optional retry with exponential backoff for failed webhook deliveries
-- **Config diff** — `aoaoe config --diff` to show what differs from defaults
 - **Health check endpoint** — HTTP endpoint for monitoring (uptime, session count, last action)
+- **aoaoe doctor** — comprehensive health check (combine validate + tool versions + daemon + port check)
+
+### What shipped in v0.55.0
+
+**Theme: "Status Enhancements"** — config diff display, last action in status, improved diagnostic commands. 10 new tests.
+
+#### 1. `aoaoe config --diff` (`src/config.ts`, `src/index.ts`)
+New `computeConfigDiff()` function that recursively compares the effective config against defaults, returning dot-notation paths for each difference. `showConfigDiff()` displays results with color-coded current vs. default values. Exported `DEFAULTS` from config.ts for reuse.
+
+#### 2. `aoaoe status` — last action display (`src/index.ts`)
+`showDaemonStatus()` now reads the last non-wait action from `actions.log` and shows it with time ago (seconds/minutes/hours), success/fail icon, action type, session, and detail. Uses `toActionLogEntry` for safe parsing.
+
+#### 3. CLI + docs updates (`src/config.ts`, `README.md`)
+- `parseCliArgs`: added `configDiff: boolean` field, `--diff` flag parsed when `argv[2] === "config"`
+- `printHelp()`: added `config --diff` to commands list
+- README: added `config --diff` to CLI commands section
+
+#### 4. Tests (`src/config.test.ts`)
+- 2 `parseCliArgs` tests: `config --diff`, `config` without --diff
+- 8 `computeConfigDiff` tests: identical objects, changed primitives, new fields, removed fields, nested recursion with dot-notation, array comparison, deeply identical nested, mixed changed/unchanged
 
 ### What shipped in v0.54.0
 

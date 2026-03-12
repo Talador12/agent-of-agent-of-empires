@@ -14,7 +14,7 @@ const CONFIG_NAMES = ["aoaoe.config.json", ".aoaoe.json"];
 // search order: ~/.aoaoe/ first (canonical), then cwd (local override for dev)
 const CONFIG_SEARCH_DIRS = [AOAOE_DIR, process.cwd()];
 
-const DEFAULTS: AoaoeConfig = {
+export const DEFAULTS: AoaoeConfig = {
   reasoner: "opencode",
   pollIntervalMs: 10_000,
   opencode: {
@@ -277,6 +277,44 @@ export function deepMerge(...objects: Record<string, unknown>[]): AoaoeConfig {
   return result as unknown as AoaoeConfig;
 }
 
+// compute fields that differ between two config objects (flat dot-notation paths)
+// exported for testing
+export function computeConfigDiff(
+  current: Record<string, unknown>,
+  defaults: Record<string, unknown>,
+  prefix = "",
+): Array<{ path: string; current: unknown; default: unknown }> {
+  const diffs: Array<{ path: string; current: unknown; default: unknown }> = [];
+  const allKeys = new Set([...Object.keys(current), ...Object.keys(defaults)]);
+  for (const key of allKeys) {
+    const fullPath = prefix ? `${prefix}.${key}` : key;
+    const curVal = current[key];
+    const defVal = defaults[key];
+
+    // both are plain objects — recurse
+    if (
+      curVal && defVal &&
+      typeof curVal === "object" && !Array.isArray(curVal) &&
+      typeof defVal === "object" && !Array.isArray(defVal)
+    ) {
+      diffs.push(...computeConfigDiff(
+        curVal as Record<string, unknown>,
+        defVal as Record<string, unknown>,
+        fullPath,
+      ));
+      continue;
+    }
+
+    // compare with JSON.stringify for arrays/objects, === for primitives
+    const curStr = JSON.stringify(curVal);
+    const defStr = JSON.stringify(defVal);
+    if (curStr !== defStr) {
+      diffs.push({ path: fullPath, current: curVal, default: defVal });
+    }
+  }
+  return diffs;
+}
+
 function log(msg: string) {
   console.error(`[config] ${msg}`);
 }
@@ -293,6 +331,7 @@ export function parseCliArgs(argv: string[]): {
   showStatus: boolean;
   showConfig: boolean;
   configValidate: boolean;
+  configDiff: boolean;
   notifyTest: boolean;
   runInit: boolean;
   initForce: boolean;
@@ -311,7 +350,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, notifyTest: false, runInit: false, initForce: false, runTaskCli: false };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runInit: false, initForce: false, runTaskCli: false };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "test-context") {
@@ -334,7 +373,8 @@ export function parseCliArgs(argv: string[]): {
   }
   if (argv[2] === "config") {
     const validate = argv.includes("--validate") || argv.includes("-V");
-    return { ...defaults, showConfig: true, configValidate: validate };
+    const diff = argv.includes("--diff");
+    return { ...defaults, showConfig: true, configValidate: validate, configDiff: diff };
   }
   if (argv[2] === "notify-test") {
     return { ...defaults, notifyTest: true };
@@ -430,7 +470,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, notifyTest: false, runInit: false, initForce: false, runTaskCli: false };
+  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runInit: false, initForce: false, runTaskCli: false };
 }
 
 export function printHelp() {
@@ -449,7 +489,8 @@ commands:
   (none)         start the supervisor daemon (interactive TUI)
   status         quick daemon health check (is it running? what's it doing?)
   config         show the effective resolved config (defaults + file)
-  config --validate  validate config file + check tool availability
+  config --validate  validate config + check tool availability
+  config --diff  show only fields that differ from defaults
   notify-test    send a test notification to configured webhooks
   task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)

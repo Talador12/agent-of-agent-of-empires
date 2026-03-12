@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { parseCliArgs, deepMerge, validateConfig, findConfigFile, configFileExists, defaultConfigPath, warnUnknownKeys } from "./config.js";
+import { parseCliArgs, deepMerge, validateConfig, findConfigFile, configFileExists, defaultConfigPath, warnUnknownKeys, computeConfigDiff } from "./config.js";
 import type { AoaoeConfig, Action } from "./types.js";
 import { actionSession, actionDetail, toSessionStatus, toTaskState, toDaemonState, toAoeSessionList, toReasonerBackend, toActionLogEntry } from "./types.js";
 
@@ -257,6 +257,18 @@ describe("parseCliArgs", () => {
     const result = parseCliArgs(argv("config"));
     assert.equal(result.showConfig, true);
     assert.equal(result.configValidate, false);
+  });
+
+  it("parses config --diff", () => {
+    const result = parseCliArgs(argv("config", "--diff"));
+    assert.equal(result.showConfig, true);
+    assert.equal(result.configDiff, true);
+    assert.equal(result.configValidate, false);
+  });
+
+  it("config without --diff has configDiff false", () => {
+    const result = parseCliArgs(argv("config"));
+    assert.equal(result.configDiff, false);
   });
 
   it("subcommands are mutually exclusive", () => {
@@ -1077,5 +1089,75 @@ describe("toActionLogEntry", () => {
     assert.equal(entry!.action.session, undefined);
     assert.equal(entry!.action.text, undefined);
     assert.equal(entry!.action.title, undefined);
+  });
+});
+
+// ── computeConfigDiff ───────────────────────────────────────────────────────
+
+describe("computeConfigDiff", () => {
+  it("returns empty array when objects are identical", () => {
+    const obj = { a: 1, b: "hello" };
+    assert.deepEqual(computeConfigDiff(obj, { ...obj }), []);
+  });
+
+  it("detects changed primitive values", () => {
+    const current = { a: 1, b: "changed" };
+    const defaults = { a: 1, b: "original" };
+    const diffs = computeConfigDiff(current, defaults);
+    assert.equal(diffs.length, 1);
+    assert.equal(diffs[0].path, "b");
+    assert.equal(diffs[0].current, "changed");
+    assert.equal(diffs[0].default, "original");
+  });
+
+  it("detects new fields not in defaults", () => {
+    const current = { a: 1, extra: "new" };
+    const defaults = { a: 1 };
+    const diffs = computeConfigDiff(current, defaults);
+    assert.equal(diffs.length, 1);
+    assert.equal(diffs[0].path, "extra");
+    assert.equal(diffs[0].current, "new");
+    assert.equal(diffs[0].default, undefined);
+  });
+
+  it("detects fields removed from defaults", () => {
+    const current = { a: 1 };
+    const defaults = { a: 1, removed: true };
+    const diffs = computeConfigDiff(current, defaults);
+    assert.equal(diffs.length, 1);
+    assert.equal(diffs[0].path, "removed");
+    assert.equal(diffs[0].current, undefined);
+    assert.equal(diffs[0].default, true);
+  });
+
+  it("recurses into nested objects with dot-notation paths", () => {
+    const current = { nested: { x: 10, y: 20 } };
+    const defaults = { nested: { x: 10, y: 99 } };
+    const diffs = computeConfigDiff(current, defaults);
+    assert.equal(diffs.length, 1);
+    assert.equal(diffs[0].path, "nested.y");
+    assert.equal(diffs[0].current, 20);
+    assert.equal(diffs[0].default, 99);
+  });
+
+  it("compares arrays by JSON.stringify", () => {
+    const current = { arr: [1, 2, 3] };
+    const defaults = { arr: [1, 2] };
+    const diffs = computeConfigDiff(current, defaults);
+    assert.equal(diffs.length, 1);
+    assert.equal(diffs[0].path, "arr");
+  });
+
+  it("returns empty for deeply identical nested objects", () => {
+    const obj = { a: { b: { c: 42 } } };
+    assert.deepEqual(computeConfigDiff(obj, JSON.parse(JSON.stringify(obj))), []);
+  });
+
+  it("handles mixed changed and unchanged fields", () => {
+    const current = { a: 1, b: 2, c: 3 };
+    const defaults = { a: 1, b: 99, c: 3 };
+    const diffs = computeConfigDiff(current, defaults);
+    assert.equal(diffs.length, 1);
+    assert.equal(diffs[0].path, "b");
   });
 });
