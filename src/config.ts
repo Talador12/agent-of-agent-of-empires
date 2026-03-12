@@ -104,7 +104,7 @@ const KNOWN_KEYS: Record<string, Set<string> | true> = {
     "maxIdleBeforeNudgeMs", "maxErrorsBeforeRestart", "autoAnswerPermissions",
     "actionCooldownMs", "userActivityThresholdMs", "allowDestructive",
   ]),
-  notifications: new Set(["webhookUrl", "slackWebhookUrl", "events"]),
+  notifications: new Set(["webhookUrl", "slackWebhookUrl", "events", "maxRetries"]),
 };
 
 export function warnUnknownKeys(raw: unknown, source: string): void {
@@ -228,6 +228,14 @@ export function validateConfig(config: AoaoeConfig): void {
           errors.push(`notifications.events contains invalid event "${e}"`);
         }
       }
+    }
+  }
+
+  // notifications.maxRetries must be a non-negative integer
+  if (config.notifications?.maxRetries !== undefined) {
+    const r = config.notifications.maxRetries;
+    if (typeof r !== "number" || !isFinite(r) || r < 0 || !Number.isInteger(r)) {
+      errors.push(`notifications.maxRetries must be a non-negative integer, got ${r}`);
     }
   }
 
@@ -596,7 +604,8 @@ example config:
     "notifications": {
       "webhookUrl": "https://example.com/webhook",
       "slackWebhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",
-      "events": ["session_error", "session_done", "daemon_started", "daemon_stopped"]
+      "events": ["session_error", "session_done", "daemon_started", "daemon_stopped"],
+      "maxRetries": 2
     }
   }
 
@@ -606,7 +615,8 @@ example config:
 
   notifications sends webhook alerts for daemon events. Both webhookUrl
   and slackWebhookUrl are optional. events filters which events fire
-  (omit to send all). Run 'aoaoe notify-test' to verify delivery.
+  (omit to send all). maxRetries enables exponential backoff retry on
+  failure (default: 0 = no retry). Run 'aoaoe notify-test' to verify.
 
 interactive commands (while daemon is running):
   /help          show available commands

@@ -144,6 +144,7 @@ export interface AoaoeConfig {
     webhookUrl?: string; // generic webhook — POST JSON payload on events
     slackWebhookUrl?: string; // Slack incoming webhook — POST Slack block format
     events?: NotificationEvent[]; // filter which events trigger notifications (default: all)
+    maxRetries?: number; // retry failed deliveries with exponential backoff (default: 0 = no retry)
   };
   healthPort?: number; // optional HTTP health check server port (e.g. 4098)
 }

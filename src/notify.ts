@@ -58,13 +58,14 @@ export async function sendNotification(config: AoaoeConfig, payload: Notificatio
   if (isRateLimited(payload)) return;
   recordSent(payload);
 
+  const retries = n.maxRetries ?? 0;
   const promises: Promise<void>[] = [];
 
   if (n.webhookUrl) {
-    promises.push(sendGenericWebhook(n.webhookUrl, payload));
+    promises.push(sendGenericWebhook(n.webhookUrl, payload, retries));
   }
   if (n.slackWebhookUrl) {
-    promises.push(sendSlackWebhook(n.slackWebhookUrl, payload));
+    promises.push(sendSlackWebhook(n.slackWebhookUrl, payload, retries));
   }
 
   // fire-and-forget — swallow all errors so the daemon never crashes on notification failure
@@ -121,10 +122,37 @@ export async function sendTestNotification(config: AoaoeConfig): Promise<{ webho
   return result;
 }
 
+// ── retry with exponential backoff ──────────────────────────────────────────
+// exported for testing. retries failed fetch calls with exponential backoff.
+// maxRetries=0 means no retry (single attempt). delay doubles each attempt.
+export async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 0,
+  baseDelayMs = 1000,
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const resp = await fetch(url, options);
+      if (resp.ok || attempt === maxRetries) return resp;
+      // non-ok response: retry if we have attempts left
+      lastError = new Error(`HTTP ${resp.status} ${resp.statusText}`);
+    } catch (err) {
+      lastError = err;
+      if (attempt === maxRetries) break;
+    }
+    // exponential backoff: baseDelay * 2^attempt (1s, 2s, 4s, ...)
+    const delay = baseDelayMs * Math.pow(2, attempt);
+    await new Promise((r) => setTimeout(r, delay));
+  }
+  throw lastError;
+}
+
 // POST JSON payload to a generic webhook URL
-async function sendGenericWebhook(url: string, payload: NotificationPayload): Promise<void> {
+async function sendGenericWebhook(url: string, payload: NotificationPayload, maxRetries = 0): Promise<void> {
   try {
-    await fetch(url, {
+    await fetchWithRetry(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -134,22 +162,22 @@ async function sendGenericWebhook(url: string, payload: NotificationPayload): Pr
         detail: payload.detail,
       }),
       signal: AbortSignal.timeout(5000),
-    });
+    }, maxRetries);
   } catch (err) {
     console.error(`[notify] generic webhook failed: ${err}`);
   }
 }
 
 // POST Slack block format to a Slack incoming webhook URL
-async function sendSlackWebhook(url: string, payload: NotificationPayload): Promise<void> {
+async function sendSlackWebhook(url: string, payload: NotificationPayload, maxRetries = 0): Promise<void> {
   try {
     const body = formatSlackPayload(payload);
-    await fetch(url, {
+    await fetchWithRetry(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(5000),
-    });
+    }, maxRetries);
   } catch (err) {
     console.error(`[notify] slack webhook failed: ${err}`);
   }

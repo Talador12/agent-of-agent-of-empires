@@ -682,6 +682,36 @@ describe("validateConfig", () => {
     config.notifications = {};
     assert.doesNotThrow(() => validateConfig(config));
   });
+
+  it("accepts notifications.maxRetries as valid integer", () => {
+    const config = makeConfig();
+    config.notifications = { maxRetries: 3 };
+    assert.doesNotThrow(() => validateConfig(config));
+  });
+
+  it("accepts notifications.maxRetries = 0 (no retry)", () => {
+    const config = makeConfig();
+    config.notifications = { maxRetries: 0 };
+    assert.doesNotThrow(() => validateConfig(config));
+  });
+
+  it("rejects negative notifications.maxRetries", () => {
+    const config = makeConfig();
+    config.notifications = { maxRetries: -1 };
+    assert.throws(() => validateConfig(config), /maxRetries/);
+  });
+
+  it("rejects non-integer notifications.maxRetries", () => {
+    const config = makeConfig();
+    config.notifications = { maxRetries: 2.5 };
+    assert.throws(() => validateConfig(config), /maxRetries/);
+  });
+
+  it("rejects non-number notifications.maxRetries", () => {
+    const config = makeConfig();
+    (config as unknown as Record<string, unknown>).notifications = { maxRetries: "3" };
+    assert.throws(() => validateConfig(config), /maxRetries/);
+  });
 });
 
 describe("deepMerge", () => {

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatSlackPayload, sendNotification, isRateLimited, resetRateLimiter, sendTestNotification } from "./notify.js";
+import { formatSlackPayload, sendNotification, isRateLimited, resetRateLimiter, sendTestNotification, fetchWithRetry } from "./notify.js";
 import type { NotificationPayload } from "./notify.js";
 import type { AoaoeConfig } from "./types.js";
 
@@ -248,5 +248,101 @@ describe("sendTestNotification", () => {
     assert.equal(result.slackOk, false);
     assert.ok(typeof result.webhookError === "string");
     assert.ok(typeof result.slackError === "string");
+  });
+});
+
+describe("fetchWithRetry", () => {
+  it("succeeds on first attempt with no retries", async () => {
+    // use a real HTTP server that returns 200
+    const { createServer } = await import("node:http");
+    const server = createServer((_req, res) => {
+      res.writeHead(200);
+      res.end("ok");
+    });
+    server.listen(19890, "127.0.0.1");
+    await new Promise((r) => setTimeout(r, 50));
+
+    try {
+      const resp = await fetchWithRetry("http://127.0.0.1:19890/", { method: "GET" }, 0);
+      assert.equal(resp.status, 200);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("throws immediately on failure when maxRetries=0", async () => {
+    await assert.rejects(
+      () => fetchWithRetry("http://127.0.0.1:1/unreachable", { method: "GET" }, 0),
+    );
+  });
+
+  it("retries on failure and eventually succeeds", async () => {
+    const { createServer } = await import("node:http");
+    let callCount = 0;
+    const server = createServer((_req, res) => {
+      callCount++;
+      if (callCount < 3) {
+        res.writeHead(500);
+        res.end("error");
+      } else {
+        res.writeHead(200);
+        res.end("ok");
+      }
+    });
+    server.listen(19891, "127.0.0.1");
+    await new Promise((r) => setTimeout(r, 50));
+
+    try {
+      // 2 retries = 3 total attempts. Fails on 1st and 2nd, succeeds on 3rd.
+      const resp = await fetchWithRetry(
+        "http://127.0.0.1:19891/",
+        { method: "GET" },
+        2,     // maxRetries
+        50,    // 50ms base delay for fast test
+      );
+      assert.equal(resp.status, 200);
+      assert.equal(callCount, 3);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("gives up after maxRetries exhausted", async () => {
+    const { createServer } = await import("node:http");
+    let callCount = 0;
+    const server = createServer((_req, res) => {
+      callCount++;
+      res.writeHead(500);
+      res.end("always fails");
+    });
+    server.listen(19892, "127.0.0.1");
+    await new Promise((r) => setTimeout(r, 50));
+
+    try {
+      // maxRetries=1 → 2 total attempts, both return 500.
+      // fetchWithRetry returns the last non-ok response instead of throwing.
+      const resp = await fetchWithRetry(
+        "http://127.0.0.1:19892/",
+        { method: "GET" },
+        1,     // maxRetries
+        50,    // 50ms base delay for fast test
+      );
+      assert.equal(resp.status, 500);
+      assert.equal(callCount, 2);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("retries network errors (connection refused)", async () => {
+    // all attempts fail with network error → throws the last error
+    await assert.rejects(
+      () => fetchWithRetry(
+        "http://127.0.0.1:1/unreachable",
+        { method: "GET" },
+        1,     // 1 retry = 2 attempts
+        10,    // 10ms base delay for fast test
+      ),
+    );
   });
 });

@@ -341,6 +341,7 @@ Config lives at `~/.aoaoe/aoaoe.config.json` (canonical, written by `aoaoe init`
 | `notifications.webhookUrl` | Generic webhook URL (POST JSON) | (none) |
 | `notifications.slackWebhookUrl` | Slack incoming webhook URL (block kit format) | (none) |
 | `notifications.events` | Filter which events fire (omit to send all). Valid: `session_error`, `session_done`, `action_executed`, `action_failed`, `daemon_started`, `daemon_stopped` | (all) |
+| `notifications.maxRetries` | Retry failed webhook deliveries with exponential backoff (1s, 2s, 4s, ...) | `0` (no retry) |
 
 Also reads `.aoaoe.json` as an alternative config filename.
 

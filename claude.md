@@ -5,15 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.59.0
+## Version: v0.60.0
 
 ## Current Focus
 
-847 tests across 30 files. v0.59.0 shipped: Health check HTTP endpoint + deepMerge refactor.
+857 tests across 30 files. v0.60.0 shipped: Notification delivery retry with exponential backoff.
 
 ## Roadmap
 
-### v0.60.0+ — Ideas Backlog
+### v0.61.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Persisted TUI history** — survive daemon restarts, scroll through history
@@ -21,6 +21,32 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Scroll-through history navigation in TUI**
 - **Notification delivery retry** — optional retry with exponential backoff for failed webhook deliveries
 - **Health check endpoint** — HTTP endpoint for monitoring (uptime, session count, last action)
+
+### What shipped in v0.60.0
+
+**Theme: "Notification Retry"** — exponential backoff for failed webhook deliveries, configurable via `notifications.maxRetries`. 10 new tests.
+
+#### 1. `fetchWithRetry()` helper (`src/notify.ts`)
+New exported function that wraps `fetch` with retry logic:
+- `maxRetries=0` (default) = single attempt, no retry (preserves existing behavior)
+- On failure (network error or non-2xx response), waits `baseDelay * 2^attempt` ms before retrying
+- Default base delay: 1000ms → backoff sequence: 1s, 2s, 4s, 8s, ...
+- Returns the last Response on non-ok status after exhausting retries (doesn't throw for HTTP errors)
+- Throws the last error on network failures after exhausting retries
+
+#### 2. Retry wired into notification dispatch (`src/notify.ts`)
+`sendGenericWebhook()` and `sendSlackWebhook()` now accept `maxRetries` parameter, passed through from `config.notifications.maxRetries`. Fire-and-forget semantics preserved — retries happen in-band but `sendNotification()` still uses `Promise.allSettled()`.
+
+#### 3. Config + validation (`src/types.ts`, `src/config.ts`)
+- Added `maxRetries?: number` to `notifications` config block
+- Added `maxRetries` to `KNOWN_KEYS` notifications sub-keys
+- Validation: must be a non-negative integer (rejects negative, float, non-number)
+- Updated `printHelp()` example config + explanation
+- Not in `DEFAULTS` — `undefined` means 0 retries (backward compatible)
+
+#### 4. Tests
+- `src/notify.test.ts` (5 tests): fetchWithRetry — succeeds first attempt, throws on failure with maxRetries=0, retries and eventually succeeds, gives up after maxRetries exhausted, retries network errors
+- `src/config.test.ts` (5 tests): notifications.maxRetries validation — valid integer, zero, negative, non-integer, non-number
 
 ### What shipped in v0.59.0
 
