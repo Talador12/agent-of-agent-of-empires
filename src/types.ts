@@ -145,6 +145,7 @@ export interface AoaoeConfig {
     slackWebhookUrl?: string; // Slack incoming webhook — POST Slack block format
     events?: NotificationEvent[]; // filter which events trigger notifications (default: all)
   };
+  healthPort?: number; // optional HTTP health check server port (e.g. 4098)
 }
 
 export type NotificationEvent = "session_error" | "session_done" | "action_executed" | "action_failed" | "daemon_started" | "daemon_stopped";

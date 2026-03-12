@@ -19,6 +19,7 @@ import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
 import { TUI } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
+import { startHealthServer } from "./health.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState, ActionLogEntry } from "./types.js";
 import { actionSession, actionDetail, toActionLogEntry } from "./types.js";
 import { YELLOW, GREEN, DIM, BOLD, RED, RESET } from "./colors.js";
@@ -286,8 +287,16 @@ async function main() {
     } catch {}
   }
 
-  // ── session stats (for shutdown summary) ──────────────────────────────────
+  // ── health check HTTP server (opt-in via config.healthPort) ────────────────
   const daemonStartedAt = Date.now();
+  let healthServer: ReturnType<typeof startHealthServer> | null = null;
+  if (config.healthPort) {
+    healthServer = startHealthServer(config.healthPort, daemonStartedAt);
+    const msg = `health server listening on http://127.0.0.1:${config.healthPort}/health`;
+    if (tui) tui.log("system", msg); else log(msg);
+  }
+
+  // ── session stats (for shutdown summary) ──────────────────────────────────
   let totalDecisions = 0;
   let totalActionsExecuted = 0;
   let totalActionsFailed = 0;
@@ -326,6 +335,7 @@ async function main() {
     console.error("");
 
     log("shutting down...");
+    if (healthServer) healthServer.close();
     // notify: daemon stopped (fire-and-forget, don't block shutdown)
     sendNotification(config, { event: "daemon_stopped", timestamp: Date.now(), detail: `polls: ${totalPolls}, actions: ${totalActionsExecuted}` });
     input.stop();

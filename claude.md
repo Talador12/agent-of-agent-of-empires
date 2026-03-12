@@ -5,15 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.58.0
+## Version: v0.59.0
 
 ## Current Focus
 
-829 tests across 28 files. v0.58.0 shipped: End-to-end testing — `e2e.test.ts` validates the full daemon→IPC→chat pipeline with mock reasoner, no real processes.
+847 tests across 30 files. v0.59.0 shipped: Health check HTTP endpoint + deepMerge refactor.
 
 ## Roadmap
 
-### v0.59.0+ — Ideas Backlog
+### v0.60.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Persisted TUI history** — survive daemon restarts, scroll through history
@@ -21,6 +21,36 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Scroll-through history navigation in TUI**
 - **Notification delivery retry** — optional retry with exponential backoff for failed webhook deliveries
 - **Health check endpoint** — HTTP endpoint for monitoring (uptime, session count, last action)
+
+### What shipped in v0.59.0
+
+**Theme: "Health Check"** — opt-in HTTP health endpoint for daemon monitoring, plus deepMerge refactor. 18 new tests.
+
+#### 1. HTTP health check server (`src/health.ts`, `src/index.ts`)
+New `startHealthServer(port, startedAt)` function creates a lightweight HTTP server on `127.0.0.1:port`. Responds to `GET /health` (and `GET /` as alias) with JSON containing:
+- `status`: "ok" or "error" (error when daemon state file missing)
+- `version`: from package.json
+- `uptimeMs`: time since daemon started
+- `daemon`: phase, pollCount, pollIntervalMs, sessionCount, changeCount, paused, sessions array (title, tool, status, currentTask, userActive)
+Returns 404 for unknown paths. Server starts after TUI setup, closes in shutdown handler.
+
+#### 2. `buildHealthResponse()` pure function (`src/health.ts`)
+Exported for testing — takes `DaemonState | null`, `startedAt`, and optional `now`, returns typed `HealthResponse`. Reads daemon state from the IPC state file and formats session info.
+
+#### 3. Config + CLI (`src/types.ts`, `src/config.ts`)
+- Added `healthPort?: number` optional field to `AoaoeConfig`
+- Added `healthPort: true` to `KNOWN_KEYS` for unknown-key warnings
+- Added validation: must be 1-65535, finite number
+- Added `--health-port <number>` CLI flag with NaN-on-parse check
+- Updated `printHelp()` with flag and example config
+- Not in `DEFAULTS` — opt-in only (undefined by default = no health server)
+
+#### 4. deepMerge refactor (`src/config.ts`)
+Extracted internal `mergeRecords()` function that operates on `Record<string, unknown>` with proper typeof guards. Reduced `as` casts inside deepMerge from 5 to 2 (one recursive `as Record<string, unknown>` with typeof guard, one return cast). The call-site double cast (`DEFAULTS as unknown as Record<string, unknown>`) is unavoidable due to TypeScript structural typing.
+
+#### 5. Tests
+- `src/health.test.ts` (11 tests): buildHealthResponse (8 — ok status, null state/error, session details, phase, paused, uptime calc, version string, empty sessions), startHealthServer integration (3 — GET /health, GET / alias, 404 unknown path)
+- `src/config.test.ts` (7 tests): healthPort validation (5 — valid, undefined, out of range, NaN, non-number), parseCliArgs --health-port (2 — valid, NaN throws)
 
 ### What shipped in v0.58.0
 

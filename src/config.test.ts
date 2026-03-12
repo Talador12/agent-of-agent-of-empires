@@ -109,6 +109,18 @@ describe("parseCliArgs", () => {
     assert.equal(result.overrides.opencode?.port, 3);
   });
 
+  it("parses --health-port", () => {
+    const result = parseCliArgs(argv("--health-port", "4098"));
+    assert.equal(result.overrides.healthPort, 4098);
+  });
+
+  it("throws on non-numeric --health-port", () => {
+    assert.throws(
+      () => parseCliArgs(argv("--health-port", "abc")),
+      { message: /--health-port value 'abc' is not a valid number/ },
+    );
+  });
+
   it("parses --model (sets both backends)", () => {
     const result = parseCliArgs(argv("--model", "gpt-4o"));
     assert.equal(result.overrides.opencode?.model, "gpt-4o");
@@ -446,6 +458,27 @@ describe("validateConfig", () => {
 
   it("rejects opencode.port NaN", () => {
     assert.throws(() => validateConfig(makeConfig({ opencode: { port: NaN } })), /opencode\.port/);
+  });
+
+  it("accepts valid healthPort", () => {
+    assert.doesNotThrow(() => validateConfig(makeConfig({ healthPort: 4098 })));
+  });
+
+  it("accepts undefined healthPort", () => {
+    assert.doesNotThrow(() => validateConfig(makeConfig()));
+  });
+
+  it("rejects healthPort out of range", () => {
+    assert.throws(() => validateConfig(makeConfig({ healthPort: 0 })), /healthPort/);
+    assert.throws(() => validateConfig(makeConfig({ healthPort: 70000 })), /healthPort/);
+  });
+
+  it("rejects healthPort NaN", () => {
+    assert.throws(() => validateConfig(makeConfig({ healthPort: NaN })), /healthPort/);
+  });
+
+  it("rejects healthPort non-number", () => {
+    assert.throws(() => validateConfig(makeConfig({ healthPort: "4098" as unknown as number })), /healthPort/);
   });
 
   it("rejects maxErrorsBeforeRestart below 1", () => {

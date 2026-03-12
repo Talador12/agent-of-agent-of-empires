@@ -96,7 +96,7 @@ export function loadConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig & { _c
 const KNOWN_KEYS: Record<string, Set<string> | true> = {
   reasoner: true, pollIntervalMs: true, captureLinesCount: true,
   verbose: true, dryRun: true, observe: true, confirm: true,
-  contextFiles: true, sessionDirs: true, protectedSessions: true,
+  contextFiles: true, sessionDirs: true, protectedSessions: true, healthPort: true,
   opencode: new Set(["port", "model"]),
   claudeCode: new Set(["model", "yolo", "resume"]),
   aoe: new Set(["profile"]),
@@ -142,6 +142,11 @@ export function validateConfig(config: AoaoeConfig): void {
   }
   if (typeof config.opencode?.port !== "number" || !isFinite(config.opencode.port) || config.opencode.port < 1 || config.opencode.port > 65535) {
     errors.push(`opencode.port must be 1-65535, got ${config.opencode?.port}`);
+  }
+  if (config.healthPort !== undefined) {
+    if (typeof config.healthPort !== "number" || !isFinite(config.healthPort) || config.healthPort < 1 || config.healthPort > 65535) {
+      errors.push(`healthPort must be 1-65535, got ${config.healthPort}`);
+    }
   }
   if (typeof config.policies?.maxErrorsBeforeRestart !== "number" || config.policies.maxErrorsBeforeRestart < 1) {
     errors.push(`policies.maxErrorsBeforeRestart must be >= 1, got ${config.policies?.maxErrorsBeforeRestart}`);
@@ -259,21 +264,33 @@ async function which(cmd: string): Promise<boolean> {
   }
 }
 
-// exported for testing
-export function deepMerge(...objects: Record<string, unknown>[]): AoaoeConfig {
-  const result: Record<string, unknown> = {};
-  for (const obj of objects) {
-    for (const [key, val] of Object.entries(obj)) {
-      if (val !== undefined && val !== null) {
-        // empty objects ({}) replace rather than merge — allows clearing sessionDirs etc.
-        if (typeof val === "object" && !Array.isArray(val) && Object.keys(val as object).length > 0 && typeof result[key] === "object") {
-          result[key] = deepMerge(result[key] as Record<string, unknown>, val as Record<string, unknown>);
-        } else {
-          result[key] = val;
-        }
+// internal recursive merge on plain Record objects (no type assertions needed)
+function mergeRecords(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
+  for (const [key, val] of Object.entries(source)) {
+    if (val !== undefined && val !== null) {
+      const existing = target[key];
+      // empty objects ({}) replace rather than merge — allows clearing sessionDirs etc.
+      if (
+        typeof val === "object" && !Array.isArray(val) &&
+        typeof existing === "object" && existing !== null && !Array.isArray(existing) &&
+        Object.keys(val).length > 0
+      ) {
+        target[key] = mergeRecords({ ...(existing as Record<string, unknown>) }, val as Record<string, unknown>);
+      } else {
+        target[key] = val;
       }
     }
   }
+  return target;
+}
+
+// exported for testing — merges config objects with nested object support
+export function deepMerge(...objects: Record<string, unknown>[]): AoaoeConfig {
+  let result: Record<string, unknown> = {};
+  for (const obj of objects) {
+    result = mergeRecords(result, obj);
+  }
+  // validated by caller (validateConfig) before use — safe cast
   return result as unknown as AoaoeConfig;
 }
 
@@ -425,7 +442,7 @@ export function parseCliArgs(argv: string[]): {
   };
 
   const knownFlags = new Set([
-    "--reasoner", "--poll-interval", "--port", "--model", "--profile",
+    "--reasoner", "--poll-interval", "--port", "--model", "--profile", "--health-port",
     "--verbose", "-v", "--dry-run", "--observe", "--confirm", "--help", "-h", "--version",
   ]);
 
@@ -447,6 +464,13 @@ export function parseCliArgs(argv: string[]): {
         const val = parseInt(nextArg(i, arg), 10);
         if (isNaN(val)) throw new Error(`--port value '${argv[i + 1]}' is not a valid number`);
         overrides.opencode = { ...overrides.opencode, port: val } as AoaoeConfig["opencode"];
+        i++;
+        break;
+      }
+      case "--health-port": {
+        const val = parseInt(nextArg(i, arg), 10);
+        if (isNaN(val)) throw new Error(`--health-port value '${argv[i + 1]}' is not a valid number`);
+        overrides.healthPort = val;
         i++;
         break;
       }
@@ -530,6 +554,7 @@ options:
   --reasoner <opencode|claude-code>  reasoning backend (default: opencode)
   --poll-interval <ms>               poll interval in ms (default: 10000)
   --port <number>                    opencode server port (default: 4097)
+  --health-port <number>             start HTTP health check server on this port
   --model <model>                    model to use
   --profile <name>                   aoe profile (default: default)
   --dry-run                          run full loop but only log actions (costs
@@ -567,6 +592,7 @@ example config:
       "my-project": "/path/to/my-project",
       "other-repo": "/path/to/other-repo"
     },
+    "healthPort": 4098,
     "notifications": {
       "webhookUrl": "https://example.com/webhook",
       "slackWebhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",

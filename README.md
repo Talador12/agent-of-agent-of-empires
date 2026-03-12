@@ -259,6 +259,7 @@ options:
   --reasoner <opencode|claude-code>  reasoning backend (default: opencode)
   --poll-interval <ms>               poll interval in ms (default: 10000)
   --port <number>                    opencode server port (default: 4097)
+  --health-port <number>             start HTTP health check server on this port
   --model <model>                    model to use
   --profile <name>                   aoe profile (default: default)
   --dry-run                          run full loop but only log actions (costs
@@ -336,6 +337,7 @@ Config lives at `~/.aoaoe/aoaoe.config.json` (canonical, written by `aoaoe init`
 | `sessionDirs` | Map session titles to project directories (relative to cwd or absolute). Bypasses heuristic directory search. | `{}` |
 | `contextFiles` | Extra AI instruction file paths to load from each project root | `[]` |
 | `captureLinesCount` | Number of tmux lines to capture per session (`-S` flag) | `100` |
+| `healthPort` | Start HTTP health check server on this port (e.g. `4098`). GET `/health` returns JSON status. | (none) |
 | `notifications.webhookUrl` | Generic webhook URL (POST JSON) | (none) |
 | `notifications.slackWebhookUrl` | Slack incoming webhook URL (block kit format) | (none) |
 | `notifications.events` | Filter which events fire (omit to send all). Valid: `session_error`, `session_done`, `action_executed`, `action_failed`, `daemon_started`, `daemon_stopped` | (all) |
@@ -497,6 +499,7 @@ src/
   input.ts          # stdin readline listener with inject() for post-interrupt
   init.ts           # `aoaoe init`: auto-discover tools, sessions, generate config
   notify.ts         # webhook + Slack notification dispatcher for daemon events
+  health.ts         # HTTP health check endpoint (GET /health JSON status)
   colors.ts         # shared ANSI color/style constants
   context.ts        # discoverContextFiles, resolveProjectDir, loadSessionContext
   activity.ts       # detect human keystrokes in tmux sessions
