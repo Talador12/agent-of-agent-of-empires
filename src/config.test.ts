@@ -271,6 +271,14 @@ describe("parseCliArgs", () => {
     assert.equal(result.configDiff, false);
   });
 
+  it("parses doctor subcommand", () => {
+    const result = parseCliArgs(argv("doctor"));
+    assert.equal(result.runDoctor, true);
+    assert.equal(result.showConfig, false);
+    assert.equal(result.showStatus, false);
+    assert.equal(result.register, false);
+  });
+
   it("subcommands are mutually exclusive", () => {
     const registerResult = parseCliArgs(argv("register"));
     assert.equal(registerResult.register, true);
@@ -307,6 +315,13 @@ describe("parseCliArgs", () => {
     assert.equal(notifyTestResult.register, false);
     assert.equal(notifyTestResult.showConfig, false);
     assert.equal(notifyTestResult.showStatus, false);
+
+    const doctorResult = parseCliArgs(argv("doctor"));
+    assert.equal(doctorResult.runDoctor, true);
+    assert.equal(doctorResult.register, false);
+    assert.equal(doctorResult.showConfig, false);
+    assert.equal(doctorResult.showStatus, false);
+    assert.equal(doctorResult.notifyTest, false);
   });
 });
 

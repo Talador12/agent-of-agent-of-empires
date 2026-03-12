@@ -32,7 +32,7 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, configDiff, notifyTest, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, configDiff, notifyTest, runDoctor, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -100,6 +100,12 @@ async function main() {
   // `aoaoe notify-test` -- send a test notification to configured webhooks
   if (notifyTest) {
     await runNotifyTest();
+    return;
+  }
+
+  // `aoaoe doctor` -- comprehensive health check
+  if (runDoctor) {
+    await runDoctorCheck();
     return;
   }
 
@@ -1423,6 +1429,199 @@ async function runConfigValidation(): Promise<void> {
   console.log("");
 
   if (failed > 0) process.exit(1);
+}
+
+// `aoaoe doctor` -- comprehensive health check: config, tools, daemon, disk, sessions
+async function runDoctorCheck(): Promise<void> {
+  const pkg = readPkgVersion();
+  let checks = 0;
+  let passed = 0;
+  let warnings = 0;
+
+  console.log("");
+  console.log(`  aoaoe${pkg ? ` v${pkg}` : ""} — doctor`);
+  console.log(`  ${"─".repeat(50)}`);
+
+  // ── 1. config ──────────────────────────────────────────────────────────
+  console.log(`\n  ${BOLD}config${RESET}`);
+  const configPath = findConfigFile();
+  checks++;
+  if (configPath) {
+    console.log(`  ${GREEN}✓${RESET} config file: ${configPath}`);
+    passed++;
+  } else {
+    console.log(`  ${YELLOW}!${RESET} no config file (using defaults)`);
+    warnings++;
+  }
+
+  let config: AoaoeConfig;
+  checks++;
+  try {
+    config = loadConfig();
+    console.log(`  ${GREEN}✓${RESET} config validates OK`);
+    passed++;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log(`  ${RED}✗${RESET} config invalid: ${msg.split("\n")[0]}`);
+    // use defaults to continue checking other things
+    config = loadConfig({});
+  }
+
+  // ── 2. tools ───────────────────────────────────────────────────────────
+  console.log(`\n  ${BOLD}tools${RESET}`);
+  const toolChecks: Array<{ cmd: string; label: string; versionArg: string[]; required: boolean }> = [
+    { cmd: "node", label: "Node.js", versionArg: ["--version"], required: true },
+    { cmd: "aoe", label: "agent-of-empires", versionArg: ["--version"], required: true },
+    { cmd: "tmux", label: "terminal multiplexer", versionArg: ["-V"], required: true },
+  ];
+  if (config.reasoner === "opencode") {
+    toolChecks.push({ cmd: "opencode", label: "OpenCode CLI", versionArg: ["version"], required: true });
+  } else {
+    toolChecks.push({ cmd: "claude", label: "Claude Code CLI", versionArg: ["--version"], required: true });
+  }
+
+  for (const tool of toolChecks) {
+    checks++;
+    try {
+      const result = await shellExec(tool.cmd, tool.versionArg);
+      const ver = result.stdout.trim().split("\n")[0].slice(0, 60) || result.stderr.trim().split("\n")[0].slice(0, 60);
+      console.log(`  ${GREEN}✓${RESET} ${tool.cmd} — ${ver}`);
+      passed++;
+    } catch {
+      if (tool.required) {
+        console.log(`  ${RED}✗${RESET} ${tool.cmd} not found (${tool.label})`);
+      } else {
+        console.log(`  ${YELLOW}!${RESET} ${tool.cmd} not found (${tool.label}, optional)`);
+        warnings++;
+      }
+    }
+  }
+
+  // ── 3. reasoner server ─────────────────────────────────────────────────
+  if (config.reasoner === "opencode") {
+    console.log(`\n  ${BOLD}reasoner${RESET}`);
+    checks++;
+    try {
+      const resp = await fetch(`http://127.0.0.1:${config.opencode.port}/health`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (resp.ok) {
+        console.log(`  ${GREEN}✓${RESET} opencode serve responding on port ${config.opencode.port}`);
+        passed++;
+      } else {
+        console.log(`  ${YELLOW}!${RESET} opencode serve on port ${config.opencode.port} returned ${resp.status}`);
+        warnings++;
+      }
+    } catch {
+      console.log(`  ${RED}✗${RESET} opencode serve not responding on port ${config.opencode.port}`);
+      console.log(`    ${DIM}start with: opencode serve --port ${config.opencode.port}${RESET}`);
+    }
+  }
+
+  // ── 4. daemon ──────────────────────────────────────────────────────────
+  console.log(`\n  ${BOLD}daemon${RESET}`);
+  const state = readState();
+  const daemonRunning = isDaemonRunningFromState(state);
+  checks++;
+  if (daemonRunning && state) {
+    console.log(`  ${GREEN}✓${RESET} daemon running (poll #${state.pollCount}, phase: ${state.phase})`);
+    console.log(`    ${state.sessions.length} session(s) monitored`);
+    passed++;
+  } else {
+    console.log(`  ${DIM}○${RESET} daemon not running`);
+    passed++; // not running is fine for doctor — just informational
+  }
+
+  // lock file check
+  const lockPath = join(homedir(), ".aoaoe", "daemon.lock");
+  if (existsSync(lockPath) && !daemonRunning) {
+    checks++;
+    console.log(`  ${YELLOW}!${RESET} stale lock file found: ${lockPath}`);
+    console.log(`    ${DIM}remove with: rm ${lockPath}${RESET}`);
+    warnings++;
+  }
+
+  // ── 5. disk / data ─────────────────────────────────────────────────────
+  console.log(`\n  ${BOLD}data${RESET}`);
+  const aoaoeDir = join(homedir(), ".aoaoe");
+  if (existsSync(aoaoeDir)) {
+    checks++;
+    try {
+      const files = await import("node:fs").then(fs => fs.readdirSync(aoaoeDir));
+      let totalSize = 0;
+      for (const f of files) {
+        try {
+          totalSize += statSync(join(aoaoeDir, f)).size;
+        } catch { /* skip unreadable */ }
+      }
+      const sizeStr = totalSize < 1024 ? `${totalSize}B` :
+                      totalSize < 1_048_576 ? `${(totalSize / 1024).toFixed(1)}KB` :
+                      `${(totalSize / 1_048_576).toFixed(1)}MB`;
+      console.log(`  ${GREEN}✓${RESET} ~/.aoaoe/ — ${files.length} files, ${sizeStr}`);
+      passed++;
+    } catch {
+      console.log(`  ${YELLOW}!${RESET} could not read ~/.aoaoe/`);
+      warnings++;
+    }
+
+    // actions log stats
+    const actionsPath = join(aoaoeDir, "actions.log");
+    if (existsSync(actionsPath)) {
+      checks++;
+      try {
+        const content = readFileSync(actionsPath, "utf-8").trim();
+        const lineCount = content ? content.split("\n").length : 0;
+        const size = statSync(actionsPath).size;
+        const sizeStr = size < 1024 ? `${size}B` : `${(size / 1024).toFixed(1)}KB`;
+        console.log(`  ${GREEN}✓${RESET} actions.log — ${lineCount} entries, ${sizeStr}`);
+        passed++;
+      } catch {
+        console.log(`  ${YELLOW}!${RESET} actions.log unreadable`);
+        warnings++;
+      }
+    }
+  } else {
+    console.log(`  ${DIM}○${RESET} ~/.aoaoe/ does not exist yet (run 'aoaoe init')`);
+  }
+
+  // ── 6. aoe sessions ───────────────────────────────────────────────────
+  console.log(`\n  ${BOLD}sessions${RESET}`);
+  checks++;
+  try {
+    const listResult = await shellExec("aoe", ["list", "--json"]);
+    if (listResult.exitCode === 0 && listResult.stdout.trim()) {
+      const sessions = JSON.parse(listResult.stdout);
+      if (Array.isArray(sessions) && sessions.length > 0) {
+        console.log(`  ${GREEN}✓${RESET} ${sessions.length} aoe session(s) found`);
+        for (const s of sessions.slice(0, 5)) {
+          console.log(`    ${DIM}${s.title ?? s.id} (${s.tool ?? "?"})${RESET}`);
+        }
+        if (sessions.length > 5) console.log(`    ${DIM}...and ${sessions.length - 5} more${RESET}`);
+        passed++;
+      } else {
+        console.log(`  ${DIM}○${RESET} no aoe sessions (start some with 'aoe add')`);
+        passed++;
+      }
+    } else {
+      console.log(`  ${YELLOW}!${RESET} aoe list returned non-zero (is aoe running?)`);
+      warnings++;
+    }
+  } catch {
+    console.log(`  ${RED}✗${RESET} could not run 'aoe list --json'`);
+  }
+
+  // ── summary ────────────────────────────────────────────────────────────
+  const failed = checks - passed - warnings;
+  console.log("");
+  console.log(`  ${"─".repeat(50)}`);
+  if (failed === 0 && warnings === 0) {
+    console.log(`  ${GREEN}${BOLD}all ${checks} checks passed${RESET} — looking healthy`);
+  } else if (failed === 0) {
+    console.log(`  ${passed}/${checks} passed, ${YELLOW}${warnings} warning(s)${RESET}`);
+  } else {
+    console.log(`  ${passed}/${checks} passed, ${RED}${failed} failed${RESET}${warnings > 0 ? `, ${YELLOW}${warnings} warning(s)${RESET}` : ""}`);
+  }
+  console.log("");
 }
 
 // `aoaoe config --diff` -- show only fields that differ from defaults

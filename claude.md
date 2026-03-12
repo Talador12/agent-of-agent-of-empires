@@ -5,15 +5,16 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.55.0
+## Version: v0.56.0
 
 ## Current Focus
 
-795 tests across 27 files. v0.55.0 shipped: Status Enhancements — `aoaoe config --diff`, last action in `aoaoe status`, config diff computation.
+796 tests across 27 files. v0.56.0 shipped: Doctor — comprehensive `aoaoe doctor` health check command.
 
 ## Roadmap
 
-### v0.56.0+ — Ideas Backlog
+### v0.57.0+ — Ideas Backlog
+- **aoaoe logs** — tail/search conversation log + action log from CLI
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
@@ -22,7 +23,28 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Scroll-through history navigation in TUI**
 - **Notification delivery retry** — optional retry with exponential backoff for failed webhook deliveries
 - **Health check endpoint** — HTTP endpoint for monitoring (uptime, session count, last action)
-- **aoaoe doctor** — comprehensive health check (combine validate + tool versions + daemon + port check)
+
+### What shipped in v0.56.0
+
+**Theme: "Doctor"** — comprehensive health check command covering config, tools, daemon, disk, and sessions. 1 new test.
+
+#### 1. `aoaoe doctor` subcommand (`src/index.ts`, `src/config.ts`)
+New `runDoctorCheck()` function that performs 6 categories of diagnostics:
+- **Config**: file existence + validation (parses and runs `validateConfig`)
+- **Tools**: checks aoe, tmux, node, and selected reasoner CLI on PATH with version output
+- **Reasoner**: probes `opencode serve` HTTP health endpoint (port check with 3s timeout)
+- **Daemon**: reads IPC state file to check if daemon is running, detects stale lock files
+- **Data**: `~/.aoaoe/` directory stats (file count, disk usage), actions.log entry count
+- **Sessions**: runs `aoe list --json` to show available sessions
+Reports colored pass/fail/warning per check with summary count.
+
+#### 2. CLI parser + docs (`src/config.ts`, `README.md`)
+- `parseCliArgs`: added `runDoctor: boolean` field, `doctor` subcommand dispatch
+- `printHelp()`: added `doctor` to commands list
+- README: added `doctor` to CLI commands section
+
+#### 3. Tests (`src/config.test.ts`)
+- `parseCliArgs` test for `doctor` subcommand + mutually exclusive assertion update
 
 ### What shipped in v0.55.0
 

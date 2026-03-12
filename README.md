@@ -243,6 +243,7 @@ commands:
   config --validate  validate config + check tool availability
   config --diff  show only fields that differ from defaults
   notify-test    send a test notification to configured webhooks
+  doctor         comprehensive health check (config, tools, daemon, disk)
   task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)
   history        review recent actions (from ~/.aoaoe/actions.log)
