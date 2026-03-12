@@ -334,6 +334,10 @@ export function parseCliArgs(argv: string[]): {
   configDiff: boolean;
   notifyTest: boolean;
   runDoctor: boolean;
+  runLogs: boolean;
+  logsActions: boolean;
+  logsGrep?: string;
+  logsCount?: number;
   runInit: boolean;
   initForce: boolean;
   runTaskCli: boolean;
@@ -351,7 +355,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runInit: false, initForce: false, runTaskCli: false };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runInit: false, initForce: false, runTaskCli: false };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "test-context") {
@@ -382,6 +386,20 @@ export function parseCliArgs(argv: string[]): {
   }
   if (argv[2] === "doctor") {
     return { ...defaults, runDoctor: true };
+  }
+  if (argv[2] === "logs") {
+    const actions = argv.includes("--actions") || argv.includes("-a");
+    let grep: string | undefined;
+    let count: number | undefined;
+    for (let i = 3; i < argv.length; i++) {
+      if ((argv[i] === "--grep" || argv[i] === "-g") && argv[i + 1]) {
+        grep = argv[++i];
+      } else if ((argv[i] === "-n" || argv[i] === "--count") && argv[i + 1]) {
+        const val = parseInt(argv[++i], 10);
+        if (!isNaN(val) && val > 0) count = val;
+      }
+    }
+    return { ...defaults, runLogs: true, logsActions: actions, logsGrep: grep, logsCount: count };
   }
   if (argv[2] === "init") {
     const force = argv.includes("--force") || argv.includes("-f");
@@ -474,7 +492,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runInit: false, initForce: false, runTaskCli: false };
+  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runInit: false, initForce: false, runTaskCli: false };
 }
 
 export function printHelp() {
@@ -497,6 +515,10 @@ commands:
   config --diff  show only fields that differ from defaults
   notify-test    send a test notification to configured webhooks
   doctor         comprehensive health check (config, tools, daemon, disk)
+  logs           show recent conversation log entries (last 50)
+  logs --actions show action log entries (from ~/.aoaoe/actions.log)
+  logs --grep <pattern>  filter log entries by substring or regex
+  logs -n <count>        number of entries to show (default: 50)
   task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)
   history        review recent actions (from ~/.aoaoe/actions.log)
@@ -522,6 +544,11 @@ options:
 
 init options:
   --force, -f                        overwrite existing config
+
+logs options:
+  --actions, -a                      show action log instead of conversation log
+  --grep, -g <pattern>               filter entries by substring or regex
+  -n, --count <number>               number of entries to show (default: 50)
 
 register options:
   --title, -t <name>                 session title in AoE (default: aoaoe)

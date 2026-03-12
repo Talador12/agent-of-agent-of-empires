@@ -5,16 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.56.0
+## Version: v0.57.0
 
 ## Current Focus
 
-796 tests across 27 files. v0.56.0 shipped: Doctor — comprehensive `aoaoe doctor` health check command.
+813 tests across 27 files. v0.57.0 shipped: Logs — `aoaoe logs` subcommand for viewing/searching conversation and action logs from the CLI.
 
 ## Roadmap
 
-### v0.57.0+ — Ideas Backlog
-- **aoaoe logs** — tail/search conversation log + action log from CLI
+### v0.58.0+ — Ideas Backlog
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
@@ -23,6 +22,35 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Scroll-through history navigation in TUI**
 - **Notification delivery retry** — optional retry with exponential backoff for failed webhook deliveries
 - **Health check endpoint** — HTTP endpoint for monitoring (uptime, session count, last action)
+
+### What shipped in v0.57.0
+
+**Theme: "Logs"** — `aoaoe logs` subcommand for viewing and searching conversation and action logs from the CLI. 17 new tests.
+
+#### 1. `aoaoe logs` subcommand (`src/index.ts`, `src/config.ts`)
+New `showLogs()` function with two modes:
+- **Conversation log** (default): reads `~/.aoaoe/conversation.log`, colorizes output using `colorizeConsoleLine()`, shows last N entries
+- **Action log** (`--actions`/`-a`): reads `~/.aoaoe/actions.log` (JSONL), parses with `toActionLogEntry()`, shows formatted entries with timestamps, success/fail icons, action types, session IDs
+
+#### 2. Log filtering (`src/console.ts`)
+New `filterLogLines()` pure function that filters log lines by pattern:
+- Tries pattern as regex first (case-insensitive)
+- Falls back to plain substring match if regex is invalid (e.g. `[+` which is invalid regex but valid as a substring search for action tags)
+- Applied before slicing to `-n` count, so grep + count work together
+
+#### 3. CLI options (`src/config.ts`)
+- `--actions`/`-a`: show action log instead of conversation log
+- `--grep`/`-g <pattern>`: filter entries by substring or regex
+- `-n`/`--count <count>`: number of entries to show (default: 50, ignores invalid/zero values)
+
+#### 4. CLI parser (`src/config.ts`)
+- `parseCliArgs`: added `runLogs: boolean`, `logsActions: boolean`, `logsGrep?: string`, `logsCount?: number` fields
+- `printHelp()`: added `logs` to commands list with all options
+- README: added `logs` to CLI commands section
+
+#### 5. Tests (`src/config.test.ts`)
+- 10 `parseCliArgs` tests: `logs` subcommand, `--actions`, `-a`, `--grep`, `-g`, `-n`, `--count`, all flags combined, invalid count, zero count, mutually exclusive update
+- 7 `filterLogLines` tests: plain substring, regex pattern, match-all, match-none, invalid regex fallback, empty array, case-insensitive
 
 ### What shipped in v0.56.0
 

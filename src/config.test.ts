@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { parseCliArgs, deepMerge, validateConfig, findConfigFile, configFileExists, defaultConfigPath, warnUnknownKeys, computeConfigDiff } from "./config.js";
+import { filterLogLines } from "./console.js";
 import type { AoaoeConfig, Action } from "./types.js";
 import { actionSession, actionDetail, toSessionStatus, toTaskState, toDaemonState, toAoeSessionList, toReasonerBackend, toActionLogEntry } from "./types.js";
 
@@ -279,6 +280,72 @@ describe("parseCliArgs", () => {
     assert.equal(result.register, false);
   });
 
+  it("parses logs subcommand", () => {
+    const result = parseCliArgs(argv("logs"));
+    assert.equal(result.runLogs, true);
+    assert.equal(result.logsActions, false);
+    assert.equal(result.logsGrep, undefined);
+    assert.equal(result.logsCount, undefined);
+    assert.equal(result.showHistory, false);
+    assert.equal(result.register, false);
+  });
+
+  it("parses logs --actions", () => {
+    const result = parseCliArgs(argv("logs", "--actions"));
+    assert.equal(result.runLogs, true);
+    assert.equal(result.logsActions, true);
+  });
+
+  it("parses logs -a", () => {
+    const result = parseCliArgs(argv("logs", "-a"));
+    assert.equal(result.runLogs, true);
+    assert.equal(result.logsActions, true);
+  });
+
+  it("parses logs --grep", () => {
+    const result = parseCliArgs(argv("logs", "--grep", "error"));
+    assert.equal(result.runLogs, true);
+    assert.equal(result.logsGrep, "error");
+  });
+
+  it("parses logs -g", () => {
+    const result = parseCliArgs(argv("logs", "-g", "timeout"));
+    assert.equal(result.runLogs, true);
+    assert.equal(result.logsGrep, "timeout");
+  });
+
+  it("parses logs -n", () => {
+    const result = parseCliArgs(argv("logs", "-n", "100"));
+    assert.equal(result.runLogs, true);
+    assert.equal(result.logsCount, 100);
+  });
+
+  it("parses logs --count", () => {
+    const result = parseCliArgs(argv("logs", "--count", "25"));
+    assert.equal(result.runLogs, true);
+    assert.equal(result.logsCount, 25);
+  });
+
+  it("parses logs with all flags", () => {
+    const result = parseCliArgs(argv("logs", "--actions", "--grep", "send_input", "-n", "10"));
+    assert.equal(result.runLogs, true);
+    assert.equal(result.logsActions, true);
+    assert.equal(result.logsGrep, "send_input");
+    assert.equal(result.logsCount, 10);
+  });
+
+  it("logs -n ignores invalid count", () => {
+    const result = parseCliArgs(argv("logs", "-n", "abc"));
+    assert.equal(result.runLogs, true);
+    assert.equal(result.logsCount, undefined);
+  });
+
+  it("logs -n ignores zero count", () => {
+    const result = parseCliArgs(argv("logs", "-n", "0"));
+    assert.equal(result.runLogs, true);
+    assert.equal(result.logsCount, undefined);
+  });
+
   it("subcommands are mutually exclusive", () => {
     const registerResult = parseCliArgs(argv("register"));
     assert.equal(registerResult.register, true);
@@ -322,6 +389,14 @@ describe("parseCliArgs", () => {
     assert.equal(doctorResult.showConfig, false);
     assert.equal(doctorResult.showStatus, false);
     assert.equal(doctorResult.notifyTest, false);
+
+    const logsResult = parseCliArgs(argv("logs"));
+    assert.equal(logsResult.runLogs, true);
+    assert.equal(logsResult.register, false);
+    assert.equal(logsResult.showConfig, false);
+    assert.equal(logsResult.showStatus, false);
+    assert.equal(logsResult.runDoctor, false);
+    assert.equal(logsResult.showHistory, false);
   });
 });
 
@@ -1174,5 +1249,59 @@ describe("computeConfigDiff", () => {
     const diffs = computeConfigDiff(current, defaults);
     assert.equal(diffs.length, 1);
     assert.equal(diffs[0].path, "b");
+  });
+});
+
+// ── filterLogLines ──────────────────────────────────────────────────────────
+
+describe("filterLogLines", () => {
+  const lines = [
+    "10:00:00 [observation] 3 sessions, 1 changed",
+    "10:00:01 [reasoner] decided to send_input",
+    "10:00:02 [+ action] send_input → adventure: fix the bug",
+    "10:00:03 [system] paused via console",
+    "10:00:04 [! action] stop_session failed",
+    "10:00:05 [explain] All agents are making progress",
+  ];
+
+  it("filters by plain substring (case-insensitive)", () => {
+    const result = filterLogLines(lines, "action");
+    assert.equal(result.length, 2);
+    assert.ok(result[0].includes("[+ action]"));
+    assert.ok(result[1].includes("[! action]"));
+  });
+
+  it("filters by regex pattern", () => {
+    const result = filterLogLines(lines, "\\d+:\\d+:\\d+.*reasoner");
+    assert.equal(result.length, 1);
+    assert.ok(result[0].includes("[reasoner]"));
+  });
+
+  it("returns all lines when pattern matches everything", () => {
+    const result = filterLogLines(lines, "10:00");
+    assert.equal(result.length, 6);
+  });
+
+  it("returns empty array when nothing matches", () => {
+    const result = filterLogLines(lines, "nonexistent-pattern-xyz");
+    assert.equal(result.length, 0);
+  });
+
+  it("falls back to substring when regex is invalid", () => {
+    // "[+" is an invalid regex (unclosed bracket)
+    const result = filterLogLines(lines, "[+");
+    // should fall back to substring matching
+    assert.ok(result.length > 0);
+    assert.ok(result.every(l => l.includes("[+")));
+  });
+
+  it("handles empty lines array", () => {
+    assert.deepEqual(filterLogLines([], "anything"), []);
+  });
+
+  it("case-insensitive substring matching", () => {
+    const result = filterLogLines(lines, "SYSTEM");
+    assert.equal(result.length, 1);
+    assert.ok(result[0].includes("[system]"));
   });
 });

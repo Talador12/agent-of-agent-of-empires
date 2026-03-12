@@ -398,6 +398,24 @@ export function friendlyError(stderr: string): string {
   return firstLine.length > 120 ? firstLine.slice(0, 117) + "..." : firstLine;
 }
 
+/**
+ * Filter log lines by a grep pattern (substring or regex).
+ * Tries the pattern as a regex first; falls back to plain case-insensitive substring match
+ * if the pattern is not valid regex syntax.
+ */
+export function filterLogLines(lines: string[], pattern: string): string[] {
+  let re: RegExp | null = null;
+  try {
+    re = new RegExp(pattern, "i");
+  } catch {
+    // invalid regex — use substring
+  }
+  return lines.filter((line) => {
+    if (re) return re.test(line);
+    return line.toLowerCase().includes(pattern.toLowerCase());
+  });
+}
+
 // colorize a single console line for inline terminal output
 // applied to each line as it's written (not batch like chat.ts colorize)
 export function colorizeConsoleLine(line: string): string {

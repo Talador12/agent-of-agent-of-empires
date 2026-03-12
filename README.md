@@ -244,6 +244,10 @@ commands:
   config --diff  show only fields that differ from defaults
   notify-test    send a test notification to configured webhooks
   doctor         comprehensive health check (config, tools, daemon, disk)
+  logs           show recent conversation log entries
+  logs --actions show action log entries (from ~/.aoaoe/actions.log)
+  logs --grep <pattern>  filter log entries by substring or regex
+  logs -n <count>        number of entries to show (default: 50)
   task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)
   history        review recent actions (from ~/.aoaoe/actions.log)

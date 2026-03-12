@@ -7,7 +7,7 @@ import { printDashboard } from "./dashboard.js";
 import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
 import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState, acquireLock, readState } from "./daemon-state.js";
-import { formatSessionSummaries, formatActionDetail, formatPlainEnglishAction, narrateObservation, summarizeRecentActions, friendlyError } from "./console.js";
+import { formatSessionSummaries, formatActionDetail, formatPlainEnglishAction, narrateObservation, summarizeRecentActions, friendlyError, colorizeConsoleLine, filterLogLines } from "./console.js";
 import { type SessionPolicyState } from "./reasoner/prompt.js";
 import { loadGlobalContext, resolveProjectDirWithSource, discoverContextFiles, loadSessionContext } from "./context.js";
 import { tick as loopTick } from "./loop.js";
@@ -32,7 +32,7 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, configDiff, notifyTest, runDoctor, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -106,6 +106,12 @@ async function main() {
   // `aoaoe doctor` -- comprehensive health check
   if (runDoctor) {
     await runDoctorCheck();
+    return;
+  }
+
+  // `aoaoe logs` -- show conversation or action log entries
+  if (runLogs) {
+    await showLogs(logsActions, logsGrep, logsCount);
     return;
   }
 
@@ -1205,6 +1211,116 @@ async function showActionHistory(): Promise<void> {
   console.log(`  total: ${lines.length} actions (${GREEN}${successes} ok${RESET}, ${RED}${failures} failed${RESET})`);
   console.log(`  breakdown: ${breakdown}`);
   console.log("");
+}
+
+// `aoaoe logs` -- show conversation or action log entries
+async function showLogs(actions: boolean, grep?: string, count?: number): Promise<void> {
+  const n = count ?? 50;
+
+  if (actions) {
+    // show action log entries (JSONL from ~/.aoaoe/actions.log)
+    const logFile = join(homedir(), ".aoaoe", "actions.log");
+    if (!existsSync(logFile)) {
+      console.log("no action log found (no actions have been taken yet)");
+      return;
+    }
+
+    let lines: string[];
+    try {
+      lines = readFileSync(logFile, "utf-8").trim().split("\n").filter((l) => l.trim());
+    } catch {
+      console.error("failed to read action log");
+      return;
+    }
+
+    if (lines.length === 0) {
+      console.log("action log is empty");
+      return;
+    }
+
+    // apply grep filter before slicing
+    if (grep) {
+      lines = filterLogLines(lines, grep);
+      if (lines.length === 0) {
+        console.log(`no action log entries matching '${grep}'`);
+        return;
+      }
+    }
+
+    const recent = lines.slice(-n);
+
+    console.log("");
+    console.log(`  action log (last ${recent.length} of ${lines.length}${grep ? ` matching '${grep}'` : ""})`);
+    console.log(`  ${"─".repeat(70)}`);
+
+    for (const line of recent) {
+      try {
+        const entry = toActionLogEntry(JSON.parse(line));
+        if (!entry) continue;
+        const time = new Date(entry.timestamp).toLocaleTimeString();
+        const date = new Date(entry.timestamp).toLocaleDateString();
+        const icon = entry.success ? `${GREEN}+${RESET}` : `${RED}!${RESET}`;
+        const actionName = entry.action.action;
+        const session = entry.action.session?.slice(0, 8) ?? entry.action.title ?? "";
+        const detail = entry.detail.length > 50 ? entry.detail.slice(0, 47) + "..." : entry.detail;
+        console.log(`  ${icon} ${DIM}${date} ${time}${RESET}  ${YELLOW}${actionName.padEnd(16)}${RESET} ${session.padEnd(10)} ${detail}`);
+      } catch {
+        // skip unparseable lines
+      }
+    }
+
+    console.log(`  ${"─".repeat(70)}`);
+    console.log("");
+  } else {
+    // show conversation log entries (text from ~/.aoaoe/conversation.log)
+    const logFile = join(homedir(), ".aoaoe", "conversation.log");
+    if (!existsSync(logFile)) {
+      console.log("no conversation log found (daemon hasn't run yet)");
+      return;
+    }
+
+    let lines: string[];
+    try {
+      const content = readFileSync(logFile, "utf-8");
+      lines = content.split("\n");
+    } catch {
+      console.error("failed to read conversation log");
+      return;
+    }
+
+    // remove trailing empty line from split
+    if (lines.length > 0 && lines[lines.length - 1] === "") {
+      lines.pop();
+    }
+
+    if (lines.length === 0) {
+      console.log("conversation log is empty");
+      return;
+    }
+
+    // apply grep filter before slicing
+    if (grep) {
+      lines = filterLogLines(lines, grep);
+      if (lines.length === 0) {
+        console.log(`no conversation log entries matching '${grep}'`);
+        return;
+      }
+    }
+
+    const recent = lines.slice(-n);
+
+    console.log("");
+    console.log(`  conversation log (last ${recent.length} of ${lines.length}${grep ? ` matching '${grep}'` : ""})`);
+    console.log(`  ${"─".repeat(70)}`);
+
+    // colorize using the same function as the inline console output
+    for (const line of recent) {
+      console.log(`  ${colorizeConsoleLine(line)}`);
+    }
+
+    console.log(`  ${"─".repeat(70)}`);
+    console.log("");
+  }
 }
 
 // `aoaoe test` -- dynamically import and run the integration test
