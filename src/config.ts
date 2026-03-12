@@ -292,6 +292,7 @@ export function parseCliArgs(argv: string[]): {
   showHistory: boolean;
   showStatus: boolean;
   showConfig: boolean;
+  configValidate: boolean;
   notifyTest: boolean;
   runInit: boolean;
   initForce: boolean;
@@ -310,7 +311,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, notifyTest: false, runInit: false, initForce: false, runTaskCli: false };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, notifyTest: false, runInit: false, initForce: false, runTaskCli: false };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "test-context") {
@@ -332,7 +333,8 @@ export function parseCliArgs(argv: string[]): {
     return { ...defaults, showStatus: true };
   }
   if (argv[2] === "config") {
-    return { ...defaults, showConfig: true };
+    const validate = argv.includes("--validate") || argv.includes("-V");
+    return { ...defaults, showConfig: true, configValidate: validate };
   }
   if (argv[2] === "notify-test") {
     return { ...defaults, notifyTest: true };
@@ -428,7 +430,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, notifyTest: false, runInit: false, initForce: false, runTaskCli: false };
+  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, notifyTest: false, runInit: false, initForce: false, runTaskCli: false };
 }
 
 export function printHelp() {
@@ -447,6 +449,7 @@ commands:
   (none)         start the supervisor daemon (interactive TUI)
   status         quick daemon health check (is it running? what's it doing?)
   config         show the effective resolved config (defaults + file)
+  config --validate  validate config file + check tool availability
   notify-test    send a test notification to configured webhooks
   task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)

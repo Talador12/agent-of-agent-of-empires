@@ -19,8 +19,8 @@ import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
 import { TUI } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
-import type { AoaoeConfig, Observation, ReasonerResult, TaskState } from "./types.js";
-import { actionSession, actionDetail } from "./types.js";
+import type { AoaoeConfig, Observation, ReasonerResult, TaskState, ActionLogEntry } from "./types.js";
+import { actionSession, actionDetail, toActionLogEntry } from "./types.js";
 import { YELLOW, GREEN, DIM, BOLD, RED, RESET } from "./colors.js";
 import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -32,7 +32,7 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, notifyTest, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, notifyTest, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -85,9 +85,13 @@ async function main() {
     return;
   }
 
-  // `aoaoe config` -- show effective resolved config
+  // `aoaoe config` -- show effective resolved config (with optional --validate)
   if (showConfig) {
-    showEffectiveConfig();
+    if (configValidate) {
+      await runConfigValidation();
+    } else {
+      showEffectiveConfig();
+    }
     return;
   }
 
@@ -1160,7 +1164,8 @@ async function showActionHistory(): Promise<void> {
 
   for (const line of recent) {
     try {
-      const entry = JSON.parse(line) as { timestamp: number; action: { action: string; session?: string; text?: string; title?: string }; success: boolean; detail: string };
+      const entry = toActionLogEntry(JSON.parse(line));
+      if (!entry) continue; // skip malformed lines
       const time = new Date(entry.timestamp).toLocaleTimeString();
       const date = new Date(entry.timestamp).toLocaleDateString();
       const icon = entry.success ? `${GREEN}+${RESET}` : `${RED}!${RESET}`;
@@ -1169,7 +1174,7 @@ async function showActionHistory(): Promise<void> {
       const detail = entry.detail.length > 50 ? entry.detail.slice(0, 47) + "..." : entry.detail;
       console.log(`  ${icon} ${DIM}${date} ${time}${RESET}  ${YELLOW}${actionName.padEnd(16)}${RESET} ${session.padEnd(10)} ${detail}`);
     } catch {
-      // skip malformed lines
+      // skip unparseable JSON lines
     }
   }
 
@@ -1180,10 +1185,13 @@ async function showActionHistory(): Promise<void> {
   const actionCounts = new Map<string, number>();
   for (const line of lines) {
     try {
-      const e = JSON.parse(line) as { action: { action: string }; success: boolean };
+      const e = toActionLogEntry(JSON.parse(line));
+      if (!e) continue;
       if (e.success) successes++; else failures++;
       actionCounts.set(e.action.action, (actionCounts.get(e.action.action) ?? 0) + 1);
-    } catch {}
+    } catch {
+      // skip unparseable JSON lines
+    }
   }
   const breakdown = [...actionCounts.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}: ${v}`).join(", ");
   console.log(`  total: ${lines.length} actions (${GREEN}${successes} ok${RESET}, ${RED}${failures} failed${RESET})`);
@@ -1262,6 +1270,124 @@ function showDaemonStatus(): void {
   }
 
   console.log("");
+}
+
+// `aoaoe config --validate` -- validate config file, field values, and tool availability
+async function runConfigValidation(): Promise<void> {
+  const configPath = findConfigFile();
+  let checks = 0;
+  let passed = 0;
+  let warnings = 0;
+
+  console.log("");
+  console.log("  aoaoe — config validation");
+  console.log(`  ${"─".repeat(50)}`);
+
+  // 1. config file exists
+  checks++;
+  if (configPath) {
+    console.log(`  ${GREEN}✓${RESET} config file found: ${configPath}`);
+    passed++;
+  } else {
+    console.log(`  ${YELLOW}!${RESET} no config file found (using defaults)`);
+    console.log(`    ${DIM}run 'aoaoe init' to create one${RESET}`);
+    warnings++;
+  }
+
+  // 2. config parses + validates
+  checks++;
+  let config: AoaoeConfig;
+  try {
+    const configResult = loadConfig();
+    config = configResult;
+    console.log(`  ${GREEN}✓${RESET} config valid (all field values OK)`);
+    passed++;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log(`  ${RED}✗${RESET} config validation failed:`);
+    for (const line of msg.split("\n")) {
+      console.log(`    ${line}`);
+    }
+    console.log("");
+    console.log(`  ${passed}/${checks} checks passed, fix config errors and retry`);
+    console.log("");
+    process.exit(1);
+    return; // unreachable, but satisfies TypeScript
+  }
+
+  // 3. required tools on PATH
+  const tools = [
+    { name: "aoe", label: "agent-of-empires CLI" },
+    { name: "tmux", label: "terminal multiplexer" },
+  ];
+  if (config.reasoner === "opencode") {
+    tools.push({ name: "opencode", label: "OpenCode CLI" });
+  } else if (config.reasoner === "claude-code") {
+    tools.push({ name: "claude", label: "Claude Code CLI" });
+  }
+
+  for (const tool of tools) {
+    checks++;
+    try {
+      const { execFile: execFileCb } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const execFileAsync = promisify(execFileCb);
+      await execFileAsync("which", [tool.name]);
+      console.log(`  ${GREEN}✓${RESET} ${tool.name} found on PATH (${tool.label})`);
+      passed++;
+    } catch {
+      console.log(`  ${RED}✗${RESET} ${tool.name} not found on PATH (${tool.label})`);
+    }
+  }
+
+  // 4. notifications config check
+  checks++;
+  if (config.notifications) {
+    const hasWebhook = !!config.notifications.webhookUrl;
+    const hasSlack = !!config.notifications.slackWebhookUrl;
+    if (hasWebhook || hasSlack) {
+      const targets = [hasWebhook && "webhook", hasSlack && "Slack"].filter(Boolean).join(" + ");
+      console.log(`  ${GREEN}✓${RESET} notifications configured (${targets})`);
+      console.log(`    ${DIM}run 'aoaoe notify-test' to verify delivery${RESET}`);
+      passed++;
+    } else {
+      console.log(`  ${YELLOW}!${RESET} notifications block exists but no webhook URLs configured`);
+      warnings++;
+    }
+  } else {
+    console.log(`  ${DIM}○${RESET} notifications not configured (optional)`);
+    passed++; // not configured is fine — it's optional
+  }
+
+  // 5. sessionDirs validation — check that mapped dirs exist
+  if (config.sessionDirs && Object.keys(config.sessionDirs).length > 0) {
+    const basePath = process.cwd();
+    for (const [title, dir] of Object.entries(config.sessionDirs)) {
+      checks++;
+      const resolved = dir.startsWith("/") ? dir : resolve(basePath, dir);
+      if (existsSync(resolved)) {
+        console.log(`  ${GREEN}✓${RESET} sessionDirs.${title} → ${resolved}`);
+        passed++;
+      } else {
+        console.log(`  ${YELLOW}!${RESET} sessionDirs.${title} → ${resolved} (not found)`);
+        warnings++;
+      }
+    }
+  }
+
+  // summary
+  const failed = checks - passed - warnings;
+  console.log("");
+  if (failed === 0 && warnings === 0) {
+    console.log(`  ${GREEN}${BOLD}all ${checks} checks passed${RESET}`);
+  } else if (failed === 0) {
+    console.log(`  ${passed}/${checks} passed, ${YELLOW}${warnings} warning(s)${RESET}`);
+  } else {
+    console.log(`  ${passed}/${checks} passed, ${RED}${failed} failed${RESET}${warnings > 0 ? `, ${YELLOW}${warnings} warning(s)${RESET}` : ""}`);
+  }
+  console.log("");
+
+  if (failed > 0) process.exit(1);
 }
 
 // `aoaoe config` -- show the effective resolved config (defaults + file + any notes)

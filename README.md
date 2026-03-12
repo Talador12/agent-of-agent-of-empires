@@ -240,6 +240,7 @@ commands:
   init           detect tools + sessions, import history, generate config
   status         quick daemon health check (is it running? what's it doing?)
   config         show the effective resolved config (defaults + file)
+  config --validate  validate config + check tool availability
   notify-test    send a test notification to configured webhooks
   task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)

@@ -5,24 +5,49 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.53.0
+## Version: v0.54.0
 
 ## Current Focus
 
-773 tests across 27 files. v0.53.0 shipped: Notification UX — `aoaoe notify-test` subcommand, rate limiting, docs, init scaffolding.
+785 tests across 27 files. v0.54.0 shipped: Config Validation — `aoaoe config --validate` subcommand, runtime-safe action log parsing, documentation updates.
 
 ## Roadmap
 
-### v0.54.0+ — Ideas Backlog
+### v0.55.0+ — Ideas Backlog
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Persisted TUI history** — survive daemon restarts, scroll through history
-- **Refactor index.ts remaining as casts** — config.ts deepMerge casts are safe but ugly
+- **Refactor config.ts deepMerge as casts** — safe but ugly, could use generics
 - **Scroll-through history navigation in TUI**
-- **Remaining empty catch cleanup** — 58 more catches across production code (most are legitimate best-effort)
-- **Config validation CLI** — `aoaoe config --validate` to check config without starting daemon
 - **Notification delivery retry** — optional retry with exponential backoff for failed webhook deliveries
+- **Config diff** — `aoaoe config --diff` to show what differs from defaults
+- **Health check endpoint** — HTTP endpoint for monitoring (uptime, session count, last action)
+
+### What shipped in v0.54.0
+
+**Theme: "Config Validation"** — standalone config validation command, runtime-safe action log parsing, documentation. 12 new tests.
+
+#### 1. `aoaoe config --validate` / `config -V` (`src/index.ts`, `src/config.ts`)
+New `runConfigValidation()` function that performs 5 categories of checks:
+- Config file existence (found vs. using defaults)
+- Config field validation (all values pass `validateConfig()`)
+- Tool availability (aoe, tmux, and selected reasoner on PATH)
+- Notifications configuration status (configured, missing URLs, or optional/not set)
+- sessionDirs validation (each mapped directory exists on disk)
+Reports colored pass/fail/warning per check with summary. Non-zero exit on failure.
+
+#### 2. `toActionLogEntry` runtime validator (`src/types.ts`)
+Replaces unsafe `JSON.parse() as { ... }` casts in `showActionHistory()` with a proper runtime validator. Returns `ActionLogEntry | null`, coerces missing `detail` to empty string, drops non-string optional fields. Exported `ActionLogEntry` interface.
+
+#### 3. CLI + docs updates (`src/config.ts`, `README.md`)
+- `parseCliArgs`: added `configValidate: boolean` field, `--validate`/`-V` flags parsed when `argv[2] === "config"`
+- `printHelp()`: added `config --validate` to commands list
+- README: added `config --validate` to CLI commands section
+
+#### 4. Tests (`src/config.test.ts`)
+- 3 `parseCliArgs` tests: `config --validate`, `config -V`, `config` without --validate
+- 9 `toActionLogEntry` tests: valid entry, title field, null/undefined/primitives, missing timestamp, missing action, non-string action.action, non-boolean success, missing detail coercion, non-string optional field drops
 
 ### What shipped in v0.53.0
 

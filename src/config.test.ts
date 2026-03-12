@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { parseCliArgs, deepMerge, validateConfig, findConfigFile, configFileExists, defaultConfigPath, warnUnknownKeys } from "./config.js";
 import type { AoaoeConfig, Action } from "./types.js";
-import { actionSession, actionDetail, toSessionStatus, toTaskState, toDaemonState, toAoeSessionList, toReasonerBackend } from "./types.js";
+import { actionSession, actionDetail, toSessionStatus, toTaskState, toDaemonState, toAoeSessionList, toReasonerBackend, toActionLogEntry } from "./types.js";
 
 describe("config file resolution", () => {
   it("defaultConfigPath points to ~/.aoaoe/aoaoe.config.json", () => {
@@ -238,6 +238,25 @@ describe("parseCliArgs", () => {
     assert.equal(result.showConfig, false);
     assert.equal(result.showStatus, false);
     assert.equal(result.register, false);
+  });
+
+  it("parses config --validate", () => {
+    const result = parseCliArgs(argv("config", "--validate"));
+    assert.equal(result.showConfig, true);
+    assert.equal(result.configValidate, true);
+    assert.equal(result.register, false);
+  });
+
+  it("parses config -V", () => {
+    const result = parseCliArgs(argv("config", "-V"));
+    assert.equal(result.showConfig, true);
+    assert.equal(result.configValidate, true);
+  });
+
+  it("config without --validate has configValidate false", () => {
+    const result = parseCliArgs(argv("config"));
+    assert.equal(result.showConfig, true);
+    assert.equal(result.configValidate, false);
   });
 
   it("subcommands are mutually exclusive", () => {
@@ -962,5 +981,101 @@ describe("warnUnknownKeys", () => {
     );
     assert.equal(warnings.length, 1);
     assert.ok(warnings[0].includes("notifications.bogusField"));
+  });
+});
+
+// ── toActionLogEntry ────────────────────────────────────────────────────────
+
+describe("toActionLogEntry", () => {
+  it("accepts a valid action log entry", () => {
+    const entry = toActionLogEntry({
+      timestamp: 1700000000000,
+      action: { action: "send_input", session: "abc123", text: "hello" },
+      success: true,
+      detail: "sent input",
+    });
+    assert.ok(entry !== null);
+    assert.equal(entry!.timestamp, 1700000000000);
+    assert.equal(entry!.action.action, "send_input");
+    assert.equal(entry!.action.session, "abc123");
+    assert.equal(entry!.action.text, "hello");
+    assert.equal(entry!.success, true);
+    assert.equal(entry!.detail, "sent input");
+  });
+
+  it("accepts entry with title instead of session", () => {
+    const entry = toActionLogEntry({
+      timestamp: 1700000000000,
+      action: { action: "create_agent", title: "my-agent" },
+      success: true,
+      detail: "created agent",
+    });
+    assert.ok(entry !== null);
+    assert.equal(entry!.action.title, "my-agent");
+    assert.equal(entry!.action.session, undefined);
+  });
+
+  it("returns null for null/undefined/primitives", () => {
+    assert.equal(toActionLogEntry(null), null);
+    assert.equal(toActionLogEntry(undefined), null);
+    assert.equal(toActionLogEntry(42), null);
+    assert.equal(toActionLogEntry("string"), null);
+  });
+
+  it("returns null when timestamp is missing", () => {
+    assert.equal(toActionLogEntry({
+      action: { action: "wait" },
+      success: true,
+      detail: "",
+    }), null);
+  });
+
+  it("returns null when action is missing", () => {
+    assert.equal(toActionLogEntry({
+      timestamp: 1700000000000,
+      success: true,
+      detail: "",
+    }), null);
+  });
+
+  it("returns null when action.action is not a string", () => {
+    assert.equal(toActionLogEntry({
+      timestamp: 1700000000000,
+      action: { action: 42 },
+      success: true,
+      detail: "",
+    }), null);
+  });
+
+  it("returns null when success is not a boolean", () => {
+    assert.equal(toActionLogEntry({
+      timestamp: 1700000000000,
+      action: { action: "wait" },
+      success: "true",
+      detail: "",
+    }), null);
+  });
+
+  it("coerces missing detail to empty string", () => {
+    const entry = toActionLogEntry({
+      timestamp: 1700000000000,
+      action: { action: "wait" },
+      success: true,
+    });
+    assert.ok(entry !== null);
+    assert.equal(entry!.detail, "");
+  });
+
+  it("drops non-string optional fields", () => {
+    const entry = toActionLogEntry({
+      timestamp: 1700000000000,
+      action: { action: "send_input", session: 42, text: true, title: null },
+      success: false,
+      detail: "failed",
+    });
+    assert.ok(entry !== null);
+    assert.equal(entry!.action.session, undefined);
+    assert.equal(entry!.action.text, undefined);
+    assert.equal(entry!.action.title, undefined);
   });
 });

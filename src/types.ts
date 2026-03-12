@@ -273,3 +273,33 @@ export function toReasonerBackend(raw: string): ReasonerBackend {
   if (VALID_REASONER_BACKENDS.has(raw as ReasonerBackend)) return raw as ReasonerBackend;
   throw new Error(`--reasoner must be "opencode" or "claude-code", got "${raw}"`);
 }
+
+// runtime validator for action log JSONL entries (replaces unsafe `as` casts)
+export interface ActionLogEntry {
+  timestamp: number;
+  action: { action: string; session?: string; text?: string; title?: string };
+  success: boolean;
+  detail: string;
+}
+
+export function toActionLogEntry(raw: unknown): ActionLogEntry | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.timestamp !== "number") return null;
+  if (typeof obj.success !== "boolean") return null;
+  if (typeof obj.detail !== "string") obj.detail = "";
+  if (!obj.action || typeof obj.action !== "object") return null;
+  const action = obj.action as Record<string, unknown>;
+  if (typeof action.action !== "string") return null;
+  return {
+    timestamp: obj.timestamp,
+    action: {
+      action: action.action,
+      session: typeof action.session === "string" ? action.session : undefined,
+      text: typeof action.text === "string" ? action.text : undefined,
+      title: typeof action.title === "string" ? action.title : undefined,
+    },
+    success: obj.success,
+    detail: typeof obj.detail === "string" ? obj.detail : "",
+  };
+}
