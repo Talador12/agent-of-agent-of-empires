@@ -238,6 +238,9 @@ aoaoe [command] [options]
 commands:
   (none)         start the supervisor daemon (interactive TUI)
   init           detect tools + sessions, import history, generate config
+  status         quick daemon health check (is it running? what's it doing?)
+  config         show the effective resolved config (defaults + file)
+  notify-test    send a test notification to configured webhooks
   task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)
   history        review recent actions (from ~/.aoaoe/actions.log)
@@ -297,7 +300,12 @@ Config lives at `~/.aoaoe/aoaoe.config.json` (canonical, written by `aoaoe init`
     "adventure": "github/adventure",
     "cloudchamber": "cc/cloudchamber"
   },
-  "contextFiles": []
+  "contextFiles": [],
+  "notifications": {
+    "webhookUrl": "https://example.com/webhook",
+    "slackWebhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",
+    "events": ["session_error", "session_done", "daemon_started", "daemon_stopped"]
+  }
 }
 ```
 
@@ -321,6 +329,9 @@ Config lives at `~/.aoaoe/aoaoe.config.json` (canonical, written by `aoaoe init`
 | `sessionDirs` | Map session titles to project directories (relative to cwd or absolute). Bypasses heuristic directory search. | `{}` |
 | `contextFiles` | Extra AI instruction file paths to load from each project root | `[]` |
 | `captureLinesCount` | Number of tmux lines to capture per session (`-S` flag) | `100` |
+| `notifications.webhookUrl` | Generic webhook URL (POST JSON) | (none) |
+| `notifications.slackWebhookUrl` | Slack incoming webhook URL (block kit format) | (none) |
+| `notifications.events` | Filter which events fire (omit to send all). Valid: `session_error`, `session_done`, `action_executed`, `action_failed`, `daemon_started`, `daemon_stopped` | (all) |
 
 Also reads `.aoaoe.json` as an alternative config filename.
 
@@ -342,7 +353,25 @@ For non-standard layouts or when the session title doesn't match the directory n
 
 Paths can be relative (resolved from the directory where you run `aoaoe`) or absolute. Case-insensitive matching is used for session title lookup. If a mapped path doesn't exist on disk, aoaoe falls back to heuristic search.
 
-Use `aoaoe test-context` to verify resolution:
+Use `aoaoe test-context` to verify resolution.
+
+### `notifications` — webhook alerts for daemon events
+
+aoaoe can send webhook notifications when significant events occur (session errors, task completions, daemon start/stop). Supports generic JSON webhooks and Slack incoming webhooks with block kit formatting.
+
+```json
+{
+  "notifications": {
+    "webhookUrl": "https://example.com/webhook",
+    "slackWebhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",
+    "events": ["session_error", "session_done", "daemon_started", "daemon_stopped"]
+  }
+}
+```
+
+Both webhook URLs are optional — configure one or both. The `events` array filters which event types fire (omit it to receive all events). Notifications are fire-and-forget with a 5s timeout and 60s rate limiting per event+session combo to prevent spam.
+
+Run `aoaoe notify-test` to verify your webhook configuration.
 
 ## How It Works
 
@@ -460,6 +489,7 @@ src/
   tui.ts            # in-place terminal UI (alternate screen, scroll regions)
   input.ts          # stdin readline listener with inject() for post-interrupt
   init.ts           # `aoaoe init`: auto-discover tools, sessions, generate config
+  notify.ts         # webhook + Slack notification dispatcher for daemon events
   colors.ts         # shared ANSI color/style constants
   context.ts        # discoverContextFiles, resolveProjectDir, loadSessionContext
   activity.ts       # detect human keystrokes in tmux sessions

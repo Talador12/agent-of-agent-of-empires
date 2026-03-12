@@ -232,6 +232,14 @@ describe("parseCliArgs", () => {
     assert.equal(result.register, false);
   });
 
+  it("parses notify-test subcommand", () => {
+    const result = parseCliArgs(argv("notify-test"));
+    assert.equal(result.notifyTest, true);
+    assert.equal(result.showConfig, false);
+    assert.equal(result.showStatus, false);
+    assert.equal(result.register, false);
+  });
+
   it("subcommands are mutually exclusive", () => {
     const registerResult = parseCliArgs(argv("register"));
     assert.equal(registerResult.register, true);
@@ -262,6 +270,12 @@ describe("parseCliArgs", () => {
     assert.equal(configResult.showConfig, true);
     assert.equal(configResult.register, false);
     assert.equal(configResult.showStatus, false);
+
+    const notifyTestResult = parseCliArgs(argv("notify-test"));
+    assert.equal(notifyTestResult.notifyTest, true);
+    assert.equal(notifyTestResult.register, false);
+    assert.equal(notifyTestResult.showConfig, false);
+    assert.equal(notifyTestResult.showStatus, false);
   });
 });
 

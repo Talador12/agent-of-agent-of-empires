@@ -292,6 +292,7 @@ export function parseCliArgs(argv: string[]): {
   showHistory: boolean;
   showStatus: boolean;
   showConfig: boolean;
+  notifyTest: boolean;
   runInit: boolean;
   initForce: boolean;
   runTaskCli: boolean;
@@ -309,7 +310,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, runInit: false, initForce: false, runTaskCli: false };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, notifyTest: false, runInit: false, initForce: false, runTaskCli: false };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "test-context") {
@@ -332,6 +333,9 @@ export function parseCliArgs(argv: string[]): {
   }
   if (argv[2] === "config") {
     return { ...defaults, showConfig: true };
+  }
+  if (argv[2] === "notify-test") {
+    return { ...defaults, notifyTest: true };
   }
   if (argv[2] === "init") {
     const force = argv.includes("--force") || argv.includes("-f");
@@ -424,7 +428,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, runInit: false, initForce: false, runTaskCli: false };
+  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, notifyTest: false, runInit: false, initForce: false, runTaskCli: false };
 }
 
 export function printHelp() {
@@ -443,6 +447,7 @@ commands:
   (none)         start the supervisor daemon (interactive TUI)
   status         quick daemon health check (is it running? what's it doing?)
   config         show the effective resolved config (defaults + file)
+  notify-test    send a test notification to configured webhooks
   task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)
   history        review recent actions (from ~/.aoaoe/actions.log)
@@ -485,12 +490,21 @@ example config:
     "sessionDirs": {
       "my-project": "/path/to/my-project",
       "other-repo": "/path/to/other-repo"
+    },
+    "notifications": {
+      "webhookUrl": "https://example.com/webhook",
+      "slackWebhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",
+      "events": ["session_error", "session_done", "daemon_started", "daemon_stopped"]
     }
   }
 
   sessionDirs maps aoe session titles to project directories.
   aoaoe loads AGENTS.md, claude.md, and other AI instruction files
   from each project directory to give the reasoner per-session context.
+
+  notifications sends webhook alerts for daemon events. Both webhookUrl
+  and slackWebhookUrl are optional. events filters which events fire
+  (omit to send all). Run 'aoaoe notify-test' to verify delivery.
 
 interactive commands (while daemon is running):
   /help          show available commands

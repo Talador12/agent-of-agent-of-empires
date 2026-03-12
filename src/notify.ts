@@ -8,14 +8,55 @@ export interface NotificationPayload {
   detail?: string;    // human-readable detail (error message, action summary, etc.)
 }
 
+// ── rate limiting ───────────────────────────────────────────────────────────
+// dedup key: "event:session" — prevents spam when sessions rapidly error/recover.
+// default window: 60s per unique event+session combo.
+const RATE_LIMIT_MS = 60_000;
+const recentNotifications = new Map<string, number>(); // key → last-sent timestamp
+
+function rateLimitKey(payload: NotificationPayload): string {
+  return `${payload.event}:${payload.session ?? ""}`;
+}
+
+// exported for testing
+export function isRateLimited(payload: NotificationPayload, now?: number): boolean {
+  const key = rateLimitKey(payload);
+  const lastSent = recentNotifications.get(key);
+  const ts = now ?? Date.now();
+  if (lastSent !== undefined && ts - lastSent < RATE_LIMIT_MS) return true;
+  return false;
+}
+
+function recordSent(payload: NotificationPayload, now?: number): void {
+  const key = rateLimitKey(payload);
+  recentNotifications.set(key, now ?? Date.now());
+  // prune old entries to prevent unbounded growth (keep last 200)
+  if (recentNotifications.size > 200) {
+    const cutoff = (now ?? Date.now()) - RATE_LIMIT_MS;
+    for (const [k, v] of recentNotifications) {
+      if (v < cutoff) recentNotifications.delete(k);
+    }
+  }
+}
+
+// exported for testing — reset rate limiter state between tests
+export function resetRateLimiter(): void {
+  recentNotifications.clear();
+}
+
 // send a notification to all configured webhooks.
 // fire-and-forget: never throws, never blocks the daemon.
+// rate-limited: suppresses duplicate event+session combos within 60s.
 export async function sendNotification(config: AoaoeConfig, payload: NotificationPayload): Promise<void> {
   const n = config.notifications;
   if (!n) return;
 
   // filter: only send if event is in the configured list (or no filter = send all)
   if (n.events && n.events.length > 0 && !n.events.includes(payload.event)) return;
+
+  // rate limit: skip if we sent the same event+session recently
+  if (isRateLimited(payload)) return;
+  recordSent(payload);
 
   const promises: Promise<void>[] = [];
 
@@ -28,6 +69,56 @@ export async function sendNotification(config: AoaoeConfig, payload: Notificatio
 
   // fire-and-forget — swallow all errors so the daemon never crashes on notification failure
   await Promise.allSettled(promises);
+}
+
+// send a test notification and return whether delivery succeeded.
+// unlike sendNotification, this is NOT fire-and-forget — it reports errors.
+export async function sendTestNotification(config: AoaoeConfig): Promise<{ webhookOk?: boolean; slackOk?: boolean; webhookError?: string; slackError?: string }> {
+  const n = config.notifications;
+  if (!n) return {};
+
+  const payload: NotificationPayload = {
+    event: "daemon_started",
+    timestamp: Date.now(),
+    detail: "test notification from aoaoe notify-test",
+  };
+
+  const result: { webhookOk?: boolean; slackOk?: boolean; webhookError?: string; slackError?: string } = {};
+
+  if (n.webhookUrl) {
+    try {
+      const resp = await fetch(n.webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event: payload.event, timestamp: payload.timestamp, detail: payload.detail }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      result.webhookOk = resp.ok;
+      if (!resp.ok) result.webhookError = `HTTP ${resp.status} ${resp.statusText}`;
+    } catch (err) {
+      result.webhookOk = false;
+      result.webhookError = String(err);
+    }
+  }
+
+  if (n.slackWebhookUrl) {
+    try {
+      const body = formatSlackPayload(payload);
+      const resp = await fetch(n.slackWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10_000),
+      });
+      result.slackOk = resp.ok;
+      if (!resp.ok) result.slackError = `HTTP ${resp.status} ${resp.statusText}`;
+    } catch (err) {
+      result.slackOk = false;
+      result.slackError = String(err);
+    }
+  }
+
+  return result;
 }
 
 // POST JSON payload to a generic webhook URL

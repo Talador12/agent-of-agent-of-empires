@@ -5,15 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.52.0
+## Version: v0.53.0
 
 ## Current Focus
 
-762 tests across 27 files. v0.52.0 shipped: Notifications — webhook + Slack notification system for significant daemon events.
+773 tests across 27 files. v0.53.0 shipped: Notification UX — `aoaoe notify-test` subcommand, rate limiting, docs, init scaffolding.
 
 ## Roadmap
 
-### v0.53.0+ — Ideas Backlog
+### v0.54.0+ — Ideas Backlog
 - **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
@@ -21,6 +21,33 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Refactor index.ts remaining as casts** — config.ts deepMerge casts are safe but ugly
 - **Scroll-through history navigation in TUI**
 - **Remaining empty catch cleanup** — 58 more catches across production code (most are legitimate best-effort)
+- **Config validation CLI** — `aoaoe config --validate` to check config without starting daemon
+- **Notification delivery retry** — optional retry with exponential backoff for failed webhook deliveries
+
+### What shipped in v0.53.0
+
+**Theme: "Notification UX"** — `aoaoe notify-test` subcommand, notification rate limiting, documentation, init scaffolding. 11 new tests.
+
+#### 1. `aoaoe notify-test` subcommand (`src/index.ts`, `src/config.ts`)
+New `runNotifyTest()` function that loads config, checks for notification configuration, calls `sendTestNotification()`, and reports per-webhook success/failure with colored output. CLI parser updated with `notifyTest: boolean` field and `notify-test` subcommand dispatch.
+
+#### 2. Notification rate limiting (`src/notify.ts`)
+60s dedup window per `event:session` combo to prevent spam during rapid error/recovery cycles. Map-based with 200-entry prune. `isRateLimited()` (read-only check), `recordSent()`, `resetRateLimiter()` (exported for testing). `sendNotification()` now checks rate limiter before dispatching.
+
+#### 3. `sendTestNotification()` (`src/notify.ts`)
+Unlike fire-and-forget `sendNotification()`, this returns `{ webhookOk?, slackOk?, webhookError?, slackError? }` so the CLI can report detailed delivery results. 10s timeout per webhook.
+
+#### 4. Help text + README updates (`src/config.ts`, `README.md`)
+- `printHelp()`: added `notify-test` to commands list, added notifications config example with explanatory text
+- README: added `notify-test` and `status`/`config` to CLI commands, added `notifications.*` to config reference table, added notifications block to example config, added "Notifications" subsection with usage docs, added `notify.ts` to project structure
+
+#### 5. Init scaffolding (`src/init.ts`)
+`aoaoe init` now prints a tip about adding notifications config after writing the config file.
+
+#### 6. Tests (`src/notify.test.ts`, `src/config.test.ts`)
+- 5 `isRateLimited` tests: first call, read-only check, independence, reset, rate-limit-after-send
+- 5 `sendTestNotification` tests: no config, no URLs, unreachable webhook, unreachable Slack, both configured
+- 1 `parseCliArgs` test: `notify-test` subcommand parsing + mutually exclusive assertion update
 
 ### What shipped in v0.52.0
 

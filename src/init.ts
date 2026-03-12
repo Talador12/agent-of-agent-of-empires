@@ -350,6 +350,7 @@ export async function runInit(forceOverwrite = false): Promise<InitResult> {
   }
 
   console.log(`\n  ${DIM}tip: run ${BOLD}aoaoe test-context${RESET}${DIM} to verify session discovery without starting the daemon${RESET}`);
+  console.log(`  ${DIM}tip: add a "notifications" block to your config for webhook alerts (see ${BOLD}aoaoe --help${RESET}${DIM})${RESET}`);
   console.log();
 
   return { tools, sessions, reasoner, opencodePort, opencodeRunning, configPath, wrote: true };

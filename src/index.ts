@@ -18,7 +18,7 @@ import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from
 import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
 import { TUI } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
-import { sendNotification } from "./notify.js";
+import { sendNotification, sendTestNotification } from "./notify.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState } from "./types.js";
 import { actionSession, actionDetail } from "./types.js";
 import { YELLOW, GREEN, DIM, BOLD, RED, RESET } from "./colors.js";
@@ -32,7 +32,7 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, notifyTest, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -88,6 +88,12 @@ async function main() {
   // `aoaoe config` -- show effective resolved config
   if (showConfig) {
     showEffectiveConfig();
+    return;
+  }
+
+  // `aoaoe notify-test` -- send a test notification to configured webhooks
+  if (notifyTest) {
+    await runNotifyTest();
     return;
   }
 
@@ -1049,6 +1055,49 @@ async function registerAsAoeSession(title?: string): Promise<void> {
   console.log(`  3. enter via AoE:     aoe  (then select ${sessionTitle})`);
   console.log();
   console.log(`or start + enter immediately: aoe session start ${sessionTitle} && aoe`);
+}
+
+// `aoaoe notify-test` -- send a test notification to all configured webhooks and report results
+async function runNotifyTest(): Promise<void> {
+  const config = loadConfig();
+
+  if (!config.notifications) {
+    console.log("");
+    console.log("  no notifications configured.");
+    console.log("");
+    console.log("  add to your config (~/.aoaoe/aoaoe.config.json):");
+    console.log('    "notifications": {');
+    console.log('      "webhookUrl": "https://example.com/webhook",');
+    console.log('      "slackWebhookUrl": "https://hooks.slack.com/services/...",');
+    console.log('      "events": ["session_error", "session_done", "daemon_started", "daemon_stopped"]');
+    console.log("    }");
+    console.log("");
+    return;
+  }
+
+  if (!config.notifications.webhookUrl && !config.notifications.slackWebhookUrl) {
+    console.log("");
+    console.log("  notifications block exists but no webhook URLs configured.");
+    console.log("  add webhookUrl and/or slackWebhookUrl to your notifications config.");
+    console.log("");
+    return;
+  }
+
+  console.log("");
+  console.log("  sending test notification...");
+
+  const result = await sendTestNotification(config);
+
+  console.log("");
+  if (result.webhookOk !== undefined) {
+    const icon = result.webhookOk ? `${GREEN}✓${RESET}` : `${RED}✗${RESET}`;
+    console.log(`  ${icon} generic webhook: ${result.webhookOk ? "ok" : result.webhookError ?? "failed"}`);
+  }
+  if (result.slackOk !== undefined) {
+    const icon = result.slackOk ? `${GREEN}✓${RESET}` : `${RED}✗${RESET}`;
+    console.log(`  ${icon} slack webhook:   ${result.slackOk ? "ok" : result.slackError ?? "failed"}`);
+  }
+  console.log("");
 }
 
 function readPkgVersion(): string | null {

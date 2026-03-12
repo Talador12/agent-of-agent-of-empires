@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatSlackPayload, sendNotification } from "./notify.js";
+import { formatSlackPayload, sendNotification, isRateLimited, resetRateLimiter, sendTestNotification } from "./notify.js";
 import type { NotificationPayload } from "./notify.js";
 import type { AoaoeConfig } from "./types.js";
 
@@ -161,5 +161,92 @@ describe("sendNotification", () => {
     assert.equal(payload.timestamp, 1700000000000);
     assert.equal(payload.session, "adventure");
     assert.equal(payload.detail, "sent input");
+  });
+});
+
+describe("isRateLimited", () => {
+  it("returns false on first call for a given event+session", () => {
+    resetRateLimiter();
+    const payload: NotificationPayload = { event: "daemon_started", timestamp: 1000 };
+    assert.equal(isRateLimited(payload, 1000), false);
+  });
+
+  it("returns false because isRateLimited does not record (read-only check)", () => {
+    resetRateLimiter();
+    const payload: NotificationPayload = { event: "daemon_started", timestamp: 1000 };
+    // isRateLimited is a read-only check; calling it twice without sendNotification should still return false
+    assert.equal(isRateLimited(payload, 1000), false);
+    assert.equal(isRateLimited(payload, 1000), false);
+  });
+
+  it("different event+session combos are independent", () => {
+    resetRateLimiter();
+    const p1: NotificationPayload = { event: "session_error", timestamp: 1000, session: "alpha" };
+    const p2: NotificationPayload = { event: "session_error", timestamp: 1000, session: "beta" };
+    const p3: NotificationPayload = { event: "session_done", timestamp: 1000, session: "alpha" };
+    // all should be independent — none rate-limited
+    assert.equal(isRateLimited(p1, 1000), false);
+    assert.equal(isRateLimited(p2, 1000), false);
+    assert.equal(isRateLimited(p3, 1000), false);
+  });
+
+  it("resetRateLimiter clears all state", () => {
+    resetRateLimiter();
+    // after reset, nothing should be rate-limited
+    const payload: NotificationPayload = { event: "daemon_started", timestamp: 1000 };
+    assert.equal(isRateLimited(payload, 1000), false);
+  });
+
+  it("rate limits after sendNotification records a send", async () => {
+    resetRateLimiter();
+    // use a config with a bogus webhook so sendNotification records the send
+    const config = makeConfig({ webhookUrl: "http://127.0.0.1:1/nope" });
+    const payload: NotificationPayload = { event: "daemon_started", timestamp: Date.now() };
+    await sendNotification(config, payload);
+    // now isRateLimited should return true for the same event
+    assert.equal(isRateLimited(payload), true);
+    resetRateLimiter();
+  });
+});
+
+describe("sendTestNotification", () => {
+  it("returns empty object when no notifications configured", async () => {
+    const config = makeConfig(undefined);
+    const result = await sendTestNotification(config);
+    assert.deepEqual(result, {});
+  });
+
+  it("returns empty object when notifications block has no URLs", async () => {
+    const config = makeConfig({});
+    const result = await sendTestNotification(config);
+    assert.deepEqual(result, {});
+  });
+
+  it("returns webhookOk=false for unreachable generic webhook", async () => {
+    const config = makeConfig({ webhookUrl: "http://127.0.0.1:1/nope" });
+    const result = await sendTestNotification(config);
+    assert.equal(result.webhookOk, false);
+    assert.ok(typeof result.webhookError === "string");
+    assert.equal(result.slackOk, undefined);
+  });
+
+  it("returns slackOk=false for unreachable slack webhook", async () => {
+    const config = makeConfig({ slackWebhookUrl: "http://127.0.0.1:1/nope" });
+    const result = await sendTestNotification(config);
+    assert.equal(result.slackOk, false);
+    assert.ok(typeof result.slackError === "string");
+    assert.equal(result.webhookOk, undefined);
+  });
+
+  it("returns both fields when both webhooks configured", async () => {
+    const config = makeConfig({
+      webhookUrl: "http://127.0.0.1:1/nope",
+      slackWebhookUrl: "http://127.0.0.1:1/nope",
+    });
+    const result = await sendTestNotification(config);
+    assert.equal(result.webhookOk, false);
+    assert.equal(result.slackOk, false);
+    assert.ok(typeof result.webhookError === "string");
+    assert.ok(typeof result.slackError === "string");
   });
 });
