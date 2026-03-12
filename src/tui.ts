@@ -15,6 +15,8 @@ import {
   INDIGO, TEAL, AMBER, SLATE, ROSE, LIME, SKY,
   BOX, SPINNER, DOT,
 } from "./colors.js";
+import { appendHistoryEntry } from "./tui-history.js";
+import type { HistoryEntry } from "./tui-history.js";
 
 // ── ANSI helpers ────────────────────────────────────────────────────────────
 
@@ -177,6 +179,20 @@ export class TUI {
       this.activityBuffer = this.activityBuffer.slice(-this.maxActivity);
     }
     if (this.active) this.writeActivityLine(entry);
+    // persist to disk (fire-and-forget, never blocks)
+    appendHistoryEntry({ ts: now.getTime(), time, tag, text });
+  }
+
+  // populate activity buffer from persisted history before start()
+  // entries are loaded from the JSONL file and added to the in-memory buffer
+  replayHistory(entries: HistoryEntry[]): void {
+    for (const e of entries) {
+      this.activityBuffer.push({ time: e.time, tag: e.tag, text: e.text });
+    }
+    // trim to max
+    if (this.activityBuffer.length > this.maxActivity) {
+      this.activityBuffer = this.activityBuffer.slice(-this.maxActivity);
+    }
   }
 
   // ── Layout computation ──────────────────────────────────────────────────

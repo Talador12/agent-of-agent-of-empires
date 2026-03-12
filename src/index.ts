@@ -20,6 +20,7 @@ import { TUI } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
 import { startHealthServer } from "./health.js";
+import { loadTuiHistory } from "./tui-history.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState, ActionLogEntry } from "./types.js";
 import { actionSession, actionDetail, toActionLogEntry } from "./types.js";
 import { YELLOW, GREEN, DIM, BOLD, RED, RESET } from "./colors.js";
@@ -251,6 +252,10 @@ async function main() {
 
   // start TUI (alternate screen buffer) after input is ready
   if (tui) {
+    // replay persisted history from previous runs before entering alt screen
+    const history = loadTuiHistory();
+    if (history.length > 0) tui.replayHistory(history);
+
     tui.start(pkg || "dev");
     tui.updateState({ reasonerName: config.observe ? "observe-only" : config.reasoner });
 

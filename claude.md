@@ -5,22 +5,51 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.60.0
+## Version: v0.61.0
 
 ## Current Focus
 
-857 tests across 30 files. v0.60.0 shipped: Notification delivery retry with exponential backoff.
+874 tests across 32 files. v0.61.0 shipped: Persisted TUI history with JSONL file, rotation, and startup replay.
 
 ## Roadmap
 
-### v0.61.0+ — Ideas Backlog
+### v0.62.0+ — Ideas Backlog
+- **Scroll-through history navigation in TUI** — keyboard shortcuts to page up/down through activity
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- **Persisted TUI history** — survive daemon restarts, scroll through history
-- **Refactor config.ts deepMerge as casts** — safe but ugly, could use generics
-- **Scroll-through history navigation in TUI**
-- **Notification delivery retry** — optional retry with exponential backoff for failed webhook deliveries
-- **Health check endpoint** — HTTP endpoint for monitoring (uptime, session count, last action)
+- **Test isolation** — fix flaky state-file races across parallel test files (use TMPDIR or --concurrency 1)
+- **`aoaoe export`** — export session timeline as JSON/markdown for post-mortems
+- **Config hot-reload** — watch config file for changes, apply without restart
+
+### What shipped in v0.61.0
+
+**Theme: "Persisted TUI History"** — TUI activity entries now survive daemon restarts. JSONL file at `~/.aoaoe/tui-history.jsonl` with 500KB rotation. Previous activity replays into the TUI buffer on startup. 17 new tests.
+
+#### 1. `tui-history.ts` — new persistence module
+Three pure exported functions for testability:
+- `appendHistoryEntry(entry, filePath?, maxSize?)` — fire-and-forget JSONL append on each `tui.log()` call. Creates parent dir if missing, rotates file at threshold, never throws.
+- `loadTuiHistory(maxEntries?, filePath?)` — reads last N entries (default 200) from JSONL file. Skips malformed lines and validates entry shape. Returns `[]` on missing/unreadable file.
+- `rotateTuiHistory(filePath?, maxSize?)` — renames current file to `.old` when it exceeds 500KB. Old file is overwritten on subsequent rotations.
+
+`HistoryEntry` extends `ActivityEntry` with `ts: number` (epoch ms) for time-based filtering.
+
+#### 2. TUI integration (`src/tui.ts`)
+- `TUI.log()` now calls `appendHistoryEntry()` after adding to the in-memory buffer. Fire-and-forget — never blocks rendering.
+- New `TUI.replayHistory(entries)` method populates the activity buffer from persisted entries before `start()` is called.
+
+#### 3. Startup replay (`src/index.ts`)
+Before entering the alternate screen, `main()` calls `loadTuiHistory()` and feeds results to `tui.replayHistory()`. Users see their previous session's activity immediately.
+
+#### 4. Tests (`src/tui-history.test.ts`)
+- `appendHistoryEntry` (5 tests): creates file, appends multiple lines, creates parent dirs, fire-and-forget on error, rotation on exceed
+- `loadTuiHistory` (6 tests): missing file, empty file, load entries, maxEntries cap, malformed line skip, missing field skip, trailing newlines
+- `rotateTuiHistory` (4 tests): missing file, under threshold, exceeds threshold, overwrites existing .old
+- `TUI.replayHistory` (1 test): populates buffer from history entries
+- 1 cleanup test entry via TUI.log after replay
+
+New files: `src/tui-history.ts`, `src/tui-history.test.ts`
+Modified: `src/tui.ts`, `src/index.ts`, `package.json`, `Makefile`, `AGENTS.md`, `claude.md`, `README.md`
+Test changes: +17, net 874 tests across 32 files.
 
 ### What shipped in v0.60.0
 

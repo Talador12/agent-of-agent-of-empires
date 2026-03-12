@@ -60,6 +60,7 @@ The main loop is split into two layers:
 | `src/notify.ts` | Webhook + Slack notification dispatcher for daemon events |
 | `src/health.ts` | HTTP health check endpoint (GET /health returns JSON status) |
 | `src/colors.ts` | Shared ANSI color/style constants |
+| `src/tui-history.ts` | Persisted TUI history — JSONL file with rotation, load/append/replay |
 | `src/prompt-watcher.ts` | Reactive permission prompt clearing via `tmux pipe-pane` |
 | `src/reasoner/index.ts` | `createReasoner()` factory |
 | `src/reasoner/prompt.ts` | `buildSystemPrompt()`, `formatObservation()`, `detectPermissionPrompt()` |
@@ -101,7 +102,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Testing
-- 857 unit tests across 30 files, `node:test` (stdlib, zero deps)
+- 874 unit tests across 32 files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

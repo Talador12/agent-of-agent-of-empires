@@ -497,6 +497,7 @@ src/
   dashboard.ts      # periodic CLI status table with task column
   daemon-state.ts   # shared IPC state file + interrupt flag
   tui.ts            # in-place terminal UI (alternate screen, scroll regions)
+  tui-history.ts    # persisted TUI history (JSONL file with rotation, replay on startup)
   input.ts          # stdin readline listener with inject() for post-interrupt
   init.ts           # `aoaoe init`: auto-discover tools, sessions, generate config
   notify.ts         # webhook + Slack notification dispatcher for daemon events
