@@ -5,16 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.57.0
+## Version: v0.58.0
 
 ## Current Focus
 
-813 tests across 27 files. v0.57.0 shipped: Logs — `aoaoe logs` subcommand for viewing/searching conversation and action logs from the CLI.
+829 tests across 28 files. v0.58.0 shipped: End-to-end testing — `e2e.test.ts` validates the full daemon→IPC→chat pipeline with mock reasoner, no real processes.
 
 ## Roadmap
 
-### v0.58.0+ — Ideas Backlog
-- **End-to-end testing** — daemon + chat running together (mock-based, canned reasoner)
+### v0.59.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Persisted TUI history** — survive daemon restarts, scroll through history
@@ -22,6 +21,34 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Scroll-through history navigation in TUI**
 - **Notification delivery retry** — optional retry with exponential backoff for failed webhook deliveries
 - **Health check endpoint** — HTTP endpoint for monitoring (uptime, session count, last action)
+
+### What shipped in v0.58.0
+
+**Theme: "End-to-end Testing"** — mock-based integration tests that validate the full daemon→IPC→chat pipeline without real processes, tmux, or LLMs. 16 new tests.
+
+#### 1. `src/e2e.test.ts` — new test file (16 tests)
+Wires together three modules: `tick()` from `loop.ts` (with MockPoller/MockReasoner/MockExecutor), `writeState()`/`buildSessionStates()` from `daemon-state.ts`, and chat state readers from `chat.ts` (`isDaemonRunningFromState`, `buildStatusLineFromState`, `formatSessionsList`, `getCountdownFromState`).
+
+Test scenarios:
+- Single tick with action → chat sees running daemon with sessions
+- Wait-only response → no execution, daemon still visible
+- Multi-tick sequence → chat tracks poll count and phase transitions
+- Multiple sessions → chat sees all agents
+- Dry-run mode → planned actions returned but not executed
+- User message forces reasoning without changes
+- Confirm mode → beforeExecute filters actions
+- Session with currentTask → shows in formatSessionsList
+- Error session triggers policy alert → reasoning forced
+- Daemon goes offline → chat detects stale state
+- Reasoning phase → chat status shows elapsed time
+- No sessions → tick skips, daemon state reflects empty
+- Cleanup removes state → chat reads null
+- Paused daemon → PAUSED in status
+- Title-mode status line → compact format
+- Full lifecycle: tick → execute → sleep → stale → gone
+
+#### 2. `simulateDaemonStateWrite()` helper
+Replicates the IPC write path that `daemonTick()` in `index.ts` performs after each tick: `resetInternalState()` (to clear writeState debounce), `buildSessionStates(obs)`, `writeState(phase, updates)`. This avoids needing to export or test the real `daemonTick()` which has UI, console, and TUI dependencies.
 
 ### What shipped in v0.57.0
 
