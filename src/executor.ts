@@ -38,6 +38,11 @@ export class Executor {
     this.taskManager = tm;
   }
 
+  /** Hot-reload: update the config reference (picks up new protectedSessions, policies, etc.) */
+  updateConfig(newConfig: AoaoeConfig): void {
+    this.config = newConfig;
+  }
+
   async execute(
     actions: Action[],
     snapshots: SessionSnapshot[]

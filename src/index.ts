@@ -21,6 +21,7 @@ import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
 import { startHealthServer } from "./health.js";
 import { loadTuiHistory } from "./tui-history.js";
+import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState, ActionLogEntry } from "./types.js";
 import { actionSession, actionDetail, toActionLogEntry } from "./types.js";
@@ -155,7 +156,7 @@ async function main() {
 
   const configResult = loadConfig(overrides);
   const configPath = configResult._configPath;
-  const config: AoaoeConfig = configResult; // strip _configPath from type for downstream
+  let config: AoaoeConfig = configResult; // strip _configPath from type for downstream (let: hot-reloaded)
 
   // acquire daemon lock — prevent two daemons from running simultaneously
   const lock = acquireLock();
@@ -381,6 +382,7 @@ async function main() {
     console.error("");
 
     log("shutting down...");
+    configWatcher.stop();
     if (healthServer) healthServer.close();
     // notify: daemon stopped (fire-and-forget, don't block shutdown)
     sendNotification(config, { event: "daemon_stopped", timestamp: Date.now(), detail: `polls: ${totalPolls}, actions: ${totalActionsExecuted}` });
@@ -406,6 +408,27 @@ async function main() {
     tui.log("system", "entering main loop (Ctrl+C to stop)");
   } else {
     log("entering main loop (Ctrl+C to stop)\n");
+  }
+
+  // ── config hot-reload watcher ──────────────────────────────────────────────
+  const configWatcher = new ConfigWatcher(config);
+  const watchedPath = configWatcher.start((changes, newConfig) => {
+    config = newConfig;
+    if (executor) (executor as Executor).updateConfig(newConfig);
+    const applied = changes.filter((c) => c.applied);
+    const needsRestart = changes.filter((c) => !c.applied);
+    for (const c of applied) {
+      const msg = `config: ${formatConfigChange(c)}`;
+      if (tui) tui.log("system", msg); else log(msg);
+    }
+    for (const c of needsRestart) {
+      const msg = `config: ${c.field} changed but requires restart`;
+      if (tui) tui.log("system", msg); else log(msg);
+    }
+  });
+  if (watchedPath) {
+    const msg = `watching config: ${watchedPath}`;
+    if (tui) tui.log("system", msg); else log(msg);
   }
 
   // notify: daemon started

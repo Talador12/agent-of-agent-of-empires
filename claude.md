@@ -5,21 +5,55 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.67.0
+## Version: v0.68.0
 
 ## Current Focus
 
-967 tests across 33 files. v0.67.0 shipped: session drill-down — `/view` and `/back` commands to navigate into a specific agent's live tmux output from the TUI.
+987 tests across 34 files. v0.68.0 shipped: config hot-reload — `fs.watch` on config file, safe field merge, TUI notifications on change.
 
 ## Roadmap
 
-### v0.68.0+ — Ideas Backlog
+### v0.69.0+ — Ideas Backlog
 - **`aoaoe tail`** — live-stream daemon activity to a separate terminal (follow mode)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- **Config hot-reload** — watch config file for changes, apply without restart
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Mouse click session selection** — click on a session in the agents panel to drill down
+- **Smart session context budget** — dynamic context allocation based on session activity
+
+### What shipped in v0.68.0
+
+**Theme: "Config Hot-Reload"** — watch the config file for changes and hot-reload safe fields without restarting the daemon. Unsafe field changes are detected and the user is warned. 20 new tests.
+
+#### 1. Config watcher module (`src/config-watcher.ts`)
+- `ConfigWatcher` class — `fs.watch` on the config file with 500ms debounce
+- `start(callback)` — begins watching, calls back with `(changes, newConfig)` on reload
+- `stop()` — stop watching, clean up watcher and timers
+- `getConfig()` — returns the current (possibly hot-reloaded) config
+
+#### 2. Pure merge function (`src/config-watcher.ts`)
+- `mergeHotReload(current, fresh)` — returns `{ config, changes }`
+- **Safe fields** (applied immediately): `pollIntervalMs`, `sessionDirs`, `protectedSessions`, `contextFiles`, `verbose`, `captureLinesCount`, `tuiHistoryRetentionDays`
+- **Safe objects** (applied immediately): `policies`, `notifications`
+- **Unsafe fields** (detected, NOT applied, user warned): `reasoner`, `dryRun`, `observe`, `confirm`, `healthPort`, `opencode.port`
+- `formatConfigChange(change)` — formats a change for TUI display
+
+#### 3. Main loop wiring (`src/index.ts`)
+- `config` changed from `const` to `let` for hot-reload
+- `ConfigWatcher` started before main loop, stopped during shutdown
+- Callback logs applied changes as `system` entries in TUI, warns about restart-required changes
+- `executor.updateConfig(newConfig)` called on reload to update protectedSessions/policies
+
+#### 4. Executor update (`src/executor.ts`)
+- New `updateConfig(newConfig)` method — hot-swaps the config reference so protectedSessions and policies take effect immediately
+
+#### 5. Tests (`src/config-watcher.test.ts`)
+- `mergeHotReload` (12 tests): identical configs, pollIntervalMs/verbose/sessionDirs/protectedSessions/policies/notifications changes (all applied), reasoner/dryRun/opencode.port changes (not applied), multiple simultaneous changes, preserves non-hot-reload fields
+- `formatConfigChange` (4 tests): applied/non-applied formatting, long value truncation, object JSON formatting
+- `ConfigWatcher` (4 tests): construction, getConfig returns initial, stop safe without start, stop safe multiple calls
+
+Modified: `src/config-watcher.ts` (new), `src/config-watcher.test.ts` (new), `src/index.ts`, `src/executor.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +20, net 987 tests across 34 files.
 
 ### What shipped in v0.67.0
 
