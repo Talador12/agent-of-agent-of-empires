@@ -306,3 +306,29 @@ describe("InputReader onMouseWheel", () => {
     assert.equal(dirs2.length, 0);
   });
 });
+
+// ── InputReader onSearch ────────────────────────────────────────────────────
+
+describe("InputReader onSearch", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    const patterns: Array<string | null> = [];
+    reader.onSearch((p) => patterns.push(p));
+    assert.equal(patterns.length, 0); // not called until command is issued
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    const p1: Array<string | null> = [];
+    const p2: Array<string | null> = [];
+    reader.onSearch((p) => p1.push(p));
+    reader.onSearch((p) => p2.push(p));
+    assert.equal(p1.length, 0);
+    assert.equal(p2.length, 0);
+  });
+});

@@ -5,21 +5,54 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.73.0
+## Version: v0.74.0
 
 ## Current Focus
 
-1174 tests across 37 files. v0.73.0 shipped: mouse wheel scrolling in overview + drill-down, plus full drill-down scroll state with PgUp/PgDn/End support.
+1196 tests across 37 files. v0.74.0 shipped: `/search` command for filtering activity entries by substring match, with search indicator in the separator bar and proper scroll integration.
 
 ## Roadmap
 
-### v0.74.0+ — Ideas Backlog
+### v0.75.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
-- **Activity search** — `/search <pattern>` to filter/highlight activity entries
 - **Session highlight on hover** — visual feedback when mouse hovers over agent cards
+
+### What shipped in v0.74.0
+
+**Theme: "Search"** — `/search <pattern>` command to filter activity entries by case-insensitive substring match. Search indicator in separator bar shows match count and clear hint. Scroll navigation operates on filtered entries when search is active. New entries only auto-scroll if they match the search. 22 new tests.
+
+#### 1. Search pure function (`src/tui.ts`)
+- `matchesSearch(entry, pattern)` — case-insensitive substring match against `entry.tag`, `entry.text`, and `entry.time`
+- `formatSearchIndicator(pattern, matchCount, totalCount)` — shows `search: "pattern" │ 12 of 50 │ /search: clear`
+
+#### 2. Search state on TUI class (`src/tui.ts`)
+- `searchPattern: string | null` field — active search filter
+- `setSearch(pattern)` — set/clear search, reset scroll offset, repaint activity + separator
+- `getSearchPattern()` — read-only accessor for testing
+- `repaintActivityRegion()` filters entries through `matchesSearch()` when search active
+- `paintSeparator()` shows `formatSearchIndicator()` when search active
+- `log()` — when search active, only auto-scroll if new entry matches the pattern
+- `scrollUp()`/`scrollToTop()` — operate on filtered entry count when search active
+
+#### 3. `/search` command (`src/input.ts`)
+- `SearchHandler` type: `(pattern: string | null) => void`
+- `onSearch(handler)` callback registration on `InputReader`
+- `/search <pattern>` → fires handler with pattern
+- `/search` with no args → fires handler with `null` (clear)
+- `/help` updated with `/search` in navigation section
+
+#### 4. Wiring (`src/index.ts`)
+- `input.onSearch((pattern) => tui.setSearch(pattern))` — logs "search: pattern" or "search cleared" as system activity
+
+#### 5. Tests
+- `src/tui.test.ts` (19 tests): matchesSearch — tag/text/time match, case-insensitive, no match, empty pattern, partial text, all fields; formatSearchIndicator — pattern+counts, zero matches, clear hint, quotes, label; TUI search state — initial null, setSearch, clear with null/empty, getSearchPattern, safe when not active
+- `src/input.test.ts` (3 tests): onSearch — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +22, net 1196 tests across 37 files.
 
 ### What shipped in v0.73.0
 

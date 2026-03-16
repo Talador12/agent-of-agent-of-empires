@@ -332,6 +332,15 @@ async function main() {
         if (ok) tui!.log("system", `viewing session #${sessionIdx}`);
       }
     });
+    // wire /search command to TUI activity filter
+    input.onSearch((pattern) => {
+      tui!.setSearch(pattern);
+      if (pattern) {
+        tui!.log("system", `search: "${pattern}"`);
+      } else {
+        tui!.log("system", "search cleared");
+      }
+    });
     // wire mouse wheel to scroll (3 lines per tick for smooth scrolling)
     input.onMouseWheel((direction) => {
       if (tui!.getViewMode() === "drilldown") {

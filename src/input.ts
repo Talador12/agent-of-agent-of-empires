@@ -14,6 +14,7 @@ export type ScrollDirection = "up" | "down" | "top" | "bottom";
 export const INSIST_PREFIX = "__INSIST__";
 
 export type ViewHandler = (target: string | null) => void; // null = back to overview
+export type SearchHandler = (pattern: string | null) => void; // null = clear search
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -52,6 +53,7 @@ export class InputReader {
   private viewHandler: ViewHandler | null = null;
   private mouseClickHandler: MouseClickHandler | null = null;
   private mouseWheelHandler: MouseWheelHandler | null = null;
+  private searchHandler: SearchHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -77,6 +79,11 @@ export class InputReader {
   // register a callback for mouse wheel events (scroll up/down)
   onMouseWheel(handler: MouseWheelHandler): void {
     this.mouseWheelHandler = handler;
+  }
+
+  // register a callback for search commands (/search <pattern> or /search to clear)
+  onSearch(handler: SearchHandler): void {
+    this.searchHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -254,6 +261,8 @@ ${BOLD}controls:${RESET}
 ${BOLD}navigation:${RESET}
   /view [N|name]     drill into a session's live output (default: 1)
   /back              return to overview from drill-down
+  /search <pattern>  filter activity entries by substring (case-insensitive)
+  /search            clear active search filter
   click session      click an agent card to drill down (click again to go back)
   mouse wheel        scroll activity (overview) or session output (drill-down)
   PgUp / PgDn        scroll through activity or session output
@@ -340,6 +349,16 @@ ${BOLD}other:${RESET}
           console.error(`${DIM}already in overview${RESET}`);
         }
         break;
+
+      case "/search": {
+        const searchArg = line.slice("/search".length).trim();
+        if (this.searchHandler) {
+          this.searchHandler(searchArg || null); // empty = clear search
+        } else {
+          console.error(`${DIM}search not available (no TUI)${RESET}`);
+        }
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

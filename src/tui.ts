@@ -95,6 +95,7 @@ export class TUI {
   private scrollOffset = 0;      // 0 = live (bottom), >0 = scrolled back N entries
   private newWhileScrolled = 0;  // entries added while user is scrolled back
   private pendingCount = 0;      // queued user messages awaiting next tick
+  private searchPattern: string | null = null; // active search filter pattern
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -200,7 +201,18 @@ export class TUI {
       this.activityBuffer = this.activityBuffer.slice(-this.maxActivity);
     }
     if (this.active) {
-      if (this.scrollOffset > 0) {
+      if (this.searchPattern) {
+        // search active: only show new entry if it matches
+        if (matchesSearch(entry, this.searchPattern)) {
+          if (this.scrollOffset > 0) {
+            this.newWhileScrolled++;
+            this.paintSeparator();
+          } else {
+            this.writeActivityLine(entry);
+          }
+        }
+        // non-matching entries are silently buffered — visible when search is cleared
+      } else if (this.scrollOffset > 0) {
         // user is scrolled back — don't auto-scroll, just show indicator
         this.newWhileScrolled++;
         this.paintSeparator();
@@ -230,7 +242,10 @@ export class TUI {
     if (!this.active) return;
     const visibleLines = this.scrollBottom - this.scrollTop + 1;
     const n = lines ?? Math.max(1, Math.floor(visibleLines / 2));
-    const maxOffset = Math.max(0, this.activityBuffer.length - visibleLines);
+    const entryCount = this.searchPattern
+      ? this.activityBuffer.filter((e) => matchesSearch(e, this.searchPattern!)).length
+      : this.activityBuffer.length;
+    const maxOffset = Math.max(0, entryCount - visibleLines);
     this.scrollOffset = Math.min(maxOffset, this.scrollOffset + n);
     this.repaintActivityRegion();
     this.paintSeparator();
@@ -250,7 +265,10 @@ export class TUI {
   scrollToTop(): void {
     if (!this.active) return;
     const visibleLines = this.scrollBottom - this.scrollTop + 1;
-    this.scrollOffset = Math.max(0, this.activityBuffer.length - visibleLines);
+    const entryCount = this.searchPattern
+      ? this.activityBuffer.filter((e) => matchesSearch(e, this.searchPattern!)).length
+      : this.activityBuffer.length;
+    this.scrollOffset = Math.max(0, entryCount - visibleLines);
     this.repaintActivityRegion();
     this.paintSeparator();
   }
@@ -373,6 +391,24 @@ export class TUI {
   /** Get drill-down session ID (or null) */
   getDrilldownSessionId(): string | null {
     return this.drilldownSessionId;
+  }
+
+  // ── Search ──────────────────────────────────────────────────────────────
+
+  /** Set or clear the search filter. Resets scroll and repaints. */
+  setSearch(pattern: string | null): void {
+    this.searchPattern = pattern && pattern.length > 0 ? pattern : null;
+    this.scrollOffset = 0;
+    this.newWhileScrolled = 0;
+    if (this.active && this.viewMode === "overview") {
+      this.repaintActivityRegion();
+      this.paintSeparator();
+    }
+  }
+
+  /** Get the current search pattern (or null if no active search). */
+  getSearchPattern(): string | null {
+    return this.searchPattern;
   }
 
   // ── Layout computation ──────────────────────────────────────────────────
@@ -499,7 +535,10 @@ export class TUI {
   private paintSeparator(): void {
     const prefix = `${BOX.h}${BOX.h} activity `;
     let hints: string;
-    if (this.scrollOffset > 0) {
+    if (this.searchPattern) {
+      const filtered = this.activityBuffer.filter((e) => matchesSearch(e, this.searchPattern!));
+      hints = formatSearchIndicator(this.searchPattern, filtered.length, this.activityBuffer.length);
+    } else if (this.scrollOffset > 0) {
       hints = formatScrollIndicator(this.scrollOffset, this.activityBuffer.length, this.scrollBottom - this.scrollTop + 1, this.newWhileScrolled);
     } else {
       hints = " click agent to view  esc esc: interrupt  /help ";
@@ -528,8 +567,12 @@ export class TUI {
 
   private repaintActivityRegion(): void {
     const visibleLines = this.scrollBottom - this.scrollTop + 1;
-    const { start, end } = computeScrollSlice(this.activityBuffer.length, visibleLines, this.scrollOffset);
-    const entries = this.activityBuffer.slice(start, end);
+    // when search is active, filter entries first, then paginate
+    const source = this.searchPattern
+      ? this.activityBuffer.filter((e) => matchesSearch(e, this.searchPattern!))
+      : this.activityBuffer;
+    const { start, end } = computeScrollSlice(source.length, visibleLines, this.scrollOffset);
+    const entries = source.slice(start, end);
     for (let i = 0; i < visibleLines; i++) {
       const row = this.scrollTop + i;
       if (i < entries.length) {
@@ -773,6 +816,24 @@ function formatDrilldownScrollIndicator(offset: number, totalLines: number, visi
   return ` ↑ ${offset} lines  │  ${position}/${totalLines}  │  scroll: navigate  End=live${newTag} `;
 }
 
+// ── Search helpers (pure, exported for testing) ─────────────────────────────
+
+/** Case-insensitive substring match against an activity entry's tag, text, and time. */
+function matchesSearch(entry: ActivityEntry, pattern: string): boolean {
+  if (!pattern) return true;
+  const lower = pattern.toLowerCase();
+  return (
+    entry.tag.toLowerCase().includes(lower) ||
+    entry.text.toLowerCase().includes(lower) ||
+    entry.time.toLowerCase().includes(lower)
+  );
+}
+
+/** Format the search indicator text for the separator bar. */
+function formatSearchIndicator(pattern: string, matchCount: number, totalCount: number): string {
+  return ` search: "${pattern}"  │  ${matchCount} of ${totalCount}  │  /search: clear `;
+}
+
 // ── Mouse hit testing (pure, exported for testing) ──────────────────────────
 
 /**
@@ -792,4 +853,4 @@ export function hitTestSession(row: number, headerHeight: number, sessionCount: 
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
-export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader };
+export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator };

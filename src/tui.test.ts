@@ -7,6 +7,7 @@ import {
   computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator,
   formatPrompt, formatDrilldownHeader,
   hitTestSession,
+  matchesSearch, formatSearchIndicator,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry } from "./tui.js";
@@ -782,6 +783,121 @@ describe("TUI drill-down scroll", () => {
     tui.exitDrilldown();
     assert.equal(tui.getViewMode(), "overview");
     assert.equal(tui.isDrilldownScrolledBack(), false);
+  });
+});
+
+// ── matchesSearch ───────────────────────────────────────────────────────────
+
+describe("matchesSearch", () => {
+  const entry: ActivityEntry = { time: "14:30:22", tag: "reasoner", text: "thinking about auth module" };
+
+  it("matches on tag", () => {
+    assert.equal(matchesSearch(entry, "reasoner"), true);
+  });
+
+  it("matches on text", () => {
+    assert.equal(matchesSearch(entry, "auth"), true);
+  });
+
+  it("matches on time", () => {
+    assert.equal(matchesSearch(entry, "14:30"), true);
+  });
+
+  it("is case-insensitive", () => {
+    assert.equal(matchesSearch(entry, "REASONER"), true);
+    assert.equal(matchesSearch(entry, "Auth"), true);
+  });
+
+  it("returns false when no match", () => {
+    assert.equal(matchesSearch(entry, "zzz_no_match"), false);
+  });
+
+  it("returns true for empty pattern", () => {
+    assert.equal(matchesSearch(entry, ""), true);
+  });
+
+  it("matches partial text", () => {
+    assert.equal(matchesSearch(entry, "think"), true);
+  });
+
+  it("matches against all entry fields", () => {
+    const e: ActivityEntry = { time: "09:00:00", tag: "system", text: "daemon started" };
+    assert.equal(matchesSearch(e, "system"), true);
+    assert.equal(matchesSearch(e, "daemon"), true);
+    assert.equal(matchesSearch(e, "09:00"), true);
+  });
+});
+
+// ── formatSearchIndicator ───────────────────────────────────────────────────
+
+describe("formatSearchIndicator", () => {
+  it("shows pattern and match counts", () => {
+    const result = formatSearchIndicator("error", 12, 50);
+    assert.ok(result.includes('"error"'));
+    assert.ok(result.includes("12 of 50"));
+  });
+
+  it("shows zero matches", () => {
+    const result = formatSearchIndicator("zzz", 0, 50);
+    assert.ok(result.includes("0 of 50"));
+  });
+
+  it("shows clear hint", () => {
+    const result = formatSearchIndicator("test", 5, 10);
+    assert.ok(result.includes("/search: clear"));
+  });
+
+  it("shows pattern in quotes", () => {
+    const result = formatSearchIndicator("auth module", 3, 100);
+    assert.ok(result.includes('"auth module"'));
+  });
+
+  it("includes search label", () => {
+    const result = formatSearchIndicator("x", 1, 1);
+    assert.ok(result.includes("search:"));
+  });
+});
+
+// ── TUI search state ────────────────────────────────────────────────────────
+
+describe("TUI search state", () => {
+  it("starts with null search pattern", () => {
+    const tui = new TUI();
+    assert.equal(tui.getSearchPattern(), null);
+  });
+
+  it("setSearch sets the pattern", () => {
+    const tui = new TUI();
+    tui.setSearch("error");
+    assert.equal(tui.getSearchPattern(), "error");
+  });
+
+  it("setSearch with null clears the pattern", () => {
+    const tui = new TUI();
+    tui.setSearch("error");
+    tui.setSearch(null);
+    assert.equal(tui.getSearchPattern(), null);
+  });
+
+  it("setSearch with empty string clears the pattern", () => {
+    const tui = new TUI();
+    tui.setSearch("error");
+    tui.setSearch("");
+    assert.equal(tui.getSearchPattern(), null);
+  });
+
+  it("getSearchPattern returns the current pattern", () => {
+    const tui = new TUI();
+    tui.setSearch("auth");
+    assert.equal(tui.getSearchPattern(), "auth");
+    tui.setSearch("module");
+    assert.equal(tui.getSearchPattern(), "module");
+  });
+
+  it("setSearch is safe when not active", () => {
+    const tui = new TUI();
+    assert.doesNotThrow(() => tui.setSearch("test"));
+    assert.doesNotThrow(() => tui.setSearch(null));
   });
 });
 
