@@ -417,6 +417,15 @@ describe("parseCliArgs", () => {
     assert.equal(exportResult.showStatus, false);
     assert.equal(exportResult.runDoctor, false);
     assert.equal(exportResult.runLogs, false);
+
+    const replayResult = parseCliArgs(argv("replay"));
+    assert.equal(replayResult.runReplay, true);
+    assert.equal(replayResult.register, false);
+    assert.equal(replayResult.showConfig, false);
+    assert.equal(replayResult.showStatus, false);
+    assert.equal(replayResult.runStats, false);
+    assert.equal(replayResult.runTail, false);
+    assert.equal(replayResult.runExport, false);
   });
 
   it("parses export subcommand", () => {

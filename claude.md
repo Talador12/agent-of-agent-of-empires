@@ -5,20 +5,55 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.70.0
+## Version: v0.71.0
 
 ## Current Focus
 
-1064 tests across 36 files. v0.70.0 shipped: `aoaoe stats` — aggregate daemon statistics from actions.log and tui-history.
+1122 tests across 37 files. v0.71.0 shipped: `aoaoe replay` — play back tui-history.jsonl like a movie with simulated timing.
 
 ## Roadmap
 
-### v0.71.0+ — Ideas Backlog
+### v0.72.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Mouse click session selection** — click on a session in the agents panel to drill down
 - **Smart session context budget** — dynamic context allocation based on session activity
+
+### What shipped in v0.71.0
+
+**Theme: "Replay"** — `aoaoe replay` subcommand that plays back tui-history.jsonl like a movie with simulated timing. Adjustable speed (realtime to instant), time window filtering, consistent rendering via formatTailEntry. 58 new tests.
+
+#### 1. Replay module (`src/replay.ts`)
+- `computeDelay(prevTs, currTs, speed, maxDelayMs?)` — compute scaled delay between entries, caps at 3s default
+- `formatSpeed(speed)` — human-readable speed display ("instant", "1x (realtime)", "5x", "0.5x")
+- `parseSpeed(input)` — parse speed strings ("2x", "10x", "0.5x", "instant") into numbers
+- `filterByWindow(entries, maxAgeMs?, now?)` — filter entries by time window
+- `formatReplayHeader(entries, speed, windowLabel?)` — header with entry count, date range, span, speed
+- `formatReplayFooter(entries)` — footer with entry count
+- `loadReplayEntries(maxAgeMs?, filePath?)` — load and validate JSONL entries, filter by window
+- `runReplay(opts)` — main entry: header, timed playback with Ctrl+C cleanup, footer
+- Reuses `formatTailEntry`/`formatTailDate` from tail.ts, `parseDuration` from export.ts
+
+#### 2. CLI wiring (`src/config.ts`, `src/index.ts`)
+- `parseCliArgs`: added `runReplay`, `replaySpeed`, `replayLast` fields + `if (argv[2] === "replay")` subcommand block with `--speed`/`-s`, `--last`/`-l`, `--instant` flags
+- `printHelp()`: added `replay` command with options section
+- `index.ts`: dynamic `import("./replay.js")` + dispatch to `runReplay({ speed, last })`
+
+#### 3. Tests (`src/replay.test.ts`)
+- `computeDelay` (10 tests): instant, negative, equal ts, reversed ts, 1x/5x/10x scaling, cap at maxDelayMs, custom cap, exact under cap
+- `formatSpeed` (5 tests): instant, negative, realtime, integer, decimal
+- `parseSpeed` (9 tests): instant, "0", integer ±x, decimal ±x, empty, non-numeric, negative
+- `filterByWindow` (5 tests): undefined/0 maxAge, filters old, all old, uses Date.now()
+- `formatReplayHeader` (8 tests): empty, count, speed, instant, window label, seconds/minutes/hours span
+- `formatReplayFooter` (3 tests): empty, count, text
+- `loadReplayEntries` (7 tests): missing file, empty, loads all, malformed skip, missing fields skip, maxAgeMs filter, undefined maxAgeMs
+- `parseCliArgs replay` (11 tests): defaults, --speed, -s, --instant, --last, -l, combined, instant+last, invalid speed, negative speed, non-replay
+- Plus 1 update to mutually exclusive subcommand test in config.test.ts
+
+New files: `src/replay.ts` (existed), `src/replay.test.ts`
+Modified: `src/config.ts`, `src/config.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +58, net 1122 tests across 37 files.
 
 ### What shipped in v0.70.0
 

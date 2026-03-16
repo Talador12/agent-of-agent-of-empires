@@ -382,6 +382,9 @@ export function parseCliArgs(argv: string[]): {
   tailCount?: number;
   runStats: boolean;
   statsLast?: string;
+  runReplay: boolean;
+  replaySpeed?: number;
+  replayLast?: string;
   registerTitle?: string;
 } {
   const overrides: Partial<AoaoeConfig> = {};
@@ -396,7 +399,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined as number | undefined, runStats: false, statsLast: undefined as string | undefined };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined as number | undefined, runStats: false, statsLast: undefined as string | undefined, runReplay: false, replaySpeed: undefined as number | undefined, replayLast: undefined as string | undefined };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "test-context") {
@@ -482,6 +485,21 @@ export function parseCliArgs(argv: string[]): {
       }
     }
     return { ...defaults, runStats: true, statsLast: last };
+  }
+  if (argv[2] === "replay") {
+    let speed: number | undefined;
+    let last: string | undefined;
+    for (let i = 3; i < argv.length; i++) {
+      if ((argv[i] === "--speed" || argv[i] === "-s") && argv[i + 1]) {
+        const val = parseFloat(argv[++i]);
+        if (!isNaN(val) && val >= 0) speed = val;
+      } else if ((argv[i] === "--last" || argv[i] === "-l") && argv[i + 1]) {
+        last = argv[++i];
+      } else if (argv[i] === "--instant") {
+        speed = 0;
+      }
+    }
+    return { ...defaults, runReplay: true, replaySpeed: speed, replayLast: last };
   }
   if (argv[2] === "register") {
     register = true;
@@ -577,7 +595,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runExport: false, exportFormat: undefined, exportOutput: undefined, exportLast: undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined, runStats: false, statsLast: undefined };
+  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runExport: false, exportFormat: undefined, exportOutput: undefined, exportLast: undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined, runStats: false, statsLast: undefined, runReplay: false, replaySpeed: undefined, replayLast: undefined };
 }
 
 export function printHelp() {
@@ -610,6 +628,10 @@ commands:
   export --last <duration>         time window: 1h, 6h, 24h, 7d (default: 24h)
   stats          show aggregate daemon statistics (actions, sessions, activity)
   stats --last <duration>  time window: 1h, 6h, 24h, 7d (default: all time)
+  replay         play back tui-history.jsonl like a movie with simulated timing
+  replay --speed <N>  playback speed: 1=realtime, 5=5x (default), 10=fast, 0=instant
+  replay --instant    same as --speed 0 (no delays, dump all entries immediately)
+  replay --last <duration>  only replay entries from the last 1h, 6h, 24h, 7d
   tail           live-stream daemon activity to a separate terminal
   tail -f        follow mode — keep watching for new entries (Ctrl+C to stop)
   tail -n <N>    number of entries to show (default: 50)
@@ -644,6 +666,11 @@ logs options:
   --actions, -a                      show action log instead of conversation log
   --grep, -g <pattern>               filter entries by substring or regex
   -n, --count <number>               number of entries to show (default: 50)
+
+replay options:
+  --speed, -s <number>               playback speed multiplier (default: 5)
+  --instant                          no delays, dump all entries immediately
+  --last, -l <duration>              time window: 1h, 6h, 24h, 7d
 
 tail options:
   -f, --follow                       keep watching for new entries (Ctrl+C to stop)
