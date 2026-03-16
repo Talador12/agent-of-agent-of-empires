@@ -108,6 +108,21 @@ describe("INSIST_PREFIX constant", () => {
   });
 });
 
+describe("InputReader onView", () => {
+  it("registers view handler without throwing", () => {
+    const reader = new InputReader();
+    const calls: Array<string | null> = [];
+    reader.onView((target) => calls.push(target));
+    assert.equal(calls.length, 0); // not called until command is issued
+  });
+
+  it("is safe to use without registering handler", () => {
+    const reader = new InputReader();
+    // no onView registered — should not throw
+    assert.doesNotThrow(() => reader.drain());
+  });
+});
+
 describe("InputReader stop", () => {
   it("stop is safe to call without start", () => {
     const reader = new InputReader();

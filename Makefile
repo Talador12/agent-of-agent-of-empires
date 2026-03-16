@@ -20,7 +20,7 @@ lint: ## type-check without emitting
 
 check: lint ## alias for lint
 
-test: build ## run unit tests (954 tests, no external deps)
+test: build ## run unit tests (967 tests, no external deps)
 	npm test
 
 test-integration: build ## run integration test (creates real aoe sessions, ~30s)

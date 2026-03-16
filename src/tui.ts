@@ -92,6 +92,11 @@ export class TUI {
   private newWhileScrolled = 0;  // entries added while user is scrolled back
   private pendingCount = 0;      // queued user messages awaiting next tick
 
+  // drill-down mode: show a single session's full output
+  private viewMode: "overview" | "drilldown" = "overview";
+  private drilldownSessionId: string | null = null;
+  private sessionOutputs = new Map<string, string[]>(); // full output lines per session
+
   // current state for repaints
   private phase: DaemonPhase = "sleeping";
   private pollCount = 0;
@@ -251,6 +256,66 @@ export class TUI {
     return this.scrollOffset > 0;
   }
 
+  // ── Drill-down mode ────────────────────────────────────────────────────
+
+  /** Store full session outputs (called each tick from main loop) */
+  setSessionOutputs(outputs: Map<string, string>): void {
+    for (const [id, text] of outputs) {
+      this.sessionOutputs.set(id, text.split("\n"));
+    }
+    // repaint drill-down view if we're watching this session
+    if (this.active && this.viewMode === "drilldown" && this.drilldownSessionId) {
+      this.repaintDrilldownContent();
+    }
+  }
+
+  /** Enter drill-down view for a session. Returns false if session not found. */
+  enterDrilldown(sessionIdOrIndex: string | number): boolean {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      const idx = sessionIdOrIndex - 1; // 1-indexed for user
+      if (idx >= 0 && idx < this.sessions.length) {
+        sessionId = this.sessions[idx].id;
+      }
+    } else {
+      // match by id prefix or title (case-insensitive)
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return false;
+    this.viewMode = "drilldown";
+    this.drilldownSessionId = sessionId;
+    if (this.active) {
+      this.computeLayout(this.sessions.length);
+      this.paintAll();
+    }
+    return true;
+  }
+
+  /** Exit drill-down, return to overview */
+  exitDrilldown(): void {
+    if (this.viewMode === "overview") return;
+    this.viewMode = "overview";
+    this.drilldownSessionId = null;
+    if (this.active) {
+      this.computeLayout(this.sessions.length);
+      this.paintAll();
+    }
+  }
+
+  /** Get current view mode */
+  getViewMode(): "overview" | "drilldown" {
+    return this.viewMode;
+  }
+
+  /** Get drill-down session ID (or null) */
+  getDrilldownSessionId(): string | null {
+    return this.drilldownSessionId;
+  }
+
   // ── Layout computation ──────────────────────────────────────────────────
 
   private updateDimensions(): void {
@@ -260,17 +325,22 @@ export class TUI {
 
   private computeLayout(sessionCount: number): void {
     this.updateDimensions();
-    // header: 1 row
-    // sessions: top border (1) + N session rows + bottom border (1) = N+2
-    // if no sessions, just show an empty box (2 rows: top + bottom borders)
-    const sessBodyRows = Math.max(sessionCount, 1); // at least 1 row for "no agents"
-    this.sessionRows = sessBodyRows + 2; // + top/bottom borders
-    this.separatorRow = this.headerHeight + this.sessionRows + 1;
-    // input line is the last row
-    this.inputRow = this.rows;
-    // scroll region: from separator+1 to rows-1 (leave room for input)
-    this.scrollTop = this.separatorRow + 1;
-    this.scrollBottom = this.rows - 1;
+    if (this.viewMode === "drilldown") {
+      // drilldown: header (1) + separator (1) + content + input (1)
+      this.sessionRows = 0;
+      this.separatorRow = this.headerHeight + 1;
+      this.inputRow = this.rows;
+      this.scrollTop = this.separatorRow + 1;
+      this.scrollBottom = this.rows - 1;
+    } else {
+      // overview: header (1) + sessions box + separator + activity + input
+      const sessBodyRows = Math.max(sessionCount, 1);
+      this.sessionRows = sessBodyRows + 2; // + top/bottom borders
+      this.separatorRow = this.headerHeight + this.sessionRows + 1;
+      this.inputRow = this.rows;
+      this.scrollTop = this.separatorRow + 1;
+      this.scrollBottom = this.rows - 1;
+    }
 
     if (this.active) {
       process.stderr.write(setScrollRegion(this.scrollTop, this.scrollBottom));
@@ -289,29 +359,39 @@ export class TUI {
     process.stderr.write(CLEAR_SCREEN);
     process.stderr.write(setScrollRegion(this.scrollTop, this.scrollBottom));
     this.paintHeader();
-    this.paintSessions();
-    this.paintSeparator();
-    this.repaintActivityRegion();
+    if (this.viewMode === "drilldown") {
+      this.paintDrilldownSeparator();
+      this.repaintDrilldownContent();
+    } else {
+      this.paintSessions();
+      this.paintSeparator();
+      this.repaintActivityRegion();
+    }
     this.paintInputLine();
   }
 
   private paintHeader(): void {
-    const phaseText = phaseDisplay(this.phase, this.paused, this.spinnerFrame);
-    const sessCount = `${this.sessions.length} agent${this.sessions.length !== 1 ? "s" : ""}`;
-    const activeCount = this.sessions.filter((s) => s.userActive).length;
-    const activeTag = activeCount > 0 ? `  ${SLATE}│${RESET}  ${AMBER}${activeCount} user${RESET}` : "";
+    let line: string;
+    if (this.viewMode === "drilldown" && this.drilldownSessionId) {
+      line = formatDrilldownHeader(this.drilldownSessionId, this.sessions, this.phase, this.paused, this.spinnerFrame, this.cols);
+    } else {
+      const phaseText = phaseDisplay(this.phase, this.paused, this.spinnerFrame);
+      const sessCount = `${this.sessions.length} agent${this.sessions.length !== 1 ? "s" : ""}`;
+      const activeCount = this.sessions.filter((s) => s.userActive).length;
+      const activeTag = activeCount > 0 ? `  ${SLATE}│${RESET}  ${AMBER}${activeCount} user${RESET}` : "";
 
-    // countdown to next tick (only in sleeping phase)
-    let countdownTag = "";
-    if (this.phase === "sleeping" && this.nextTickAt > 0) {
-      const remaining = Math.max(0, Math.ceil((this.nextTickAt - Date.now()) / 1000));
-      countdownTag = `  ${SLATE}│${RESET}  ${SLATE}${remaining}s${RESET}`;
+      // countdown to next tick (only in sleeping phase)
+      let countdownTag = "";
+      if (this.phase === "sleeping" && this.nextTickAt > 0) {
+        const remaining = Math.max(0, Math.ceil((this.nextTickAt - Date.now()) / 1000));
+        countdownTag = `  ${SLATE}│${RESET}  ${SLATE}${remaining}s${RESET}`;
+      }
+
+      // reasoner badge
+      const reasonerTag = this.reasonerName ? `  ${SLATE}│${RESET}  ${TEAL}${this.reasonerName}${RESET}` : "";
+
+      line = ` ${INDIGO}${BOLD}aoaoe${RESET} ${SLATE}${this.version}${RESET}  ${SLATE}│${RESET}  #${this.pollCount}  ${SLATE}│${RESET}  ${sessCount}  ${SLATE}│${RESET}  ${phaseText}${activeTag}${countdownTag}${reasonerTag}`;
     }
-
-    // reasoner badge
-    const reasonerTag = this.reasonerName ? `  ${SLATE}│${RESET}  ${TEAL}${this.reasonerName}${RESET}` : "";
-
-    const line = ` ${INDIGO}${BOLD}aoaoe${RESET} ${SLATE}${this.version}${RESET}  ${SLATE}│${RESET}  #${this.pollCount}  ${SLATE}│${RESET}  ${sessCount}  ${SLATE}│${RESET}  ${phaseText}${activeTag}${countdownTag}${reasonerTag}`;
     process.stderr.write(
       SAVE_CURSOR +
       moveTo(1, 1) + CLEAR_LINE + BG_DARK + WHITE + truncateAnsi(line, this.cols) + padToWidth(line, this.cols) + RESET +
@@ -396,6 +476,41 @@ export class TUI {
       if (i < entries.length) {
         const line = formatActivity(entries[i], this.cols);
         process.stderr.write(moveTo(row, 1) + CLEAR_LINE + line);
+      } else {
+        process.stderr.write(moveTo(row, 1) + CLEAR_LINE);
+      }
+    }
+  }
+
+  // ── Drill-down rendering ──────────────────────────────────────────────
+
+  private paintDrilldownSeparator(): void {
+    const session = this.sessions.find((s) => s.id === this.drilldownSessionId);
+    const title = session ? session.title : this.drilldownSessionId ?? "?";
+    const prefix = `${BOX.h}${BOX.h} ${title} `;
+    const hints = " /back: overview  /view N: switch session ";
+    const totalLen = prefix.length + hints.length;
+    const fill = Math.max(0, this.cols - totalLen);
+    const left = Math.floor(fill / 2);
+    const right = Math.ceil(fill / 2);
+    const line = `${SLATE}${prefix}${BOX.h.repeat(left)}${DIM}${hints}${RESET}${SLATE}${BOX.h.repeat(right)}${RESET}`;
+    process.stderr.write(
+      SAVE_CURSOR + moveTo(this.separatorRow, 1) + CLEAR_LINE + truncateAnsi(line, this.cols) + RESTORE_CURSOR
+    );
+  }
+
+  private repaintDrilldownContent(): void {
+    if (!this.drilldownSessionId) return;
+    const outputLines = this.sessionOutputs.get(this.drilldownSessionId) ?? [];
+    const visibleLines = this.scrollBottom - this.scrollTop + 1;
+    // show the last N lines (tail view, like following output)
+    const startIdx = Math.max(0, outputLines.length - visibleLines);
+    const visible = outputLines.slice(startIdx);
+    for (let i = 0; i < visibleLines; i++) {
+      const row = this.scrollTop + i;
+      if (i < visible.length) {
+        const line = `  ${visible[i]}`;
+        process.stderr.write(moveTo(row, 1) + CLEAR_LINE + truncateAnsi(line, this.cols));
       } else {
         process.stderr.write(moveTo(row, 1) + CLEAR_LINE);
       }
@@ -531,6 +646,34 @@ export function formatSessionSentence(s: DaemonSessionState, maxCols: number): s
   return truncateAnsi(`${dot} ${BOLD}${name}${RESET} ${tool} ${SLATE}—${RESET} ${statusDesc}`, maxCols);
 }
 
+// ── Drill-down helpers (pure, exported for testing) ─────────────────────────
+
+// format the header line for drill-down view
+function formatDrilldownHeader(
+  sessionId: string,
+  sessions: DaemonSessionState[],
+  phase: DaemonPhase,
+  paused: boolean,
+  spinnerFrame: number,
+  _cols: number,
+): string {
+  const session = sessions.find((s) => s.id === sessionId);
+  const phaseText = phaseDisplay(phase, paused, spinnerFrame);
+  if (!session) {
+    return ` ${INDIGO}${BOLD}aoaoe${RESET}  ${SLATE}│${RESET}  ${DIM}session not found${RESET}  ${SLATE}│${RESET}  ${phaseText}`;
+  }
+  const dot = STATUS_DOT[session.status] ?? `${AMBER}${DOT.filled}${RESET}`;
+  const name = `${BOLD}${session.title}${RESET}`;
+  const toolBadge = `${SLATE}${session.tool}${RESET}`;
+  const statusText = session.status === "working" || session.status === "running"
+    ? `${LIME}${session.status}${RESET}`
+    : session.status === "error"
+    ? `${ROSE}error${RESET}`
+    : `${SLATE}${session.status}${RESET}`;
+  const taskTag = session.currentTask ? `  ${SLATE}│${RESET}  ${DIM}${truncatePlain(session.currentTask, 40)}${RESET}` : "";
+  return ` ${dot} ${name} ${toolBadge}  ${SLATE}│${RESET}  ${statusText}${taskTag}  ${SLATE}│${RESET}  ${phaseText}`;
+}
+
 // ── Prompt helpers (pure, exported for testing) ─────────────────────────────
 
 // format the input prompt based on phase, pause state, and pending queue count
@@ -559,4 +702,4 @@ function formatScrollIndicator(offset: number, totalEntries: number, visibleLine
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
-export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatPrompt };
+export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatPrompt, formatDrilldownHeader };

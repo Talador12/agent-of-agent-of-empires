@@ -656,6 +656,8 @@ interactive commands (while daemon is running):
   /help          show available commands
   /explain       ask the AI to explain what's happening in plain English
   /insist <msg>  interrupt + deliver message immediately (skip queue)
+  /view [N|name] drill into a session's live output (default: 1)
+  /back          return to overview from drill-down
   /status        request daemon status
   /dashboard     request full dashboard output
   /pause         pause the daemon
@@ -663,6 +665,8 @@ interactive commands (while daemon is running):
   /interrupt     interrupt the current reasoner call
   /verbose       toggle verbose logging
   /clear         clear the screen
+  PgUp / PgDn    scroll through activity history
+  Home / End     jump to oldest / return to live
   ESC ESC        interrupt the current reasoner (shortcut)
   !message       insist shortcut — same as /insist message
   (anything)     send a message to the AI — queued for next cycle`);

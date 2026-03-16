@@ -13,6 +13,8 @@ export type ScrollDirection = "up" | "down" | "top" | "bottom";
 
 export const INSIST_PREFIX = "__INSIST__";
 
+export type ViewHandler = (target: string | null) => void; // null = back to overview
+
 export class InputReader {
   private rl: Interface | null = null;
   private queue: string[] = []; // pending user messages for the reasoner
@@ -20,6 +22,7 @@ export class InputReader {
   private lastEscTime = 0;
   private scrollHandler: ((dir: ScrollDirection) => void) | null = null;
   private queueChangeHandler: ((count: number) => void) | null = null;
+  private viewHandler: ViewHandler | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
   onScroll(handler: (dir: ScrollDirection) => void): void {
@@ -29,6 +32,11 @@ export class InputReader {
   // register a callback for queue size changes (for TUI pending count display)
   onQueueChange(handler: (count: number) => void): void {
     this.queueChangeHandler = handler;
+  }
+
+  // register a callback for view commands (/view, /back)
+  onView(handler: ViewHandler): void {
+    this.viewHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -179,6 +187,10 @@ ${BOLD}controls:${RESET}
   /resume            resume the supervisor
   /interrupt         interrupt the AI mid-thought
   ESC ESC            same as /interrupt (shortcut)
+
+${BOLD}navigation:${RESET}
+  /view [N|name]     drill into a session's live output (default: 1)
+  /back              return to overview from drill-down
   PgUp / PgDn        scroll through activity history
   Home / End         jump to oldest / return to live
 
@@ -245,6 +257,24 @@ ${BOLD}other:${RESET}
         this.queue.push(`__CMD_TASK__${taskArgs}`);
         break;
       }
+
+      case "/view": {
+        const viewArg = line.slice("/view".length).trim();
+        if (this.viewHandler) {
+          this.viewHandler(viewArg || "1"); // default to session 1
+        } else {
+          console.error(`${DIM}drill-down not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/back":
+        if (this.viewHandler) {
+          this.viewHandler(null); // null = back to overview
+        } else {
+          console.error(`${DIM}already in overview${RESET}`);
+        }
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

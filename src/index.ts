@@ -271,6 +271,22 @@ async function main() {
     input.onQueueChange((count) => {
       tui!.updateState({ pendingCount: count });
     });
+    // wire /view and /back commands to TUI drill-down
+    input.onView((target) => {
+      if (target === null) {
+        tui!.exitDrilldown();
+        tui!.log("system", "returned to overview");
+      } else {
+        // try number first, then name/id
+        const num = parseInt(target, 10);
+        const ok = !isNaN(num) ? tui!.enterDrilldown(num) : tui!.enterDrilldown(target);
+        if (ok) {
+          tui!.log("system", `viewing session: ${target}`);
+        } else {
+          tui!.log("system", `session not found: ${target}`);
+        }
+      }
+    });
   }
 
   // start TUI (alternate screen buffer) after input is ready
@@ -676,8 +692,16 @@ async function daemonTick(
   const taskStates = taskManager ? taskManager.tasks : undefined;
   writeState("polling", { pollCount, sessionCount, changeCount, sessions: sessionStates, tasks: taskStates });
 
-  // update TUI session panel
-  if (tui) tui.updateState({ phase: "polling", pollCount, sessions: sessionStates });
+  // update TUI session panel + drill-down outputs
+  if (tui) {
+    tui.updateState({ phase: "polling", pollCount, sessions: sessionStates });
+    // pass full session outputs for drill-down view
+    const outputs = new Map<string, string>();
+    for (const snap of observation.sessions) {
+      outputs.set(snap.session.id, snap.output);
+    }
+    tui.setSessionOutputs(outputs);
+  }
 
   const noStats = { interrupted: false, decisionsThisTick: 0, actionsOk: 0, actionsFail: 0 };
 

@@ -4,7 +4,7 @@ import {
   formatActivity, formatSessionCard, formatSessionSentence,
   truncateAnsi, truncatePlain,
   padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay,
-  computeScrollSlice, formatScrollIndicator, formatPrompt,
+  computeScrollSlice, formatScrollIndicator, formatPrompt, formatDrilldownHeader,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry } from "./tui.js";
@@ -496,3 +496,90 @@ describe("TUI scroll state", () => {
     assert.equal(tui.isScrolledBack(), false);
   });
 });
+
+// ── formatDrilldownHeader ───────────────────────────────────────────────────
+
+describe("formatDrilldownHeader", () => {
+  const sessions: DaemonSessionState[] = [
+    { id: "abc123", title: "frontend", tool: "opencode", status: "working" },
+    { id: "def456", title: "backend", tool: "claude", status: "error" },
+    { id: "ghi789", title: "tests", tool: "opencode", status: "idle" },
+  ];
+
+  it("includes session title and tool for a known session", () => {
+    const result = formatDrilldownHeader("abc123", sessions, "sleeping", false, 0, 120);
+    const plain = stripAnsi(result);
+    assert.ok(plain.includes("frontend"));
+    assert.ok(plain.includes("opencode"));
+  });
+
+  it("shows status for a working session", () => {
+    const result = formatDrilldownHeader("abc123", sessions, "sleeping", false, 0, 120);
+    const plain = stripAnsi(result);
+    assert.ok(plain.includes("working"));
+  });
+
+  it("shows error status for an errored session", () => {
+    const result = formatDrilldownHeader("def456", sessions, "sleeping", false, 0, 120);
+    const plain = stripAnsi(result);
+    assert.ok(plain.includes("error"));
+  });
+
+  it("shows idle status", () => {
+    const result = formatDrilldownHeader("ghi789", sessions, "sleeping", false, 0, 120);
+    const plain = stripAnsi(result);
+    assert.ok(plain.includes("idle"));
+  });
+
+  it("shows 'session not found' for unknown session", () => {
+    const result = formatDrilldownHeader("unknown", sessions, "sleeping", false, 0, 120);
+    const plain = stripAnsi(result);
+    assert.ok(plain.includes("session not found"));
+  });
+
+  it("includes phase display", () => {
+    const result = formatDrilldownHeader("abc123", sessions, "reasoning", false, 0, 120);
+    const plain = stripAnsi(result);
+    assert.ok(plain.includes("reasoning"));
+  });
+
+  it("includes currentTask when present", () => {
+    const sessionsWithTask: DaemonSessionState[] = [
+      { id: "abc123", title: "frontend", tool: "opencode", status: "working", currentTask: "fixing build" },
+    ];
+    const result = formatDrilldownHeader("abc123", sessionsWithTask, "sleeping", false, 0, 120);
+    const plain = stripAnsi(result);
+    assert.ok(plain.includes("fixing build"));
+  });
+});
+
+// ── TUI drill-down state ────────────────────────────────────────────────────
+
+describe("TUI drill-down state", () => {
+  it("starts in overview mode", () => {
+    const tui = new TUI();
+    assert.equal(tui.getViewMode(), "overview");
+    assert.equal(tui.getDrilldownSessionId(), null);
+  });
+
+  it("enterDrilldown returns false when no sessions", () => {
+    const tui = new TUI();
+    assert.equal(tui.enterDrilldown(1), false);
+    assert.equal(tui.getViewMode(), "overview");
+  });
+
+  it("exitDrilldown is a no-op in overview mode", () => {
+    const tui = new TUI();
+    tui.exitDrilldown(); // should not throw
+    assert.equal(tui.getViewMode(), "overview");
+  });
+
+  it("setSessionOutputs stores outputs", () => {
+    const tui = new TUI();
+    const outputs = new Map<string, string>();
+    outputs.set("abc123", "line1\nline2\nline3");
+    tui.setSessionOutputs(outputs); // should not throw
+  });
+});
+
+

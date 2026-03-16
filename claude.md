@@ -5,21 +5,64 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.66.0
+## Version: v0.67.0
 
 ## Current Focus
 
-954 tests across 33 files. v0.66.0 shipped: prompt queue UX — visible pending count, `!` prefix insist mode for immediate interrupt + delivery.
+967 tests across 33 files. v0.67.0 shipped: session drill-down — `/view` and `/back` commands to navigate into a specific agent's live tmux output from the TUI.
 
 ## Roadmap
 
-### v0.67.0+ — Ideas Backlog
-- **Session drill-down** — navigate into a specific agent's output from the TUI, hotkey back to overview
+### v0.68.0+ — Ideas Backlog
 - **`aoaoe tail`** — live-stream daemon activity to a separate terminal (follow mode)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Config hot-reload** — watch config file for changes, apply without restart
 - **Session grouping** — tag sessions by project/team, filter views by group
+- **Mouse click session selection** — click on a session in the agents panel to drill down
+
+### What shipped in v0.67.0
+
+**Theme: "Session Drill-down"** — navigate into a specific agent's live tmux output with `/view`, return to overview with `/back`. Full-screen session output replaces the sessions panel and activity region. 13 new tests.
+
+#### 1. View mode + state (`src/tui.ts`)
+- New `viewMode: "overview" | "drilldown"` field, `drilldownSessionId`, `sessionOutputs` Map
+- `enterDrilldown(sessionIdOrIndex)` — accepts 1-indexed number, session ID, ID prefix, or title (case-insensitive). Returns false if session not found.
+- `exitDrilldown()` — returns to overview mode, recomputes layout, repaints
+- `setSessionOutputs(outputs)` — stores full tmux output per session, called each tick
+- `getViewMode()` and `getDrilldownSessionId()` — read-only accessors for testing
+
+#### 2. Drill-down layout (`src/tui.ts`)
+- `computeLayout()` — in drilldown mode: no sessions panel, separator immediately after header, maximizing content space
+- `paintAll()` — branches on viewMode to paint either overview or drill-down
+- `repaintDrilldownContent()` — renders last N lines of session output in scroll region (tail-follow behavior)
+- `paintDrilldownSeparator()` — shows session title + `/back: overview  /view N: switch session` hints
+
+#### 3. Drill-down header (`src/tui.ts`)
+- `formatDrilldownHeader()` pure exported function — shows session dot + name + tool + status + currentTask + phase
+- Used by `paintHeader()` when in drill-down mode
+
+#### 4. Commands (`src/input.ts`)
+- `/view [N|name]` — drill into session N (1-indexed) or by name/ID. Default: 1
+- `/back` — return to overview from drill-down
+- `onView(handler)` callback registration — TUI wires this to enterDrilldown/exitDrilldown
+- `ViewHandler` type exported
+
+#### 5. Wiring (`src/index.ts`)
+- `input.onView()` handler wired — dispatches to `tui.enterDrilldown(num)` or `tui.enterDrilldown(name)`
+- `tui.setSessionOutputs()` called each tick with `observation.sessions[].output`
+- Drill-down repaint triggered automatically when output updates for the viewed session
+
+#### 6. Help text updates (`src/input.ts`, `src/config.ts`)
+- `/help` reorganized: new "navigation" section with /view, /back, PgUp/PgDn, Home/End
+- `printHelp()` updated with /view and /back in interactive commands
+
+#### 7. Tests
+- `src/tui.test.ts` (11 tests): formatDrilldownHeader — known session, working/error/idle status, unknown session, phase display, currentTask; TUI drill-down state — starts overview, enterDrilldown returns false with no sessions, exitDrilldown no-op, setSessionOutputs safe
+- `src/input.test.ts` (2 tests): onView — registers handler, safe without handler
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `src/config.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +13, net 967 tests across 33 files.
 
 ### What shipped in v0.66.0
 
