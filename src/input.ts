@@ -9,11 +9,19 @@ import { GREEN, DIM, YELLOW, RED, BOLD, RESET } from "./colors.js";
 // ESC-ESC interrupt detection
 const ESC_DOUBLE_TAP_MS = 500;
 
+export type ScrollDirection = "up" | "down" | "top" | "bottom";
+
 export class InputReader {
   private rl: Interface | null = null;
   private queue: string[] = []; // pending user messages for the reasoner
   private paused = false;
   private lastEscTime = 0;
+  private scrollHandler: ((dir: ScrollDirection) => void) | null = null;
+
+  // register a callback for scroll key events (PgUp/PgDn/Home/End)
+  onScroll(handler: (dir: ScrollDirection) => void): void {
+    this.scrollHandler = handler;
+  }
 
   start(): void {
     // only works if stdin is a TTY (not piped)
@@ -42,6 +50,18 @@ export class InputReader {
         }
       } else {
         this.lastEscTime = 0;
+      }
+      // scroll key detection (PgUp, PgDn, Home, End)
+      if (this.scrollHandler) {
+        if (key?.name === "pageup" || key?.sequence === "\x1b[5~") {
+          this.scrollHandler("up");
+        } else if (key?.name === "pagedown" || key?.sequence === "\x1b[6~") {
+          this.scrollHandler("down");
+        } else if (key?.name === "home" || key?.sequence === "\x1b[1~") {
+          this.scrollHandler("top");
+        } else if (key?.name === "end" || key?.sequence === "\x1b[4~") {
+          this.scrollHandler("bottom");
+        }
       }
     });
 
@@ -122,6 +142,8 @@ ${BOLD}controls:${RESET}
   /resume            resume the supervisor
   /interrupt         interrupt the AI mid-thought
   ESC ESC            same as /interrupt (shortcut)
+  PgUp / PgDn        scroll through activity history
+  Home / End         jump to oldest / return to live
 
 ${BOLD}info:${RESET}
   /status            show daemon state

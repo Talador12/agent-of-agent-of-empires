@@ -88,6 +88,8 @@ export class TUI {
   private activityBuffer: ActivityEntry[] = []; // ring buffer for activity log
   private maxActivity = 500;     // max entries to keep
   private spinnerFrame = 0;      // current spinner animation frame
+  private scrollOffset = 0;      // 0 = live (bottom), >0 = scrolled back N entries
+  private newWhileScrolled = 0;  // entries added while user is scrolled back
 
   // current state for repaints
   private phase: DaemonPhase = "sleeping";
@@ -178,7 +180,15 @@ export class TUI {
     if (this.activityBuffer.length > this.maxActivity) {
       this.activityBuffer = this.activityBuffer.slice(-this.maxActivity);
     }
-    if (this.active) this.writeActivityLine(entry);
+    if (this.active) {
+      if (this.scrollOffset > 0) {
+        // user is scrolled back — don't auto-scroll, just show indicator
+        this.newWhileScrolled++;
+        this.paintSeparator();
+      } else {
+        this.writeActivityLine(entry);
+      }
+    }
     // persist to disk (fire-and-forget, never blocks)
     appendHistoryEntry({ ts: now.getTime(), time, tag, text });
   }
@@ -193,6 +203,49 @@ export class TUI {
     if (this.activityBuffer.length > this.maxActivity) {
       this.activityBuffer = this.activityBuffer.slice(-this.maxActivity);
     }
+  }
+
+  // ── Scroll navigation ────────────────────────────────────────────────────
+
+  scrollUp(lines?: number): void {
+    if (!this.active) return;
+    const visibleLines = this.scrollBottom - this.scrollTop + 1;
+    const n = lines ?? Math.max(1, Math.floor(visibleLines / 2));
+    const maxOffset = Math.max(0, this.activityBuffer.length - visibleLines);
+    this.scrollOffset = Math.min(maxOffset, this.scrollOffset + n);
+    this.repaintActivityRegion();
+    this.paintSeparator();
+  }
+
+  scrollDown(lines?: number): void {
+    if (!this.active) return;
+    const visibleLines = this.scrollBottom - this.scrollTop + 1;
+    const n = lines ?? Math.max(1, Math.floor(visibleLines / 2));
+    const wasScrolled = this.scrollOffset > 0;
+    this.scrollOffset = Math.max(0, this.scrollOffset - n);
+    if (wasScrolled && this.scrollOffset === 0) this.newWhileScrolled = 0;
+    this.repaintActivityRegion();
+    this.paintSeparator();
+  }
+
+  scrollToTop(): void {
+    if (!this.active) return;
+    const visibleLines = this.scrollBottom - this.scrollTop + 1;
+    this.scrollOffset = Math.max(0, this.activityBuffer.length - visibleLines);
+    this.repaintActivityRegion();
+    this.paintSeparator();
+  }
+
+  scrollToBottom(): void {
+    if (!this.active) return;
+    this.scrollOffset = 0;
+    this.newWhileScrolled = 0;
+    this.repaintActivityRegion();
+    this.paintSeparator();
+  }
+
+  isScrolledBack(): boolean {
+    return this.scrollOffset > 0;
   }
 
   // ── Layout computation ──────────────────────────────────────────────────
@@ -302,8 +355,13 @@ export class TUI {
   }
 
   private paintSeparator(): void {
-    const hints = " esc esc: interrupt  /help  /explain  /pause ";
     const prefix = `${BOX.h}${BOX.h} activity `;
+    let hints: string;
+    if (this.scrollOffset > 0) {
+      hints = formatScrollIndicator(this.scrollOffset, this.activityBuffer.length, this.scrollBottom - this.scrollTop + 1, this.newWhileScrolled);
+    } else {
+      hints = " esc esc: interrupt  /help  /explain  /pause ";
+    }
     const totalLen = prefix.length + hints.length;
     const fill = Math.max(0, this.cols - totalLen);
     const left = Math.floor(fill / 2);
@@ -328,7 +386,8 @@ export class TUI {
 
   private repaintActivityRegion(): void {
     const visibleLines = this.scrollBottom - this.scrollTop + 1;
-    const entries = this.activityBuffer.slice(-visibleLines);
+    const { start, end } = computeScrollSlice(this.activityBuffer.length, visibleLines, this.scrollOffset);
+    const entries = this.activityBuffer.slice(start, end);
     for (let i = 0; i < visibleLines; i++) {
       const row = this.scrollTop + i;
       if (i < entries.length) {
@@ -474,6 +533,22 @@ export function formatSessionSentence(s: DaemonSessionState, maxCols: number): s
   return truncateAnsi(`${dot} ${BOLD}${name}${RESET} ${tool} ${SLATE}—${RESET} ${statusDesc}`, maxCols);
 }
 
+// ── Scroll helpers (pure, exported for testing) ─────────────────────────────
+
+// compute the slice indices for the activity buffer given scroll state
+function computeScrollSlice(bufferLen: number, visibleLines: number, scrollOffset: number): { start: number; end: number } {
+  const end = Math.max(0, bufferLen - scrollOffset);
+  const start = Math.max(0, end - visibleLines);
+  return { start, end };
+}
+
+// format the scroll indicator text for the separator bar
+function formatScrollIndicator(offset: number, totalEntries: number, visibleLines: number, newCount: number): string {
+  const position = totalEntries - offset;
+  const newTag = newCount > 0 ? `  ${newCount} new ↓` : "";
+  return ` ↑ ${offset} older  │  ${position}/${totalEntries}  │  PgUp/PgDn  End=live${newTag} `;
+}
+
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
-export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay };
+export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator };

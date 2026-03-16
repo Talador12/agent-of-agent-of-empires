@@ -5,21 +5,53 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.64.0
+## Version: v0.65.0
 
 ## Current Focus
 
-923 tests across 33 files. v0.64.0 shipped: `aoaoe export` — timeline export as JSON or Markdown for post-mortems.
+935 tests across 33 files. v0.65.0 shipped: scroll navigation in TUI — PgUp/PgDn/Home/End keys, scroll indicator in separator bar.
 
 ## Roadmap
 
-### v0.65.0+ — Ideas Backlog
-- **Scroll-through history navigation in TUI** — keyboard shortcuts to page up/down through activity
+### v0.66.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Config hot-reload** — watch config file for changes, apply without restart
 - **`aoaoe tail`** — live-stream daemon activity to a separate terminal (follow mode)
 - **Session grouping** — tag sessions by project/team, filter views by group
+
+### What shipped in v0.65.0
+
+**Theme: "Scroll Navigation"** — PgUp/PgDn/Home/End keyboard navigation in the TUI activity region. Scroll indicator in separator bar shows position, entry count, and new-while-scrolled counter. 12 new tests.
+
+#### 1. Scroll state + methods (`src/tui.ts`)
+- New `scrollOffset` and `newWhileScrolled` state fields on the TUI class
+- Public methods: `scrollUp(lines?)`, `scrollDown(lines?)`, `scrollToTop()`, `scrollToBottom()`, `isScrolledBack()`
+- `scrollUp/Down` default to half-page (visibleLines / 2) for comfortable browsing
+- `repaintActivityRegion()` now uses `computeScrollSlice()` to render from offset instead of always showing tail
+- `log()` — when scrolled back, new entries add to buffer but don't auto-scroll; increments `newWhileScrolled` counter and repaints separator
+
+#### 2. Scroll indicator in separator (`src/tui.ts`)
+- Separator shows scroll position when scrolled back: `↑ 10 older │ 40/50 │ PgUp/PgDn End=live 3 new ↓`
+- Normal separator hints restored when at live (offset=0)
+- Two pure exported helpers: `computeScrollSlice(bufferLen, visibleLines, scrollOffset)` and `formatScrollIndicator(offset, totalEntries, visibleLines, newCount)`
+
+#### 3. Input handling (`src/input.ts`)
+- `ScrollDirection` type exported: `"up" | "down" | "top" | "bottom"`
+- `InputReader` gains `onScroll(handler)` callback
+- Keypress handler detects PgUp (`pageup`/`\x1b[5~`), PgDn (`pagedown`/`\x1b[6~`), Home (`home`/`\x1b[1~`), End (`end`/`\x1b[4~`)
+- `/help` updated with PgUp/PgDn/Home/End scroll hints
+
+#### 4. Wiring (`src/index.ts`)
+- `input.onScroll()` wired to `tui.scrollUp/Down/ToTop/ToBottom` before TUI start
+
+#### 5. Tests (`src/tui.test.ts`)
+- `computeScrollSlice` (6 tests): at live, scrolled back, beyond buffer, empty buffer, exact fit, partial page
+- `formatScrollIndicator` (4 tests): at live, scrolled back, with new count, at top
+- TUI scroll state (2 tests): initial state, scrollDown updates offset
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +12, net 935 tests across 33 files.
 
 ### What shipped in v0.64.0
 

@@ -257,6 +257,18 @@ async function main() {
   input.start();
   await reasonerConsole.start();
 
+  // wire scroll keys to TUI (PgUp/PgDn/Home/End)
+  if (tui) {
+    input.onScroll((dir) => {
+      switch (dir) {
+        case "up": tui!.scrollUp(); break;
+        case "down": tui!.scrollDown(); break;
+        case "top": tui!.scrollToTop(); break;
+        case "bottom": tui!.scrollToBottom(); break;
+      }
+    });
+  }
+
   // start TUI (alternate screen buffer) after input is ready
   if (tui) {
     // replay persisted history from previous runs before entering alt screen

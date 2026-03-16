@@ -4,6 +4,7 @@ import {
   formatActivity, formatSessionCard, formatSessionSentence,
   truncateAnsi, truncatePlain,
   padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay,
+  computeScrollSlice, formatScrollIndicator,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry } from "./tui.js";
@@ -365,5 +366,89 @@ describe("TUI class", () => {
   it("updateState does not throw when not active", () => {
     const tui = new TUI();
     tui.updateState({ phase: "reasoning", pollCount: 5, sessions: [] });
+  });
+});
+
+// ── computeScrollSlice ──────────────────────────────────────────────────────
+
+describe("computeScrollSlice", () => {
+  it("returns tail slice when offset is 0 (live)", () => {
+    const { start, end } = computeScrollSlice(100, 20, 0);
+    assert.equal(start, 80);
+    assert.equal(end, 100);
+  });
+
+  it("returns earlier slice when scrolled back", () => {
+    const { start, end } = computeScrollSlice(100, 20, 30);
+    assert.equal(end, 70);
+    assert.equal(start, 50);
+  });
+
+  it("clamps start to 0 when near the top", () => {
+    const { start, end } = computeScrollSlice(100, 20, 90);
+    assert.equal(start, 0);
+    assert.equal(end, 10);
+  });
+
+  it("handles offset exceeding buffer length", () => {
+    const { start, end } = computeScrollSlice(10, 20, 50);
+    assert.equal(start, 0);
+    assert.equal(end, 0);
+  });
+
+  it("handles empty buffer", () => {
+    const { start, end } = computeScrollSlice(0, 20, 0);
+    assert.equal(start, 0);
+    assert.equal(end, 0);
+  });
+
+  it("handles buffer smaller than visible lines", () => {
+    const { start, end } = computeScrollSlice(5, 20, 0);
+    assert.equal(start, 0);
+    assert.equal(end, 5);
+  });
+});
+
+// ── formatScrollIndicator ───────────────────────────────────────────────────
+
+describe("formatScrollIndicator", () => {
+  it("shows offset and position", () => {
+    const result = formatScrollIndicator(10, 50, 20, 0);
+    assert.ok(result.includes("10 older"));
+    assert.ok(result.includes("40/50"));
+  });
+
+  it("shows new entries count when > 0", () => {
+    const result = formatScrollIndicator(10, 50, 20, 5);
+    assert.ok(result.includes("5 new"));
+  });
+
+  it("omits new tag when count is 0", () => {
+    const result = formatScrollIndicator(10, 50, 20, 0);
+    assert.ok(!result.includes("new"));
+  });
+
+  it("includes navigation hints", () => {
+    const result = formatScrollIndicator(10, 50, 20, 0);
+    assert.ok(result.includes("PgUp/PgDn"));
+    assert.ok(result.includes("End=live"));
+  });
+});
+
+// ── TUI scroll methods ──────────────────────────────────────────────────────
+
+describe("TUI scroll state", () => {
+  it("starts at live (not scrolled back)", () => {
+    const tui = new TUI();
+    assert.equal(tui.isScrolledBack(), false);
+  });
+
+  it("scrollUp/scrollDown are no-ops when not active", () => {
+    const tui = new TUI();
+    tui.scrollUp();
+    tui.scrollDown();
+    tui.scrollToTop();
+    tui.scrollToBottom();
+    assert.equal(tui.isScrolledBack(), false);
   });
 });
