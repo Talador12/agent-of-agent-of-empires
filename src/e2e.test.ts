@@ -7,14 +7,22 @@
 //   daemon-state.ts — writeState/readState/buildSessionStates (IPC state file)
 //   chat.ts    — isDaemonRunningFromState, buildStatusLineFromState, formatSessionsList, getCountdownFromState
 
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import { tick, type PollerLike, type ExecutorLike, type ActionResult } from "./loop.js";
-import { writeState, readState, buildSessionStates, cleanupState, resetInternalState, setSessionTask } from "./daemon-state.js";
+import { writeState, readState, buildSessionStates, cleanupState, resetInternalState, setSessionTask, setStateDir } from "./daemon-state.js";
 import { isDaemonRunningFromState, getCountdownFromState, buildStatusLineFromState, formatSessionsList } from "./chat.js";
 import type { Observation, Reasoner, ReasonerResult, Action, AoaoeConfig, SessionSnapshot, AoeSession, SessionChange } from "./types.js";
 import type { SessionPolicyState } from "./reasoner/prompt.js";
+
+// each test file gets its own temp dir so parallel test processes don't race
+const TEST_STATE_DIR = join(tmpdir(), `aoaoe-e2e-test-${process.pid}-${Date.now()}`);
+mkdirSync(TEST_STATE_DIR, { recursive: true });
+setStateDir(TEST_STATE_DIR);
 
 // ── test fixtures ───────────────────────────────────────────────────────────
 
@@ -695,5 +703,10 @@ describe("e2e — tick → daemon state → chat reader", () => {
     assert.equal(state, null);
     assert.equal(isDaemonRunningFromState(null), false);
     assert.equal(buildStatusLineFromState(null, false, true), "aoaoe (daemon offline)");
+  });
+
+  after(() => {
+    cleanupState();
+    rmSync(TEST_STATE_DIR, { recursive: true, force: true });
   });
 });

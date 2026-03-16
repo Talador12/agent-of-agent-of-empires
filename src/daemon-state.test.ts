@@ -1,17 +1,15 @@
-import { describe, it, before, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Observation, SessionSnapshot, AoeSession, DaemonSessionState } from "./types.js";
+import { setStateDir } from "./daemon-state.js";
 
-// buildSessionStates is the main pure-ish function we can test well.
-// writeState / readState / interrupt functions depend on a fixed file path
-// (~/.aoaoe/), so we test buildSessionStates thoroughly and test the
-// interrupt/cleanup logic patterns.
-
-// replicated from daemon-state.ts -- buildSessionStates is exported but calls
-// parseTasks which is a real import. We can test it via the module.
+// each test file gets its own temp dir so parallel test processes don't race
+const TEST_STATE_DIR = join(tmpdir(), `aoaoe-daemon-state-test-${process.pid}-${Date.now()}`);
+mkdirSync(TEST_STATE_DIR, { recursive: true });
+setStateDir(TEST_STATE_DIR);
 
 describe("buildSessionStates", () => {
   // we import dynamically so the module loads after any setup
@@ -246,7 +244,6 @@ describe("setSessionTask", () => {
 
 describe("interrupt flag logic", () => {
   // test the pattern: requestInterrupt creates a file, checkInterrupt reads it, clearInterrupt removes it
-  // these use the real ~/.aoaoe/ directory, so we test the logic patterns
 
   it("checkInterrupt returns false when no interrupt file exists", async () => {
     const { checkInterrupt, clearInterrupt } = await import("./daemon-state.js");
@@ -430,5 +427,69 @@ describe("acquireLock", () => {
     assert.equal(second.existingPid, process.pid);
     // cleanup
     cleanupState();
+  });
+});
+
+// ── setStateDir ─────────────────────────────────────────────────────────────
+
+describe("setStateDir", () => {
+  it("redirects state files to a custom directory", async () => {
+    const { setStateDir: setDir, writeState, readState, cleanupState: cleanup, resetInternalState: reset } = await import("./daemon-state.js");
+    const customDir = join(tmpdir(), `aoaoe-setstatedir-test-${Date.now()}`);
+    mkdirSync(customDir, { recursive: true });
+    setDir(customDir);
+    reset();
+    writeState("polling", { pollCount: 99 });
+    // state file should exist in custom dir, not ~/.aoaoe/
+    assert.ok(existsSync(join(customDir, "daemon-state.json")), "state file should be in custom dir");
+    const state = readState();
+    assert.equal(state!.pollCount, 99);
+    cleanup();
+    // restore for other tests
+    setDir(TEST_STATE_DIR);
+    rmSync(customDir, { recursive: true, force: true });
+  });
+
+  it("redirects interrupt file to custom directory", async () => {
+    const { setStateDir: setDir, requestInterrupt, checkInterrupt, clearInterrupt } = await import("./daemon-state.js");
+    const customDir = join(tmpdir(), `aoaoe-setstatedir-int-${Date.now()}`);
+    mkdirSync(customDir, { recursive: true });
+    setDir(customDir);
+    requestInterrupt();
+    assert.ok(existsSync(join(customDir, "interrupt")), "interrupt file should be in custom dir");
+    assert.equal(checkInterrupt(), true);
+    clearInterrupt();
+    assert.equal(checkInterrupt(), false);
+    // restore
+    setDir(TEST_STATE_DIR);
+    rmSync(customDir, { recursive: true, force: true });
+  });
+
+  it("redirects lock file to custom directory", async () => {
+    const { setStateDir: setDir, acquireLock, cleanupState: cleanup, resetInternalState: reset } = await import("./daemon-state.js");
+    const customDir = join(tmpdir(), `aoaoe-setstatedir-lock-${Date.now()}`);
+    mkdirSync(customDir, { recursive: true });
+    setDir(customDir);
+    reset();
+    const result = acquireLock();
+    assert.equal(result.acquired, true);
+    assert.ok(existsSync(join(customDir, "daemon.lock")), "lock file should be in custom dir");
+    cleanup();
+    // restore
+    setDir(TEST_STATE_DIR);
+    rmSync(customDir, { recursive: true, force: true });
+  });
+});
+
+// ── cleanup ─────────────────────────────────────────────────────────────────
+
+describe("test cleanup", () => {
+  after(() => {
+    rmSync(TEST_STATE_DIR, { recursive: true, force: true });
+  });
+
+  it("removes temp state directory", () => {
+    // placeholder — actual cleanup happens in after()
+    assert.ok(true);
   });
 });

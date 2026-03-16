@@ -1,13 +1,21 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 // IPC integration tests: validates the cross-module daemon<->chat contract
-// using real state files. Tests the IPC path between:
+// using isolated state files. Tests the IPC path between:
 // - daemon-state.ts (writeState, readState, interrupt flag)
 // - chat.ts (isDaemonRunning, getCountdown, buildStatusLine)
 
-import { writeState, readState, requestInterrupt, checkInterrupt, clearInterrupt, cleanupState, resetInternalState } from "./daemon-state.js";
+import { writeState, readState, requestInterrupt, checkInterrupt, clearInterrupt, cleanupState, resetInternalState, setStateDir } from "./daemon-state.js";
 import { isDaemonRunningFromState, getCountdownFromState, buildStatusLineFromState } from "./chat.js";
+
+// each test file gets its own temp dir so parallel test processes don't race
+const TEST_STATE_DIR = join(tmpdir(), `aoaoe-ipc-test-${process.pid}-${Date.now()}`);
+mkdirSync(TEST_STATE_DIR, { recursive: true });
+setStateDir(TEST_STATE_DIR);
 
 describe("IPC — daemon lifecycle simulation", () => {
   beforeEach(() => {
@@ -60,5 +68,10 @@ describe("IPC — daemon lifecycle simulation", () => {
     const state = readState()!;
     const line = buildStatusLineFromState(state, true, false, now);
     assert.ok(line?.includes("PAUSED"));
+  });
+
+  after(() => {
+    cleanupState();
+    rmSync(TEST_STATE_DIR, { recursive: true, force: true });
   });
 });

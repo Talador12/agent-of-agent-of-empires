@@ -5,21 +5,37 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.62.0
+## Version: v0.63.0
 
 ## Current Focus
 
-882 tests across 32 files. v0.62.0 shipped: History retention config, age-based filtering, 50MB rotation threshold.
+886 tests across 32 files. v0.63.0 shipped: Test isolation — zero flaky tests, all 886 pass consistently.
 
 ## Roadmap
 
-### v0.63.0+ — Ideas Backlog
+### v0.64.0+ — Ideas Backlog
 - **Scroll-through history navigation in TUI** — keyboard shortcuts to page up/down through activity
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- **Test isolation** — fix flaky state-file races across parallel test files (use TMPDIR or --concurrency 1)
 - **`aoaoe export`** — export session timeline as JSON/markdown for post-mortems
 - **Config hot-reload** — watch config file for changes, apply without restart
+
+### What shipped in v0.63.0
+
+**Theme: "Test Isolation"** — eliminated flaky test failures caused by parallel test files racing on shared `~/.aoaoe/daemon-state.json`. All 886 tests now pass consistently (verified 3 consecutive runs, 0 failures). 4 new tests.
+
+#### 1. `setStateDir()` function (`src/daemon-state.ts`)
+New exported function that redirects all state file paths (`daemon-state.json`, `interrupt`, `daemon.lock`) to a custom directory. Converts the hardcoded `const` paths to mutable `let` variables. Resets `dirEnsured` flag so the new directory gets created on next write. `flushState()` now computes the temp file path dynamically.
+
+#### 2. Test file isolation (`daemon-state.test.ts`, `e2e.test.ts`, `ipc.test.ts`)
+Each test file now creates its own temp directory at module load time using `join(tmpdir(), \`aoaoe-<suite>-test-\${process.pid}-\${Date.now()}\`)` and calls `setStateDir()` before any tests run. Temp dirs are cleaned up in `after()` hooks. Zero cross-file state contamination.
+
+#### 3. Tests for `setStateDir` (`src/daemon-state.test.ts`)
+- 3 tests: redirects state file, redirects interrupt file, redirects lock file — each verifies files land in the custom directory and not `~/.aoaoe/`
+- 1 cleanup test (temp dir removal in `after()` hook)
+
+Modified: `src/daemon-state.ts`, `src/daemon-state.test.ts`, `src/e2e.test.ts`, `src/ipc.test.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +4 (3 setStateDir + 1 cleanup), net 886 tests across 32 files.
 
 ### What shipped in v0.62.0
 

@@ -8,10 +8,20 @@ import { toDaemonState } from "./types.js";
 import type { DaemonState, DaemonPhase, DaemonSessionState, Observation } from "./types.js";
 import { parseTasks, formatTaskList } from "./task-parser.js";
 
-const AOAOE_DIR = join(homedir(), ".aoaoe");
-const STATE_FILE = join(AOAOE_DIR, "daemon-state.json");
-const INTERRUPT_FILE = join(AOAOE_DIR, "interrupt");
-const LOCK_FILE = join(AOAOE_DIR, "daemon.lock");
+// default state directory — overridable via setStateDir() for test isolation
+let AOAOE_DIR = join(homedir(), ".aoaoe");
+let STATE_FILE = join(AOAOE_DIR, "daemon-state.json");
+let INTERRUPT_FILE = join(AOAOE_DIR, "interrupt");
+let LOCK_FILE = join(AOAOE_DIR, "daemon.lock");
+
+// redirect all state file paths to a custom directory (test isolation)
+export function setStateDir(dir: string): void {
+  AOAOE_DIR = dir;
+  STATE_FILE = join(dir, "daemon-state.json");
+  INTERRUPT_FILE = join(dir, "interrupt");
+  LOCK_FILE = join(dir, "daemon.lock");
+  dirEnsured = false; // force re-create on next write
+}
 
 // cache: only mkdirSync once per process (no need to stat the dir on every phase change)
 let dirEnsured = false;
@@ -61,15 +71,16 @@ const DEBOUNCE_MS = 500;
 let lastFlushedPhase: DaemonPhase | null = null;
 let lastFlushTime = 0;
 
-const STATE_TMP = STATE_FILE + ".tmp";
+// note: STATE_TMP is computed dynamically inside flushState() since STATE_FILE is mutable
 
 function flushState(): void {
   try {
     ensureDir();
     // atomic write: write to temp file, then rename into place.
     // prevents chat.ts from reading a partially-written JSON file.
-    writeFileSync(STATE_TMP, JSON.stringify(currentState) + "\n");
-    renameSync(STATE_TMP, STATE_FILE);
+    const tmp = STATE_FILE + ".tmp";
+    writeFileSync(tmp, JSON.stringify(currentState) + "\n");
+    renameSync(tmp, STATE_FILE);
     lastFlushedPhase = currentState.phase;
     lastFlushTime = Date.now();
   } catch {
