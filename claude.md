@@ -5,20 +5,57 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.74.0
+## Version: v0.75.0
 
 ## Current Focus
 
-1196 tests across 37 files. v0.74.0 shipped: `/search` command for filtering activity entries by substring match, with search indicator in the separator bar and proper scroll integration.
+1210 tests across 37 files. v0.75.0 shipped: session highlight on hover with mouse motion tracking and efficient single-card repaints.
 
 ## Roadmap
 
-### v0.75.0+ — Ideas Backlog
+### v0.76.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
-- **Session highlight on hover** — visual feedback when mouse hovers over agent cards
+- **Keyboard quick-switch** — number keys 1-9 to jump between sessions in overview
+- **Activity sparkline** — tiny inline graph showing activity rate over time in header
+
+### What shipped in v0.75.0
+
+**Theme: "Hover"** — session highlight on hover. Mouse motion tracking via `?1003h` any-event mode, efficient single-card repaints, subtle BG highlight with `BG_HOVER` (238). Hover clears on drill-down enter/exit. 14 new tests.
+
+#### 1. Mouse mode upgrade (`src/tui.ts`)
+- `MOUSE_ON` changed from `?1000h` (button-only) to `?1003h` (any-event tracking)
+- `MOUSE_OFF` changed from `?1000l` to `?1003l`
+- Enables motion event reporting needed for hover detection
+
+#### 2. Hover highlight (`src/tui.ts`, `src/colors.ts`)
+- `BG_HOVER` constant (`\x1b[48;5;238m`) — slightly brighter than `BG_DARK` (236)
+- `hoverSessionIdx: number | null` field — 1-indexed, null when no hover
+- `setHoverSession(idx)` — updates hover state, repaints only the affected cards (prev + new)
+- `getHoverSession()` — read-only accessor for testing
+- `repaintSessionCard(idx)` — private method, efficiently repaints a single session card row
+- `padBoxLineHover(line, totalWidth, hovered)` — extends hover BG through padding to right border
+- `paintSessions()` applies hover BG to the hovered card
+- Hover cleared on `enterDrilldown()` and `exitDrilldown()`
+
+#### 3. Mouse move handler (`src/input.ts`)
+- `MouseMoveHandler` type: `(row: number, col: number) => void`
+- `onMouseMove(handler)` callback registration on `InputReader`
+- Extended `mouseDataListener` to detect motion events: button 32-35 (bit 5 set)
+- Row-change debounce via `lastMoveRow` — only fires handler when row changes, preventing redundant repaints
+
+#### 4. Wiring (`src/index.ts`)
+- `input.onMouseMove((row, col) => { hitTestSession(row, 1, ...) → tui.setHoverSession(idx) })`
+- Only processes hover in overview mode
+
+#### 5. Tests
+- `src/tui.test.ts` (11 tests): padBoxLineHover — hover BG, non-hover matches padBoxLine, ends with border, BG extends through padding; TUI hover state — initial null, setHoverSession, clear with null, safe when not active, no-op for same index, clears on enterDrilldown, clears on exitDrilldown
+- `src/input.test.ts` (3 tests): onMouseMove — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `src/colors.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +14, net 1210 tests across 37 files.
 
 ### What shipped in v0.74.0
 

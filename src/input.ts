@@ -27,6 +27,7 @@ export interface MouseEvent {
 
 export type MouseClickHandler = (row: number, col: number) => void;
 export type MouseWheelHandler = (direction: "up" | "down") => void;
+export type MouseMoveHandler = (row: number, col: number) => void;
 
 // SGR extended mouse format: \x1b[<btn;col;rowM (press) or \x1b[<btn;col;rowm (release)
 const SGR_MOUSE_RE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/;
@@ -53,6 +54,8 @@ export class InputReader {
   private viewHandler: ViewHandler | null = null;
   private mouseClickHandler: MouseClickHandler | null = null;
   private mouseWheelHandler: MouseWheelHandler | null = null;
+  private mouseMoveHandler: MouseMoveHandler | null = null;
+  private lastMoveRow = 0; // debounce: only fire move handler when row changes
   private searchHandler: SearchHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -79,6 +82,11 @@ export class InputReader {
   // register a callback for mouse wheel events (scroll up/down)
   onMouseWheel(handler: MouseWheelHandler): void {
     this.mouseWheelHandler = handler;
+  }
+
+  // register a callback for mouse move events (only fires on row change for efficiency)
+  onMouseMove(handler: MouseMoveHandler): void {
+    this.mouseMoveHandler = handler;
   }
 
   // register a callback for search commands (/search <pattern> or /search to clear)
@@ -121,6 +129,13 @@ export class InputReader {
         this.mouseWheelHandler("up");
       } else if (evt.button === 65 && this.mouseWheelHandler) {
         this.mouseWheelHandler("down");
+      }
+      // mouse motion: bit 5 set (button 32-35), only fire on row change
+      if (evt.button >= 32 && evt.button <= 35 && this.mouseMoveHandler) {
+        if (evt.row !== this.lastMoveRow) {
+          this.lastMoveRow = evt.row;
+          this.mouseMoveHandler(evt.row, evt.col);
+        }
       }
     };
     process.stdin.on("data", this.mouseDataListener);

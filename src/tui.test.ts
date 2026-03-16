@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   formatActivity, formatSessionCard, formatSessionSentence,
   truncateAnsi, truncatePlain,
-  padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay,
+  padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay,
   computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator,
   formatPrompt, formatDrilldownHeader,
   hitTestSession,
@@ -898,6 +898,92 @@ describe("TUI search state", () => {
     const tui = new TUI();
     assert.doesNotThrow(() => tui.setSearch("test"));
     assert.doesNotThrow(() => tui.setSearch(null));
+  });
+});
+
+// ── padBoxLineHover ─────────────────────────────────────────────────────────
+
+describe("padBoxLineHover", () => {
+  it("adds hover background when hovered", () => {
+    const result = padBoxLineHover("│ hello", 20, true);
+    // should contain BG_HOVER escape code
+    assert.ok(result.includes("\x1b[48;5;238m"), "should include hover BG");
+  });
+
+  it("matches padBoxLine behavior when not hovered", () => {
+    const hoverResult = padBoxLineHover("│ hello", 20, false);
+    const normalResult = padBoxLine("│ hello", 20);
+    assert.equal(hoverResult, normalResult);
+  });
+
+  it("ends with right border", () => {
+    const result = padBoxLineHover("│ hi", 20, true);
+    const plain = stripAnsi(result);
+    assert.ok(plain.endsWith("│"), `should end with │, got: "${plain}"`);
+  });
+
+  it("extends hover BG through padding", () => {
+    const result = padBoxLineHover("│ x", 30, true);
+    // the hover BG should appear before the padding spaces
+    const hoverBg = "\x1b[48;5;238m";
+    const lastHoverIdx = result.lastIndexOf(hoverBg);
+    assert.ok(lastHoverIdx > 0, "hover BG should appear in padding area");
+  });
+});
+
+// ── TUI hover state ─────────────────────────────────────────────────────────
+
+describe("TUI hover state", () => {
+  it("starts with null hover session", () => {
+    const tui = new TUI();
+    assert.equal(tui.getHoverSession(), null);
+  });
+
+  it("setHoverSession sets the index", () => {
+    const tui = new TUI();
+    tui.setHoverSession(2);
+    assert.equal(tui.getHoverSession(), 2);
+  });
+
+  it("setHoverSession with null clears hover", () => {
+    const tui = new TUI();
+    tui.setHoverSession(1);
+    tui.setHoverSession(null);
+    assert.equal(tui.getHoverSession(), null);
+  });
+
+  it("setHoverSession is safe when not active", () => {
+    const tui = new TUI();
+    assert.doesNotThrow(() => tui.setHoverSession(1));
+    assert.doesNotThrow(() => tui.setHoverSession(null));
+  });
+
+  it("setHoverSession is a no-op for same index", () => {
+    const tui = new TUI();
+    tui.setHoverSession(3);
+    tui.setHoverSession(3); // should not throw or change
+    assert.equal(tui.getHoverSession(), 3);
+  });
+
+  it("hover clears on enterDrilldown", () => {
+    const tui = new TUI();
+    tui.updateState({
+      sessions: [{ id: "abc", title: "test", tool: "opencode", status: "working" }],
+    });
+    tui.setHoverSession(1);
+    tui.enterDrilldown(1);
+    assert.equal(tui.getHoverSession(), null);
+  });
+
+  it("hover clears on exitDrilldown", () => {
+    const tui = new TUI();
+    tui.updateState({
+      sessions: [{ id: "abc", title: "test", tool: "opencode", status: "working" }],
+    });
+    tui.enterDrilldown(1);
+    tui.setHoverSession(1); // set hover in drilldown (edge case)
+    tui.exitDrilldown();
+    assert.equal(tui.getHoverSession(), null);
   });
 });
 

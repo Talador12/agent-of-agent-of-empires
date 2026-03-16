@@ -11,7 +11,7 @@
 import type { DaemonSessionState, DaemonPhase } from "./types.js";
 import {
   BOLD, DIM, RESET, GREEN, YELLOW, RED, CYAN, WHITE,
-  BG_DARK,
+  BG_DARK, BG_HOVER,
   INDIGO, TEAL, AMBER, SLATE, ROSE, LIME, SKY,
   BOX, SPINNER, DOT,
 } from "./colors.js";
@@ -33,9 +33,11 @@ const CURSOR_SHOW = `${CSI}?25h`;
 const SAVE_CURSOR = `${ESC}7`;
 const RESTORE_CURSOR = `${ESC}8`;
 
-// mouse tracking (SGR extended mode — button events + extended coordinates)
-const MOUSE_ON = `${CSI}?1000h${CSI}?1006h`;
-const MOUSE_OFF = `${CSI}?1000l${CSI}?1006l`;
+// mouse tracking (SGR extended mode — any-event tracking + extended coordinates)
+// ?1003h = report all mouse events including motion (needed for hover)
+// ?1006h = SGR extended format (supports large coordinates)
+const MOUSE_ON = `${CSI}?1003h${CSI}?1006h`;
+const MOUSE_OFF = `${CSI}?1003l${CSI}?1006l`;
 
 // cursor movement
 const moveTo = (row: number, col: number) => `${CSI}${row};${col}H`;
@@ -96,6 +98,7 @@ export class TUI {
   private newWhileScrolled = 0;  // entries added while user is scrolled back
   private pendingCount = 0;      // queued user messages awaiting next tick
   private searchPattern: string | null = null; // active search filter pattern
+  private hoverSessionIdx: number | null = null; // 1-indexed session under mouse cursor (null = none)
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -363,6 +366,7 @@ export class TUI {
     this.drilldownSessionId = sessionId;
     this.drilldownScrollOffset = 0;
     this.drilldownNewWhileScrolled = 0;
+    this.hoverSessionIdx = null;
     if (this.active) {
       this.computeLayout(this.sessions.length);
       this.paintAll();
@@ -377,6 +381,7 @@ export class TUI {
     this.drilldownSessionId = null;
     this.drilldownScrollOffset = 0;
     this.drilldownNewWhileScrolled = 0;
+    this.hoverSessionIdx = null;
     if (this.active) {
       this.computeLayout(this.sessions.length);
       this.paintAll();
@@ -409,6 +414,25 @@ export class TUI {
   /** Get the current search pattern (or null if no active search). */
   getSearchPattern(): string | null {
     return this.searchPattern;
+  }
+
+  // ── Hover ───────────────────────────────────────────────────────────────
+
+  /** Set the hovered session index (1-indexed) or null to clear. Only repaints the affected cards. */
+  setHoverSession(idx: number | null): void {
+    if (idx === this.hoverSessionIdx) return; // no change
+    const prev = this.hoverSessionIdx;
+    this.hoverSessionIdx = idx;
+    if (this.active && this.viewMode === "overview") {
+      // repaint only the affected session cards (previous and new hover)
+      if (prev !== null) this.repaintSessionCard(prev);
+      if (idx !== null) this.repaintSessionCard(idx);
+    }
+  }
+
+  /** Get the current hovered session index (1-indexed, null if none). */
+  getHoverSession(): number | null {
+    return this.hoverSessionIdx;
   }
 
   // ── Layout computation ──────────────────────────────────────────────────
@@ -512,8 +536,10 @@ export class TUI {
     } else {
       for (let i = 0; i < this.sessions.length; i++) {
         const s = this.sessions[i];
-        const line = `${SLATE}${BOX.v}${RESET} ${formatSessionCard(s, innerWidth - 1)}`;
-        const padded = padBoxLine(line, this.cols);
+        const isHovered = this.hoverSessionIdx === i + 1; // 1-indexed
+        const bg = isHovered ? BG_HOVER : "";
+        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${formatSessionCard(s, innerWidth - 1)}`;
+        const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
     }
@@ -530,6 +556,21 @@ export class TUI {
     }
 
     process.stderr.write(RESTORE_CURSOR);
+  }
+
+  /** Repaint a single session card by 1-indexed position (for hover updates). */
+  private repaintSessionCard(idx: number): void {
+    if (!this.active || this.viewMode !== "overview") return;
+    const i = idx - 1; // 0-indexed
+    if (i < 0 || i >= this.sessions.length) return;
+    const startRow = this.headerHeight + 1;
+    const innerWidth = this.cols - 2;
+    const s = this.sessions[i];
+    const isHovered = this.hoverSessionIdx === idx;
+    const bg = isHovered ? BG_HOVER : "";
+    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${formatSessionCard(s, innerWidth - 1)}`;
+    const padded = padBoxLineHover(line, this.cols, isHovered);
+    process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }
 
   private paintSeparator(): void {
@@ -696,6 +737,16 @@ function padBoxLine(line: string, totalWidth: number): string {
   return line + " ".repeat(pad) + `${SLATE}${BOX.v}${RESET}`;
 }
 
+// pad a box line with optional hover background that extends through the padding
+function padBoxLineHover(line: string, totalWidth: number, hovered: boolean): string {
+  const visible = stripAnsiForLen(line);
+  const pad = Math.max(0, totalWidth - visible - 1);
+  if (hovered) {
+    return line + `${BG_HOVER}${" ".repeat(pad)}${RESET}${SLATE}${BOX.v}${RESET}`;
+  }
+  return line + " ".repeat(pad) + `${SLATE}${BOX.v}${RESET}`;
+}
+
 // pad the header bar to fill the full width with background color
 function padToWidth(line: string, totalWidth: number): string {
   const visible = stripAnsiForLen(line);
@@ -853,4 +904,4 @@ export function hitTestSession(row: number, headerHeight: number, sessionCount: 
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
-export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator };
+export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator };

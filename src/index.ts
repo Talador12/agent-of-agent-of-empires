@@ -341,6 +341,13 @@ async function main() {
         tui!.log("system", "search cleared");
       }
     });
+    // wire mouse move to hover highlight on session cards
+    input.onMouseMove((row, _col) => {
+      if (tui!.getViewMode() === "overview") {
+        const sessionIdx = hitTestSession(row, 1, tui!.getSessionCount());
+        tui!.setHoverSession(sessionIdx);
+      }
+    });
     // wire mouse wheel to scroll (3 lines per tick for smooth scrolling)
     input.onMouseWheel((direction) => {
       if (tui!.getViewMode() === "drilldown") {

@@ -21,6 +21,7 @@ export const SKY = "\x1b[38;5;117m";       // light blue for reasoning
 
 // background variants (256-color)
 export const BG_DARK = "\x1b[48;5;236m";      // dark gray for header bar
+export const BG_HOVER = "\x1b[48;5;238m";     // slightly brighter gray for hover highlight
 
 
 // box-drawing characters — Unicode block elements

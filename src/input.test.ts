@@ -307,6 +307,32 @@ describe("InputReader onMouseWheel", () => {
   });
 });
 
+// ── InputReader onMouseMove ─────────────────────────────────────────────────
+
+describe("InputReader onMouseMove", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    const moves: Array<[number, number]> = [];
+    reader.onMouseMove((row, col) => moves.push([row, col]));
+    assert.equal(moves.length, 0);
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    const m1: Array<[number, number]> = [];
+    const m2: Array<[number, number]> = [];
+    reader.onMouseMove((row, col) => m1.push([row, col]));
+    reader.onMouseMove((row, col) => m2.push([row, col]));
+    assert.equal(m1.length, 0);
+    assert.equal(m2.length, 0);
+  });
+});
+
 // ── InputReader onSearch ────────────────────────────────────────────────────
 
 describe("InputReader onSearch", () => {
