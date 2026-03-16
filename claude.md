@@ -5,21 +5,61 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.77.0
+## Version: v0.78.0
 
 ## Current Focus
 
-1227 tests across 37 files. v0.77.0 shipped: activity sparkline in the separator bar — a tiny Unicode block chart showing activity rate over the last 10 minutes, with a color gradient from slate (low) to sky (mid) to lime (high).
+1248 tests across 37 files. v0.78.0 shipped: session sort — `/sort` command with 4 modes (status, name, activity, default). Sort indicator in the sessions panel top border. Activity tracking for time-based sort built into the TUI.
 
 ## Roadmap
 
-### v0.78.0+ — Ideas Backlog
+### v0.79.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
-- **Session sort** — sort sessions by status, activity, or name
 - **Compact mode** — denser layout for terminals with many sessions
+- **Session pinning** — pin important sessions to the top regardless of sort
+- **Notification sounds** — optional terminal bell on error or completion events
+
+### What shipped in v0.78.0
+
+**Theme: "Sort"** — session sort in the TUI. `/sort` command with 4 modes: status (errors first), name (alphabetical), activity (most recently changed first), default (original order). Sort indicator in the sessions panel top border. Activity change tracking built into the TUI for time-based sorting. `/sort` with no args cycles through modes. 21 new tests.
+
+#### 1. `sortSessions()` pure function (`src/tui.ts`)
+- Takes `sessions`, `mode`, optional `lastChangeAt` map
+- `"status"` — priority: error > waiting > working/running > idle > done > stopped > unknown
+- `"name"` — case-insensitive alphabetical by title
+- `"activity"` — most recently changed first (using `lastChangeAt` timestamps)
+- `"default"` — preserves original order
+- Returns new array, never mutates input
+
+#### 2. `nextSortMode()` pure function (`src/tui.ts`)
+- Cycles: default → status → name → activity → default
+
+#### 3. Sort state on TUI class (`src/tui.ts`)
+- `sortMode` field, `setSortMode()`, `getSortMode()` methods
+- `lastChangeAt` map — tracks epoch ms of last activity change per session ID
+- `prevLastActivity` map — compares `lastActivity` strings between ticks to detect changes
+- `updateState()` tracks activity changes and applies sort before storing sessions
+- `paintSessions()` shows sort mode in top border label: ` agents (status) `
+
+#### 4. `/sort` command (`src/input.ts`)
+- `SortHandler` type: `(mode: string | null) => void`
+- `onSort(handler)` callback registration on `InputReader`
+- `/sort <mode>` sets explicit mode, `/sort` cycles through all modes
+- `/help` updated with `/sort` in navigation section
+
+#### 5. Wiring (`src/index.ts`)
+- `input.onSort()` → validates mode against `SORT_MODES`, calls `tui.setSortMode()`, logs sort change
+- Unknown modes produce helpful error message
+
+#### 6. Tests
+- `src/tui.test.ts` (18 tests): sortSessions — default preserves order, no mutation, status errors first, all priorities, name alphabetical+case-insensitive, activity by timestamp, activity no timestamps, empty array; nextSortMode — 4 cycle tests; SORT_MODES — contains all four; TUI sort state — initial default, setSortMode, no-op same mode, safe when inactive, updateState sorts
+- `src/input.test.ts` (3 tests): onSort — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +21, net 1248 tests across 37 files.
 
 ### What shipped in v0.77.0
 

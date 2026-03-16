@@ -44,6 +44,44 @@ const moveTo = (row: number, col: number) => `${CSI}${row};${col}H`;
 const setScrollRegion = (top: number, bottom: number) => `${CSI}${top};${bottom}r`;
 const resetScrollRegion = () => `${CSI}r`;
 
+// ── Sort modes ──────────────────────────────────────────────────────────────
+
+export type SortMode = "default" | "status" | "name" | "activity";
+const SORT_MODES: SortMode[] = ["default", "status", "name", "activity"];
+
+const STATUS_PRIORITY: Record<string, number> = {
+  error: 0, waiting: 1, working: 2, running: 2,
+  idle: 3, done: 4, stopped: 5, unknown: 6,
+};
+
+/** Sort sessions by mode. Returns a new array (never mutates). */
+function sortSessions(
+  sessions: DaemonSessionState[],
+  mode: SortMode,
+  lastChangeAt?: Map<string, number>,
+): DaemonSessionState[] {
+  const copy = sessions.slice();
+  switch (mode) {
+    case "status":
+      copy.sort((a, b) => (STATUS_PRIORITY[a.status] ?? 6) - (STATUS_PRIORITY[b.status] ?? 6));
+      break;
+    case "name":
+      copy.sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
+      break;
+    case "activity":
+      copy.sort((a, b) => (lastChangeAt?.get(b.id) ?? 0) - (lastChangeAt?.get(a.id) ?? 0));
+      break;
+    // "default" — preserve original order
+  }
+  return copy;
+}
+
+/** Cycle to the next sort mode. */
+function nextSortMode(current: SortMode): SortMode {
+  const idx = SORT_MODES.indexOf(current);
+  return SORT_MODES[(idx + 1) % SORT_MODES.length];
+}
+
 // ── Status rendering ────────────────────────────────────────────────────────
 
 const STATUS_DOT: Record<string, string> = {
@@ -100,6 +138,9 @@ export class TUI {
   private searchPattern: string | null = null; // active search filter pattern
   private hoverSessionIdx: number | null = null; // 1-indexed session under mouse cursor (null = none)
   private activityTimestamps: number[] = []; // epoch ms of each log() call for sparkline
+  private sortMode: SortMode = "default";
+  private lastChangeAt = new Map<string, number>();       // session ID → epoch ms of last activity change
+  private prevLastActivity = new Map<string, string>();   // session ID → previous lastActivity string
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -159,6 +200,22 @@ export class TUI {
     return this.sessions.length;
   }
 
+  /** Set the session sort mode and repaint. */
+  setSortMode(mode: SortMode): void {
+    if (mode === this.sortMode) return;
+    this.sortMode = mode;
+    // re-sort current sessions and repaint
+    this.sessions = sortSessions(this.sessions, this.sortMode, this.lastChangeAt);
+    if (this.active) {
+      this.paintSessions();
+    }
+  }
+
+  /** Return the current sort mode. */
+  getSortMode(): SortMode {
+    return this.sortMode;
+  }
+
   // ── State updates ───────────────────────────────────────────────────────
 
   updateState(opts: {
@@ -177,8 +234,18 @@ export class TUI {
     if (opts.nextTickAt !== undefined) this.nextTickAt = opts.nextTickAt;
     if (opts.pendingCount !== undefined) this.pendingCount = opts.pendingCount;
     if (opts.sessions !== undefined) {
-      const sessionCountChanged = opts.sessions.length !== this.sessions.length;
-      this.sessions = opts.sessions;
+      // track activity changes for sort-by-activity
+      const now = Date.now();
+      for (const s of opts.sessions) {
+        const prev = this.prevLastActivity.get(s.id);
+        if (s.lastActivity !== undefined && s.lastActivity !== prev) {
+          this.lastChangeAt.set(s.id, now);
+        }
+        if (s.lastActivity !== undefined) this.prevLastActivity.set(s.id, s.lastActivity);
+      }
+      const sorted = sortSessions(opts.sessions, this.sortMode, this.lastChangeAt);
+      const sessionCountChanged = sorted.length !== this.sessions.length;
+      this.sessions = sorted;
       if (sessionCountChanged) {
         this.computeLayout(this.sessions.length);
         this.paintAll();
@@ -525,8 +592,8 @@ export class TUI {
     const startRow = this.headerHeight + 1;
     const innerWidth = this.cols - 2; // inside the box borders
 
-    // top border with label
-    const label = " agents ";
+    // top border with label (includes sort mode when not default)
+    const label = this.sortMode === "default" ? " agents " : ` agents (${this.sortMode}) `;
     const borderAfterLabel = Math.max(0, innerWidth - label.length);
     const topBorder = `${SLATE}${BOX.rtl}${BOX.h}${RESET}${SLATE}${label}${RESET}${SLATE}${BOX.h.repeat(borderAfterLabel)}${BOX.rtr}${RESET}`;
     process.stderr.write(SAVE_CURSOR + moveTo(startRow, 1) + CLEAR_LINE + truncateAnsi(topBorder, this.cols));
@@ -945,4 +1012,4 @@ export function hitTestSession(row: number, headerHeight: number, sessionCount: 
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
-export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator, computeSparkline, formatSparkline };
+export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator, computeSparkline, formatSparkline, sortSessions, nextSortMode, SORT_MODES };

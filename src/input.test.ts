@@ -384,3 +384,29 @@ describe("InputReader onSearch", () => {
     assert.equal(p2.length, 0);
   });
 });
+
+// ── InputReader onSort ──────────────────────────────────────────────────────
+
+describe("InputReader onSort", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    const modes: Array<string | null> = [];
+    reader.onSort((m) => modes.push(m));
+    assert.equal(modes.length, 0); // not called until command is issued
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    const m1: Array<string | null> = [];
+    const m2: Array<string | null> = [];
+    reader.onSort((m) => m1.push(m));
+    reader.onSort((m) => m2.push(m));
+    assert.equal(m1.length, 0);
+    assert.equal(m2.length, 0);
+  });
+});

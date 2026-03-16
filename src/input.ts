@@ -16,6 +16,7 @@ export const INSIST_PREFIX = "__INSIST__";
 export type ViewHandler = (target: string | null) => void; // null = back to overview
 export type SearchHandler = (pattern: string | null) => void; // null = clear search
 export type QuickSwitchHandler = (sessionNum: number) => void; // 1-indexed session number
+export type SortHandler = (mode: string | null) => void; // null = cycle to next mode
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -59,6 +60,7 @@ export class InputReader {
   private lastMoveRow = 0; // debounce: only fire move handler when row changes
   private searchHandler: SearchHandler | null = null;
   private quickSwitchHandler: QuickSwitchHandler | null = null;
+  private sortHandler: SortHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -99,6 +101,11 @@ export class InputReader {
   // register a callback for quick-switch (bare digit 1-9 on empty input line)
   onQuickSwitch(handler: QuickSwitchHandler): void {
     this.quickSwitchHandler = handler;
+  }
+
+  // register a callback for sort commands (/sort <mode> or /sort to cycle)
+  onSort(handler: SortHandler): void {
+    this.sortHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -291,6 +298,7 @@ ${BOLD}navigation:${RESET}
   1-9                quick-switch: jump to session N (type digit + Enter)
   /view [N|name]     drill into a session's live output (default: 1)
   /back              return to overview from drill-down
+  /sort [mode]       sort sessions: status, name, activity, default (or cycle)
   /search <pattern>  filter activity entries by substring (case-insensitive)
   /search            clear active search filter
   click session      click an agent card to drill down (click again to go back)
@@ -379,6 +387,16 @@ ${BOLD}other:${RESET}
           console.error(`${DIM}already in overview${RESET}`);
         }
         break;
+
+      case "/sort": {
+        const sortArg = line.slice("/sort".length).trim().toLowerCase();
+        if (this.sortHandler) {
+          this.sortHandler(sortArg || null); // empty = cycle to next mode
+        } else {
+          console.error(`${DIM}sort not available (no TUI)${RESET}`);
+        }
+        break;
+      }
 
       case "/search": {
         const searchArg = line.slice("/search".length).trim();

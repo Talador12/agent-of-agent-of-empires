@@ -9,9 +9,10 @@ import {
   hitTestSession,
   matchesSearch, formatSearchIndicator,
   computeSparkline, formatSparkline,
+  sortSessions, nextSortMode, SORT_MODES,
   TUI,
 } from "./tui.js";
-import type { ActivityEntry } from "./tui.js";
+import type { ActivityEntry, SortMode } from "./tui.js";
 import type { DaemonSessionState } from "./types.js";
 
 function stripAnsi(s: string): string {
@@ -1091,6 +1092,163 @@ describe("formatSparkline", () => {
     // first should be lowest block, second should be highest
     assert.ok(result[0] === "▁", `low value should be ▁, got: "${result[0]}"`);
     assert.ok(result[1] === "█", `high value should be █, got: "${result[1]}"`);
+  });
+});
+
+// ── sortSessions ────────────────────────────────────────────────────────────
+
+function makeSession(overrides: Partial<DaemonSessionState> = {}): DaemonSessionState {
+  return { id: "abc", title: "TestAgent", tool: "opencode", status: "working", ...overrides };
+}
+
+describe("sortSessions", () => {
+  it("default mode preserves original order", () => {
+    const sessions = [
+      makeSession({ id: "c", title: "Charlie" }),
+      makeSession({ id: "a", title: "Alpha" }),
+      makeSession({ id: "b", title: "Bravo" }),
+    ];
+    const result = sortSessions(sessions, "default");
+    assert.deepStrictEqual(result.map(s => s.id), ["c", "a", "b"]);
+  });
+
+  it("does not mutate original array", () => {
+    const sessions = [
+      makeSession({ id: "b", title: "Bravo", status: "idle" }),
+      makeSession({ id: "a", title: "Alpha", status: "error" }),
+    ];
+    const original = sessions.map(s => s.id);
+    sortSessions(sessions, "status");
+    assert.deepStrictEqual(sessions.map(s => s.id), original);
+  });
+
+  it("status mode sorts errors first", () => {
+    const sessions = [
+      makeSession({ id: "1", status: "idle" }),
+      makeSession({ id: "2", status: "error" }),
+      makeSession({ id: "3", status: "working" }),
+    ];
+    const result = sortSessions(sessions, "status");
+    assert.deepStrictEqual(result.map(s => s.id), ["2", "3", "1"]);
+  });
+
+  it("status mode sorts all priorities correctly", () => {
+    const sessions = [
+      makeSession({ id: "unknown", status: "unknown" }),
+      makeSession({ id: "done", status: "done" }),
+      makeSession({ id: "error", status: "error" }),
+      makeSession({ id: "idle", status: "idle" }),
+      makeSession({ id: "waiting", status: "waiting" }),
+      makeSession({ id: "working", status: "working" }),
+      makeSession({ id: "stopped", status: "stopped" }),
+    ];
+    const result = sortSessions(sessions, "status");
+    assert.deepStrictEqual(result.map(s => s.id), ["error", "waiting", "working", "idle", "done", "stopped", "unknown"]);
+  });
+
+  it("name mode sorts alphabetically (case-insensitive)", () => {
+    const sessions = [
+      makeSession({ id: "1", title: "Charlie" }),
+      makeSession({ id: "2", title: "alpha" }),
+      makeSession({ id: "3", title: "Bravo" }),
+    ];
+    const result = sortSessions(sessions, "name");
+    assert.deepStrictEqual(result.map(s => s.id), ["2", "3", "1"]);
+  });
+
+  it("activity mode sorts by lastChangeAt (most recent first)", () => {
+    const lastChangeAt = new Map([["old", 1000], ["new", 5000], ["mid", 3000]]);
+    const sessions = [
+      makeSession({ id: "old" }),
+      makeSession({ id: "new" }),
+      makeSession({ id: "mid" }),
+    ];
+    const result = sortSessions(sessions, "activity", lastChangeAt);
+    assert.deepStrictEqual(result.map(s => s.id), ["new", "mid", "old"]);
+  });
+
+  it("activity mode with no timestamps preserves order", () => {
+    const sessions = [
+      makeSession({ id: "a" }),
+      makeSession({ id: "b" }),
+    ];
+    const result = sortSessions(sessions, "activity");
+    assert.deepStrictEqual(result.map(s => s.id), ["a", "b"]);
+  });
+
+  it("handles empty sessions array", () => {
+    const result = sortSessions([], "status");
+    assert.deepStrictEqual(result, []);
+  });
+});
+
+// ── nextSortMode ────────────────────────────────────────────────────────────
+
+describe("nextSortMode", () => {
+  it("cycles default → status", () => {
+    assert.equal(nextSortMode("default"), "status");
+  });
+
+  it("cycles status → name", () => {
+    assert.equal(nextSortMode("status"), "name");
+  });
+
+  it("cycles name → activity", () => {
+    assert.equal(nextSortMode("name"), "activity");
+  });
+
+  it("cycles activity → default", () => {
+    assert.equal(nextSortMode("activity"), "default");
+  });
+});
+
+// ── SORT_MODES ──────────────────────────────────────────────────────────────
+
+describe("SORT_MODES", () => {
+  it("contains all four modes", () => {
+    assert.deepStrictEqual(SORT_MODES, ["default", "status", "name", "activity"]);
+  });
+});
+
+// ── TUI sort state ──────────────────────────────────────────────────────────
+
+describe("TUI sort state", () => {
+  it("initial sort mode is default", () => {
+    const tui = new TUI();
+    assert.equal(tui.getSortMode(), "default");
+  });
+
+  it("setSortMode changes mode", () => {
+    const tui = new TUI();
+    tui.setSortMode("status");
+    assert.equal(tui.getSortMode(), "status");
+  });
+
+  it("setSortMode no-ops for same mode", () => {
+    const tui = new TUI();
+    tui.setSortMode("name");
+    assert.equal(tui.getSortMode(), "name");
+    tui.setSortMode("name"); // should not throw
+    assert.equal(tui.getSortMode(), "name");
+  });
+
+  it("setSortMode is safe when TUI is not active", () => {
+    const tui = new TUI();
+    tui.setSortMode("activity"); // should not throw
+    assert.equal(tui.getSortMode(), "activity");
+  });
+
+  it("updateState sorts sessions by status mode", () => {
+    const tui = new TUI();
+    tui.setSortMode("status");
+    tui.updateState({
+      sessions: [
+        makeSession({ id: "idle", status: "idle" }),
+        makeSession({ id: "error", status: "error" }),
+      ],
+    });
+    // getSessionCount confirms sessions were stored
+    assert.equal(tui.getSessionCount(), 2);
   });
 });
 

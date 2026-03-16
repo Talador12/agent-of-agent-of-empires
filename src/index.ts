@@ -16,7 +16,8 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
-import { TUI, hitTestSession } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES } from "./tui.js";
+import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
 import { startHealthServer } from "./health.js";
@@ -353,6 +354,19 @@ async function main() {
         tui!.log("system", `search: "${pattern}"`);
       } else {
         tui!.log("system", "search cleared");
+      }
+    });
+    // wire /sort command to TUI session sort
+    input.onSort((mode) => {
+      if (mode && (SORT_MODES as readonly string[]).includes(mode)) {
+        tui!.setSortMode(mode as SortMode);
+        tui!.log("system", `sort: ${mode}`);
+      } else if (!mode) {
+        const next = nextSortMode(tui!.getSortMode());
+        tui!.setSortMode(next);
+        tui!.log("system", `sort: ${next}`);
+      } else {
+        tui!.log("system", `unknown sort mode: ${mode} (try: status, name, activity, default)`);
       }
     });
     // wire mouse move to hover highlight on session cards
