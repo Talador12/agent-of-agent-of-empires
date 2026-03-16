@@ -5,20 +5,51 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.69.0
+## Version: v0.70.0
 
 ## Current Focus
 
-1023 tests across 35 files. v0.69.0 shipped: `aoaoe tail` — live-stream daemon activity to a separate terminal with follow mode.
+1064 tests across 36 files. v0.70.0 shipped: `aoaoe stats` — aggregate daemon statistics from actions.log and tui-history.
 
 ## Roadmap
 
-### v0.70.0+ — Ideas Backlog
+### v0.71.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Mouse click session selection** — click on a session in the agents panel to drill down
 - **Smart session context budget** — dynamic context allocation based on session activity
+
+### What shipped in v0.70.0
+
+**Theme: "Stats"** — `aoaoe stats` subcommand showing aggregate daemon statistics computed from actions.log and tui-history.jsonl. Actions by type, success/failure rate, busiest sessions, activity breakdown, time range. 41 new tests.
+
+#### 1. Stats module (`src/stats.ts`)
+- `parseActionStats(lines, maxAgeMs?, now?)` — aggregates action log JSONL into total/succeeded/failed counts, byType map, bySession map (with per-session ok/fail), time range. Skips wait actions and malformed lines.
+- `parseHistoryStats(entries, maxAgeMs?, now?)` — aggregates tui-history entries into total count, byTag map, time range
+- `combineStats(actions, history)` — merges both stat sources, computes unified time range (min start, max end)
+- `formatDuration(ms)` — formats duration as human-readable "45s", "1m 30s", "2h", "1d 4h"
+- `formatRate(count, spanMs)` — formats rate as "X/hr" or "X/day" (falls back to "X total" for short spans)
+- `formatStats(stats, windowLabel?)` — renders full terminal output: time range, action counts with success %, bar chart by type, top sessions, activity breakdown by tag. Uses 256-color palette.
+
+#### 2. CLI wiring (`src/config.ts`, `src/index.ts`)
+- `parseCliArgs`: added `runStats`, `statsLast` fields + `if (argv[2] === "stats")` subcommand block with `--last`/`-l` flag
+- `printHelp()`: added `stats` and `stats --last` to commands list
+- `index.ts`: `runStatsCommand(statsLast?)` handler — reads actions.log + loadTuiHistory, parses both, combines, formats
+
+#### 3. Tests (`src/stats.test.ts`)
+- `parseActionStats` (9 tests): empty input, all-wait, counts, by type, by session (title priority), time range, malformed skip, maxAgeMs filter, per-session ok/fail
+- `parseHistoryStats` (4 tests): empty, total count, by tag, time range, maxAgeMs
+- `combineStats` (4 tests): both null, actions only, history only, min/max across both
+- `formatDuration` (7 tests): seconds, minutes, minutes+seconds, hours, hours+minutes, days, days+hours
+- `formatRate` (4 tests): zero span, short span, per-hour, per-day
+- `formatStats` (8 tests): no data, window label, time range display, action counts with %, type breakdown, top sessions, activity breakdown, no-actions-with-history
+- `parseCliArgs stats` (4 tests): defaults, --last, -l, non-stats returns false
+- Plus 1 update to existing mutually exclusive subcommand test
+
+New files: `src/stats.ts`, `src/stats.test.ts`
+Modified: `src/config.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +41, net 1064 tests across 36 files.
 
 ### What shipped in v0.69.0
 

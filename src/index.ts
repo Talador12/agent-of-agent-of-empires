@@ -36,7 +36,7 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -122,6 +122,12 @@ async function main() {
   // `aoaoe export` -- export session timeline as JSON or Markdown
   if (runExport) {
     await runTimelineExport(exportFormat, exportOutput, exportLast);
+    return;
+  }
+
+  // `aoaoe stats` -- show aggregate daemon statistics
+  if (isStats) {
+    await runStatsCommand(statsLast);
     return;
   }
 
@@ -1470,6 +1476,42 @@ async function runTimelineExport(format?: string, output?: string, last?: string
   } else {
     process.stdout.write(content);
   }
+}
+
+// `aoaoe stats` -- show aggregate daemon statistics
+async function runStatsCommand(last?: string): Promise<void> {
+  const { parseActionStats, parseHistoryStats, combineStats, formatStats } = await import("./stats.js");
+  const { parseDuration } = await import("./export.js");
+  const { loadTuiHistory } = await import("./tui-history.js");
+
+  const maxAgeMs = last ? parseDuration(last) : undefined;
+  if (last && maxAgeMs === undefined) {
+    console.error(`error: --last must be like "1h", "6h", "24h", "7d", got "${last}"`);
+    process.exit(1);
+  }
+
+  const windowLabel = last ?? "all time";
+
+  // read actions.log
+  const actionsFile = join(homedir(), ".aoaoe", "actions.log");
+  let actionLines: string[] = [];
+  try {
+    if (existsSync(actionsFile)) {
+      actionLines = readFileSync(actionsFile, "utf-8").trim().split("\n").filter((l) => l.trim());
+    }
+  } catch {
+    // no actions — that's fine
+  }
+
+  // read tui-history
+  const retentionMs = maxAgeMs ?? 365 * 24 * 60 * 60 * 1000; // 1 year default
+  const historyEntries = loadTuiHistory(100_000, undefined, retentionMs);
+
+  const actionStats = parseActionStats(actionLines, maxAgeMs ?? undefined);
+  const historyStats = parseHistoryStats(historyEntries, maxAgeMs ?? undefined);
+  const combined = combineStats(actionStats, historyStats);
+
+  console.log(formatStats(combined, windowLabel));
 }
 
 // `aoaoe test` -- dynamically import and run the integration test
