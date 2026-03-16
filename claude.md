@@ -5,21 +5,45 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.75.0
+## Version: v0.76.0
 
 ## Current Focus
 
-1210 tests across 37 files. v0.75.0 shipped: session highlight on hover with mouse motion tracking and efficient single-card repaints.
+1213 tests across 37 files. v0.76.0 shipped: keyboard quick-switch — bare digit 1-9 on the input line jumps to that session, works in both overview and drill-down modes.
 
 ## Roadmap
 
-### v0.76.0+ — Ideas Backlog
+### v0.77.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
-- **Keyboard quick-switch** — number keys 1-9 to jump between sessions in overview
 - **Activity sparkline** — tiny inline graph showing activity rate over time in header
+- **Session sort** — sort sessions by status, activity, or name
+- **Compact mode** — denser layout for terminals with many sessions
+
+### What shipped in v0.76.0
+
+**Theme: "Keys"** — keyboard quick-switch. Type a bare digit 1-9 and Enter to instantly jump to that session. In overview mode, drills into the session. In drill-down mode, switches to a different session. 3 new tests.
+
+#### 1. Quick-switch handler (`src/input.ts`)
+- `QuickSwitchHandler` type: `(sessionNum: number) => void`
+- `onQuickSwitch(handler)` callback registration on `InputReader`
+- `handleLine()` detects bare digit 1-9 (regex `^[1-9]$`) before slash commands
+- Only fires when quick-switch handler is registered (graceful fallback to regular message)
+
+#### 2. Wiring (`src/index.ts`)
+- `input.onQuickSwitch((num) => { ... })` — in overview: drill into session; in drilldown: switch to different session
+- Logs "viewing session #N" or "switched to session #N" or "session #N not found"
+
+#### 3. Help text (`src/input.ts`)
+- `/help` navigation section: added "1-9" quick-switch hint at the top
+
+#### 4. Tests
+- `src/input.test.ts` (3 tests): onQuickSwitch — register handler, safe without handler, handler replacement
+
+Modified: `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +3, net 1213 tests across 37 files.
 
 ### What shipped in v0.75.0
 

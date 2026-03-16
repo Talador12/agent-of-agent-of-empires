@@ -15,6 +15,7 @@ export const INSIST_PREFIX = "__INSIST__";
 
 export type ViewHandler = (target: string | null) => void; // null = back to overview
 export type SearchHandler = (pattern: string | null) => void; // null = clear search
+export type QuickSwitchHandler = (sessionNum: number) => void; // 1-indexed session number
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -57,6 +58,7 @@ export class InputReader {
   private mouseMoveHandler: MouseMoveHandler | null = null;
   private lastMoveRow = 0; // debounce: only fire move handler when row changes
   private searchHandler: SearchHandler | null = null;
+  private quickSwitchHandler: QuickSwitchHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -92,6 +94,11 @@ export class InputReader {
   // register a callback for search commands (/search <pattern> or /search to clear)
   onSearch(handler: SearchHandler): void {
     this.searchHandler = handler;
+  }
+
+  // register a callback for quick-switch (bare digit 1-9 on empty input line)
+  onQuickSwitch(handler: QuickSwitchHandler): void {
+    this.quickSwitchHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -230,6 +237,13 @@ export class InputReader {
       return;
     }
 
+    // quick-switch: bare digit 1-9 jumps to that session
+    if (/^[1-9]$/.test(line) && this.quickSwitchHandler) {
+      this.quickSwitchHandler(parseInt(line, 10));
+      this.rl?.prompt();
+      return;
+    }
+
     // built-in slash commands
     if (line.startsWith("/")) {
       this.handleCommand(line);
@@ -274,6 +288,7 @@ ${BOLD}controls:${RESET}
   ESC ESC            same as /interrupt (shortcut)
 
 ${BOLD}navigation:${RESET}
+  1-9                quick-switch: jump to session N (type digit + Enter)
   /view [N|name]     drill into a session's live output (default: 1)
   /back              return to overview from drill-down
   /search <pattern>  filter activity entries by substring (case-insensitive)

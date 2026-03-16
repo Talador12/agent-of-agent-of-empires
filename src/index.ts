@@ -332,6 +332,20 @@ async function main() {
         if (ok) tui!.log("system", `viewing session #${sessionIdx}`);
       }
     });
+    // wire quick-switch: bare digit 1-9 jumps to session (or switches in drilldown)
+    input.onQuickSwitch((num) => {
+      if (tui!.getViewMode() === "drilldown") {
+        // in drilldown, switch to a different session
+        const ok = tui!.enterDrilldown(num);
+        if (ok) tui!.log("system", `switched to session #${num}`);
+        else tui!.log("system", `session #${num} not found`);
+      } else {
+        // in overview, drill into session
+        const ok = tui!.enterDrilldown(num);
+        if (ok) tui!.log("system", `viewing session #${num}`);
+        else tui!.log("system", `session #${num} not found`);
+      }
+    });
     // wire /search command to TUI activity filter
     input.onSearch((pattern) => {
       tui!.setSearch(pattern);
