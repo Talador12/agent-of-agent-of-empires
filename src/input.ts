@@ -18,6 +18,7 @@ export type SearchHandler = (pattern: string | null) => void; // null = clear se
 export type QuickSwitchHandler = (sessionNum: number) => void; // 1-indexed session number
 export type SortHandler = (mode: string | null) => void; // null = cycle to next mode
 export type CompactHandler = () => void; // toggle compact mode
+export type PinHandler = (target: string) => void; // session index or name to pin/unpin
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -63,6 +64,7 @@ export class InputReader {
   private quickSwitchHandler: QuickSwitchHandler | null = null;
   private sortHandler: SortHandler | null = null;
   private compactHandler: CompactHandler | null = null;
+  private pinHandler: PinHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -113,6 +115,11 @@ export class InputReader {
   // register a callback for compact mode toggle (/compact)
   onCompact(handler: CompactHandler): void {
     this.compactHandler = handler;
+  }
+
+  // register a callback for pin/unpin commands (/pin <target>)
+  onPin(handler: PinHandler): void {
+    this.pinHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -307,6 +314,7 @@ ${BOLD}navigation:${RESET}
   /back              return to overview from drill-down
   /sort [mode]       sort sessions: status, name, activity, default (or cycle)
   /compact           toggle compact mode (dense session panel)
+  /pin [N|name]      pin/unpin a session to the top (toggle)
   /search <pattern>  filter activity entries by substring (case-insensitive)
   /search            clear active search filter
   click session      click an agent card to drill down (click again to go back)
@@ -413,6 +421,20 @@ ${BOLD}other:${RESET}
           console.error(`${DIM}compact mode not available (no TUI)${RESET}`);
         }
         break;
+
+      case "/pin": {
+        const pinArg = line.slice("/pin".length).trim();
+        if (this.pinHandler) {
+          if (pinArg) {
+            this.pinHandler(pinArg);
+          } else {
+            console.error(`${DIM}usage: /pin <N|name> — toggle pin for a session${RESET}`);
+          }
+        } else {
+          console.error(`${DIM}pin not available (no TUI)${RESET}`);
+        }
+        break;
+      }
 
       case "/search": {
         const searchArg = line.slice("/search".length).trim();

@@ -5,23 +5,62 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.79.0
+## Version: v0.80.0
 
 ## Current Focus
 
-1265 tests across 37 files. v0.79.0 shipped: compact mode — `/compact` toggles dense session panel layout with inline tokens. Sessions are packed as `1●Alpha  2●Bravo` tokens that wrap to fit terminal width, dramatically reducing panel height for many-session setups.
+1280 tests across 37 files. v0.80.0 shipped: session pinning — `/pin` toggles a session to always sort to the top. ▲ indicator in both normal and compact modes. Pinned sessions stay on top regardless of sort mode. Stable sort preserves mode order within pinned/unpinned groups.
 
 ## Roadmap
 
-### v0.80.0+ — Ideas Backlog
+### v0.81.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
-- **Session pinning** — pin important sessions to the top regardless of sort
 - **Notification sounds** — optional terminal bell on error or completion events
 - **Bookmarks** — save and jump to specific activity entries
 - **Session health pulse** — tiny per-session sparklines in the compact view
+- **Focus mode** — hide all sessions except the pinned ones
+- **Activity heatmap** — colored time-of-day heatmap in stats output
+
+### What shipped in v0.80.0
+
+**Theme: "Pin"** — session pinning. `/pin N` or `/pin name` toggles a session to always sort to the top regardless of sort mode. ▲ indicator in both normal and compact modes. Stable sort preserves mode order within pinned and unpinned groups. Double-toggle unpins. Resolves by 1-indexed number, session ID, ID prefix, or case-insensitive title. 15 new tests.
+
+#### 1. `sortSessions()` updated (`src/tui.ts`)
+- New optional `pinnedIds` parameter (Set<string>)
+- After applying sort mode, stable-sorts pinned sessions to top
+- Preserves mode order within both pinned and unpinned groups (JS stable sort guarantee)
+
+#### 2. Pin indicator (`src/tui.ts`)
+- `PIN_ICON` constant: `▲` (AMBER-colored)
+- Normal mode: `▲ ` prefix before session card, reduces card width by 2 chars
+- Compact mode: `▲` between index and status dot in token
+- `repaintSessionCard()` includes pin indicator for hover repaints
+
+#### 3. Pin state on TUI class (`src/tui.ts`)
+- `pinnedIds: Set<string>` field
+- `togglePin(sessionIdOrIndex)` — resolves target, toggles pin, re-sorts, repaints. Returns boolean.
+- `isPinned(id)` — check pin state
+- `getPinnedCount()` — count of pinned sessions
+- All `sortSessions()` call sites updated to pass `this.pinnedIds`
+
+#### 4. `/pin` command (`src/input.ts`)
+- `PinHandler` type: `(target: string) => void`
+- `onPin(handler)` callback registration on `InputReader`
+- `/pin <N|name>` toggles pin, `/pin` shows usage hint
+- `/help` updated with `/pin` in navigation section
+
+#### 5. Wiring (`src/index.ts`)
+- `input.onPin()` → resolves numeric target, calls `tui.togglePin()`, logs result
+
+#### 6. Tests
+- `src/tui.test.ts` (12 tests): sortSessions with pins — default mode, status mode, empty set, all pinned; formatCompactRows with pins — pin indicator present/absent; TUI pin state — initial no pins, togglePin by index, by title, invalid target, double toggle unpins, safe when inactive
+- `src/input.test.ts` (3 tests): onPin — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +15, net 1280 tests across 37 files.
 
 ### What shipped in v0.79.0
 

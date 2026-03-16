@@ -1368,4 +1368,135 @@ describe("TUI compact state", () => {
   });
 });
 
+// ── sortSessions with pins ──────────────────────────────────────────────────
+
+describe("sortSessions with pinnedIds", () => {
+  it("pinned sessions sort to top in default mode", () => {
+    const pinnedIds = new Set(["b"]);
+    const sessions = [
+      makeSession({ id: "a", title: "Alpha" }),
+      makeSession({ id: "b", title: "Bravo" }),
+      makeSession({ id: "c", title: "Charlie" }),
+    ];
+    const result = sortSessions(sessions, "default", undefined, pinnedIds);
+    assert.equal(result[0].id, "b");
+  });
+
+  it("pinned sessions sort to top in status mode (preserves order within groups)", () => {
+    const pinnedIds = new Set(["idle"]);
+    const sessions = [
+      makeSession({ id: "error", status: "error" }),
+      makeSession({ id: "idle", status: "idle" }),
+      makeSession({ id: "working", status: "working" }),
+    ];
+    const result = sortSessions(sessions, "status", undefined, pinnedIds);
+    // pinned idle should be first, then error, then working
+    assert.equal(result[0].id, "idle");
+    assert.equal(result[1].id, "error");
+    assert.equal(result[2].id, "working");
+  });
+
+  it("empty pinnedIds has no effect", () => {
+    const sessions = [
+      makeSession({ id: "b", title: "Bravo" }),
+      makeSession({ id: "a", title: "Alpha" }),
+    ];
+    const result = sortSessions(sessions, "name", undefined, new Set());
+    assert.deepStrictEqual(result.map(s => s.id), ["a", "b"]); // name sort only
+  });
+
+  it("all sessions pinned preserves mode order", () => {
+    const pinnedIds = new Set(["a", "b", "c"]);
+    const sessions = [
+      makeSession({ id: "c", title: "Charlie" }),
+      makeSession({ id: "a", title: "Alpha" }),
+      makeSession({ id: "b", title: "Bravo" }),
+    ];
+    const result = sortSessions(sessions, "name", undefined, pinnedIds);
+    assert.deepStrictEqual(result.map(s => s.id), ["a", "b", "c"]); // all pinned, name order
+  });
+});
+
+// ── formatCompactRows with pins ─────────────────────────────────────────────
+
+describe("formatCompactRows with pinnedIds", () => {
+  it("includes pin indicator for pinned sessions", () => {
+    const pinnedIds = new Set(["a"]);
+    const sessions = [
+      makeSession({ id: "a", title: "Alpha" }),
+      makeSession({ id: "b", title: "Bravo" }),
+    ];
+    const rows = formatCompactRows(sessions, 80, pinnedIds);
+    const plain = stripAnsi(rows.join(""));
+    assert.ok(plain.includes("▲"), "should include pin icon for pinned session");
+  });
+
+  it("does not include pin indicator for unpinned sessions", () => {
+    const sessions = [makeSession({ id: "a", title: "Alpha" })];
+    const rows = formatCompactRows(sessions, 80, new Set());
+    const plain = stripAnsi(rows.join(""));
+    assert.ok(!plain.includes("▲"), "should not include pin icon");
+  });
+});
+
+// ── TUI pin state ───────────────────────────────────────────────────────────
+
+describe("TUI pin state", () => {
+  it("initial state has no pins", () => {
+    const tui = new TUI();
+    assert.equal(tui.getPinnedCount(), 0);
+  });
+
+  it("togglePin by index pins a session", () => {
+    const tui = new TUI();
+    tui.updateState({
+      sessions: [
+        makeSession({ id: "abc", title: "Alpha" }),
+        makeSession({ id: "def", title: "Bravo" }),
+      ],
+    });
+    const ok = tui.togglePin(1);
+    assert.equal(ok, true);
+    assert.equal(tui.isPinned("abc"), true);
+    assert.equal(tui.getPinnedCount(), 1);
+  });
+
+  it("togglePin by title pins a session", () => {
+    const tui = new TUI();
+    tui.updateState({
+      sessions: [makeSession({ id: "abc", title: "Alpha" })],
+    });
+    const ok = tui.togglePin("alpha"); // case-insensitive
+    assert.equal(ok, true);
+    assert.equal(tui.isPinned("abc"), true);
+  });
+
+  it("togglePin returns false for invalid target", () => {
+    const tui = new TUI();
+    assert.equal(tui.togglePin(99), false);
+    assert.equal(tui.togglePin("nonexistent"), false);
+  });
+
+  it("double toggle unpins", () => {
+    const tui = new TUI();
+    tui.updateState({
+      sessions: [makeSession({ id: "abc", title: "Alpha" })],
+    });
+    tui.togglePin(1);
+    assert.equal(tui.isPinned("abc"), true);
+    tui.togglePin(1);
+    assert.equal(tui.isPinned("abc"), false);
+    assert.equal(tui.getPinnedCount(), 0);
+  });
+
+  it("togglePin is safe when TUI is not active", () => {
+    const tui = new TUI();
+    tui.updateState({
+      sessions: [makeSession({ id: "abc", title: "Alpha" })],
+    });
+    tui.togglePin(1); // not started, should not throw
+    assert.equal(tui.isPinned("abc"), true);
+  });
+});
+
 

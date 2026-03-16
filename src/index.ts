@@ -377,6 +377,16 @@ async function main() {
       tui!.setCompact(enabled);
       tui!.log("system", `compact mode: ${enabled ? "on" : "off"}`);
     });
+    // wire /pin toggle
+    input.onPin((target) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const ok = tui!.togglePin(num ?? target);
+      if (ok) {
+        tui!.log("system", `pin toggled: ${target}`);
+      } else {
+        tui!.log("system", `session not found: ${target}`);
+      }
+    });
     // wire mouse move to hover highlight on session cards (disabled in compact)
     input.onMouseMove((row, _col) => {
       if (tui!.getViewMode() === "overview" && !tui!.isCompact()) {

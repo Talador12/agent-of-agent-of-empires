@@ -436,3 +436,29 @@ describe("InputReader onCompact", () => {
     assert.equal(b, 0);
   });
 });
+
+// ── InputReader onPin ───────────────────────────────────────────────────────
+
+describe("InputReader onPin", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    const targets: string[] = [];
+    reader.onPin((t) => targets.push(t));
+    assert.equal(targets.length, 0); // not called until command is issued
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    const t1: string[] = [];
+    const t2: string[] = [];
+    reader.onPin((t) => t1.push(t));
+    reader.onPin((t) => t2.push(t));
+    assert.equal(t1.length, 0);
+    assert.equal(t2.length, 0);
+  });
+});
