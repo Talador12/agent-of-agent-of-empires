@@ -281,11 +281,21 @@ async function main() {
   // wire scroll keys to TUI (PgUp/PgDn/Home/End)
   if (tui) {
     input.onScroll((dir) => {
-      switch (dir) {
-        case "up": tui!.scrollUp(); break;
-        case "down": tui!.scrollDown(); break;
-        case "top": tui!.scrollToTop(); break;
-        case "bottom": tui!.scrollToBottom(); break;
+      if (tui!.getViewMode() === "drilldown") {
+        // PgUp/PgDn/Home/End scroll the session output in drill-down mode
+        switch (dir) {
+          case "up": tui!.scrollDrilldownUp(); break;
+          case "down": tui!.scrollDrilldownDown(); break;
+          case "bottom": tui!.scrollDrilldownToBottom(); break;
+          // "top" not wired for drilldown — could add scrollDrilldownToTop() later
+        }
+      } else {
+        switch (dir) {
+          case "up": tui!.scrollUp(); break;
+          case "down": tui!.scrollDown(); break;
+          case "top": tui!.scrollToTop(); break;
+          case "bottom": tui!.scrollToBottom(); break;
+        }
       }
     });
     // wire queue count changes to TUI prompt display
@@ -320,6 +330,16 @@ async function main() {
       if (sessionIdx !== null) {
         const ok = tui!.enterDrilldown(sessionIdx);
         if (ok) tui!.log("system", `viewing session #${sessionIdx}`);
+      }
+    });
+    // wire mouse wheel to scroll (3 lines per tick for smooth scrolling)
+    input.onMouseWheel((direction) => {
+      if (tui!.getViewMode() === "drilldown") {
+        if (direction === "up") tui!.scrollDrilldownUp(3);
+        else tui!.scrollDrilldownDown(3);
+      } else {
+        if (direction === "up") tui!.scrollUp(3);
+        else tui!.scrollDown(3);
       }
     });
   }

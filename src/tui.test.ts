@@ -4,7 +4,8 @@ import {
   formatActivity, formatSessionCard, formatSessionSentence,
   truncateAnsi, truncatePlain,
   padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay,
-  computeScrollSlice, formatScrollIndicator, formatPrompt, formatDrilldownHeader,
+  computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator,
+  formatPrompt, formatDrilldownHeader,
   hitTestSession,
   TUI,
 } from "./tui.js";
@@ -685,6 +686,102 @@ describe("TUI.getSessionCount", () => {
     assert.equal(tui.getSessionCount(), 1);
     tui.updateState({ sessions: [] });
     assert.equal(tui.getSessionCount(), 0);
+  });
+});
+
+// ── formatDrilldownScrollIndicator ──────────────────────────────────────────
+
+describe("formatDrilldownScrollIndicator", () => {
+  it("shows offset and position", () => {
+    const result = formatDrilldownScrollIndicator(10, 100, 20, 0);
+    assert.ok(result.includes("10 lines"));
+    assert.ok(result.includes("90/100"));
+  });
+
+  it("shows new lines count when > 0", () => {
+    const result = formatDrilldownScrollIndicator(10, 100, 20, 5);
+    assert.ok(result.includes("5 new"));
+  });
+
+  it("omits new tag when count is 0", () => {
+    const result = formatDrilldownScrollIndicator(10, 100, 20, 0);
+    assert.ok(!result.includes("new"));
+  });
+
+  it("includes navigation hints", () => {
+    const result = formatDrilldownScrollIndicator(10, 100, 20, 0);
+    assert.ok(result.includes("scroll: navigate"));
+    assert.ok(result.includes("End=live"));
+  });
+
+  it("handles single line offset", () => {
+    const result = formatDrilldownScrollIndicator(1, 50, 20, 0);
+    assert.ok(result.includes("1 lines"));
+    assert.ok(result.includes("49/50"));
+  });
+});
+
+// ── TUI drill-down scroll state ─────────────────────────────────────────────
+
+describe("TUI drill-down scroll", () => {
+  it("starts not scrolled back in drilldown", () => {
+    const tui = new TUI();
+    assert.equal(tui.isDrilldownScrolledBack(), false);
+  });
+
+  it("scrollDrilldownUp is a no-op when not active", () => {
+    const tui = new TUI();
+    tui.scrollDrilldownUp();
+    assert.equal(tui.isDrilldownScrolledBack(), false);
+  });
+
+  it("scrollDrilldownDown is a no-op when not active", () => {
+    const tui = new TUI();
+    tui.scrollDrilldownDown();
+    assert.equal(tui.isDrilldownScrolledBack(), false);
+  });
+
+  it("scrollDrilldownToBottom is a no-op when not active", () => {
+    const tui = new TUI();
+    tui.scrollDrilldownToBottom();
+    assert.equal(tui.isDrilldownScrolledBack(), false);
+  });
+
+  it("scrollDrilldownUp is a no-op in overview mode", () => {
+    const tui = new TUI();
+    // not in drilldown — should not throw or change state
+    tui.scrollDrilldownUp(3);
+    assert.equal(tui.isDrilldownScrolledBack(), false);
+    assert.equal(tui.getViewMode(), "overview");
+  });
+
+  it("scrollDrilldownDown is a no-op in overview mode", () => {
+    const tui = new TUI();
+    tui.scrollDrilldownDown(3);
+    assert.equal(tui.isDrilldownScrolledBack(), false);
+  });
+
+  it("resets scroll offset on enterDrilldown", () => {
+    const tui = new TUI();
+    // set up sessions so enterDrilldown can succeed
+    tui.updateState({
+      sessions: [{ id: "abc", title: "test", tool: "opencode", status: "working" }],
+    });
+    // enter drilldown (won't paint since not active, but state changes)
+    tui.enterDrilldown(1);
+    assert.equal(tui.getViewMode(), "drilldown");
+    assert.equal(tui.isDrilldownScrolledBack(), false);
+  });
+
+  it("resets scroll offset on exitDrilldown", () => {
+    const tui = new TUI();
+    tui.updateState({
+      sessions: [{ id: "abc", title: "test", tool: "opencode", status: "working" }],
+    });
+    tui.enterDrilldown(1);
+    tui.exitDrilldown();
+    assert.equal(tui.getViewMode(), "overview");
+    assert.equal(tui.isDrilldownScrolledBack(), false);
   });
 });
 

@@ -100,6 +100,8 @@ export class TUI {
   private viewMode: "overview" | "drilldown" = "overview";
   private drilldownSessionId: string | null = null;
   private sessionOutputs = new Map<string, string[]>(); // full output lines per session
+  private drilldownScrollOffset = 0;  // 0 = live (tail), >0 = scrolled back N lines
+  private drilldownNewWhileScrolled = 0; // lines added while scrolled back
 
   // current state for repaints
   private phase: DaemonPhase = "sleeping";
@@ -265,16 +267,60 @@ export class TUI {
     return this.scrollOffset > 0;
   }
 
+  // ── Drill-down scroll ─────────────────────────────────────────────────
+
+  scrollDrilldownUp(lines?: number): void {
+    if (!this.active || this.viewMode !== "drilldown" || !this.drilldownSessionId) return;
+    const outputLines = this.sessionOutputs.get(this.drilldownSessionId) ?? [];
+    const visibleLines = this.scrollBottom - this.scrollTop + 1;
+    const n = lines ?? Math.max(1, Math.floor(visibleLines / 2));
+    const maxOffset = Math.max(0, outputLines.length - visibleLines);
+    this.drilldownScrollOffset = Math.min(maxOffset, this.drilldownScrollOffset + n);
+    this.repaintDrilldownContent();
+    this.paintDrilldownSeparator();
+  }
+
+  scrollDrilldownDown(lines?: number): void {
+    if (!this.active || this.viewMode !== "drilldown") return;
+    const visibleLines = this.scrollBottom - this.scrollTop + 1;
+    const n = lines ?? Math.max(1, Math.floor(visibleLines / 2));
+    const wasScrolled = this.drilldownScrollOffset > 0;
+    this.drilldownScrollOffset = Math.max(0, this.drilldownScrollOffset - n);
+    if (wasScrolled && this.drilldownScrollOffset === 0) this.drilldownNewWhileScrolled = 0;
+    this.repaintDrilldownContent();
+    this.paintDrilldownSeparator();
+  }
+
+  scrollDrilldownToBottom(): void {
+    if (!this.active || this.viewMode !== "drilldown") return;
+    this.drilldownScrollOffset = 0;
+    this.drilldownNewWhileScrolled = 0;
+    this.repaintDrilldownContent();
+    this.paintDrilldownSeparator();
+  }
+
+  isDrilldownScrolledBack(): boolean {
+    return this.drilldownScrollOffset > 0;
+  }
+
   // ── Drill-down mode ────────────────────────────────────────────────────
 
   /** Store full session outputs (called each tick from main loop) */
   setSessionOutputs(outputs: Map<string, string>): void {
     for (const [id, text] of outputs) {
-      this.sessionOutputs.set(id, text.split("\n"));
+      const prevLen = this.sessionOutputs.get(id)?.length ?? 0;
+      const lines = text.split("\n");
+      this.sessionOutputs.set(id, lines);
+      // track new lines while scrolled back in drill-down
+      if (this.viewMode === "drilldown" && this.drilldownSessionId === id && this.drilldownScrollOffset > 0) {
+        const newLines = Math.max(0, lines.length - prevLen);
+        this.drilldownNewWhileScrolled += newLines;
+      }
     }
     // repaint drill-down view if we're watching this session
     if (this.active && this.viewMode === "drilldown" && this.drilldownSessionId) {
       this.repaintDrilldownContent();
+      this.paintDrilldownSeparator();
     }
   }
 
@@ -297,6 +343,8 @@ export class TUI {
     if (!sessionId) return false;
     this.viewMode = "drilldown";
     this.drilldownSessionId = sessionId;
+    this.drilldownScrollOffset = 0;
+    this.drilldownNewWhileScrolled = 0;
     if (this.active) {
       this.computeLayout(this.sessions.length);
       this.paintAll();
@@ -309,6 +357,8 @@ export class TUI {
     if (this.viewMode === "overview") return;
     this.viewMode = "overview";
     this.drilldownSessionId = null;
+    this.drilldownScrollOffset = 0;
+    this.drilldownNewWhileScrolled = 0;
     if (this.active) {
       this.computeLayout(this.sessions.length);
       this.paintAll();
@@ -497,7 +547,14 @@ export class TUI {
     const session = this.sessions.find((s) => s.id === this.drilldownSessionId);
     const title = session ? session.title : this.drilldownSessionId ?? "?";
     const prefix = `${BOX.h}${BOX.h} ${title} `;
-    const hints = " /back: overview  /view N: switch session ";
+    let hints: string;
+    if (this.drilldownScrollOffset > 0) {
+      const outputLines = this.sessionOutputs.get(this.drilldownSessionId ?? "") ?? [];
+      const visibleLines = this.scrollBottom - this.scrollTop + 1;
+      hints = formatDrilldownScrollIndicator(this.drilldownScrollOffset, outputLines.length, visibleLines, this.drilldownNewWhileScrolled);
+    } else {
+      hints = " click or /back: overview  scroll: navigate  /view N: switch ";
+    }
     const totalLen = prefix.length + hints.length;
     const fill = Math.max(0, this.cols - totalLen);
     const left = Math.floor(fill / 2);
@@ -512,9 +569,9 @@ export class TUI {
     if (!this.drilldownSessionId) return;
     const outputLines = this.sessionOutputs.get(this.drilldownSessionId) ?? [];
     const visibleLines = this.scrollBottom - this.scrollTop + 1;
-    // show the last N lines (tail view, like following output)
-    const startIdx = Math.max(0, outputLines.length - visibleLines);
-    const visible = outputLines.slice(startIdx);
+    // use scroll offset: 0 = tail (live), >0 = scrolled back
+    const { start, end } = computeScrollSlice(outputLines.length, visibleLines, this.drilldownScrollOffset);
+    const visible = outputLines.slice(start, end);
     for (let i = 0; i < visibleLines; i++) {
       const row = this.scrollTop + i;
       if (i < visible.length) {
@@ -709,6 +766,13 @@ function formatScrollIndicator(offset: number, totalEntries: number, visibleLine
   return ` ↑ ${offset} older  │  ${position}/${totalEntries}  │  PgUp/PgDn  End=live${newTag} `;
 }
 
+// format the scroll indicator for drill-down separator bar
+function formatDrilldownScrollIndicator(offset: number, totalLines: number, visibleLines: number, newCount: number): string {
+  const position = totalLines - offset;
+  const newTag = newCount > 0 ? `  ${newCount} new ↓` : "";
+  return ` ↑ ${offset} lines  │  ${position}/${totalLines}  │  scroll: navigate  End=live${newTag} `;
+}
+
 // ── Mouse hit testing (pure, exported for testing) ──────────────────────────
 
 /**
@@ -728,4 +792,4 @@ export function hitTestSession(row: number, headerHeight: number, sessionCount: 
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
-export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatPrompt, formatDrilldownHeader };
+export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader };

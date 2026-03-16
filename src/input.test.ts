@@ -280,3 +280,29 @@ describe("InputReader onMouseClick", () => {
     assert.equal(clicks2.length, 0);
   });
 });
+
+// ── InputReader onMouseWheel ────────────────────────────────────────────────
+
+describe("InputReader onMouseWheel", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    const dirs: string[] = [];
+    reader.onMouseWheel((dir) => dirs.push(dir));
+    assert.equal(dirs.length, 0);
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    const dirs1: string[] = [];
+    const dirs2: string[] = [];
+    reader.onMouseWheel((dir) => dirs1.push(dir));
+    reader.onMouseWheel((dir) => dirs2.push(dir));
+    assert.equal(dirs1.length, 0);
+    assert.equal(dirs2.length, 0);
+  });
+});

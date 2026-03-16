@@ -5,19 +5,64 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.72.0
+## Version: v0.73.0
 
 ## Current Focus
 
-1158 tests across 37 files. v0.72.0 shipped: mouse click session selection in the TUI — click an agent card to drill down, click again to return to overview.
+1174 tests across 37 files. v0.73.0 shipped: mouse wheel scrolling in overview + drill-down, plus full drill-down scroll state with PgUp/PgDn/End support.
 
 ## Roadmap
 
-### v0.73.0+ — Ideas Backlog
+### v0.74.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
+- **Activity search** — `/search <pattern>` to filter/highlight activity entries
+- **Session highlight on hover** — visual feedback when mouse hovers over agent cards
+
+### What shipped in v0.73.0
+
+**Theme: "Wheel"** — mouse wheel scrolling in overview and drill-down modes, plus full drill-down scroll state. Wheel scrolls 3 lines per tick for smooth navigation. PgUp/PgDn/End now work in drill-down mode too. Scroll indicator shows position when scrolled back. 16 new tests.
+
+#### 1. Mouse wheel handler (`src/input.ts`)
+- `MouseWheelHandler` type exported: `(direction: "up" | "down") => void`
+- `onMouseWheel(handler)` callback registration on `InputReader`
+- Extended `mouseDataListener` to detect scroll events: button 64 = scroll up, button 65 = scroll down
+- Dispatches to wheel handler on any scroll event (press only, not release)
+
+#### 2. Drill-down scroll state (`src/tui.ts`)
+- New `drilldownScrollOffset` field — 0 = live tail, >0 = scrolled back N lines
+- New `drilldownNewWhileScrolled` field — counts new lines arriving while scrolled back
+- `scrollDrilldownUp(lines?)` — scroll back, defaults to half-page
+- `scrollDrilldownDown(lines?)` — scroll forward, resets new counter when returning to live
+- `scrollDrilldownToBottom()` — jump to live tail
+- `isDrilldownScrolledBack()` — read-only accessor
+- Scroll offset reset on `enterDrilldown()` and `exitDrilldown()`
+
+#### 3. Drill-down content with scroll (`src/tui.ts`)
+- `repaintDrilldownContent()` now uses `computeScrollSlice()` with `drilldownScrollOffset`
+- `setSessionOutputs()` tracks new-while-scrolled count when user is scrolled back
+- Separator repaints on content update to keep scroll indicator current
+
+#### 4. Drill-down scroll indicator (`src/tui.ts`)
+- `formatDrilldownScrollIndicator()` pure function — shows `↑ N lines │ pos/total │ scroll: navigate End=live [N new ↓]`
+- `paintDrilldownSeparator()` switches between scroll indicator (when scrolled) and default hints (when at live)
+- Default drill-down hints updated: "click or /back: overview  scroll: navigate  /view N: switch"
+
+#### 5. Wiring (`src/index.ts`)
+- `input.onMouseWheel()`: in overview → `tui.scrollUp(3)`/`scrollDown(3)`, in drilldown → `tui.scrollDrilldownUp(3)`/`scrollDrilldownDown(3)`
+- `input.onScroll()`: PgUp/PgDn/End now dispatch to drill-down scroll methods when in drill-down mode
+
+#### 6. Help text (`src/input.ts`)
+- `/help` navigation section: added "mouse wheel" and updated PgUp/PgDn descriptions to mention drill-down
+
+#### 7. Tests
+- `src/input.test.ts` (3 tests): onMouseWheel — register handler, safe without handler, handler replacement
+- `src/tui.test.ts` (13 tests): formatDrilldownScrollIndicator — offset+position, new lines, omit new, hints, single line; TUI drill-down scroll — initial state, scrollUp/Down/ToBottom no-ops when inactive, no-ops in overview, reset on enter/exit drilldown
+
+Modified: `src/input.ts`, `src/input.test.ts`, `src/tui.ts`, `src/tui.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +16, net 1174 tests across 37 files.
 
 ### What shipped in v0.72.0
 

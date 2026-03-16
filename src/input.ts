@@ -25,6 +25,7 @@ export interface MouseEvent {
 }
 
 export type MouseClickHandler = (row: number, col: number) => void;
+export type MouseWheelHandler = (direction: "up" | "down") => void;
 
 // SGR extended mouse format: \x1b[<btn;col;rowM (press) or \x1b[<btn;col;rowm (release)
 const SGR_MOUSE_RE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/;
@@ -50,6 +51,7 @@ export class InputReader {
   private queueChangeHandler: ((count: number) => void) | null = null;
   private viewHandler: ViewHandler | null = null;
   private mouseClickHandler: MouseClickHandler | null = null;
+  private mouseWheelHandler: MouseWheelHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -70,6 +72,11 @@ export class InputReader {
   // register a callback for mouse left-click events (row, col are 1-indexed)
   onMouseClick(handler: MouseClickHandler): void {
     this.mouseClickHandler = handler;
+  }
+
+  // register a callback for mouse wheel events (scroll up/down)
+  onMouseWheel(handler: MouseWheelHandler): void {
+    this.mouseWheelHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -97,8 +104,16 @@ export class InputReader {
     this.mouseDataListener = (data: Buffer) => {
       const str = data.toString("utf8");
       const evt = parseMouseEvent(str);
-      if (evt && evt.press && evt.button === 0 && this.mouseClickHandler) {
+      if (!evt) return;
+      // left click press
+      if (evt.press && evt.button === 0 && this.mouseClickHandler) {
         this.mouseClickHandler(evt.row, evt.col);
+      }
+      // mouse wheel: button 64 = scroll up, 65 = scroll down
+      if (evt.button === 64 && this.mouseWheelHandler) {
+        this.mouseWheelHandler("up");
+      } else if (evt.button === 65 && this.mouseWheelHandler) {
+        this.mouseWheelHandler("down");
       }
     };
     process.stdin.on("data", this.mouseDataListener);
@@ -240,7 +255,8 @@ ${BOLD}navigation:${RESET}
   /view [N|name]     drill into a session's live output (default: 1)
   /back              return to overview from drill-down
   click session      click an agent card to drill down (click again to go back)
-  PgUp / PgDn        scroll through activity history
+  mouse wheel        scroll activity (overview) or session output (drill-down)
+  PgUp / PgDn        scroll through activity or session output
   Home / End         jump to oldest / return to live
 
 ${BOLD}info:${RESET}
