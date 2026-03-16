@@ -63,6 +63,7 @@ The main loop is split into two layers:
 | `src/config-watcher.ts` | Config hot-reload — fs.watch on config file, safe field merge |
 | `src/tui-history.ts` | Persisted TUI history — JSONL file with rotation, load/append/replay |
 | `src/export.ts` | Timeline export — merges actions.log + tui-history into JSON/Markdown |
+| `src/tail.ts` | `aoaoe tail` — live-stream daemon activity to a separate terminal |
 | `src/prompt-watcher.ts` | Reactive permission prompt clearing via `tmux pipe-pane` |
 | `src/reasoner/index.ts` | `createReasoner()` factory |
 | `src/reasoner/prompt.ts` | `buildSystemPrompt()`, `formatObservation()`, `detectPermissionPrompt()` |
@@ -104,7 +105,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Testing
-- 987 unit tests across 34 files, `node:test` (stdlib, zero deps)
+- 1023 unit tests across 35 files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

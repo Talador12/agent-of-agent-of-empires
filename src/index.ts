@@ -36,7 +36,7 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -135,6 +135,13 @@ async function main() {
   if (runInit) {
     const { runInit: doInit } = await import("./init.js");
     await doInit(initForce);
+    return;
+  }
+
+  // `aoaoe tail` -- live-stream daemon activity to a separate terminal
+  if (isTail) {
+    const { runTail: doTail } = await import("./tail.js");
+    await doTail({ count: tailCount ?? 50, follow: tailFollow });
     return;
   }
 

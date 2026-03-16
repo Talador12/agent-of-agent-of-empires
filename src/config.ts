@@ -377,6 +377,9 @@ export function parseCliArgs(argv: string[]): {
   runInit: boolean;
   initForce: boolean;
   runTaskCli: boolean;
+  runTail: boolean;
+  tailFollow: boolean;
+  tailCount?: number;
   registerTitle?: string;
 } {
   const overrides: Partial<AoaoeConfig> = {};
@@ -391,7 +394,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, runInit: false, initForce: false, runTaskCli: false };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined as number | undefined };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "test-context") {
@@ -455,6 +458,19 @@ export function parseCliArgs(argv: string[]): {
   if (argv[2] === "init") {
     const force = argv.includes("--force") || argv.includes("-f");
     return { ...defaults, runInit: true, initForce: force };
+  }
+  if (argv[2] === "tail") {
+    let follow = false;
+    let count: number | undefined;
+    for (let i = 3; i < argv.length; i++) {
+      if (argv[i] === "-f" || argv[i] === "--follow") {
+        follow = true;
+      } else if ((argv[i] === "-n" || argv[i] === "--count") && argv[i + 1]) {
+        const val = parseInt(argv[++i], 10);
+        if (!isNaN(val) && val > 0) count = val;
+      }
+    }
+    return { ...defaults, runTail: true, tailFollow: follow, tailCount: count };
   }
   if (argv[2] === "register") {
     register = true;
@@ -550,7 +566,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runExport: false, exportFormat: undefined, exportOutput: undefined, exportLast: undefined, runInit: false, initForce: false, runTaskCli: false };
+  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runExport: false, exportFormat: undefined, exportOutput: undefined, exportLast: undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined };
 }
 
 export function printHelp() {
@@ -581,6 +597,9 @@ commands:
   export --format <json|markdown>  output format (default: json)
   export --output <file>           write to file (default: stdout)
   export --last <duration>         time window: 1h, 6h, 24h, 7d (default: 24h)
+  tail           live-stream daemon activity to a separate terminal
+  tail -f        follow mode — keep watching for new entries (Ctrl+C to stop)
+  tail -n <N>    number of entries to show (default: 50)
   task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)
   history        review recent actions (from ~/.aoaoe/actions.log)
@@ -611,6 +630,10 @@ init options:
 logs options:
   --actions, -a                      show action log instead of conversation log
   --grep, -g <pattern>               filter entries by substring or regex
+  -n, --count <number>               number of entries to show (default: 50)
+
+tail options:
+  -f, --follow                       keep watching for new entries (Ctrl+C to stop)
   -n, --count <number>               number of entries to show (default: 50)
 
 register options:

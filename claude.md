@@ -5,21 +5,56 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.68.0
+## Version: v0.69.0
 
 ## Current Focus
 
-987 tests across 34 files. v0.68.0 shipped: config hot-reload — `fs.watch` on config file, safe field merge, TUI notifications on change.
+1023 tests across 35 files. v0.69.0 shipped: `aoaoe tail` — live-stream daemon activity to a separate terminal with follow mode.
 
 ## Roadmap
 
-### v0.69.0+ — Ideas Backlog
-- **`aoaoe tail`** — live-stream daemon activity to a separate terminal (follow mode)
+### v0.70.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Mouse click session selection** — click on a session in the agents panel to drill down
 - **Smart session context budget** — dynamic context allocation based on session activity
+
+### What shipped in v0.69.0
+
+**Theme: "Tail"** — `aoaoe tail` subcommand for live-streaming daemon activity to a separate terminal. Reads from `tui-history.jsonl`, prints colorized entries, and optionally follows for new entries via `fs.watch`. 36 new tests.
+
+#### 1. Tail module (`src/tail.ts`)
+- `formatTailEntry(entry)` — colorizes a HistoryEntry for terminal output, matching TUI formatActivity style (obs/reasoner/AI/action/error/you/system tags)
+- `formatTailDate(ts)` — formats epoch timestamp as YYYY-MM-DD for the header
+- `loadTailEntries(count, filePath?)` — reads last N entries from JSONL file, skips malformed lines, validates entry shape
+- `getFileSize(filePath)` — returns current file size for follow mode offset tracking
+- `readNewEntries(filePath, fromByte)` — reads bytes appended since offset, parses into entries. Detects file rotation (size < offset) and reads from start
+- `printEntries(entries)` — writes colorized entries to stderr
+- `runTail(opts)` — main entry: prints last N entries with date header, optionally enters follow mode with `fs.watch` + SIGINT cleanup
+
+#### 2. CLI wiring (`src/config.ts`, `src/index.ts`)
+- `parseCliArgs`: added `runTail`, `tailFollow`, `tailCount` fields + `if (argv[2] === "tail")` subcommand block with `-f`/`--follow` and `-n`/`--count` flag parsing
+- `printHelp()`: added `tail` command with options section
+- `index.ts`: dynamic `import("./tail.js")` + dispatch to `runTail({ count, follow })`
+
+#### 3. ESM fix (`src/tail.ts`)
+- Replaced `require("node:fs")` calls in `readNewEntries` with proper ESM imports (`openSync`, `readSync`, `closeSync`) for consistency with the rest of the codebase
+
+#### 4. Bug fix (`src/tail.ts`)
+- Fixed `readNewEntries` early-return logic: previously returned empty on file rotation (`size < fromByte`). Now correctly detects rotation and reads from byte 0.
+
+#### 5. Tests (`src/tail.test.ts`)
+- `formatTailEntry` (10 tests): observation/reasoner/explain/action/error/you/system tags, time field, pipe separator, unknown tags
+- `formatTailDate` (3 tests): YYYY-MM-DD format, zero-padded months, zero-padded days
+- `loadTailEntries` (6 tests): missing file, empty file, load entries, count limit, malformed skip, missing fields skip
+- `getFileSize` (3 tests): missing file, existing file, empty file
+- `readNewEntries` (5 tests): no growth, appended entries, file rotation, missing file, malformed lines
+- `parseCliArgs tail` (9 tests): defaults, -f, --follow, -n, --count, both flags, invalid count, zero count, non-tail
+
+New files: `src/tail.ts`, `src/tail.test.ts`
+Modified: `src/config.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +36, net 1023 tests across 35 files.
 
 ### What shipped in v0.68.0
 
