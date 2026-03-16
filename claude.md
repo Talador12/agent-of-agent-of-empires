@@ -5,20 +5,48 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.63.0
+## Version: v0.64.0
 
 ## Current Focus
 
-886 tests across 32 files. v0.63.0 shipped: Test isolation — zero flaky tests, all 886 pass consistently.
+923 tests across 33 files. v0.64.0 shipped: `aoaoe export` — timeline export as JSON or Markdown for post-mortems.
 
 ## Roadmap
 
-### v0.64.0+ — Ideas Backlog
+### v0.65.0+ — Ideas Backlog
 - **Scroll-through history navigation in TUI** — keyboard shortcuts to page up/down through activity
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- **`aoaoe export`** — export session timeline as JSON/markdown for post-mortems
 - **Config hot-reload** — watch config file for changes, apply without restart
+- **`aoaoe tail`** — live-stream daemon activity to a separate terminal (follow mode)
+- **Session grouping** — tag sessions by project/team, filter views by group
+
+### What shipped in v0.64.0
+
+**Theme: "Export"** — `aoaoe export` subcommand for post-mortem timeline reports. Reads `actions.log` (JSONL) and `tui-history.jsonl`, merges into a unified chronological timeline, outputs as JSON or Markdown. 37 new tests.
+
+#### 1. `src/export.ts` — new module with 6 pure functions
+- `parseActionLogEntries(lines)` — parses action log JSONL into `TimelineEntry[]`, skips wait actions and malformed lines
+- `parseActivityEntries(entries)` — converts `HistoryEntry[]` into `TimelineEntry[]`
+- `mergeTimeline(...sources)` — flattens and sorts all entries chronologically
+- `filterByAge(entries, maxAgeMs, now?)` — keeps entries within a time window
+- `parseDuration(input)` — parses human-friendly durations ("1h", "6h", "24h", "7d") into milliseconds
+- `formatTimelineJson(entries)` — pretty-printed JSON array with ISO timestamps
+- `formatTimelineMarkdown(entries)` — Markdown post-mortem document with hour-grouped timeline, success/fail icons, session arrows
+
+#### 2. CLI wiring (`src/config.ts`, `src/index.ts`)
+- `parseCliArgs`: added `runExport`, `exportFormat`, `exportOutput`, `exportLast` fields
+- `export` subcommand with `--format json|markdown`, `--output <file>`, `--last <duration>`
+- `runTimelineExport()` handler: reads both log files, merges, filters, formats, writes to file or stdout
+- `printHelp()` updated with export command and all flags
+
+#### 3. Tests
+- `src/export.test.ts` (31 tests): parseActionLogEntries (7), parseActivityEntries (4), mergeTimeline (3), filterByAge (3), parseDuration (5), formatTimelineJson (3), formatTimelineMarkdown (6)
+- `src/config.test.ts` (6 tests): export subcommand, --format, -f, --output, --last, all flags combined + mutually exclusive update
+
+New files: `src/export.ts`, `src/export.test.ts`
+Modified: `src/config.ts`, `src/config.test.ts`, `src/index.ts`, `README.md`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +37, net 923 tests across 33 files.
 
 ### What shipped in v0.63.0
 

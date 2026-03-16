@@ -248,6 +248,10 @@ commands:
   logs --actions show action log entries (from ~/.aoaoe/actions.log)
   logs --grep <pattern>  filter log entries by substring or regex
   logs -n <count>        number of entries to show (default: 50)
+  export         export session timeline as JSON or Markdown for post-mortems
+  export --format <json|markdown>  output format (default: json)
+  export --output <file>           write to file (default: stdout)
+  export --last <duration>         time window: 1h, 6h, 24h, 7d (default: 24h)
   task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)
   history        review recent actions (from ~/.aoaoe/actions.log)

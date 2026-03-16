@@ -409,6 +409,54 @@ describe("parseCliArgs", () => {
     assert.equal(logsResult.showStatus, false);
     assert.equal(logsResult.runDoctor, false);
     assert.equal(logsResult.showHistory, false);
+
+    const exportResult = parseCliArgs(argv("export"));
+    assert.equal(exportResult.runExport, true);
+    assert.equal(exportResult.register, false);
+    assert.equal(exportResult.showConfig, false);
+    assert.equal(exportResult.showStatus, false);
+    assert.equal(exportResult.runDoctor, false);
+    assert.equal(exportResult.runLogs, false);
+  });
+
+  it("parses export subcommand", () => {
+    const result = parseCliArgs(argv("export"));
+    assert.equal(result.runExport, true);
+    assert.equal(result.exportFormat, undefined);
+    assert.equal(result.exportOutput, undefined);
+    assert.equal(result.exportLast, undefined);
+  });
+
+  it("parses export --format", () => {
+    const result = parseCliArgs(argv("export", "--format", "markdown"));
+    assert.equal(result.runExport, true);
+    assert.equal(result.exportFormat, "markdown");
+  });
+
+  it("parses export -f shorthand", () => {
+    const result = parseCliArgs(argv("export", "-f", "json"));
+    assert.equal(result.runExport, true);
+    assert.equal(result.exportFormat, "json");
+  });
+
+  it("parses export --output", () => {
+    const result = parseCliArgs(argv("export", "--output", "/tmp/report.json"));
+    assert.equal(result.runExport, true);
+    assert.equal(result.exportOutput, "/tmp/report.json");
+  });
+
+  it("parses export --last", () => {
+    const result = parseCliArgs(argv("export", "--last", "7d"));
+    assert.equal(result.runExport, true);
+    assert.equal(result.exportLast, "7d");
+  });
+
+  it("parses export with all flags", () => {
+    const result = parseCliArgs(argv("export", "--format", "markdown", "--output", "report.md", "--last", "24h"));
+    assert.equal(result.runExport, true);
+    assert.equal(result.exportFormat, "markdown");
+    assert.equal(result.exportOutput, "report.md");
+    assert.equal(result.exportLast, "24h");
   });
 });
 

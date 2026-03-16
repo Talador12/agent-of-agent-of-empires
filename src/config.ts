@@ -370,6 +370,10 @@ export function parseCliArgs(argv: string[]): {
   logsActions: boolean;
   logsGrep?: string;
   logsCount?: number;
+  runExport: boolean;
+  exportFormat?: string;
+  exportOutput?: string;
+  exportLast?: string;
   runInit: boolean;
   initForce: boolean;
   runTaskCli: boolean;
@@ -387,7 +391,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runInit: false, initForce: false, runTaskCli: false };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, runInit: false, initForce: false, runTaskCli: false };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "test-context") {
@@ -432,6 +436,21 @@ export function parseCliArgs(argv: string[]): {
       }
     }
     return { ...defaults, runLogs: true, logsActions: actions, logsGrep: grep, logsCount: count };
+  }
+  if (argv[2] === "export") {
+    let format: string | undefined;
+    let output: string | undefined;
+    let last: string | undefined;
+    for (let i = 3; i < argv.length; i++) {
+      if ((argv[i] === "--format" || argv[i] === "-f") && argv[i + 1]) {
+        format = argv[++i];
+      } else if ((argv[i] === "--output" || argv[i] === "-o") && argv[i + 1]) {
+        output = argv[++i];
+      } else if ((argv[i] === "--last" || argv[i] === "-l") && argv[i + 1]) {
+        last = argv[++i];
+      }
+    }
+    return { ...defaults, runExport: true, exportFormat: format, exportOutput: output, exportLast: last };
   }
   if (argv[2] === "init") {
     const force = argv.includes("--force") || argv.includes("-f");
@@ -531,7 +550,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runInit: false, initForce: false, runTaskCli: false };
+  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runExport: false, exportFormat: undefined, exportOutput: undefined, exportLast: undefined, runInit: false, initForce: false, runTaskCli: false };
 }
 
 export function printHelp() {
@@ -558,6 +577,10 @@ commands:
   logs --actions show action log entries (from ~/.aoaoe/actions.log)
   logs --grep <pattern>  filter log entries by substring or regex
   logs -n <count>        number of entries to show (default: 50)
+  export         export session timeline as JSON or Markdown for post-mortems
+  export --format <json|markdown>  output format (default: json)
+  export --output <file>           write to file (default: stdout)
+  export --last <duration>         time window: 1h, 6h, 24h, 7d (default: 24h)
   task           manage tasks and sessions (list, start, stop, new, rm, edit)
   tasks          show task progress (from aoaoe.tasks.json)
   history        review recent actions (from ~/.aoaoe/actions.log)

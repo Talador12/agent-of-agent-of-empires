@@ -21,6 +21,7 @@ import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
 import { startHealthServer } from "./health.js";
 import { loadTuiHistory } from "./tui-history.js";
+import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState, ActionLogEntry } from "./types.js";
 import { actionSession, actionDetail, toActionLogEntry } from "./types.js";
 import { YELLOW, GREEN, DIM, BOLD, RED, RESET } from "./colors.js";
@@ -34,7 +35,7 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -114,6 +115,12 @@ async function main() {
   // `aoaoe logs` -- show conversation or action log entries
   if (runLogs) {
     await showLogs(logsActions, logsGrep, logsCount);
+    return;
+  }
+
+  // `aoaoe export` -- export session timeline as JSON or Markdown
+  if (runExport) {
+    await runTimelineExport(exportFormat, exportOutput, exportLast);
     return;
   }
 
@@ -1337,6 +1344,52 @@ async function showLogs(actions: boolean, grep?: string, count?: number): Promis
 
     console.log(`  ${"─".repeat(70)}`);
     console.log("");
+  }
+}
+
+// `aoaoe export` -- export session timeline as JSON or Markdown for post-mortems
+async function runTimelineExport(format?: string, output?: string, last?: string): Promise<void> {
+  const fmt = format ?? "json";
+  if (fmt !== "json" && fmt !== "markdown" && fmt !== "md") {
+    console.error(`error: --format must be "json" or "markdown", got "${fmt}"`);
+    process.exit(1);
+  }
+
+  // parse time window (default 24h)
+  const durationMs = last ? parseDuration(last) : 24 * 60 * 60 * 1000;
+  if (durationMs === null) {
+    console.error(`error: --last must be like "1h", "6h", "24h", "7d", got "${last}"`);
+    process.exit(1);
+  }
+
+  // read actions.log
+  const actionsFile = join(homedir(), ".aoaoe", "actions.log");
+  let actionEntries: ReturnType<typeof parseActionLogEntries> = [];
+  try {
+    const lines = readFileSync(actionsFile, "utf-8").trim().split("\n").filter((l) => l.trim());
+    actionEntries = parseActionLogEntries(lines);
+  } catch {
+    // no actions.log — that's fine
+  }
+
+  // read tui-history.jsonl
+  const historyEntries = loadTuiHistory(10_000, undefined, durationMs);
+  const activityEntries = parseActivityEntries(historyEntries);
+
+  // merge and filter
+  let timeline = mergeTimeline(actionEntries, activityEntries);
+  timeline = filterByAge(timeline, durationMs);
+
+  // format
+  const isMarkdown = fmt === "markdown" || fmt === "md";
+  const content = isMarkdown ? formatTimelineMarkdown(timeline) : formatTimelineJson(timeline);
+
+  // output
+  if (output) {
+    writeFileSync(output, content);
+    console.log(`exported ${timeline.length} entries to ${output}`);
+  } else {
+    process.stdout.write(content);
   }
 }
 
