@@ -5,22 +5,52 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.76.0
+## Version: v0.77.0
 
 ## Current Focus
 
-1213 tests across 37 files. v0.76.0 shipped: keyboard quick-switch — bare digit 1-9 on the input line jumps to that session, works in both overview and drill-down modes.
+1227 tests across 37 files. v0.77.0 shipped: activity sparkline in the separator bar — a tiny Unicode block chart showing activity rate over the last 10 minutes, with a color gradient from slate (low) to sky (mid) to lime (high).
 
 ## Roadmap
 
-### v0.77.0+ — Ideas Backlog
+### v0.78.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
-- **Activity sparkline** — tiny inline graph showing activity rate over time in header
 - **Session sort** — sort sessions by status, activity, or name
 - **Compact mode** — denser layout for terminals with many sessions
+
+### What shipped in v0.77.0
+
+**Theme: "Spark"** — activity sparkline in separator bar. A tiny Unicode block chart (▁▂▃▄▅▆▇█) showing activity rate over the last 10 minutes, with a color gradient from SLATE (low) → SKY (mid) → LIME (high). Empty sparklines (no recent activity) fall back to default separator hints. 14 new tests.
+
+#### 1. `computeSparkline()` pure function (`src/tui.ts`)
+- Takes `timestamps: number[]`, `now`, `buckets` (default 20), `windowMs` (default 10 min)
+- Returns array of bucket counts (events per time bucket)
+- Ignores timestamps outside the window
+
+#### 2. `formatSparkline()` pure function (`src/tui.ts`)
+- Takes bucket counts, returns colored Unicode block string
+- Color gradient: SLATE (low) → SKY (mid) → LIME (high)
+- Returns empty string if all zeros
+- Space character for zero-count buckets
+
+#### 3. `activityTimestamps` tracking (`src/tui.ts`)
+- `activityTimestamps: number[]` field on TUI class
+- `log()` records `Date.now()` alongside activity buffer entries
+- Trimmed with activity buffer when exceeding `maxActivity`
+
+#### 4. Wiring into `paintSeparator()` (`src/tui.ts`)
+- In live mode (not scrolled, not searching): shows sparkline + `/help` hint
+- Falls back to default hints when sparkline is empty (no recent activity)
+
+#### 5. Tests (`src/tui.test.ts`)
+- `computeSparkline` (7 tests): empty timestamps, bucket count, correct placement, multiple in same bucket, outside window, recent in last bucket, burst activity
+- `formatSparkline` (7 tests): all zeros → empty, non-zero → non-empty, Unicode blocks, max → █, zero → space, single non-zero, relative scaling
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +14, net 1227 tests across 37 files.
 
 ### What shipped in v0.76.0
 

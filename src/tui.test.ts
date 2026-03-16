@@ -8,6 +8,7 @@ import {
   formatPrompt, formatDrilldownHeader,
   hitTestSession,
   matchesSearch, formatSearchIndicator,
+  computeSparkline, formatSparkline,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry } from "./tui.js";
@@ -984,6 +985,112 @@ describe("TUI hover state", () => {
     tui.setHoverSession(1); // set hover in drilldown (edge case)
     tui.exitDrilldown();
     assert.equal(tui.getHoverSession(), null);
+  });
+});
+
+// ── computeSparkline ────────────────────────────────────────────────────────
+
+describe("computeSparkline", () => {
+  const NOW = 1700000000000;
+
+  it("returns all zeros for empty timestamps", () => {
+    const result = computeSparkline([], NOW, 5, 10000);
+    assert.deepEqual(result, [0, 0, 0, 0, 0]);
+  });
+
+  it("returns correct bucket count", () => {
+    const result = computeSparkline([], NOW, 10, 10000);
+    assert.equal(result.length, 10);
+  });
+
+  it("places timestamps in correct buckets", () => {
+    const windowMs = 10000; // 10s window
+    const buckets = 5; // 5 buckets of 2s each
+    const ts = [
+      NOW - 9000, // bucket 0 (0-2s from cutoff)
+      NOW - 7000, // bucket 1 (2-4s)
+      NOW - 5000, // bucket 2 (4-6s)
+      NOW - 3000, // bucket 3 (6-8s)
+      NOW - 1000, // bucket 4 (8-10s)
+    ];
+    const result = computeSparkline(ts, NOW, buckets, windowMs);
+    assert.deepEqual(result, [1, 1, 1, 1, 1]);
+  });
+
+  it("counts multiple entries in the same bucket", () => {
+    const windowMs = 10000;
+    const buckets = 2; // 2 buckets of 5s each
+    const ts = [NOW - 8000, NOW - 7000, NOW - 6000]; // all in bucket 0
+    const result = computeSparkline(ts, NOW, buckets, windowMs);
+    assert.equal(result[0], 3);
+    assert.equal(result[1], 0);
+  });
+
+  it("ignores timestamps outside the window", () => {
+    const windowMs = 10000;
+    const ts = [NOW - 20000, NOW - 15000]; // all before cutoff
+    const result = computeSparkline(ts, NOW, 5, windowMs);
+    assert.deepEqual(result, [0, 0, 0, 0, 0]);
+  });
+
+  it("puts recent timestamps in the last bucket", () => {
+    const windowMs = 10000;
+    const buckets = 5;
+    const ts = [NOW - 500]; // very recent — should be in last bucket
+    const result = computeSparkline(ts, NOW, buckets, windowMs);
+    assert.equal(result[4], 1);
+    assert.equal(result[0], 0);
+  });
+
+  it("handles burst of activity in one bucket", () => {
+    const windowMs = 10000;
+    const buckets = 4;
+    const ts = Array(20).fill(NOW - 1000); // 20 entries, all very recent
+    const result = computeSparkline(ts, NOW, buckets, windowMs);
+    assert.equal(result[3], 20); // all in last bucket
+  });
+});
+
+// ── formatSparkline ─────────────────────────────────────────────────────────
+
+describe("formatSparkline", () => {
+  it("returns empty string for all-zero counts", () => {
+    assert.equal(formatSparkline([0, 0, 0, 0, 0]), "");
+  });
+
+  it("returns non-empty string for non-zero counts", () => {
+    const result = formatSparkline([1, 2, 3, 4, 5]);
+    assert.ok(result.length > 0);
+  });
+
+  it("uses Unicode block characters", () => {
+    const result = stripAnsi(formatSparkline([0, 1, 5, 10]));
+    // should contain at least one block character
+    assert.ok(/[▁▂▃▄▅▆▇█ ]/.test(result), `should contain block chars, got: "${result}"`);
+  });
+
+  it("maps max value to highest block", () => {
+    const result = stripAnsi(formatSparkline([10]));
+    assert.ok(result.includes("█"), `max should map to █, got: "${result}"`);
+  });
+
+  it("uses space for zero-count buckets", () => {
+    const result = stripAnsi(formatSparkline([0, 5, 0]));
+    assert.ok(result.startsWith(" "), `zero bucket should be space, got: "${result}"`);
+  });
+
+  it("handles single non-zero bucket", () => {
+    const result = formatSparkline([0, 0, 3, 0, 0]);
+    const plain = stripAnsi(result);
+    assert.equal(plain.length, 5); // 5 characters
+    assert.ok(plain[2] !== " ", "middle bucket should not be space");
+  });
+
+  it("scales relative to max value", () => {
+    const result = stripAnsi(formatSparkline([1, 100]));
+    // first should be lowest block, second should be highest
+    assert.ok(result[0] === "▁", `low value should be ▁, got: "${result[0]}"`);
+    assert.ok(result[1] === "█", `high value should be █, got: "${result[1]}"`);
   });
 });
 

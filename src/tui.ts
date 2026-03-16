@@ -99,6 +99,7 @@ export class TUI {
   private pendingCount = 0;      // queued user messages awaiting next tick
   private searchPattern: string | null = null; // active search filter pattern
   private hoverSessionIdx: number | null = null; // 1-indexed session under mouse cursor (null = none)
+  private activityTimestamps: number[] = []; // epoch ms of each log() call for sparkline
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -200,8 +201,10 @@ export class TUI {
     const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
     const entry: ActivityEntry = { time, tag, text };
     this.activityBuffer.push(entry);
+    this.activityTimestamps.push(now.getTime());
     if (this.activityBuffer.length > this.maxActivity) {
       this.activityBuffer = this.activityBuffer.slice(-this.maxActivity);
+      this.activityTimestamps = this.activityTimestamps.slice(-this.maxActivity);
     }
     if (this.active) {
       if (this.searchPattern) {
@@ -582,7 +585,9 @@ export class TUI {
     } else if (this.scrollOffset > 0) {
       hints = formatScrollIndicator(this.scrollOffset, this.activityBuffer.length, this.scrollBottom - this.scrollTop + 1, this.newWhileScrolled);
     } else {
-      hints = " click agent to view  esc esc: interrupt  /help ";
+      // live mode: show sparkline + minimal hints
+      const spark = formatSparkline(computeSparkline(this.activityTimestamps));
+      hints = spark ? ` ${spark}  /help ` : " click agent to view  esc esc: interrupt  /help ";
     }
     const totalLen = prefix.length + hints.length;
     const fill = Math.max(0, this.cols - totalLen);
@@ -867,6 +872,42 @@ function formatDrilldownScrollIndicator(offset: number, totalLines: number, visi
   return ` ↑ ${offset} lines  │  ${position}/${totalLines}  │  scroll: navigate  End=live${newTag} `;
 }
 
+// ── Sparkline helpers (pure, exported for testing) ──────────────────────────
+
+const SPARK_BLOCKS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as const;
+const SPARK_BUCKETS = 20; // number of time buckets
+const SPARK_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+
+/** Compute sparkline bucket counts from activity timestamps. Returns array of SPARK_BUCKETS counts. */
+function computeSparkline(timestamps: number[], now?: number, buckets?: number, windowMs?: number): number[] {
+  const n = buckets ?? SPARK_BUCKETS;
+  const window = windowMs ?? SPARK_WINDOW_MS;
+  const nowMs = now ?? Date.now();
+  const cutoff = nowMs - window;
+  const bucketSize = window / n;
+  const counts = new Array<number>(n).fill(0);
+  for (const ts of timestamps) {
+    if (ts < cutoff) continue;
+    const idx = Math.min(n - 1, Math.floor((ts - cutoff) / bucketSize));
+    counts[idx]++;
+  }
+  return counts;
+}
+
+/** Format sparkline bucket counts as a colored Unicode block string. Returns empty string if all zeros. */
+function formatSparkline(counts: number[]): string {
+  const max = Math.max(...counts);
+  if (max === 0) return "";
+  const blocks = counts.map((c) => {
+    if (c === 0) return `${SLATE} ${RESET}`;
+    const level = Math.min(SPARK_BLOCKS.length - 1, Math.floor((c / max) * (SPARK_BLOCKS.length - 1)));
+    // color gradient: low=SLATE, mid=SKY, high=LIME
+    const color = level < 3 ? SLATE : level < 6 ? SKY : LIME;
+    return `${color}${SPARK_BLOCKS[level]}${RESET}`;
+  });
+  return blocks.join("");
+}
+
 // ── Search helpers (pure, exported for testing) ─────────────────────────────
 
 /** Case-insensitive substring match against an activity entry's tag, text, and time. */
@@ -904,4 +945,4 @@ export function hitTestSession(row: number, headerHeight: number, sessionCount: 
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
-export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator };
+export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator, computeSparkline, formatSparkline };
