@@ -5,20 +5,64 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.65.0
+## Version: v0.66.0
 
 ## Current Focus
 
-935 tests across 33 files. v0.65.0 shipped: scroll navigation in TUI — PgUp/PgDn/Home/End keys, scroll indicator in separator bar.
+954 tests across 33 files. v0.66.0 shipped: prompt queue UX — visible pending count, `!` prefix insist mode for immediate interrupt + delivery.
 
 ## Roadmap
 
-### v0.66.0+ — Ideas Backlog
+### v0.67.0+ — Ideas Backlog
+- **Session drill-down** — navigate into a specific agent's output from the TUI, hotkey back to overview
+- **`aoaoe tail`** — live-stream daemon activity to a separate terminal (follow mode)
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Config hot-reload** — watch config file for changes, apply without restart
-- **`aoaoe tail`** — live-stream daemon activity to a separate terminal (follow mode)
 - **Session grouping** — tag sessions by project/team, filter views by group
+
+### What shipped in v0.66.0
+
+**Theme: "Prompt Queue"** — visible pending message count in the TUI prompt, `!` prefix and `/insist` command for immediate interrupt + message delivery. Improved queue acknowledgment feedback. 19 new tests.
+
+#### 1. Pending count in TUI prompt (`src/tui.ts`)
+- New `pendingCount` state field on the TUI class
+- `updateState()` accepts `pendingCount` to update the display
+- `paintInputLine()` now uses pure `formatPrompt()` function
+- New exported `formatPrompt(phase, paused, pendingCount)` — shows `N queued >` when messages are pending, combines with phase-aware prompt (`thinking >`, `paused >`)
+
+#### 2. Insist mode (`src/input.ts`)
+- `!message` prefix triggers immediate interrupt + priority message delivery
+- `/insist <message>` command as alias for `!` prefix
+- `handleInsist()` method: calls `requestInterrupt()`, pushes `__CMD_INTERRUPT__` + `__INSIST__`-prefixed message
+- `INSIST_PREFIX` constant exported for cross-module use
+
+#### 3. Queue change notifications (`src/input.ts`)
+- `onQueueChange(handler)` callback registration — fires on `inject()`, `drain()`, `handleLine()`, `handleInsist()`, `handleEscInterrupt()`
+- `notifyQueueChange()` private method called on every queue mutation
+- Queue acknowledgment on submit: shows `queued (N pending) — will be read next cycle` instead of generic "Got it!"
+
+#### 4. Insist message handling (`src/message.ts`, `src/index.ts`)
+- `isInsistMessage(msg)` — checks for `__INSIST__` prefix
+- `stripInsistPrefix(msg)` — strips prefix, returns raw user text
+- `INSIST_PREFIX` constant exported
+- Main loop strips insist prefix before passing to reasoner, logs insist messages with `!` tag in TUI
+
+#### 5. Wiring (`src/index.ts`)
+- `input.onQueueChange()` wired to `tui.updateState({ pendingCount })` alongside scroll handler
+- Insist messages processed via `isInsistMessage()` + `stripInsistPrefix()` in main loop drain
+
+#### 6. Help text updates (`src/input.ts`, `src/config.ts`)
+- `/help` updated with `!message` and `/insist <msg>` documentation
+- `printHelp()` updated with `/insist` and `!message` in interactive commands section
+
+#### 7. Tests
+- `src/tui.test.ts` (6 tests): formatPrompt — no pending, with count, paused+count, thinking, thinking+count, paused beats reasoning
+- `src/input.test.ts` (6 tests): onQueueChange — fires on inject, fires on drain, no fire on empty drain, safe without handler; INSIST_PREFIX — non-empty, starts with __
+- `src/message.test.ts` (7 tests): isInsistMessage — prefixed/normal/command/empty; stripInsistPrefix — strips/unchanged/empty-after-prefix
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/message.ts`, `src/message.test.ts`, `src/index.ts`, `src/config.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +19, net 954 tests across 33 files.
 
 ### What shipped in v0.65.0
 

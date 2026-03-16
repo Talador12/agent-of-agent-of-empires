@@ -655,6 +655,7 @@ example config:
 interactive commands (while daemon is running):
   /help          show available commands
   /explain       ask the AI to explain what's happening in plain English
+  /insist <msg>  interrupt + deliver message immediately (skip queue)
   /status        request daemon status
   /dashboard     request full dashboard output
   /pause         pause the daemon
@@ -663,5 +664,6 @@ interactive commands (while daemon is running):
   /verbose       toggle verbose logging
   /clear         clear the screen
   ESC ESC        interrupt the current reasoner (shortcut)
-  (anything)     send a message to the AI — it reads your input next cycle`);
+  !message       insist shortcut — same as /insist message
+  (anything)     send a message to the AI — queued for next cycle`);
 }

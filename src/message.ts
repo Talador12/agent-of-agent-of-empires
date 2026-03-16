@@ -83,6 +83,26 @@ export function hasPendingFile(filePath: string): boolean {
   }
 }
 
+/**
+ * Insist prefix marker — messages prefixed with this bypass the normal queue
+ * and trigger an immediate interrupt + delivery.
+ */
+export const INSIST_PREFIX = "__INSIST__";
+
+/**
+ * Check if a message is an insist (priority) message.
+ */
+export function isInsistMessage(msg: string): boolean {
+  return msg.startsWith(INSIST_PREFIX);
+}
+
+/**
+ * Strip the insist prefix from a message, returning the raw user text.
+ */
+export function stripInsistPrefix(msg: string): string {
+  return msg.startsWith(INSIST_PREFIX) ? msg.slice(INSIST_PREFIX.length) : msg;
+}
+
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, max - 3) + "...";
 }

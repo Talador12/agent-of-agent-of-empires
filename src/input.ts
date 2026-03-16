@@ -11,16 +11,28 @@ const ESC_DOUBLE_TAP_MS = 500;
 
 export type ScrollDirection = "up" | "down" | "top" | "bottom";
 
+export const INSIST_PREFIX = "__INSIST__";
+
 export class InputReader {
   private rl: Interface | null = null;
   private queue: string[] = []; // pending user messages for the reasoner
   private paused = false;
   private lastEscTime = 0;
   private scrollHandler: ((dir: ScrollDirection) => void) | null = null;
+  private queueChangeHandler: ((count: number) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
   onScroll(handler: (dir: ScrollDirection) => void): void {
     this.scrollHandler = handler;
+  }
+
+  // register a callback for queue size changes (for TUI pending count display)
+  onQueueChange(handler: (count: number) => void): void {
+    this.queueChangeHandler = handler;
+  }
+
+  private notifyQueueChange(): void {
+    this.queueChangeHandler?.(this.queue.length);
   }
 
   start(): void {
@@ -73,6 +85,7 @@ export class InputReader {
   // drain all pending user messages (called each tick)
   drain(): string[] {
     const msgs = this.queue.splice(0);
+    if (msgs.length > 0) this.notifyQueueChange();
     return msgs;
   }
 
@@ -88,6 +101,7 @@ export class InputReader {
   // inject a message directly into the queue (used after interrupt to feed text into next tick)
   inject(msg: string): void {
     this.queue.push(msg);
+    this.notifyQueueChange();
   }
 
   // re-show the prompt (called after daemon prints output)
@@ -103,9 +117,18 @@ export class InputReader {
   private handleEscInterrupt(): void {
     requestInterrupt();
     this.queue.push("__CMD_INTERRUPT__");
+    this.notifyQueueChange();
     console.error(`\n${RED}${BOLD}>>> interrupting reasoner <<<${RESET}`);
     console.error(`${YELLOW}type your message now -- it will be sent before the next cycle${RESET}`);
     this.rl?.prompt(true);
+  }
+
+  private handleInsist(msg: string): void {
+    requestInterrupt();
+    this.queue.push("__CMD_INTERRUPT__");
+    this.queue.push(`${INSIST_PREFIX}${msg}`);
+    this.notifyQueueChange();
+    console.error(`${RED}${BOLD}!${RESET} ${GREEN}insist${RESET} ${DIM}— interrupting + delivering your message immediately${RESET}`);
   }
 
   private handleLine(line: string): void {
@@ -121,9 +144,21 @@ export class InputReader {
       return;
     }
 
+    // ! prefix = insist mode: interrupt + priority message
+    if (line.startsWith("!") && line.length > 1) {
+      const msg = line.slice(1).trim();
+      if (msg) {
+        this.handleInsist(msg);
+        this.rl?.prompt();
+        return;
+      }
+    }
+
     // queue as a user message for the reasoner
     this.queue.push(line);
-    console.error(`${GREEN}Got it!${RESET} ${DIM}The AI will read your message on the next cycle.${RESET}`);
+    this.notifyQueueChange();
+    const pending = this.queue.filter(m => !m.startsWith("__CMD_")).length;
+    console.error(`${GREEN}queued${RESET} ${DIM}(${pending} pending) — will be read next cycle${RESET}`);
     this.rl?.prompt();
   }
 
@@ -134,7 +169,9 @@ export class InputReader {
       case "/help":
         console.error(`
 ${BOLD}talking to the AI:${RESET}
-  just type          send a message to the AI supervisor
+  just type          send a message — queued for next cycle
+  !message           insist — interrupt + deliver message immediately
+  /insist <msg>      same as !message
   /explain           ask the AI to explain what's happening right now
 
 ${BOLD}controls:${RESET}
@@ -187,6 +224,16 @@ ${BOLD}other:${RESET}
       case "/interrupt":
         this.handleEscInterrupt();
         break;
+
+      case "/insist": {
+        const insistMsg = line.slice("/insist".length).trim();
+        if (insistMsg) {
+          this.handleInsist(insistMsg);
+        } else {
+          console.error(`${DIM}usage: /insist <message> — interrupts and delivers your message immediately${RESET}`);
+        }
+        break;
+      }
 
       case "/tasks":
         this.queue.push("__CMD_TASK__list");

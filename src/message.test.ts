@@ -9,6 +9,9 @@ import {
   buildReceipts,
   shouldSkipSleep,
   hasPendingFile,
+  isInsistMessage,
+  stripInsistPrefix,
+  INSIST_PREFIX,
 } from "./message.js";
 
 // --- classifyMessages ---
@@ -284,5 +287,41 @@ describe("message flow — classify, format, receipt", () => {
 
     const receipts = buildReceipts(userMessages);
     assert.equal(receipts.length, 0);
+  });
+});
+
+// --- isInsistMessage ---
+
+describe("isInsistMessage", () => {
+  it("returns true for insist-prefixed message", () => {
+    assert.equal(isInsistMessage(`${INSIST_PREFIX}fix this now`), true);
+  });
+
+  it("returns false for normal message", () => {
+    assert.equal(isInsistMessage("fix this now"), false);
+  });
+
+  it("returns false for command marker", () => {
+    assert.equal(isInsistMessage("__CMD_STATUS__"), false);
+  });
+
+  it("returns false for empty string", () => {
+    assert.equal(isInsistMessage(""), false);
+  });
+});
+
+// --- stripInsistPrefix ---
+
+describe("stripInsistPrefix", () => {
+  it("strips the prefix from an insist message", () => {
+    assert.equal(stripInsistPrefix(`${INSIST_PREFIX}hello world`), "hello world");
+  });
+
+  it("returns the message unchanged if no prefix", () => {
+    assert.equal(stripInsistPrefix("hello world"), "hello world");
+  });
+
+  it("handles empty message after prefix", () => {
+    assert.equal(stripInsistPrefix(INSIST_PREFIX), "");
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { InputReader } from "./input.js";
+import { InputReader, INSIST_PREFIX } from "./input.js";
 
 describe("InputReader queue management", () => {
   let reader: InputReader;
@@ -62,6 +62,49 @@ describe("InputReader hasPending", () => {
     reader.inject("a");
     reader.inject("b");
     assert.equal(reader.hasPending(), true);
+  });
+});
+
+describe("InputReader onQueueChange", () => {
+  it("fires callback on inject", () => {
+    const reader = new InputReader();
+    const counts: number[] = [];
+    reader.onQueueChange((c) => counts.push(c));
+    reader.inject("hello");
+    reader.inject("world");
+    assert.deepEqual(counts, [1, 2]);
+  });
+
+  it("fires callback on drain (resets to 0)", () => {
+    const reader = new InputReader();
+    const counts: number[] = [];
+    reader.inject("a");
+    reader.onQueueChange((c) => counts.push(c));
+    reader.drain();
+    assert.deepEqual(counts, [0]);
+  });
+
+  it("does not fire on drain when queue was already empty", () => {
+    const reader = new InputReader();
+    const counts: number[] = [];
+    reader.onQueueChange((c) => counts.push(c));
+    reader.drain();
+    assert.deepEqual(counts, []);
+  });
+
+  it("is safe to call without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.inject("msg"));
+  });
+});
+
+describe("INSIST_PREFIX constant", () => {
+  it("is a non-empty string", () => {
+    assert.ok(INSIST_PREFIX.length > 0);
+  });
+
+  it("starts with __", () => {
+    assert.ok(INSIST_PREFIX.startsWith("__"));
   });
 });
 

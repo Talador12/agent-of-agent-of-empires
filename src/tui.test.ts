@@ -4,7 +4,7 @@ import {
   formatActivity, formatSessionCard, formatSessionSentence,
   truncateAnsi, truncatePlain,
   padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay,
-  computeScrollSlice, formatScrollIndicator,
+  computeScrollSlice, formatScrollIndicator, formatPrompt,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry } from "./tui.js";
@@ -432,6 +432,50 @@ describe("formatScrollIndicator", () => {
     const result = formatScrollIndicator(10, 50, 20, 0);
     assert.ok(result.includes("PgUp/PgDn"));
     assert.ok(result.includes("End=live"));
+  });
+});
+
+// ── formatPrompt ────────────────────────────────────────────────────────────
+
+describe("formatPrompt", () => {
+  it("shows simple prompt when no pending messages", () => {
+    const result = formatPrompt("sleeping", false, 0);
+    const plain = stripAnsi(result);
+    assert.ok(plain.includes(">"));
+    assert.ok(!plain.includes("queued"));
+  });
+
+  it("shows queue count when messages are pending", () => {
+    const result = formatPrompt("sleeping", false, 3);
+    const plain = stripAnsi(result);
+    assert.ok(plain.includes("3 queued"));
+  });
+
+  it("shows paused prompt with queue count", () => {
+    const result = formatPrompt("sleeping", true, 2);
+    const plain = stripAnsi(result);
+    assert.ok(plain.includes("paused"));
+    assert.ok(plain.includes("2 queued"));
+  });
+
+  it("shows thinking prompt during reasoning", () => {
+    const result = formatPrompt("reasoning", false, 0);
+    const plain = stripAnsi(result);
+    assert.ok(plain.includes("thinking"));
+  });
+
+  it("shows thinking prompt with queue count", () => {
+    const result = formatPrompt("reasoning", false, 1);
+    const plain = stripAnsi(result);
+    assert.ok(plain.includes("thinking"));
+    assert.ok(plain.includes("1 queued"));
+  });
+
+  it("paused takes priority over reasoning", () => {
+    const result = formatPrompt("reasoning", true, 0);
+    const plain = stripAnsi(result);
+    assert.ok(plain.includes("paused"));
+    assert.ok(!plain.includes("thinking"));
   });
 });
 

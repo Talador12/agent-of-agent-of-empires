@@ -90,6 +90,7 @@ export class TUI {
   private spinnerFrame = 0;      // current spinner animation frame
   private scrollOffset = 0;      // 0 = live (bottom), >0 = scrolled back N entries
   private newWhileScrolled = 0;  // entries added while user is scrolled back
+  private pendingCount = 0;      // queued user messages awaiting next tick
 
   // current state for repaints
   private phase: DaemonPhase = "sleeping";
@@ -146,12 +147,14 @@ export class TUI {
     paused?: boolean;
     reasonerName?: string;
     nextTickAt?: number;
+    pendingCount?: number;
   }): void {
     if (opts.phase !== undefined) this.phase = opts.phase;
     if (opts.pollCount !== undefined) this.pollCount = opts.pollCount;
     if (opts.paused !== undefined) this.paused = opts.paused;
     if (opts.reasonerName !== undefined) this.reasonerName = opts.reasonerName;
     if (opts.nextTickAt !== undefined) this.nextTickAt = opts.nextTickAt;
+    if (opts.pendingCount !== undefined) this.pendingCount = opts.pendingCount;
     if (opts.sessions !== undefined) {
       const sessionCountChanged = opts.sessions.length !== this.sessions.length;
       this.sessions = opts.sessions;
@@ -400,12 +403,7 @@ export class TUI {
   }
 
   private paintInputLine(): void {
-    // phase-aware prompt styling
-    const prompt = this.paused
-      ? `${AMBER}${BOLD}paused >${RESET} `
-      : this.phase === "reasoning"
-      ? `${SKY}thinking >${RESET} `
-      : `${LIME}>${RESET} `;
+    const prompt = formatPrompt(this.phase, this.paused, this.pendingCount);
     process.stderr.write(
       SAVE_CURSOR +
       moveTo(this.inputRow, 1) + CLEAR_LINE + prompt +
@@ -533,6 +531,16 @@ export function formatSessionSentence(s: DaemonSessionState, maxCols: number): s
   return truncateAnsi(`${dot} ${BOLD}${name}${RESET} ${tool} ${SLATE}—${RESET} ${statusDesc}`, maxCols);
 }
 
+// ── Prompt helpers (pure, exported for testing) ─────────────────────────────
+
+// format the input prompt based on phase, pause state, and pending queue count
+function formatPrompt(phase: DaemonPhase, paused: boolean, pendingCount: number): string {
+  const queueTag = pendingCount > 0 ? `${AMBER}${pendingCount} queued${RESET} ` : "";
+  if (paused) return `${queueTag}${AMBER}${BOLD}paused >${RESET} `;
+  if (phase === "reasoning") return `${queueTag}${SKY}thinking >${RESET} `;
+  return `${queueTag}${LIME}>${RESET} `;
+}
+
 // ── Scroll helpers (pure, exported for testing) ─────────────────────────────
 
 // compute the slice indices for the activity buffer given scroll state
@@ -551,4 +559,4 @@ function formatScrollIndicator(offset: number, totalEntries: number, visibleLine
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
-export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator };
+export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatPrompt };

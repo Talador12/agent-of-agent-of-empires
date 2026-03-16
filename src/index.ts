@@ -13,7 +13,7 @@ import { loadGlobalContext, resolveProjectDirWithSource, discoverContextFiles, l
 import { tick as loopTick } from "./loop.js";
 import { exec as shellExec } from "./shell.js";
 import { wakeableSleep } from "./wake.js";
-import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile } from "./message.js";
+import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
 import { TUI } from "./tui.js";
@@ -267,6 +267,10 @@ async function main() {
         case "bottom": tui!.scrollToBottom(); break;
       }
     });
+    // wire queue count changes to TUI prompt display
+    input.onQueueChange((count) => {
+      tui!.updateState({ pendingCount: count });
+    });
   }
 
   // start TUI (alternate screen buffer) after input is ready
@@ -408,6 +412,15 @@ async function main() {
 
     // classify into commands vs. real user messages
     const { commands, userMessages } = classifyMessages(allMessages);
+
+    // strip insist prefix from priority messages and log them distinctly
+    for (let i = 0; i < userMessages.length; i++) {
+      if (isInsistMessage(userMessages[i])) {
+        const raw = stripInsistPrefix(userMessages[i]);
+        userMessages[i] = raw;
+        if (tui) tui.log("you", `! ${raw}`); else log(`[insist] ${raw}`);
+      }
+    }
 
     // auto-explain on first tick: inject an explain prompt so the AI introduces itself
     if (autoExplainPending && pollCount === 1) {
