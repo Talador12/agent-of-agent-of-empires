@@ -327,6 +327,8 @@ async function main() {
         tui!.log("system", "returned to overview");
         return;
       }
+      // compact mode: no per-session click targeting (use quick-switch or /view)
+      if (tui!.isCompact()) return;
       const sessionIdx = hitTestSession(row, 1, tui!.getSessionCount());
       if (sessionIdx !== null) {
         const ok = tui!.enterDrilldown(sessionIdx);
@@ -369,9 +371,15 @@ async function main() {
         tui!.log("system", `unknown sort mode: ${mode} (try: status, name, activity, default)`);
       }
     });
-    // wire mouse move to hover highlight on session cards
+    // wire /compact toggle
+    input.onCompact(() => {
+      const enabled = !tui!.isCompact();
+      tui!.setCompact(enabled);
+      tui!.log("system", `compact mode: ${enabled ? "on" : "off"}`);
+    });
+    // wire mouse move to hover highlight on session cards (disabled in compact)
     input.onMouseMove((row, _col) => {
-      if (tui!.getViewMode() === "overview") {
+      if (tui!.getViewMode() === "overview" && !tui!.isCompact()) {
         const sessionIdx = hitTestSession(row, 1, tui!.getSessionCount());
         tui!.setHoverSession(sessionIdx);
       }

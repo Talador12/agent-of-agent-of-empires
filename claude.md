@@ -5,22 +5,60 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.78.0
+## Version: v0.79.0
 
 ## Current Focus
 
-1248 tests across 37 files. v0.78.0 shipped: session sort — `/sort` command with 4 modes (status, name, activity, default). Sort indicator in the sessions panel top border. Activity tracking for time-based sort built into the TUI.
+1265 tests across 37 files. v0.79.0 shipped: compact mode — `/compact` toggles dense session panel layout with inline tokens. Sessions are packed as `1●Alpha  2●Bravo` tokens that wrap to fit terminal width, dramatically reducing panel height for many-session setups.
 
 ## Roadmap
 
-### v0.79.0+ — Ideas Backlog
+### v0.80.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
-- **Compact mode** — denser layout for terminals with many sessions
 - **Session pinning** — pin important sessions to the top regardless of sort
 - **Notification sounds** — optional terminal bell on error or completion events
+- **Bookmarks** — save and jump to specific activity entries
+- **Session health pulse** — tiny per-session sparklines in the compact view
+
+### What shipped in v0.79.0
+
+**Theme: "Compact"** — compact mode for the session panel. `/compact` toggles between normal (one card per row) and compact (inline tokens, multiple per row). In compact mode, sessions display as numbered tokens `1●Alpha  2●Bravo` that wrap to fill the terminal width, drastically reducing panel height for many-session setups. Quick-switch 1-9 and `/view` still work. Mouse click/hover disabled in compact (use keyboard). Sort and compact tags shown in panel border: ` agents (compact, status) `. 17 new tests.
+
+#### 1. `formatCompactRows()` pure function (`src/tui.ts`)
+- Takes sessions array and max width, returns array of formatted row strings
+- Each token: `{idx}{coloredDot}{boldName}` — e.g. `1●Alpha`
+- Names truncated to `COMPACT_NAME_LEN` (10 chars)
+- Tokens packed left-to-right with 2-space gaps, wrapping to next row when width exceeded
+
+#### 2. `computeCompactRowCount()` pure function (`src/tui.ts`)
+- Returns number of display rows needed for compact layout (minimum 1)
+
+#### 3. Compact state on TUI class (`src/tui.ts`)
+- `compactMode` field, `setCompact(enabled)`, `isCompact()` methods
+- `setCompact` recomputes layout and repaints when toggled
+- `computeLayout()` uses `computeCompactRowCount()` instead of session count in compact mode
+- `paintSessions()` branches: compact renders inline tokens, normal renders full cards
+- Top border label combines compact and sort tags: ` agents (compact, status) `
+
+#### 4. `/compact` command (`src/input.ts`)
+- `CompactHandler` type: `() => void`
+- `onCompact(handler)` callback registration on `InputReader`
+- `/help` updated with `/compact` in navigation section
+
+#### 5. Wiring (`src/index.ts`)
+- `input.onCompact()` → toggles `tui.setCompact(!tui.isCompact())`, logs mode change
+- Mouse click and hover guards: skip per-session targeting when compact mode is on
+- Click-to-drilldown and hover highlight only active in normal mode
+
+#### 6. Tests
+- `src/tui.test.ts` (14 tests): formatCompactRows — empty, single, multiple fit, wrapping, truncation, numbered indexes; computeCompactRowCount — empty, few, many; TUI compact state — initial off, setCompact on/off, no-op same value, safe when inactive
+- `src/input.test.ts` (3 tests): onCompact — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +17, net 1265 tests across 37 files.
 
 ### What shipped in v0.78.0
 

@@ -410,3 +410,29 @@ describe("InputReader onSort", () => {
     assert.equal(m2.length, 0);
   });
 });
+
+// ── InputReader onCompact ───────────────────────────────────────────────────
+
+describe("InputReader onCompact", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    let called = 0;
+    reader.onCompact(() => called++);
+    assert.equal(called, 0); // not called until command is issued
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    let a = 0;
+    let b = 0;
+    reader.onCompact(() => a++);
+    reader.onCompact(() => b++);
+    assert.equal(a, 0);
+    assert.equal(b, 0);
+  });
+});

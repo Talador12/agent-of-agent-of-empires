@@ -17,6 +17,7 @@ export type ViewHandler = (target: string | null) => void; // null = back to ove
 export type SearchHandler = (pattern: string | null) => void; // null = clear search
 export type QuickSwitchHandler = (sessionNum: number) => void; // 1-indexed session number
 export type SortHandler = (mode: string | null) => void; // null = cycle to next mode
+export type CompactHandler = () => void; // toggle compact mode
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -61,6 +62,7 @@ export class InputReader {
   private searchHandler: SearchHandler | null = null;
   private quickSwitchHandler: QuickSwitchHandler | null = null;
   private sortHandler: SortHandler | null = null;
+  private compactHandler: CompactHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -106,6 +108,11 @@ export class InputReader {
   // register a callback for sort commands (/sort <mode> or /sort to cycle)
   onSort(handler: SortHandler): void {
     this.sortHandler = handler;
+  }
+
+  // register a callback for compact mode toggle (/compact)
+  onCompact(handler: CompactHandler): void {
+    this.compactHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -299,6 +306,7 @@ ${BOLD}navigation:${RESET}
   /view [N|name]     drill into a session's live output (default: 1)
   /back              return to overview from drill-down
   /sort [mode]       sort sessions: status, name, activity, default (or cycle)
+  /compact           toggle compact mode (dense session panel)
   /search <pattern>  filter activity entries by substring (case-insensitive)
   /search            clear active search filter
   click session      click an agent card to drill down (click again to go back)
@@ -397,6 +405,14 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/compact":
+        if (this.compactHandler) {
+          this.compactHandler();
+        } else {
+          console.error(`${DIM}compact mode not available (no TUI)${RESET}`);
+        }
+        break;
 
       case "/search": {
         const searchArg = line.slice("/search".length).trim();

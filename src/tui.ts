@@ -82,6 +82,55 @@ function nextSortMode(current: SortMode): SortMode {
   return SORT_MODES[(idx + 1) % SORT_MODES.length];
 }
 
+// ── Compact mode ────────────────────────────────────────────────────────────
+
+/** Max name length in compact token. */
+const COMPACT_NAME_LEN = 10;
+
+/**
+ * Format sessions as inline compact tokens, wrapped to fit maxWidth.
+ * Each token: "{idx}{dot}{name}" — e.g. "1●Alpha" with colored dot and bold name.
+ * Returns array of formatted row strings (one per display row).
+ */
+function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number): string[] {
+  if (sessions.length === 0) return [`${DIM}no agents connected${RESET}`];
+
+  const tokens: string[] = [];
+  const widths: number[] = [];
+
+  for (let i = 0; i < sessions.length; i++) {
+    const s = sessions[i];
+    const idx = String(i + 1);
+    const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
+    const name = truncatePlain(s.title, COMPACT_NAME_LEN);
+    tokens.push(`${SLATE}${idx}${RESET}${dot}${BOLD}${name}${RESET}`);
+    widths.push(idx.length + 1 + name.length); // idx chars + dot char + name chars
+  }
+
+  const rows: string[] = [];
+  let currentRow = "";
+  let currentWidth = 0;
+
+  for (let i = 0; i < tokens.length; i++) {
+    const gap = currentWidth > 0 ? 2 : 0;
+    if (currentWidth + gap + widths[i] > maxWidth && currentWidth > 0) {
+      rows.push(currentRow);
+      currentRow = tokens[i];
+      currentWidth = widths[i];
+    } else {
+      currentRow += (currentWidth > 0 ? "  " : "") + tokens[i];
+      currentWidth += gap + widths[i];
+    }
+  }
+  if (currentRow) rows.push(currentRow);
+  return rows;
+}
+
+/** Compute how many display rows compact mode needs (minimum 1). */
+function computeCompactRowCount(sessions: DaemonSessionState[], maxWidth: number): number {
+  return Math.max(1, formatCompactRows(sessions, maxWidth).length);
+}
+
 // ── Status rendering ────────────────────────────────────────────────────────
 
 const STATUS_DOT: Record<string, string> = {
@@ -141,6 +190,7 @@ export class TUI {
   private sortMode: SortMode = "default";
   private lastChangeAt = new Map<string, number>();       // session ID → epoch ms of last activity change
   private prevLastActivity = new Map<string, string>();   // session ID → previous lastActivity string
+  private compactMode = false;
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -214,6 +264,21 @@ export class TUI {
   /** Return the current sort mode. */
   getSortMode(): SortMode {
     return this.sortMode;
+  }
+
+  /** Toggle or set compact mode. Recomputes layout and repaints. */
+  setCompact(enabled: boolean): void {
+    if (enabled === this.compactMode) return;
+    this.compactMode = enabled;
+    if (this.active) {
+      this.computeLayout(this.sessions.length);
+      this.paintAll();
+    }
+  }
+
+  /** Return whether compact mode is enabled. */
+  isCompact(): boolean {
+    return this.compactMode;
   }
 
   // ── State updates ───────────────────────────────────────────────────────
@@ -523,7 +588,9 @@ export class TUI {
       this.scrollBottom = this.rows - 1;
     } else {
       // overview: header (1) + sessions box + separator + activity + input
-      const sessBodyRows = Math.max(sessionCount, 1);
+      const sessBodyRows = this.compactMode
+        ? computeCompactRowCount(this.sessions, this.cols - 2)
+        : Math.max(sessionCount, 1);
       this.sessionRows = sessBodyRows + 2; // + top/bottom borders
       this.separatorRow = this.headerHeight + this.sessionRows + 1;
       this.inputRow = this.rows;
@@ -592,8 +659,11 @@ export class TUI {
     const startRow = this.headerHeight + 1;
     const innerWidth = this.cols - 2; // inside the box borders
 
-    // top border with label (includes sort mode when not default)
-    const label = this.sortMode === "default" ? " agents " : ` agents (${this.sortMode}) `;
+    // top border with label (includes compact/sort mode tags)
+    const sortTag = this.sortMode !== "default" ? this.sortMode : "";
+    const compactTag = this.compactMode ? "compact" : "";
+    const tags = [compactTag, sortTag].filter(Boolean).join(", ");
+    const label = tags ? ` agents (${tags}) ` : " agents ";
     const borderAfterLabel = Math.max(0, innerWidth - label.length);
     const topBorder = `${SLATE}${BOX.rtl}${BOX.h}${RESET}${SLATE}${label}${RESET}${SLATE}${BOX.h.repeat(borderAfterLabel)}${BOX.rtr}${RESET}`;
     process.stderr.write(SAVE_CURSOR + moveTo(startRow, 1) + CLEAR_LINE + truncateAnsi(topBorder, this.cols));
@@ -603,6 +673,14 @@ export class TUI {
       const empty = `${SLATE}${BOX.v}${RESET}  ${DIM}no agents connected${RESET}`;
       const padded = padBoxLine(empty, this.cols);
       process.stderr.write(moveTo(startRow + 1, 1) + CLEAR_LINE + padded);
+    } else if (this.compactMode) {
+      // compact: inline tokens, multiple per row
+      const compactRows = formatCompactRows(this.sessions, innerWidth - 1);
+      for (let r = 0; r < compactRows.length; r++) {
+        const line = `${SLATE}${BOX.v}${RESET} ${compactRows[r]}`;
+        const padded = padBoxLine(line, this.cols);
+        process.stderr.write(moveTo(startRow + 1 + r, 1) + CLEAR_LINE + padded);
+      }
     } else {
       for (let i = 0; i < this.sessions.length; i++) {
         const s = this.sessions[i];
@@ -615,7 +693,9 @@ export class TUI {
     }
 
     // bottom border
-    const bodyRows = Math.max(this.sessions.length, 1);
+    const bodyRows = this.compactMode
+      ? computeCompactRowCount(this.sessions, innerWidth)
+      : Math.max(this.sessions.length, 1);
     const bottomRow = startRow + 1 + bodyRows;
     const bottomBorder = `${SLATE}${BOX.rbl}${BOX.h.repeat(Math.max(0, this.cols - 2))}${BOX.rbr}${RESET}`;
     process.stderr.write(moveTo(bottomRow, 1) + CLEAR_LINE + truncateAnsi(bottomBorder, this.cols));
@@ -1012,4 +1092,4 @@ export function hitTestSession(row: number, headerHeight: number, sessionCount: 
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
-export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator, computeSparkline, formatSparkline, sortSessions, nextSortMode, SORT_MODES };
+export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator, computeSparkline, formatSparkline, sortSessions, nextSortMode, SORT_MODES, formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN };

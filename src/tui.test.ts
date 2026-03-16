@@ -10,6 +10,7 @@ import {
   matchesSearch, formatSearchIndicator,
   computeSparkline, formatSparkline,
   sortSessions, nextSortMode, SORT_MODES,
+  formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry, SortMode } from "./tui.js";
@@ -1249,6 +1250,121 @@ describe("TUI sort state", () => {
     });
     // getSessionCount confirms sessions were stored
     assert.equal(tui.getSessionCount(), 2);
+  });
+});
+
+// ── formatCompactRows ───────────────────────────────────────────────────────
+
+describe("formatCompactRows", () => {
+  it("returns 'no agents connected' for empty sessions", () => {
+    const rows = formatCompactRows([], 80);
+    assert.equal(rows.length, 1);
+    assert.ok(stripAnsi(rows[0]).includes("no agents connected"));
+  });
+
+  it("formats a single session as one row", () => {
+    const rows = formatCompactRows([makeSession({ title: "Alpha" })], 80);
+    assert.equal(rows.length, 1);
+    const plain = stripAnsi(rows[0]);
+    assert.ok(plain.includes("1"), "should include index");
+    assert.ok(plain.includes("Alpha"), "should include name");
+  });
+
+  it("fits multiple sessions on one row when width allows", () => {
+    const sessions = [
+      makeSession({ id: "a", title: "Alpha" }),
+      makeSession({ id: "b", title: "Bravo" }),
+    ];
+    const rows = formatCompactRows(sessions, 80);
+    assert.equal(rows.length, 1);
+    const plain = stripAnsi(rows[0]);
+    assert.ok(plain.includes("Alpha"), "should include first name");
+    assert.ok(plain.includes("Bravo"), "should include second name");
+  });
+
+  it("wraps to multiple rows when width is narrow", () => {
+    const sessions = Array.from({ length: 10 }, (_, i) =>
+      makeSession({ id: String(i), title: `Agent${i}` }),
+    );
+    // narrow width forces wrapping
+    const rows = formatCompactRows(sessions, 30);
+    assert.ok(rows.length > 1, `expected wrapping, got ${rows.length} rows`);
+  });
+
+  it("truncates long names", () => {
+    const sessions = [makeSession({ title: "VeryLongAgentNameThatShouldBeTruncated" })];
+    const rows = formatCompactRows(sessions, 80);
+    const plain = stripAnsi(rows[0]);
+    // name part should be at most COMPACT_NAME_LEN + index + dot
+    assert.ok(plain.length <= COMPACT_NAME_LEN + 3, `token too long: "${plain}"`);
+  });
+
+  it("includes numbered indexes", () => {
+    const sessions = [
+      makeSession({ id: "a", title: "Alpha" }),
+      makeSession({ id: "b", title: "Bravo" }),
+      makeSession({ id: "c", title: "Charlie" }),
+    ];
+    const rows = formatCompactRows(sessions, 80);
+    const plain = stripAnsi(rows.join(""));
+    assert.ok(plain.includes("1"), "should have index 1");
+    assert.ok(plain.includes("2"), "should have index 2");
+    assert.ok(plain.includes("3"), "should have index 3");
+  });
+});
+
+// ── computeCompactRowCount ──────────────────────────────────────────────────
+
+describe("computeCompactRowCount", () => {
+  it("returns 1 for empty sessions", () => {
+    assert.equal(computeCompactRowCount([], 80), 1);
+  });
+
+  it("returns 1 for few sessions in wide terminal", () => {
+    const sessions = [makeSession({ title: "A" }), makeSession({ title: "B" })];
+    assert.equal(computeCompactRowCount(sessions, 80), 1);
+  });
+
+  it("returns more rows for many sessions in narrow terminal", () => {
+    const sessions = Array.from({ length: 10 }, (_, i) =>
+      makeSession({ id: String(i), title: `Agent${i}` }),
+    );
+    const rows = computeCompactRowCount(sessions, 30);
+    assert.ok(rows > 1, `expected > 1 row, got ${rows}`);
+  });
+});
+
+// ── TUI compact state ──────────────────────────────────────────────────────
+
+describe("TUI compact state", () => {
+  it("initial compact mode is off", () => {
+    const tui = new TUI();
+    assert.equal(tui.isCompact(), false);
+  });
+
+  it("setCompact enables compact mode", () => {
+    const tui = new TUI();
+    tui.setCompact(true);
+    assert.equal(tui.isCompact(), true);
+  });
+
+  it("setCompact(false) disables compact mode", () => {
+    const tui = new TUI();
+    tui.setCompact(true);
+    tui.setCompact(false);
+    assert.equal(tui.isCompact(), false);
+  });
+
+  it("setCompact no-ops for same value", () => {
+    const tui = new TUI();
+    tui.setCompact(false); // already false, should not throw
+    assert.equal(tui.isCompact(), false);
+  });
+
+  it("setCompact is safe when TUI is not active", () => {
+    const tui = new TUI();
+    tui.setCompact(true); // not started, should not throw
+    assert.equal(tui.isCompact(), true);
   });
 });
 
