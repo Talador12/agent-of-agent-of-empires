@@ -5,6 +5,7 @@ import {
   truncateAnsi, truncatePlain,
   padBoxLine, padToWidth, stripAnsiForLen, phaseDisplay,
   computeScrollSlice, formatScrollIndicator, formatPrompt, formatDrilldownHeader,
+  hitTestSession,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry } from "./tui.js";
@@ -579,6 +580,111 @@ describe("TUI drill-down state", () => {
     const outputs = new Map<string, string>();
     outputs.set("abc123", "line1\nline2\nline3");
     tui.setSessionOutputs(outputs); // should not throw
+  });
+});
+
+// ── hitTestSession ──────────────────────────────────────────────────────────
+
+describe("hitTestSession", () => {
+  // with headerHeight=1:
+  //   row 2 = top border (not a session)
+  //   row 3 = session 1
+  //   row 4 = session 2
+  //   row 5 = session 3
+  //   row 6 = bottom border (not a session)
+
+  it("returns 1 for first session row (row 3, header=1, 3 sessions)", () => {
+    assert.equal(hitTestSession(3, 1, 3), 1);
+  });
+
+  it("returns 2 for second session row", () => {
+    assert.equal(hitTestSession(4, 1, 3), 2);
+  });
+
+  it("returns 3 for third session row", () => {
+    assert.equal(hitTestSession(5, 1, 3), 3);
+  });
+
+  it("returns null for top border row", () => {
+    assert.equal(hitTestSession(2, 1, 3), null);
+  });
+
+  it("returns null for bottom border row (below last session)", () => {
+    assert.equal(hitTestSession(6, 1, 3), null);
+  });
+
+  it("returns null for header row", () => {
+    assert.equal(hitTestSession(1, 1, 3), null);
+  });
+
+  it("returns null for row 0", () => {
+    assert.equal(hitTestSession(0, 1, 3), null);
+  });
+
+  it("returns null for row well below sessions", () => {
+    assert.equal(hitTestSession(20, 1, 3), null);
+  });
+
+  it("returns null when sessionCount is 0", () => {
+    assert.equal(hitTestSession(3, 1, 0), null);
+  });
+
+  it("handles single session", () => {
+    // row 3 = session 1, rows 2 and 4 are borders
+    assert.equal(hitTestSession(3, 1, 1), 1);
+    assert.equal(hitTestSession(2, 1, 1), null);
+    assert.equal(hitTestSession(4, 1, 1), null);
+  });
+
+  it("handles headerHeight=2", () => {
+    // first session at row 4 (headerHeight+2)
+    assert.equal(hitTestSession(3, 2, 3), null); // top border
+    assert.equal(hitTestSession(4, 2, 3), 1);
+    assert.equal(hitTestSession(5, 2, 3), 2);
+    assert.equal(hitTestSession(6, 2, 3), 3);
+    assert.equal(hitTestSession(7, 2, 3), null); // bottom border
+  });
+
+  it("handles large number of sessions", () => {
+    assert.equal(hitTestSession(3, 1, 100), 1);
+    assert.equal(hitTestSession(102, 1, 100), 100);
+    assert.equal(hitTestSession(103, 1, 100), null);
+  });
+
+  it("returns null for negative row", () => {
+    assert.equal(hitTestSession(-1, 1, 3), null);
+  });
+
+  it("returns null for negative sessionCount", () => {
+    assert.equal(hitTestSession(3, 1, -1), null);
+  });
+});
+
+// ── TUI.getSessionCount ─────────────────────────────────────────────────────
+
+describe("TUI.getSessionCount", () => {
+  it("returns 0 before any sessions are set", () => {
+    const tui = new TUI();
+    assert.equal(tui.getSessionCount(), 0);
+  });
+
+  it("returns session count after updateState", () => {
+    const tui = new TUI();
+    tui.updateState({
+      sessions: [
+        { id: "a", title: "one", tool: "opencode", status: "working" },
+        { id: "b", title: "two", tool: "claude", status: "idle" },
+      ],
+    });
+    assert.equal(tui.getSessionCount(), 2);
+  });
+
+  it("updates when sessions change", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "a", title: "one", tool: "opencode", status: "working" }] });
+    assert.equal(tui.getSessionCount(), 1);
+    tui.updateState({ sessions: [] });
+    assert.equal(tui.getSessionCount(), 0);
   });
 });
 

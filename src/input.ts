@@ -15,6 +15,32 @@ export const INSIST_PREFIX = "__INSIST__";
 
 export type ViewHandler = (target: string | null) => void; // null = back to overview
 
+// ── Mouse event types ───────────────────────────────────────────────────────
+
+export interface MouseEvent {
+  button: number;  // 0=left, 1=middle, 2=right, 64=scroll-up, 65=scroll-down
+  col: number;     // 1-indexed column
+  row: number;     // 1-indexed row
+  press: boolean;  // true=press (M suffix), false=release (m suffix)
+}
+
+export type MouseClickHandler = (row: number, col: number) => void;
+
+// SGR extended mouse format: \x1b[<btn;col;rowM (press) or \x1b[<btn;col;rowm (release)
+const SGR_MOUSE_RE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/;
+
+/** Parse an SGR extended mouse event from raw terminal data. Returns null if not a mouse event. */
+export function parseMouseEvent(data: string): MouseEvent | null {
+  const m = SGR_MOUSE_RE.exec(data);
+  if (!m) return null;
+  return {
+    button: parseInt(m[1], 10),
+    col: parseInt(m[2], 10),
+    row: parseInt(m[3], 10),
+    press: m[4] === "M",
+  };
+}
+
 export class InputReader {
   private rl: Interface | null = null;
   private queue: string[] = []; // pending user messages for the reasoner
@@ -23,6 +49,8 @@ export class InputReader {
   private scrollHandler: ((dir: ScrollDirection) => void) | null = null;
   private queueChangeHandler: ((count: number) => void) | null = null;
   private viewHandler: ViewHandler | null = null;
+  private mouseClickHandler: MouseClickHandler | null = null;
+  private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
   onScroll(handler: (dir: ScrollDirection) => void): void {
@@ -37,6 +65,11 @@ export class InputReader {
   // register a callback for view commands (/view, /back)
   onView(handler: ViewHandler): void {
     this.viewHandler = handler;
+  }
+
+  // register a callback for mouse left-click events (row, col are 1-indexed)
+  onMouseClick(handler: MouseClickHandler): void {
+    this.mouseClickHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -59,6 +92,17 @@ export class InputReader {
 
     // ESC-ESC interrupt detection (same as chat.ts)
     emitKeypressEvents(process.stdin);
+
+    // intercept raw SGR mouse sequences before keypress parsing
+    this.mouseDataListener = (data: Buffer) => {
+      const str = data.toString("utf8");
+      const evt = parseMouseEvent(str);
+      if (evt && evt.press && evt.button === 0 && this.mouseClickHandler) {
+        this.mouseClickHandler(evt.row, evt.col);
+      }
+    };
+    process.stdin.on("data", this.mouseDataListener);
+
     process.stdin.on("keypress", (_ch: string | undefined, key: { name?: string; sequence?: string }) => {
       if (key?.name === "escape" || key?.sequence === "\x1b") {
         const now = Date.now();
@@ -118,6 +162,10 @@ export class InputReader {
   }
 
   stop(): void {
+    if (this.mouseDataListener) {
+      process.stdin.removeListener("data", this.mouseDataListener);
+      this.mouseDataListener = null;
+    }
     this.rl?.close();
     this.rl = null;
   }
@@ -191,6 +239,7 @@ ${BOLD}controls:${RESET}
 ${BOLD}navigation:${RESET}
   /view [N|name]     drill into a session's live output (default: 1)
   /back              return to overview from drill-down
+  click session      click an agent card to drill down (click again to go back)
   PgUp / PgDn        scroll through activity history
   Home / End         jump to oldest / return to live
 

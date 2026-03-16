@@ -33,6 +33,10 @@ const CURSOR_SHOW = `${CSI}?25h`;
 const SAVE_CURSOR = `${ESC}7`;
 const RESTORE_CURSOR = `${ESC}8`;
 
+// mouse tracking (SGR extended mode — button events + extended coordinates)
+const MOUSE_ON = `${CSI}?1000h${CSI}?1006h`;
+const MOUSE_OFF = `${CSI}?1000l${CSI}?1006l`;
+
 // cursor movement
 const moveTo = (row: number, col: number) => `${CSI}${row};${col}H`;
 const setScrollRegion = (top: number, bottom: number) => `${CSI}${top};${bottom}r`;
@@ -112,8 +116,8 @@ export class TUI {
     this.version = version;
     this.updateDimensions();
 
-    // enter alternate screen, hide cursor, clear
-    process.stderr.write(ALT_SCREEN_ON + CURSOR_HIDE + CLEAR_SCREEN);
+    // enter alternate screen, hide cursor, clear, enable mouse
+    process.stderr.write(ALT_SCREEN_ON + CURSOR_HIDE + CLEAR_SCREEN + MOUSE_ON);
 
     // handle terminal resize
     process.stdout.on("resize", () => this.onResize());
@@ -135,12 +139,17 @@ export class TUI {
     if (!this.active) return;
     this.active = false;
     if (this.countdownTimer) { clearInterval(this.countdownTimer); this.countdownTimer = null; }
-    // restore normal screen, show cursor, reset scroll region
-    process.stderr.write(resetScrollRegion() + CURSOR_SHOW + ALT_SCREEN_OFF);
+    // disable mouse, restore normal screen, show cursor, reset scroll region
+    process.stderr.write(MOUSE_OFF + resetScrollRegion() + CURSOR_SHOW + ALT_SCREEN_OFF);
   }
 
   isActive(): boolean {
     return this.active;
+  }
+
+  /** Return the current number of sessions (for mouse hit testing) */
+  getSessionCount(): number {
+    return this.sessions.length;
   }
 
   // ── State updates ───────────────────────────────────────────────────────
@@ -443,7 +452,7 @@ export class TUI {
     if (this.scrollOffset > 0) {
       hints = formatScrollIndicator(this.scrollOffset, this.activityBuffer.length, this.scrollBottom - this.scrollTop + 1, this.newWhileScrolled);
     } else {
-      hints = " esc esc: interrupt  /help  /explain  /pause ";
+      hints = " click agent to view  esc esc: interrupt  /help ";
     }
     const totalLen = prefix.length + hints.length;
     const fill = Math.max(0, this.cols - totalLen);
@@ -698,6 +707,23 @@ function formatScrollIndicator(offset: number, totalEntries: number, visibleLine
   const position = totalEntries - offset;
   const newTag = newCount > 0 ? `  ${newCount} new ↓` : "";
   return ` ↑ ${offset} older  │  ${position}/${totalEntries}  │  PgUp/PgDn  End=live${newTag} `;
+}
+
+// ── Mouse hit testing (pure, exported for testing) ──────────────────────────
+
+/**
+ * Hit-test a mouse click row against the session panel.
+ * Returns 1-indexed session number if the click hit a session card, null otherwise.
+ *
+ * Session cards occupy rows: headerHeight + 2 through headerHeight + 1 + sessionCount
+ * (row = headerHeight + 2 + i for 0-indexed session i)
+ */
+export function hitTestSession(row: number, headerHeight: number, sessionCount: number): number | null {
+  if (sessionCount <= 0) return null;
+  const firstSessionRow = headerHeight + 2; // top border is headerHeight+1, first card is +2
+  const lastSessionRow = firstSessionRow + sessionCount - 1;
+  if (row < firstSessionRow || row > lastSessionRow) return null;
+  return row - firstSessionRow + 1; // 1-indexed
 }
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────

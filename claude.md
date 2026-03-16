@@ -5,20 +5,57 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.71.0
+## Version: v0.72.0
 
 ## Current Focus
 
-1122 tests across 37 files. v0.71.0 shipped: `aoaoe replay` — play back tui-history.jsonl like a movie with simulated timing.
+1158 tests across 37 files. v0.72.0 shipped: mouse click session selection in the TUI — click an agent card to drill down, click again to return to overview.
 
 ## Roadmap
 
-### v0.72.0+ — Ideas Backlog
+### v0.73.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
-- **Mouse click session selection** — click on a session in the agents panel to drill down
 - **Smart session context budget** — dynamic context allocation based on session activity
+
+### What shipped in v0.72.0
+
+**Theme: "Click"** — mouse click session selection in the TUI. Click an agent card in the sessions panel to drill down into its live output. Click anywhere in drill-down mode to return to overview. SGR extended mouse protocol, pure hit-test function, zero new dependencies. 36 new tests.
+
+#### 1. Mouse event parsing (`src/input.ts`)
+- `MouseEvent` interface: `{ button, col, row, press }` (1-indexed coordinates)
+- `parseMouseEvent(data)` pure function — parses SGR extended mouse sequences (`\x1b[<btn;col;rowM/m`)
+- `MouseClickHandler` type exported
+- `onMouseClick(handler)` callback registration on `InputReader`
+- Raw `process.stdin.on("data")` listener intercepts SGR mouse sequences, dispatches left-click press (button=0, M suffix) to handler
+- Listener cleanup in `stop()` via `removeListener`
+
+#### 2. Mouse tracking in TUI (`src/tui.ts`)
+- `MOUSE_ON` / `MOUSE_OFF` constants — `\x1b[?1000h\x1b[?1006h` / `\x1b[?1000l\x1b[?1006l` (button tracking + SGR extended mode)
+- `start()` writes `MOUSE_ON` after entering alternate screen
+- `stop()` writes `MOUSE_OFF` before restoring normal screen
+- `getSessionCount()` method — exposes session count for external hit testing
+
+#### 3. Hit testing (`src/tui.ts`)
+- `hitTestSession(row, headerHeight, sessionCount)` pure exported function
+- Session cards at rows `headerHeight+2` through `headerHeight+1+sessionCount`
+- Returns 1-indexed session number or `null` for miss
+
+#### 4. Wiring (`src/index.ts`)
+- `input.onMouseClick()` handler: in overview mode, calls `hitTestSession()` → `tui.enterDrilldown()`; in drilldown mode, click anywhere → `tui.exitDrilldown()`
+- Imported `hitTestSession` from tui.ts
+
+#### 5. UX updates
+- `/help` navigation section: added "click session" hint
+- TUI separator bar: changed default hints to "click agent to view" for discoverability
+
+#### 6. Tests
+- `src/input.test.ts` (19 tests): parseMouseEvent — left click press/release, right click, middle click, scroll up/down, large coordinates, single-digit coordinates, non-mouse data, empty string, ANSI escape, partial sequence, legacy X10, embedded data, typed fields, press vs release; onMouseClick — register handler, safe without handler, handler replacement
+- `src/tui.test.ts` (17 tests): hitTestSession — sessions 1-3 in range, top/bottom border miss, header miss, row 0, far below, zero sessions, single session, headerHeight=2, 100 sessions, negative row, negative sessionCount; TUI.getSessionCount — initial 0, after updateState, after change
+
+Modified: `src/input.ts`, `src/input.test.ts`, `src/tui.ts`, `src/tui.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +36, net 1158 tests across 37 files.
 
 ### What shipped in v0.71.0
 

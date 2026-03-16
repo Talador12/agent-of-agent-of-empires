@@ -16,7 +16,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
-import { TUI } from "./tui.js";
+import { TUI, hitTestSession } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
 import { startHealthServer } from "./health.js";
@@ -306,6 +306,20 @@ async function main() {
         } else {
           tui!.log("system", `session not found: ${target}`);
         }
+      }
+    });
+    // wire mouse clicks on session cards to drill-down
+    input.onMouseClick((row, _col) => {
+      if (tui!.getViewMode() === "drilldown") {
+        // click anywhere in drilldown = back to overview
+        tui!.exitDrilldown();
+        tui!.log("system", "returned to overview");
+        return;
+      }
+      const sessionIdx = hitTestSession(row, 1, tui!.getSessionCount());
+      if (sessionIdx !== null) {
+        const ok = tui!.enterDrilldown(sessionIdx);
+        if (ok) tui!.log("system", `viewing session #${sessionIdx}`);
       }
     });
   }
