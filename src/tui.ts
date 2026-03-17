@@ -255,10 +255,24 @@ export function formatMuteBadge(count: number): string {
   return `${DIM}(${label})${RESET}`;
 }
 
-/** Check if an activity entry matches a tag filter (case-insensitive exact match on tag). */
+/** Check if an activity entry matches a tag filter (case-insensitive, supports pipe-separated multi-tag). */
 export function matchesTagFilter(entry: ActivityEntry, tag: string): boolean {
   if (!tag) return true;
-  return entry.tag.toLowerCase() === tag.toLowerCase();
+  const lower = entry.tag.toLowerCase();
+  if (tag.includes("|")) return tag.toLowerCase().split("|").some((t) => lower === t.trim());
+  return lower === tag.toLowerCase();
+}
+
+/** Built-in filter presets: name → pipe-separated tag pattern. */
+export const FILTER_PRESETS: Record<string, string> = {
+  errors: "error|! action",
+  actions: "+ action|! action",
+  system: "system|status",
+};
+
+/** Resolve a filter string — expands preset names, returns raw tag otherwise. */
+export function resolveFilterPreset(input: string): string {
+  return FILTER_PRESETS[input.toLowerCase()] ?? input;
 }
 
 /** Format the tag filter indicator text for the separator bar. */
@@ -1013,9 +1027,9 @@ export class TUI {
 
   // ── Tag filter ─────────────────────────────────────────────────────────
 
-  /** Set or clear the tag filter. Resets scroll and repaints. */
+  /** Set or clear the tag filter. Resolves presets (e.g. "errors"). Resets scroll and repaints. */
   setTagFilter(tag: string | null): void {
-    this.filterTag = tag && tag.length > 0 ? tag : null;
+    this.filterTag = tag && tag.length > 0 ? resolveFilterPreset(tag) : null;
     this.scrollOffset = 0;
     this.newWhileScrolled = 0;
     if (this.active && this.viewMode === "overview") {

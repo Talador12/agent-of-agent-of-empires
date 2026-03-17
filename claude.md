@@ -5,24 +5,30 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.92.0
+## Version: v0.93.0
 
 ## Current Focus
 
-1461 tests across 35 files. v0.92.0 shipped: sticky filters — TUI view settings (sort, compact, focus, bell, auto-pin, tag filter) persist to `~/.aoaoe/tui-prefs.json` and restore on restart. 2 new tests.
+1468 tests across 35 files. v0.93.0 shipped: filter presets — `/filter errors` expands to `error|! action`, `/filter actions` to `+ action|! action`, `/filter system` to `system|status`. Pipe-separated multi-tag matching in `matchesTagFilter()`. 7 new tests.
 
 ## Roadmap
 
-### v0.93.0+ — Ideas Backlog
+### v0.94.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Session health pulse** — tiny per-session sparklines in the compact view
 - **Activity heatmap** — colored time-of-day heatmap in stats output
-- **Filter presets** — `/filter errors` as alias for common multi-tag combos
 - **Session memory** — show per-session context token usage in cards
 - **Error rate sparkline** — per-session error frequency mini-chart in cards
+
+### What shipped in v0.93.0
+
+**Theme: "Filter Presets"** — `/filter errors` now expands to `error|! action` via `resolveFilterPreset()`. Three built-in presets: `errors`, `actions`, `system`. `matchesTagFilter()` upgraded to support pipe-separated multi-tag patterns. Presets persist through sticky filters. 7 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +7, net 1468 tests across 35 files.
 
 ### What shipped in v0.92.0
 

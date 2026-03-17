@@ -417,7 +417,7 @@ ${BOLD}navigation:${RESET}
   /focus             toggle focus mode (show only pinned sessions)
   /mute [N|name]     mute/unmute a session's activity entries (toggle)
   /unmute-all        unmute all sessions at once
-  /filter [tag]      filter activity by tag (error, system, etc. — no arg = clear)
+  /filter [tag]      filter activity by tag — presets: errors, actions, system (no arg = clear)
   /uptime            show session uptimes (time since first observed)
   /auto-pin          toggle auto-pin on error (pin sessions that emit errors)
   /note N|name text  attach a note to a session (no text = clear)

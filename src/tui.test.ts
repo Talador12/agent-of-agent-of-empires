@@ -20,6 +20,7 @@ import {
   shouldAutoPin,
   formatClipText, CLIP_DEFAULT_COUNT,
   loadTuiPrefs, saveTuiPrefs,
+  FILTER_PRESETS, resolveFilterPreset,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry, SortMode, TuiPrefs } from "./tui.js";
@@ -2199,6 +2200,49 @@ describe("matchesTagFilter", () => {
   it("does not partial-match", () => {
     const entry: ActivityEntry = { time: "12:00:00", tag: "system", text: "hello" };
     assert.equal(matchesTagFilter(entry, "sys"), false);
+  });
+
+  it("matches pipe-separated multi-tag filter", () => {
+    const error: ActivityEntry = { time: "12:00:00", tag: "error", text: "boom" };
+    const action: ActivityEntry = { time: "12:00:00", tag: "! action", text: "failed" };
+    const system: ActivityEntry = { time: "12:00:00", tag: "system", text: "hello" };
+    assert.equal(matchesTagFilter(error, "error|! action"), true);
+    assert.equal(matchesTagFilter(action, "error|! action"), true);
+    assert.equal(matchesTagFilter(system, "error|! action"), false);
+  });
+});
+
+// ── resolveFilterPreset ─────────────────────────────────────────────────────
+
+describe("resolveFilterPreset", () => {
+  it("expands 'errors' preset", () => {
+    assert.equal(resolveFilterPreset("errors"), "error|! action");
+  });
+
+  it("expands 'actions' preset", () => {
+    assert.equal(resolveFilterPreset("actions"), "+ action|! action");
+  });
+
+  it("expands 'system' preset", () => {
+    assert.equal(resolveFilterPreset("system"), "system|status");
+  });
+
+  it("is case-insensitive", () => {
+    assert.equal(resolveFilterPreset("Errors"), "error|! action");
+  });
+
+  it("passes through unknown tags unchanged", () => {
+    assert.equal(resolveFilterPreset("reasoner"), "reasoner");
+  });
+});
+
+// ── FILTER_PRESETS ──────────────────────────────────────────────────────────
+
+describe("FILTER_PRESETS", () => {
+  it("has errors, actions, system keys", () => {
+    assert.ok("errors" in FILTER_PRESETS);
+    assert.ok("actions" in FILTER_PRESETS);
+    assert.ok("system" in FILTER_PRESETS);
   });
 });
 
