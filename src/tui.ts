@@ -8,6 +8,9 @@
 //   ├─ separator with hints ────────────────────────────────────────────────┤
 //   │ activity scroll region (all daemon output scrolls here)               │
 //   └─ input line (phase-aware prompt) ─────────────────────────────────────┘
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import type { DaemonSessionState, DaemonPhase } from "./types.js";
 import {
   BOLD, DIM, RESET, GREEN, YELLOW, RED, CYAN, WHITE,
@@ -298,7 +301,28 @@ export function formatUptime(ms: number): string {
   return `${minutes}m`;
 }
 
-// ── TUI class ───────────────────────────────────────────────────────────────
+// ── Sticky prefs ─────────────────────────────────────────────────────────────
+
+export interface TuiPrefs {
+  sortMode?: string;
+  compact?: boolean;
+  focus?: boolean;
+  bell?: boolean;
+  autoPin?: boolean;
+  tagFilter?: string | null;
+}
+
+const PREFS_PATH = join(homedir(), ".aoaoe", "tui-prefs.json");
+
+/** Load persisted TUI preferences. Returns empty object on any error. */
+export function loadTuiPrefs(): TuiPrefs {
+  try { return JSON.parse(readFileSync(PREFS_PATH, "utf-8")); } catch { return {}; }
+}
+
+/** Save TUI preferences to disk. Silently ignores errors. */
+export function saveTuiPrefs(prefs: TuiPrefs): void {
+  try { writeFileSync(PREFS_PATH, JSON.stringify(prefs) + "\n", "utf-8"); } catch { /* best effort */ }
+}
 
 export class TUI {
   private active = false;

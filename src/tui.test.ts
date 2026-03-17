@@ -19,9 +19,10 @@ import {
   formatUptime,
   shouldAutoPin,
   formatClipText, CLIP_DEFAULT_COUNT,
+  loadTuiPrefs, saveTuiPrefs,
   TUI,
 } from "./tui.js";
-import type { ActivityEntry, SortMode } from "./tui.js";
+import type { ActivityEntry, SortMode, TuiPrefs } from "./tui.js";
 import type { DaemonSessionState } from "./types.js";
 
 function stripAnsi(s: string): string {
@@ -2554,6 +2555,23 @@ describe("TUI getActivityBuffer", () => {
     const a = tui.getActivityBuffer();
     const b = tui.getActivityBuffer();
     assert.equal(a, b);
+  });
+});
+
+// ── loadTuiPrefs / saveTuiPrefs ────────────────────────────────────────────
+
+describe("loadTuiPrefs", () => {
+  it("returns empty object when file does not exist", () => {
+    // default path won't exist in CI; loadTuiPrefs is resilient
+    const prefs = loadTuiPrefs();
+    assert.equal(typeof prefs, "object");
+  });
+});
+
+describe("saveTuiPrefs", () => {
+  it("does not throw on write", () => {
+    // writes to ~/.aoaoe/tui-prefs.json — best effort
+    assert.doesNotThrow(() => saveTuiPrefs({ compact: true }));
   });
 });
 

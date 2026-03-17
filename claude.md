@@ -5,25 +5,31 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.91.0
+## Version: v0.92.0
 
 ## Current Focus
 
-1459 tests across 35 files. v0.91.0 shipped: session diff — `/diff N` shows activity since bookmark N, capped at last 30 entries with a hint to use `/clip` for full export. 3 new tests.
+1461 tests across 35 files. v0.92.0 shipped: sticky filters — TUI view settings (sort, compact, focus, bell, auto-pin, tag filter) persist to `~/.aoaoe/tui-prefs.json` and restore on restart. 2 new tests.
 
 ## Roadmap
 
-### v0.92.0+ — Ideas Backlog
+### v0.93.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Session health pulse** — tiny per-session sparklines in the compact view
 - **Activity heatmap** — colored time-of-day heatmap in stats output
-- **Sticky filters** — persist filter/search/sort settings across restarts
 - **Filter presets** — `/filter errors` as alias for common multi-tag combos
 - **Session memory** — show per-session context token usage in cards
 - **Error rate sparkline** — per-session error frequency mini-chart in cards
+
+### What shipped in v0.92.0
+
+**Theme: "Sticky Filters"** — TUI view settings persist across restarts. `saveTuiPrefs()` writes sort mode, compact, focus, bell, auto-pin, and tag filter to `~/.aoaoe/tui-prefs.json` on every toggle. `loadTuiPrefs()` restores them at startup. Best-effort I/O — silently degrades if file is missing or corrupt. 2 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +2, net 1461 tests across 35 files.
 
 ### What shipped in v0.91.0
 

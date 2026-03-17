@@ -17,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
@@ -196,6 +196,28 @@ async function main() {
   const useTui = process.stdin.isTTY === true;
   const tui = useTui ? new TUI() : null;
 
+  // restore sticky prefs from previous run
+  if (tui) {
+    const prefs = loadTuiPrefs();
+    if (prefs.sortMode && (SORT_MODES as readonly string[]).includes(prefs.sortMode)) tui.setSortMode(prefs.sortMode as SortMode);
+    if (prefs.compact) tui.setCompact(true);
+    if (prefs.focus) tui.setFocus(true);
+    if (prefs.bell) tui.setBell(true);
+    if (prefs.autoPin) tui.setAutoPin(true);
+    if (prefs.tagFilter) tui.setTagFilter(prefs.tagFilter);
+  }
+  const persistPrefs = () => {
+    if (!tui) return;
+    saveTuiPrefs({
+      sortMode: tui.getSortMode(),
+      compact: tui.isCompact(),
+      focus: tui.isFocused(),
+      bell: tui.isBellEnabled(),
+      autoPin: tui.isAutoPinEnabled(),
+      tagFilter: tui.getTagFilter(),
+    });
+  };
+
   if (!useTui) {
     // fallback: plain scrolling output (non-TTY / piped)
     console.error("");
@@ -364,10 +386,12 @@ async function main() {
       if (mode && (SORT_MODES as readonly string[]).includes(mode)) {
         tui!.setSortMode(mode as SortMode);
         tui!.log("system", `sort: ${mode}`);
+        persistPrefs();
       } else if (!mode) {
         const next = nextSortMode(tui!.getSortMode());
         tui!.setSortMode(next);
         tui!.log("system", `sort: ${next}`);
+        persistPrefs();
       } else {
         tui!.log("system", `unknown sort mode: ${mode} (try: status, name, activity, default)`);
       }
@@ -377,6 +401,7 @@ async function main() {
       const enabled = !tui!.isCompact();
       tui!.setCompact(enabled);
       tui!.log("system", `compact mode: ${enabled ? "on" : "off"}`);
+      persistPrefs();
     });
     // wire /mark bookmark
     input.onMark(() => {
@@ -434,12 +459,14 @@ async function main() {
       const enabled = !tui!.isFocused();
       tui!.setFocus(enabled);
       tui!.log("system", `focus mode: ${enabled ? "on (pinned only)" : "off (all sessions)"}`);
+      persistPrefs();
     });
     // wire /bell toggle
     input.onBell(() => {
       const enabled = !tui!.isBellEnabled();
       tui!.setBell(enabled);
       tui!.log("system", `bell notifications: ${enabled ? "on" : "off"}`);
+      persistPrefs();
     });
     // wire /pin toggle
     input.onPin((target) => {
@@ -478,6 +505,7 @@ async function main() {
       } else {
         tui!.log("system", "filter cleared");
       }
+      persistPrefs();
     });
     // wire /uptime listing
     input.onUptime(() => {
@@ -499,6 +527,7 @@ async function main() {
       const enabled = !tui!.isAutoPinEnabled();
       tui!.setAutoPin(enabled);
       tui!.log("system", `auto-pin on error: ${enabled ? "on" : "off"}`);
+      persistPrefs();
     });
     // wire /note set/clear
     input.onNote((target, text) => {
