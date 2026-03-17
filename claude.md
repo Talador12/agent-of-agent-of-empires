@@ -5,15 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.89.0
+## Version: v0.90.0
 
 ## Current Focus
 
-1443 tests across 37 files. v0.89.0 shipped: auto-pin on error — `/auto-pin` toggles automatic pinning of sessions that emit error-like log entries. `shouldAutoPin()` pure function. Sessions get pinned on `! action` or `error` tags. 17 new tests.
+1456 tests across 35 files. v0.90.0 shipped: activity clipboard export — `/clip [N]` copies the last N activity entries (default 20) to the system clipboard via `pbcopy`, with file fallback to `~/.aoaoe/clip.txt`. `formatClipText()` pure function. `getActivityBuffer()` public accessor. 13 new tests.
 
 ## Roadmap
 
-### v0.90.0+ — Ideas Backlog
+### v0.91.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
@@ -23,9 +23,39 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Sticky filters** — persist filter/search/sort settings across restarts
 - **Filter presets** — `/filter errors` as alias for common multi-tag combos
 - **Session memory** — show per-session context token usage in cards
-- **Activity export clip** — `/clip N` copies last N activity entries to clipboard
 - **Error rate sparkline** — per-session error frequency mini-chart in cards
 - **Session diff** — `/diff N` shows what changed since bookmark N
+
+### What shipped in v0.90.0
+
+**Theme: "Clip"** — activity clipboard export. `/clip [N]` copies the last N activity entries (default 20) to the system clipboard via `pbcopy` (macOS), with file fallback to `~/.aoaoe/clip.txt`. `formatClipText()` pure function formats entries as `[HH:MM:SS] tag: text\n` — clean strings, no ANSI. `getActivityBuffer()` public accessor exposes the ring buffer for external consumers. 13 new tests.
+
+#### 1. `formatClipText()` pure function (`src/tui.ts`)
+- Takes `readonly ActivityEntry[]` and optional count `n` (default `CLIP_DEFAULT_COUNT = 20`)
+- Returns plain text: `[HH:MM:SS] tag: text\n` per entry, last N entries from the array
+- No ANSI codes — ActivityEntry fields are already clean strings
+
+#### 2. `getActivityBuffer()` public accessor (`src/tui.ts`)
+- Returns `readonly ActivityEntry[]` — the full activity buffer
+- Same reference across calls (no copy)
+
+#### 3. `/clip [N]` command (`src/input.ts`)
+- `ClipHandler` type: `(count: number) => void`
+- `onClip(handler)` callback registration
+- `/clip [N]` command case — parses optional count, defaults to 20
+- `/help` updated
+
+#### 4. Wiring (`src/index.ts`)
+- `input.onClip()` → gets buffer via `tui.getActivityBuffer()`, formats via `formatClipText()`
+- Tries `pbcopy` (macOS) via `execSync`, falls back to `writeFileSync` at `~/.aoaoe/clip.txt`
+- Logs result: "copied N entries to clipboard" or "saved N entries to ~/.aoaoe/clip.txt"
+
+#### 5. Tests
+- `src/tui.test.ts` (10 tests): CLIP_DEFAULT_COUNT is 20; formatClipText — empty array, single entry, multiple entries, default count (slices last 20 of 25), custom count, count exceeds buffer; getActivityBuffer — initial empty, entries after log, readonly reference
+- `src/input.test.ts` (3 tests): onClip — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +13, net 1456 tests across 35 files.
 
 ### What shipped in v0.89.0
 

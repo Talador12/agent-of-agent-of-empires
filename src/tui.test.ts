@@ -18,6 +18,7 @@ import {
   matchesTagFilter, formatTagFilterIndicator,
   formatUptime,
   shouldAutoPin,
+  formatClipText, CLIP_DEFAULT_COUNT,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry, SortMode } from "./tui.js";
@@ -2458,6 +2459,101 @@ describe("TUI auto-pin state", () => {
     // should not throw
     assert.doesNotThrow(() => tui.log("! action", "error", "s1"));
     assert.equal(tui.isPinned("s1"), true);
+  });
+});
+
+// ── CLIP_DEFAULT_COUNT ──────────────────────────────────────────────────────
+
+describe("CLIP_DEFAULT_COUNT", () => {
+  it("is 20", () => {
+    assert.equal(CLIP_DEFAULT_COUNT, 20);
+  });
+});
+
+// ── formatClipText ──────────────────────────────────────────────────────────
+
+describe("formatClipText", () => {
+  it("returns newline for empty array", () => {
+    assert.equal(formatClipText([]), "\n");
+  });
+
+  it("formats a single entry", () => {
+    const entries = [{ time: "12:00:00", tag: "system", text: "hello" }];
+    assert.equal(formatClipText(entries), "[12:00:00] system: hello\n");
+  });
+
+  it("formats multiple entries", () => {
+    const entries = [
+      { time: "12:00:00", tag: "system", text: "first" },
+      { time: "12:00:01", tag: "error", text: "second" },
+    ];
+    assert.equal(formatClipText(entries), "[12:00:00] system: first\n[12:00:01] error: second\n");
+  });
+
+  it("uses CLIP_DEFAULT_COUNT when n is omitted", () => {
+    // create 25 entries, default count is 20 so only last 20 should appear
+    const entries = Array.from({ length: 25 }, (_, i) => ({
+      time: `12:00:${String(i).padStart(2, "0")}`,
+      tag: "system",
+      text: `entry-${i}`,
+    }));
+    const text = formatClipText(entries);
+    const lines = text.trimEnd().split("\n");
+    assert.equal(lines.length, 20);
+    assert.ok(lines[0].includes("entry-5"));
+    assert.ok(lines[19].includes("entry-24"));
+  });
+
+  it("respects custom count", () => {
+    const entries = Array.from({ length: 10 }, (_, i) => ({
+      time: `12:00:${String(i).padStart(2, "0")}`,
+      tag: "system",
+      text: `entry-${i}`,
+    }));
+    const text = formatClipText(entries, 3);
+    const lines = text.trimEnd().split("\n");
+    assert.equal(lines.length, 3);
+    assert.ok(lines[0].includes("entry-7"));
+    assert.ok(lines[2].includes("entry-9"));
+  });
+
+  it("returns all entries when count exceeds buffer size", () => {
+    const entries = [
+      { time: "12:00:00", tag: "system", text: "only" },
+    ];
+    const text = formatClipText(entries, 100);
+    const lines = text.trimEnd().split("\n");
+    assert.equal(lines.length, 1);
+    assert.ok(lines[0].includes("only"));
+  });
+});
+
+// ── TUI getActivityBuffer ──────────────────────────────────────────────────
+
+describe("TUI getActivityBuffer", () => {
+  it("returns empty array initially", () => {
+    const tui = new TUI();
+    assert.deepStrictEqual([...tui.getActivityBuffer()], []);
+  });
+
+  it("returns entries after log calls", () => {
+    const tui = new TUI();
+    tui.log("system", "hello");
+    tui.log("error", "oops");
+    const buffer = tui.getActivityBuffer();
+    assert.equal(buffer.length, 2);
+    assert.equal(buffer[0].tag, "system");
+    assert.equal(buffer[0].text, "hello");
+    assert.equal(buffer[1].tag, "error");
+    assert.equal(buffer[1].text, "oops");
+  });
+
+  it("returns readonly array (same reference across calls)", () => {
+    const tui = new TUI();
+    tui.log("system", "test");
+    const a = tui.getActivityBuffer();
+    const b = tui.getActivityBuffer();
+    assert.equal(a, b);
   });
 });
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execSync } from "node:child_process";
 import { loadConfig, validateEnvironment, parseCliArgs, printHelp, configFileExists, findConfigFile, DEFAULTS, computeConfigDiff } from "./config.js";
 import { Poller, computeTmuxName } from "./poller.js";
 import { createReasoner } from "./reasoner/index.js";
@@ -16,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
@@ -502,6 +503,28 @@ async function main() {
           const session = sessions.find((s) => s.id === id);
           const label = session ? session.title : id.slice(0, 8);
           tui!.log("system", `  ${label}: "${text}"`);
+        }
+      }
+    });
+    // wire /clip to export activity entries to clipboard or file
+    input.onClip((count) => {
+      const buffer = tui!.getActivityBuffer();
+      if (buffer.length === 0) {
+        tui!.log("system", "no activity to clip");
+        return;
+      }
+      const text = formatClipText(buffer, count);
+      const entryCount = Math.min(count, buffer.length);
+      try {
+        execSync("pbcopy", { input: text, timeout: 5000 });
+        tui!.log("system", `copied ${entryCount} entries to clipboard`);
+      } catch {
+        try {
+          const clipPath = join(homedir(), ".aoaoe", "clip.txt");
+          writeFileSync(clipPath, text, "utf-8");
+          tui!.log("system", `saved ${entryCount} entries to ~/.aoaoe/clip.txt`);
+        } catch (writeErr) {
+          tui!.log("error", `clip failed: ${writeErr}`);
         }
       }
     });

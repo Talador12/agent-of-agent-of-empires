@@ -263,6 +263,18 @@ export function formatTagFilterIndicator(tag: string, matchCount: number, totalC
   return `${SLATE}filter:${RESET} ${AMBER}${tag}${RESET} ${DIM}(${matchCount}/${totalCount})${RESET}`;
 }
 
+// ── Clip ─────────────────────────────────────────────────────────────────────
+
+/** Default number of entries for /clip when no count specified. */
+export const CLIP_DEFAULT_COUNT = 20;
+
+/** Format activity entries as plain text for clipboard/export. One line per entry. */
+export function formatClipText(entries: readonly ActivityEntry[], n?: number): string {
+  const count = n ?? CLIP_DEFAULT_COUNT;
+  const slice = entries.slice(-Math.max(1, count));
+  return slice.map((e) => `[${e.time}] ${e.tag}: ${e.text}`).join("\n") + "\n";
+}
+
 // ── Auto-pin ─────────────────────────────────────────────────────────────────
 
 /** Determine if a log entry should trigger auto-pin (error-like tags). */
@@ -617,6 +629,11 @@ export class TUI {
   /** Return all session first-seen timestamps (for /uptime listing). */
   getAllFirstSeen(): ReadonlyMap<string, number> {
     return this.sessionFirstSeen;
+  }
+
+  /** Return the activity buffer (for /clip export). */
+  getActivityBuffer(): readonly ActivityEntry[] {
+    return this.activityBuffer;
   }
 
   /**

@@ -30,7 +30,8 @@ export type TagFilterHandler = (tag: string | null) => void; // set or clear tag
 export type UptimeHandler = () => void; // list all session uptimes
 export type AutoPinHandler = () => void; // toggle auto-pin on error
 export type NoteHandler = (target: string, text: string) => void; // session + note text (empty = clear)
-export type NotesHandler = () => void; // list all session notes
+export type NotesHandler = () => void;
+export type ClipHandler = (count: number) => void; // list all session notes
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -89,6 +90,7 @@ export class InputReader {
   private autoPinHandler: AutoPinHandler | null = null;
   private noteHandler: NoteHandler | null = null;
   private notesHandler: NotesHandler | null = null;
+  private clipHandler: ClipHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -204,6 +206,11 @@ export class InputReader {
   // register a callback for listing notes (/notes)
   onNotes(handler: NotesHandler): void {
     this.notesHandler = handler;
+  }
+
+  // register a callback for clipboard export (/clip [N])
+  onClip(handler: ClipHandler): void {
+    this.clipHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -408,6 +415,7 @@ ${BOLD}navigation:${RESET}
   /auto-pin          toggle auto-pin on error (pin sessions that emit errors)
   /note N|name text  attach a note to a session (no text = clear)
   /notes             list all session notes
+  /clip [N]          copy last N activity entries to clipboard (default 20)
   /mark              bookmark current activity position
   /jump N            jump to bookmark N
   /marks             list all bookmarks
@@ -624,6 +632,19 @@ ${BOLD}other:${RESET}
           console.error(`${DIM}notes not available (no TUI)${RESET}`);
         }
         break;
+
+      case "/clip": {
+        const clipArg = line.slice("/clip".length).trim();
+        const clipCount = clipArg ? parseInt(clipArg, 10) : 20;
+        if (this.clipHandler && !isNaN(clipCount) && clipCount > 0) {
+          this.clipHandler(clipCount);
+        } else if (!this.clipHandler) {
+          console.error(`${DIM}clip not available (no TUI)${RESET}`);
+        } else {
+          console.error(`${DIM}usage: /clip [N] — copy last N activity entries to clipboard${RESET}`);
+        }
+        break;
+      }
 
       case "/mark":
         if (this.markHandler) {
