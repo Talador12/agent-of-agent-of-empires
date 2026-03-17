@@ -377,6 +377,12 @@ async function main() {
       tui!.setCompact(enabled);
       tui!.log("system", `compact mode: ${enabled ? "on" : "off"}`);
     });
+    // wire /bell toggle
+    input.onBell(() => {
+      const enabled = !tui!.isBellEnabled();
+      tui!.setBell(enabled);
+      tui!.log("system", `bell notifications: ${enabled ? "on" : "off"}`);
+    });
     // wire /pin toggle
     input.onPin((target) => {
       const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;

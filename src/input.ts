@@ -19,6 +19,7 @@ export type QuickSwitchHandler = (sessionNum: number) => void; // 1-indexed sess
 export type SortHandler = (mode: string | null) => void; // null = cycle to next mode
 export type CompactHandler = () => void; // toggle compact mode
 export type PinHandler = (target: string) => void; // session index or name to pin/unpin
+export type BellHandler = () => void; // toggle bell notifications
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ export class InputReader {
   private sortHandler: SortHandler | null = null;
   private compactHandler: CompactHandler | null = null;
   private pinHandler: PinHandler | null = null;
+  private bellHandler: BellHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -120,6 +122,11 @@ export class InputReader {
   // register a callback for pin/unpin commands (/pin <target>)
   onPin(handler: PinHandler): void {
     this.pinHandler = handler;
+  }
+
+  // register a callback for bell toggle (/bell)
+  onBell(handler: BellHandler): void {
+    this.bellHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -315,6 +322,7 @@ ${BOLD}navigation:${RESET}
   /sort [mode]       sort sessions: status, name, activity, default (or cycle)
   /compact           toggle compact mode (dense session panel)
   /pin [N|name]      pin/unpin a session to the top (toggle)
+  /bell              toggle terminal bell on errors/completions
   /search <pattern>  filter activity entries by substring (case-insensitive)
   /search            clear active search filter
   click session      click an agent card to drill down (click again to go back)
@@ -435,6 +443,14 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/bell":
+        if (this.bellHandler) {
+          this.bellHandler();
+        } else {
+          console.error(`${DIM}bell not available (no TUI)${RESET}`);
+        }
+        break;
 
       case "/search": {
         const searchArg = line.slice("/search".length).trim();

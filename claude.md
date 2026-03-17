@@ -5,24 +5,63 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.80.0
+## Version: v0.81.0
 
 ## Current Focus
 
-1280 tests across 37 files. v0.80.0 shipped: session pinning — `/pin` toggles a session to always sort to the top. ▲ indicator in both normal and compact modes. Pinned sessions stay on top regardless of sort mode. Stable sort preserves mode order within pinned/unpinned groups.
+1298 tests across 37 files. v0.81.0 shipped: terminal bell notifications — `/bell` toggles opt-in audible alerts for high-signal events (errors, failed actions, task completions). 5s cooldown prevents buzzing. Pure `shouldBell()` function for testability.
 
 ## Roadmap
 
-### v0.81.0+ — Ideas Backlog
+### v0.82.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
-- **Notification sounds** — optional terminal bell on error or completion events
 - **Bookmarks** — save and jump to specific activity entries
 - **Session health pulse** — tiny per-session sparklines in the compact view
 - **Focus mode** — hide all sessions except the pinned ones
 - **Activity heatmap** — colored time-of-day heatmap in stats output
+
+### What shipped in v0.81.0
+
+**Theme: "Bell"** — terminal bell notifications. `/bell` toggles opt-in audible alerts (\x07) for high-signal events: errors, failed actions, and task completions. 5-second cooldown prevents rapid-fire buzzing. Pure `shouldBell(tag, text)` function for clean testability. 18 new tests.
+
+#### 1. `shouldBell()` pure function (`src/tui.ts`)
+- Takes `tag` and `text`, returns boolean for high-signal events only
+- `"! action"` or `"error"` tag → true (failures)
+- `"+ action"` tag with text containing "complete" (case-insensitive) → true (completions)
+- All other tags → false (no noise for routine events)
+
+#### 2. `BELL_COOLDOWN_MS` constant (`src/tui.ts`)
+- 5000ms cooldown between bell triggers to prevent buzzing
+
+#### 3. Bell trigger in `log()` (`src/tui.ts`)
+- After appending to activity buffer, checks `bellEnabled && shouldBell(tag, text)`
+- Respects cooldown: only fires if `nowMs - lastBellAt >= BELL_COOLDOWN_MS`
+- Writes `\x07` (BEL character) to `process.stderr`
+
+#### 4. Bell state on TUI class (`src/tui.ts`)
+- `bellEnabled` field (default: false — opt-in only)
+- `lastBellAt` field (epoch ms of last bell)
+- `setBell(enabled)` — enable/disable
+- `isBellEnabled()` — read-only accessor
+
+#### 5. `/bell` command (`src/input.ts`)
+- `BellHandler` type: `() => void`
+- `onBell(handler)` callback registration on `InputReader`
+- `/bell` toggles bell state
+- `/help` updated with `/bell` in navigation section
+
+#### 6. Wiring (`src/index.ts`)
+- `input.onBell()` → toggles `tui.setBell(!tui.isBellEnabled())`, logs "bell notifications: on/off"
+
+#### 7. Tests
+- `src/tui.test.ts` (15 tests): shouldBell — error tag, ! action tag, + action with complete, + action with Complete (case), + action without complete, observation/system/reasoner/explain/status tags all false; BELL_COOLDOWN_MS — is 5000ms; TUI bell state — initial off, setBell on/off, safe when inactive
+- `src/input.test.ts` (3 tests): onBell — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +18, net 1298 tests across 37 files.
 
 ### What shipped in v0.80.0
 

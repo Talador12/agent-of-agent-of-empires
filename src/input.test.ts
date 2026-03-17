@@ -462,3 +462,29 @@ describe("InputReader onPin", () => {
     assert.equal(t2.length, 0);
   });
 });
+
+// ── InputReader onBell ──────────────────────────────────────────────────────
+
+describe("InputReader onBell", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    let called = 0;
+    reader.onBell(() => called++);
+    assert.equal(called, 0); // not called until command is issued
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    let a = 0;
+    let b = 0;
+    reader.onBell(() => a++);
+    reader.onBell(() => b++);
+    assert.equal(a, 0);
+    assert.equal(b, 0);
+  });
+});

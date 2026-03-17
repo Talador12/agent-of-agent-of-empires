@@ -87,6 +87,18 @@ function nextSortMode(current: SortMode): SortMode {
   return SORT_MODES[(idx + 1) % SORT_MODES.length];
 }
 
+// ── Bell notifications ──────────────────────────────────────────────────────
+
+/** Cooldown between terminal bells to avoid buzzing. */
+export const BELL_COOLDOWN_MS = 5000;
+
+/** Determine if an activity entry should trigger a terminal bell. High-signal events only. */
+export function shouldBell(tag: string, text: string): boolean {
+  if (tag === "! action" || tag === "error") return true;
+  if (tag === "+ action" && text.toLowerCase().includes("complete")) return true;
+  return false;
+}
+
 // ── Compact mode ────────────────────────────────────────────────────────────
 
 /** Max name length in compact token. */
@@ -202,6 +214,8 @@ export class TUI {
   private prevLastActivity = new Map<string, string>();   // session ID → previous lastActivity string
   private compactMode = false;
   private pinnedIds = new Set<string>(); // pinned session IDs (always sort to top)
+  private bellEnabled = false;
+  private lastBellAt = 0;
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -331,6 +345,16 @@ export class TUI {
     return this.pinnedIds.size;
   }
 
+  /** Enable or disable terminal bell notifications. */
+  setBell(enabled: boolean): void {
+    this.bellEnabled = enabled;
+  }
+
+  /** Return whether terminal bell is enabled. */
+  isBellEnabled(): boolean {
+    return this.bellEnabled;
+  }
+
   // ── State updates ───────────────────────────────────────────────────────
 
   updateState(opts: {
@@ -387,6 +411,14 @@ export class TUI {
     if (this.activityBuffer.length > this.maxActivity) {
       this.activityBuffer = this.activityBuffer.slice(-this.maxActivity);
       this.activityTimestamps = this.activityTimestamps.slice(-this.maxActivity);
+    }
+    // terminal bell for high-signal events (with cooldown)
+    if (this.bellEnabled && shouldBell(tag, text)) {
+      const nowMs = now.getTime();
+      if (nowMs - this.lastBellAt >= BELL_COOLDOWN_MS) {
+        this.lastBellAt = nowMs;
+        process.stderr.write("\x07");
+      }
     }
     if (this.active) {
       if (this.searchPattern) {

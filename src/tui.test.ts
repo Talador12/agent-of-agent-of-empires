@@ -11,6 +11,7 @@ import {
   computeSparkline, formatSparkline,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
+  shouldBell, BELL_COOLDOWN_MS,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry, SortMode } from "./tui.js";
@@ -1496,6 +1497,86 @@ describe("TUI pin state", () => {
     });
     tui.togglePin(1); // not started, should not throw
     assert.equal(tui.isPinned("abc"), true);
+  });
+});
+
+// ── shouldBell ──────────────────────────────────────────────────────────────
+
+describe("shouldBell", () => {
+  it("returns true for error tag", () => {
+    assert.equal(shouldBell("error", "something broke"), true);
+  });
+
+  it("returns true for ! action tag", () => {
+    assert.equal(shouldBell("! action", "failed to send keys"), true);
+  });
+
+  it("returns true for + action with 'complete' in text", () => {
+    assert.equal(shouldBell("+ action", "task completed successfully"), true);
+  });
+
+  it("returns true for + action with 'Complete' (case-insensitive)", () => {
+    assert.equal(shouldBell("+ action", "Task Complete!"), true);
+  });
+
+  it("returns false for + action without 'complete'", () => {
+    assert.equal(shouldBell("+ action", "sent keys to session"), false);
+  });
+
+  it("returns false for observation tag", () => {
+    assert.equal(shouldBell("observation", "no changes"), false);
+  });
+
+  it("returns false for system tag", () => {
+    assert.equal(shouldBell("system", "entering main loop"), false);
+  });
+
+  it("returns false for reasoner tag", () => {
+    assert.equal(shouldBell("reasoner", "decided: wait"), false);
+  });
+
+  it("returns false for explain tag", () => {
+    assert.equal(shouldBell("explain", "everything looks fine"), false);
+  });
+
+  it("returns false for status tag", () => {
+    assert.equal(shouldBell("status", "you're working in Alpha"), false);
+  });
+});
+
+// ── BELL_COOLDOWN_MS ────────────────────────────────────────────────────────
+
+describe("BELL_COOLDOWN_MS", () => {
+  it("is 5000ms", () => {
+    assert.equal(BELL_COOLDOWN_MS, 5000);
+  });
+});
+
+// ── TUI bell state ──────────────────────────────────────────────────────────
+
+describe("TUI bell state", () => {
+  it("initial bell is disabled", () => {
+    const tui = new TUI();
+    assert.equal(tui.isBellEnabled(), false);
+  });
+
+  it("setBell(true) enables bell", () => {
+    const tui = new TUI();
+    tui.setBell(true);
+    assert.equal(tui.isBellEnabled(), true);
+  });
+
+  it("setBell(false) disables bell", () => {
+    const tui = new TUI();
+    tui.setBell(true);
+    tui.setBell(false);
+    assert.equal(tui.isBellEnabled(), false);
+  });
+
+  it("setBell is safe when TUI is not active", () => {
+    const tui = new TUI();
+    tui.setBell(true); // not started, should not throw
+    assert.equal(tui.isBellEnabled(), true);
   });
 });
 
