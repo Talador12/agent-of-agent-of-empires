@@ -514,3 +514,81 @@ describe("InputReader onFocus", () => {
     assert.equal(b, 0);
   });
 });
+
+// ── InputReader onMark ──────────────────────────────────────────────────────
+
+describe("InputReader onMark", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    let called = 0;
+    reader.onMark(() => called++);
+    assert.equal(called, 0);
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    let a = 0;
+    let b = 0;
+    reader.onMark(() => a++);
+    reader.onMark(() => b++);
+    assert.equal(a, 0);
+    assert.equal(b, 0);
+  });
+});
+
+// ── InputReader onJump ──────────────────────────────────────────────────────
+
+describe("InputReader onJump", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    const nums: number[] = [];
+    reader.onJump((n) => nums.push(n));
+    assert.equal(nums.length, 0);
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    const n1: number[] = [];
+    const n2: number[] = [];
+    reader.onJump((n) => n1.push(n));
+    reader.onJump((n) => n2.push(n));
+    assert.equal(n1.length, 0);
+    assert.equal(n2.length, 0);
+  });
+});
+
+// ── InputReader onMarks ─────────────────────────────────────────────────────
+
+describe("InputReader onMarks", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    let called = 0;
+    reader.onMarks(() => called++);
+    assert.equal(called, 0);
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    let a = 0;
+    let b = 0;
+    reader.onMarks(() => a++);
+    reader.onMarks(() => b++);
+    assert.equal(a, 0);
+    assert.equal(b, 0);
+  });
+});

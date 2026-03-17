@@ -12,6 +12,7 @@ import {
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
   shouldBell, BELL_COOLDOWN_MS,
+  computeBookmarkOffset, MAX_BOOKMARKS,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry, SortMode } from "./tui.js";
@@ -1665,6 +1666,109 @@ describe("TUI focus state", () => {
     assert.equal(tui.getSessionCount(), 2);
     tui.togglePin(1); // unpin a
     assert.equal(tui.getSessionCount(), 1);
+  });
+});
+
+// ── computeBookmarkOffset ───────────────────────────────────────────────────
+
+describe("computeBookmarkOffset", () => {
+  it("returns 0 when entry is in visible tail", () => {
+    // buffer has 10 entries, visible = 5, bookmark = entry 8 (2 from end)
+    assert.equal(computeBookmarkOffset(8, 10, 5), 0);
+  });
+
+  it("centers entry when scrolled back", () => {
+    // buffer has 100 entries, visible = 10, bookmark = entry 50 (49 from end)
+    // half = 5, offset = 49 - 5 = 44
+    assert.equal(computeBookmarkOffset(50, 100, 10), 44);
+  });
+
+  it("returns 0 for last entry in buffer", () => {
+    assert.equal(computeBookmarkOffset(99, 100, 10), 0);
+  });
+
+  it("handles entry at buffer start", () => {
+    // entry 0 in buffer of 100, visible = 10
+    // fromEnd = 99, half = 5, offset = 94
+    assert.equal(computeBookmarkOffset(0, 100, 10), 94);
+  });
+
+  it("handles small buffer", () => {
+    // buffer has 3 entries, visible = 10, entry 0
+    assert.equal(computeBookmarkOffset(0, 3, 10), 0);
+  });
+
+  it("handles single entry", () => {
+    assert.equal(computeBookmarkOffset(0, 1, 10), 0);
+  });
+});
+
+// ── MAX_BOOKMARKS ───────────────────────────────────────────────────────────
+
+describe("MAX_BOOKMARKS", () => {
+  it("is 20", () => {
+    assert.equal(MAX_BOOKMARKS, 20);
+  });
+});
+
+// ── TUI bookmark state ─────────────────────────────────────────────────────
+
+describe("TUI bookmark state", () => {
+  it("initial state has no bookmarks", () => {
+    const tui = new TUI();
+    assert.equal(tui.getBookmarkCount(), 0);
+    assert.deepStrictEqual(tui.getBookmarks(), []);
+  });
+
+  it("addBookmark returns 0 on empty buffer", () => {
+    const tui = new TUI();
+    assert.equal(tui.addBookmark(), 0);
+  });
+
+  it("addBookmark saves a bookmark and returns its number", () => {
+    const tui = new TUI();
+    tui.log("system", "hello world");
+    const num = tui.addBookmark();
+    assert.equal(num, 1);
+    assert.equal(tui.getBookmarkCount(), 1);
+    const bms = tui.getBookmarks();
+    assert.ok(bms[0].label.includes("system"));
+  });
+
+  it("multiple addBookmark calls increment", () => {
+    const tui = new TUI();
+    tui.log("system", "first");
+    tui.log("system", "second");
+    assert.equal(tui.addBookmark(), 1);
+    assert.equal(tui.addBookmark(), 2);
+    assert.equal(tui.getBookmarkCount(), 2);
+  });
+
+  it("jumpToBookmark returns false for invalid number", () => {
+    const tui = new TUI();
+    assert.equal(tui.jumpToBookmark(1), false);
+    assert.equal(tui.jumpToBookmark(0), false);
+    assert.equal(tui.jumpToBookmark(-1), false);
+  });
+
+  it("jumpToBookmark returns true for valid bookmark", () => {
+    const tui = new TUI();
+    for (let i = 0; i < 20; i++) tui.log("system", `entry ${i}`);
+    tui.addBookmark();
+    assert.equal(tui.jumpToBookmark(1), true);
+  });
+
+  it("addBookmark is safe when TUI is not active", () => {
+    const tui = new TUI();
+    tui.log("system", "test");
+    assert.doesNotThrow(() => tui.addBookmark());
+  });
+
+  it("jumpToBookmark is safe when TUI is not active", () => {
+    const tui = new TUI();
+    tui.log("system", "test");
+    tui.addBookmark();
+    assert.doesNotThrow(() => tui.jumpToBookmark(1));
   });
 });
 

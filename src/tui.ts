@@ -99,6 +99,35 @@ export function shouldBell(tag: string, text: string): boolean {
   return false;
 }
 
+// ── Bookmarks ───────────────────────────────────────────────────────────────
+
+export interface Bookmark {
+  index: number;  // activity buffer index at time of bookmarking
+  label: string;  // auto-generated from entry: "HH:MM:SS tag"
+}
+
+/** Max number of bookmarks. */
+export const MAX_BOOKMARKS = 20;
+
+/**
+ * Compute the scroll offset needed to show a bookmarked entry.
+ * Centers the entry in the visible region when possible.
+ * Returns 0 (live) if the entry is within the visible tail.
+ */
+export function computeBookmarkOffset(
+  bookmarkIndex: number,
+  bufferLen: number,
+  visibleLines: number,
+): number {
+  // entry position from the end of the buffer
+  const fromEnd = bufferLen - 1 - bookmarkIndex;
+  // if entry is within the visible tail, no scroll needed
+  if (fromEnd < visibleLines) return 0;
+  // center the entry in the visible region
+  const half = Math.floor(visibleLines / 2);
+  return Math.max(0, fromEnd - half);
+}
+
 // ── Compact mode ────────────────────────────────────────────────────────────
 
 /** Max name length in compact token. */
@@ -215,6 +244,7 @@ export class TUI {
   private compactMode = false;
   private pinnedIds = new Set<string>(); // pinned session IDs (always sort to top)
   private focusMode = false;             // focus mode: hide all sessions except pinned
+  private bookmarks: Bookmark[] = [];    // saved positions in activity buffer
   private bellEnabled = false;
   private lastBellAt = 0;
 
@@ -379,6 +409,54 @@ export class TUI {
   /** Return whether terminal bell is enabled. */
   isBellEnabled(): boolean {
     return this.bellEnabled;
+  }
+
+  /**
+   * Add a bookmark at the current activity position.
+   * Returns the bookmark number (1-indexed) or 0 if buffer is empty.
+   */
+  addBookmark(): number {
+    if (this.activityBuffer.length === 0) return 0;
+    // bookmark the entry at the current view position
+    const visibleLines = this.scrollBottom - this.scrollTop + 1;
+    const { start } = computeScrollSlice(this.activityBuffer.length, visibleLines, this.scrollOffset);
+    const entry = this.activityBuffer[start];
+    if (!entry) return 0;
+    const bm: Bookmark = { index: start, label: `${entry.time} ${entry.tag}` };
+    this.bookmarks.push(bm);
+    if (this.bookmarks.length > MAX_BOOKMARKS) {
+      this.bookmarks = this.bookmarks.slice(-MAX_BOOKMARKS);
+    }
+    return this.bookmarks.length;
+  }
+
+  /**
+   * Jump to a bookmark by number (1-indexed). Returns false if not found.
+   * Adjusts scroll offset to center the bookmarked entry.
+   */
+  jumpToBookmark(num: number): boolean {
+    const bm = this.bookmarks[num - 1];
+    if (!bm) return false;
+    // clamp index to current buffer
+    if (bm.index >= this.activityBuffer.length) return false;
+    const visibleLines = this.scrollBottom - this.scrollTop + 1;
+    this.scrollOffset = computeBookmarkOffset(bm.index, this.activityBuffer.length, visibleLines);
+    if (this.scrollOffset === 0) this.newWhileScrolled = 0;
+    if (this.active && this.viewMode === "overview") {
+      this.repaintActivityRegion();
+      this.paintSeparator();
+    }
+    return true;
+  }
+
+  /** Return all bookmarks (for /marks listing). */
+  getBookmarks(): readonly Bookmark[] {
+    return this.bookmarks;
+  }
+
+  /** Return bookmark count. */
+  getBookmarkCount(): number {
+    return this.bookmarks.length;
   }
 
   // ── State updates ───────────────────────────────────────────────────────

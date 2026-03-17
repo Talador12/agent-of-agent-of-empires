@@ -5,22 +5,63 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.82.0
+## Version: v0.83.0
 
 ## Current Focus
 
-1310 tests across 37 files. v0.82.0 shipped: focus mode — `/focus` toggles hiding all sessions except pinned ones. Header shows "2/5 agents" when focused. Empty state guides: "no pinned agents — /pin to add, /focus to exit". Works with compact mode, sort, hover, hit testing. Pairs with Pin (v0.80.0) for a complete workflow.
+1334 tests across 37 files. v0.83.0 shipped: bookmarks — `/mark` saves current activity position, `/jump N` scrolls to it, `/marks` lists all. `computeBookmarkOffset()` pure function centers the entry in the visible region. Max 20 bookmarks with auto-eviction.
 
 ## Roadmap
 
-### v0.83.0+ — Ideas Backlog
+### v0.84.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
-- **Bookmarks** — save and jump to specific activity entries
 - **Session health pulse** — tiny per-session sparklines in the compact view
 - **Activity heatmap** — colored time-of-day heatmap in stats output
+- **Mute session** — suppress activity log entries from specific sessions
+- **Session notes** — attach persistent notes to sessions visible in drill-down
+
+### What shipped in v0.83.0
+
+**Theme: "Bookmark"** — activity bookmarks. `/mark` saves the current scroll position, `/jump N` scrolls to bookmark N (centered in view), `/marks` lists all saved bookmarks with labels. `computeBookmarkOffset()` pure function for clean scroll math. Max 20 bookmarks with FIFO eviction. 24 new tests.
+
+#### 1. `Bookmark` interface + `MAX_BOOKMARKS` constant (`src/tui.ts`)
+- `{ index: number, label: string }` — index into activity buffer + auto-generated label
+- `MAX_BOOKMARKS = 20` — oldest evicted when exceeded
+
+#### 2. `computeBookmarkOffset()` pure function (`src/tui.ts`)
+- Takes bookmark index, buffer length, visible lines
+- Returns scroll offset that centers the bookmarked entry
+- Returns 0 (live mode) if entry is within the visible tail
+
+#### 3. Bookmark state on TUI class (`src/tui.ts`)
+- `bookmarks: Bookmark[]` field
+- `addBookmark()` — saves current view position's top entry, returns bookmark number (1-indexed) or 0 if empty
+- `jumpToBookmark(num)` — scrolls to bookmark, returns false if invalid
+- `getBookmarks()` — read-only accessor for listing
+- `getBookmarkCount()` — count accessor
+
+#### 4. Commands (`src/input.ts`)
+- `MarkHandler`, `JumpHandler`, `MarksHandler` types
+- `onMark(handler)`, `onJump(handler)`, `onMarks(handler)` callback registrations
+- `/mark` — adds bookmark
+- `/jump N` — jumps to bookmark N (validates positive integer)
+- `/marks` — lists all bookmarks
+- `/help` updated with all three commands in navigation section
+
+#### 5. Wiring (`src/index.ts`)
+- `input.onMark()` → `tui.addBookmark()`, logs result
+- `input.onJump()` → `tui.jumpToBookmark(num)`, logs success/failure
+- `input.onMarks()` → iterates `tui.getBookmarks()`, logs each
+
+#### 6. Tests
+- `src/tui.test.ts` (15 tests): computeBookmarkOffset — visible tail, centered, last entry, buffer start, small buffer, single entry; MAX_BOOKMARKS — is 20; TUI bookmark state — initial empty, addBookmark on empty, addBookmark returns number, multiple bookmarks, jumpToBookmark invalid/valid, safe when inactive
+- `src/input.test.ts` (9 tests): onMark/onJump/onMarks — register handler, safe without handler, handler replacement (3 each)
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +24, net 1334 tests across 37 files.
 
 ### What shipped in v0.82.0
 

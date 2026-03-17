@@ -21,6 +21,9 @@ export type CompactHandler = () => void; // toggle compact mode
 export type PinHandler = (target: string) => void; // session index or name to pin/unpin
 export type BellHandler = () => void; // toggle bell notifications
 export type FocusHandler = () => void; // toggle focus mode
+export type MarkHandler = () => void; // add bookmark
+export type JumpHandler = (num: number) => void; // jump to bookmark N
+export type MarksHandler = () => void; // list bookmarks
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -69,6 +72,9 @@ export class InputReader {
   private pinHandler: PinHandler | null = null;
   private bellHandler: BellHandler | null = null;
   private focusHandler: FocusHandler | null = null;
+  private markHandler: MarkHandler | null = null;
+  private jumpHandler: JumpHandler | null = null;
+  private marksHandler: MarksHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -134,6 +140,21 @@ export class InputReader {
   // register a callback for focus mode toggle (/focus)
   onFocus(handler: FocusHandler): void {
     this.focusHandler = handler;
+  }
+
+  // register a callback for adding bookmarks (/mark)
+  onMark(handler: MarkHandler): void {
+    this.markHandler = handler;
+  }
+
+  // register a callback for jumping to bookmarks (/jump N)
+  onJump(handler: JumpHandler): void {
+    this.jumpHandler = handler;
+  }
+
+  // register a callback for listing bookmarks (/marks)
+  onMarks(handler: MarksHandler): void {
+    this.marksHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -331,6 +352,9 @@ ${BOLD}navigation:${RESET}
   /pin [N|name]      pin/unpin a session to the top (toggle)
   /bell              toggle terminal bell on errors/completions
   /focus             toggle focus mode (show only pinned sessions)
+  /mark              bookmark current activity position
+  /jump N            jump to bookmark N
+  /marks             list all bookmarks
   /search <pattern>  filter activity entries by substring (case-insensitive)
   /search            clear active search filter
   click session      click an agent card to drill down (click again to go back)
@@ -465,6 +489,35 @@ ${BOLD}other:${RESET}
           this.focusHandler();
         } else {
           console.error(`${DIM}focus not available (no TUI)${RESET}`);
+        }
+        break;
+
+      case "/mark":
+        if (this.markHandler) {
+          this.markHandler();
+        } else {
+          console.error(`${DIM}bookmarks not available (no TUI)${RESET}`);
+        }
+        break;
+
+      case "/jump": {
+        const jumpArg = line.slice("/jump".length).trim();
+        const jumpNum = parseInt(jumpArg, 10);
+        if (this.jumpHandler && !isNaN(jumpNum) && jumpNum > 0) {
+          this.jumpHandler(jumpNum);
+        } else if (!this.jumpHandler) {
+          console.error(`${DIM}bookmarks not available (no TUI)${RESET}`);
+        } else {
+          console.error(`${DIM}usage: /jump N — jump to bookmark number N${RESET}`);
+        }
+        break;
+      }
+
+      case "/marks":
+        if (this.marksHandler) {
+          this.marksHandler();
+        } else {
+          console.error(`${DIM}bookmarks not available (no TUI)${RESET}`);
         }
         break;
 

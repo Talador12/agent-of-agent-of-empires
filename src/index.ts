@@ -377,6 +377,35 @@ async function main() {
       tui!.setCompact(enabled);
       tui!.log("system", `compact mode: ${enabled ? "on" : "off"}`);
     });
+    // wire /mark bookmark
+    input.onMark(() => {
+      const num = tui!.addBookmark();
+      if (num > 0) {
+        tui!.log("system", `bookmark #${num} saved`);
+      } else {
+        tui!.log("system", "nothing to bookmark (activity buffer empty)");
+      }
+    });
+    // wire /jump to bookmark
+    input.onJump((num) => {
+      const ok = tui!.jumpToBookmark(num);
+      if (ok) {
+        tui!.log("system", `jumped to bookmark #${num}`);
+      } else {
+        tui!.log("system", `bookmark #${num} not found`);
+      }
+    });
+    // wire /marks listing
+    input.onMarks(() => {
+      const bms = tui!.getBookmarks();
+      if (bms.length === 0) {
+        tui!.log("system", "no bookmarks — use /mark to save one");
+      } else {
+        for (let i = 0; i < bms.length; i++) {
+          tui!.log("system", `  #${i + 1}: ${bms[i].label}`);
+        }
+      }
+    });
     // wire /focus toggle
     input.onFocus(() => {
       const enabled = !tui!.isFocused();
