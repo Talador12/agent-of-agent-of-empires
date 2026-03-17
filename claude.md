@@ -5,15 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.90.0
+## Version: v0.91.0
 
 ## Current Focus
 
-1456 tests across 35 files. v0.90.0 shipped: activity clipboard export — `/clip [N]` copies the last N activity entries (default 20) to the system clipboard via `pbcopy`, with file fallback to `~/.aoaoe/clip.txt`. `formatClipText()` pure function. `getActivityBuffer()` public accessor. 13 new tests.
+1459 tests across 35 files. v0.91.0 shipped: session diff — `/diff N` shows activity since bookmark N, capped at last 30 entries with a hint to use `/clip` for full export. 3 new tests.
 
 ## Roadmap
 
-### v0.91.0+ — Ideas Backlog
+### v0.92.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
@@ -24,7 +24,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Filter presets** — `/filter errors` as alias for common multi-tag combos
 - **Session memory** — show per-session context token usage in cards
 - **Error rate sparkline** — per-session error frequency mini-chart in cards
-- **Session diff** — `/diff N` shows what changed since bookmark N
+
+### What shipped in v0.91.0
+
+**Theme: "Session Diff"** — `/diff N` shows what happened since bookmark N. Slices the activity buffer from the bookmark's index, displays last 30 entries inline, hints `/clip` for full export when truncated. 3 new tests.
+
+Modified: `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +3, net 1459 tests across 35 files.
 
 ### What shipped in v0.90.0
 

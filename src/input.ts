@@ -31,7 +31,8 @@ export type UptimeHandler = () => void; // list all session uptimes
 export type AutoPinHandler = () => void; // toggle auto-pin on error
 export type NoteHandler = (target: string, text: string) => void; // session + note text (empty = clear)
 export type NotesHandler = () => void;
-export type ClipHandler = (count: number) => void; // list all session notes
+export type ClipHandler = (count: number) => void;
+export type DiffHandler = (bookmarkNum: number) => void; // list all session notes
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -91,6 +92,7 @@ export class InputReader {
   private noteHandler: NoteHandler | null = null;
   private notesHandler: NotesHandler | null = null;
   private clipHandler: ClipHandler | null = null;
+  private diffHandler: DiffHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -211,6 +213,11 @@ export class InputReader {
   // register a callback for clipboard export (/clip [N])
   onClip(handler: ClipHandler): void {
     this.clipHandler = handler;
+  }
+
+  // register a callback for bookmark diff (/diff N)
+  onDiff(handler: DiffHandler): void {
+    this.diffHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -416,6 +423,7 @@ ${BOLD}navigation:${RESET}
   /note N|name text  attach a note to a session (no text = clear)
   /notes             list all session notes
   /clip [N]          copy last N activity entries to clipboard (default 20)
+  /diff N            show activity since bookmark N
   /mark              bookmark current activity position
   /jump N            jump to bookmark N
   /marks             list all bookmarks
@@ -642,6 +650,19 @@ ${BOLD}other:${RESET}
           console.error(`${DIM}clip not available (no TUI)${RESET}`);
         } else {
           console.error(`${DIM}usage: /clip [N] — copy last N activity entries to clipboard${RESET}`);
+        }
+        break;
+      }
+
+      case "/diff": {
+        const diffArg = line.slice("/diff".length).trim();
+        const diffNum = parseInt(diffArg, 10);
+        if (this.diffHandler && !isNaN(diffNum) && diffNum > 0) {
+          this.diffHandler(diffNum);
+        } else if (!this.diffHandler) {
+          console.error(`${DIM}diff not available (no TUI)${RESET}`);
+        } else {
+          console.error(`${DIM}usage: /diff N — show activity since bookmark N${RESET}`);
         }
         break;
       }

@@ -407,6 +407,28 @@ async function main() {
         }
       }
     });
+    // wire /diff N to show activity since a bookmark
+    input.onDiff((num) => {
+      const bms = tui!.getBookmarks();
+      const bm = bms[num - 1];
+      if (!bm) {
+        tui!.log("system", `bookmark #${num} not found`);
+        return;
+      }
+      const buffer = tui!.getActivityBuffer();
+      const entries = buffer.slice(bm.index);
+      if (entries.length === 0) {
+        tui!.log("system", `no activity since bookmark #${num}`);
+      } else {
+        tui!.log("system", `${entries.length} entries since bookmark #${num} (${bm.label}):`);
+        for (const e of entries.slice(-30)) { // cap at last 30 to avoid spam
+          tui!.log("system", `  [${e.time}] ${e.tag}: ${e.text}`);
+        }
+        if (entries.length > 30) {
+          tui!.log("system", `  ... (${entries.length - 30} more — use /clip to export all)`);
+        }
+      }
+    });
     // wire /focus toggle
     input.onFocus(() => {
       const enabled = !tui!.isFocused();
