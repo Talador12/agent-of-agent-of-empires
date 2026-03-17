@@ -5,24 +5,63 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.84.0
+## Version: v0.85.0
 
 ## Current Focus
 
-1351 tests across 37 files. v0.84.0 shipped: session muting — `/mute N|name` hides a session's activity log entries from the TUI while still buffering and persisting them. Entries reappear when unmuted. `◌` mute indicator in both normal and compact mode cards. `shouldMuteEntry()` pure function for testability.
+1372 tests across 37 files. v0.85.0 shipped: session notes — `/note N|name text` attaches a short note to a session, visible as `✎` indicator in cards and note text in drill-down separator. `/notes` lists all notes. `truncateNote()` pure function. 21 new tests.
 
 ## Roadmap
 
-### v0.85.0+ — Ideas Backlog
+### v0.86.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Session health pulse** — tiny per-session sparklines in the compact view
 - **Activity heatmap** — colored time-of-day heatmap in stats output
-- **Session notes** — attach persistent notes to sessions visible in drill-down
 - **Unmute all** — `/unmute-all` command to quickly clear all mutes
 - **Activity count badge** — show suppressed entry count next to muted session card
+
+### What shipped in v0.85.0
+
+**Theme: "Notes"** — session notes. `/note N|name text` attaches a short note to a session (max 80 chars, auto-truncated). `/note N|name` (no text) clears. `/notes` lists all session notes with ID→title resolution. `✎` indicator in normal + compact cards. Note text shown in drill-down separator: `── Alpha "working on auth" ──`. 21 new tests.
+
+#### 1. `NOTE_ICON` + `MAX_NOTE_LEN` + `truncateNote()` (`src/tui.ts`)
+- `NOTE_ICON = "✎"` — pencil indicator for sessions with notes (TEAL colored)
+- `MAX_NOTE_LEN = 80` — max visible chars for a note
+- `truncateNote(text)` — pure function, truncates with `..` suffix if over limit
+
+#### 2. Note state on TUI class (`src/tui.ts`)
+- `sessionNotes: Map<string, string>` — session ID → note text
+- `setNote(sessionIdOrIndex, text)` — resolves by 1-indexed number, ID, ID prefix, or title (case-insensitive). Empty text clears. Returns boolean.
+- `getNote(id)` — get note for session ID
+- `getNoteCount()` — count of sessions with notes
+- `getAllNotes()` — read-only Map for `/notes` listing
+- `getSessions()` — read-only session list for ID→title resolution
+
+#### 3. Note indicators in cards (`src/tui.ts`)
+- Normal mode: `✎ ` prefix (TEAL) in session card, stacks with pin `▲` and mute `◌`
+- Compact mode: `✎` in token, `formatCompactRows()` accepts `noteIds` param
+- Drill-down separator shows note text: `── Alpha "working on auth" ──`
+
+#### 4. `/note` + `/notes` commands (`src/input.ts`)
+- `NoteHandler` type: `(target: string, text: string) => void`
+- `NotesHandler` type: `() => void`
+- `onNote(handler)` + `onNotes(handler)` callback registrations
+- `/note N|name text` — set note; `/note N|name` — clear; `/notes` — list all
+- `/help` updated with both commands
+
+#### 5. Wiring (`src/index.ts`)
+- `input.onNote()` → `tui.setNote()`, logs result
+- `input.onNotes()` → `tui.getAllNotes()` + `tui.getSessions()` for ID→title display
+
+#### 6. Tests
+- `src/tui.test.ts` (15 tests): truncateNote — under limit, over limit, exact, empty; MAX_NOTE_LEN — is 80; NOTE_ICON — is ✎; TUI note state — initial empty, setNote by index, by name, clear with empty, unknown session, getNote unknown, getAllNotes, getSessions, safe when inactive
+- `src/input.test.ts` (6 tests): onNote — register handler, safe without handler, handler replacement; onNotes — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +21, net 1372 tests across 37 files.
 
 ### What shipped in v0.84.0
 

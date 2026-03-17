@@ -438,6 +438,34 @@ async function main() {
         tui!.log("system", `session not found: ${target}`);
       }
     });
+    // wire /note set/clear
+    input.onNote((target, text) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const ok = tui!.setNote(num ?? target, text);
+      if (ok) {
+        if (text) {
+          tui!.log("system", `note set for ${target}: "${text}"`);
+        } else {
+          tui!.log("system", `note cleared for ${target}`);
+        }
+      } else {
+        tui!.log("system", `session not found: ${target}`);
+      }
+    });
+    // wire /notes listing
+    input.onNotes(() => {
+      const notes = tui!.getAllNotes();
+      if (notes.size === 0) {
+        tui!.log("system", "no notes — use /note <N|name> <text> to add one");
+      } else {
+        const sessions = tui!.getSessions();
+        for (const [id, text] of notes) {
+          const session = sessions.find((s) => s.id === id);
+          const label = session ? session.title : id.slice(0, 8);
+          tui!.log("system", `  ${label}: "${text}"`);
+        }
+      }
+    });
     // wire mouse move to hover highlight on session cards (disabled in compact)
     input.onMouseMove((row, _col) => {
       if (tui!.getViewMode() === "overview" && !tui!.isCompact()) {

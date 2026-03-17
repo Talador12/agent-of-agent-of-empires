@@ -141,7 +141,7 @@ const PIN_ICON = "▲";
  * Each token: "{idx}{pin?}{mute?}{dot}{name}" — e.g. "1▲●Alpha" for pinned, "2◌●Bravo" for muted.
  * Returns array of formatted row strings (one per display row).
  */
-function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pinnedIds?: Set<string>, mutedIds?: Set<string>): string[] {
+function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pinnedIds?: Set<string>, mutedIds?: Set<string>, noteIds?: Set<string>): string[] {
   if (sessions.length === 0) return [`${DIM}no agents connected${RESET}`];
 
   const tokens: string[] = [];
@@ -153,11 +153,13 @@ function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pin
     const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
     const pinned = pinnedIds?.has(s.id) ?? false;
     const muted = mutedIds?.has(s.id) ?? false;
+    const noted = noteIds?.has(s.id) ?? false;
     const pin = pinned ? `${AMBER}${PIN_ICON}${RESET}` : "";
     const muteIcon = muted ? `${DIM}${MUTE_ICON}${RESET}` : "";
+    const noteIcon = noted ? `${TEAL}${NOTE_ICON}${RESET}` : "";
     const name = truncatePlain(s.title, COMPACT_NAME_LEN);
-    tokens.push(`${SLATE}${idx}${RESET}${pin}${muteIcon}${dot}${BOLD}${name}${RESET}`);
-    widths.push(idx.length + (pinned ? 1 : 0) + (muted ? 1 : 0) + 1 + name.length);
+    tokens.push(`${SLATE}${idx}${RESET}${pin}${muteIcon}${noteIcon}${dot}${BOLD}${name}${RESET}`);
+    widths.push(idx.length + (pinned ? 1 : 0) + (muted ? 1 : 0) + (noted ? 1 : 0) + 1 + name.length);
   }
 
   const rows: string[] = [];
@@ -224,6 +226,19 @@ export interface ActivityEntry {
 /** Mute indicator for muted sessions (shown dim beside session card). */
 const MUTE_ICON = "◌";
 
+// ── Notes ─────────────────────────────────────────────────────────────────────
+
+/** Note indicator for sessions with notes. */
+const NOTE_ICON = "✎";
+
+/** Max length for a session note (visible chars). */
+export const MAX_NOTE_LEN = 80;
+
+/** Truncate a note to the max length. */
+export function truncateNote(text: string): string {
+  return text.length > MAX_NOTE_LEN ? text.slice(0, MAX_NOTE_LEN - 2) + ".." : text;
+}
+
 /** Determine if an activity entry should be hidden due to muting. */
 export function shouldMuteEntry(entry: ActivityEntry, mutedIds: Set<string>): boolean {
   if (!entry.sessionId) return false;
@@ -262,6 +277,7 @@ export class TUI {
   private bellEnabled = false;
   private lastBellAt = 0;
   private mutedIds = new Set<string>(); // muted session IDs (activity entries hidden)
+  private sessionNotes = new Map<string, string>(); // session ID → note text
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -464,6 +480,56 @@ export class TUI {
   /** Return count of muted sessions. */
   getMutedCount(): number {
     return this.mutedIds.size;
+  }
+
+  /**
+   * Set a note on a session (by 1-indexed number, ID, ID prefix, or title).
+   * Returns true if session found. Pass empty text to clear.
+   */
+  setNote(sessionIdOrIndex: string | number, text: string): boolean {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return false;
+    if (text.trim() === "") {
+      this.sessionNotes.delete(sessionId);
+    } else {
+      this.sessionNotes.set(sessionId, truncateNote(text.trim()));
+    }
+    if (this.active) {
+      this.paintSessions();
+      if (this.viewMode === "drilldown" && this.drilldownSessionId === sessionId) {
+        this.paintDrilldownSeparator();
+      }
+    }
+    return true;
+  }
+
+  /** Get the note for a session ID (or undefined if none). */
+  getNote(id: string): string | undefined {
+    return this.sessionNotes.get(id);
+  }
+
+  /** Return count of sessions with notes. */
+  getNoteCount(): number {
+    return this.sessionNotes.size;
+  }
+
+  /** Return all session notes (for /notes listing). */
+  getAllNotes(): ReadonlyMap<string, string> {
+    return this.sessionNotes;
+  }
+
+  /** Return the current sessions (read-only, for resolving IDs to titles in the UI). */
+  getSessions(): readonly DaemonSessionState[] {
+    return this.sessions;
   }
 
   /**
@@ -937,7 +1003,8 @@ export class TUI {
       process.stderr.write(moveTo(startRow + 1, 1) + CLEAR_LINE + padded);
     } else if (this.compactMode) {
       // compact: inline tokens, multiple per row (with pin indicators)
-      const compactRows = formatCompactRows(visibleSessions, innerWidth - 1, this.pinnedIds, this.mutedIds);
+      const noteIdSet = new Set(this.sessionNotes.keys());
+      const compactRows = formatCompactRows(visibleSessions, innerWidth - 1, this.pinnedIds, this.mutedIds, noteIdSet);
       for (let r = 0; r < compactRows.length; r++) {
         const line = `${SLATE}${BOX.v}${RESET} ${compactRows[r]}`;
         const padded = padBoxLine(line, this.cols);
@@ -950,11 +1017,13 @@ export class TUI {
         const bg = isHovered ? BG_HOVER : "";
         const pinned = this.pinnedIds.has(s.id);
         const muted = this.mutedIds.has(s.id);
+        const noted = this.sessionNotes.has(s.id);
         const pin = pinned ? `${AMBER}${PIN_ICON}${RESET} ` : "";
         const mute = muted ? `${DIM}${MUTE_ICON}${RESET} ` : "";
-        const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0); // each icon + space = 2 chars
+        const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
+        const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0);
         const cardWidth = innerWidth - 1 - iconsWidth;
-        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${formatSessionCard(s, cardWidth)}`;
+        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${note}${formatSessionCard(s, cardWidth)}`;
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
@@ -988,11 +1057,13 @@ export class TUI {
     const bg = isHovered ? BG_HOVER : "";
     const pinned = this.pinnedIds.has(s.id);
     const muted = this.mutedIds.has(s.id);
+    const noted = this.sessionNotes.has(s.id);
     const pin = pinned ? `${AMBER}${PIN_ICON}${RESET} ` : "";
     const mute = muted ? `${DIM}${MUTE_ICON}${RESET} ` : "";
-    const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0);
+    const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
+    const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0);
     const cardWidth = innerWidth - 1 - iconsWidth;
-    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${formatSessionCard(s, cardWidth)}`;
+    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${note}${formatSessionCard(s, cardWidth)}`;
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }
@@ -1059,7 +1130,9 @@ export class TUI {
   private paintDrilldownSeparator(): void {
     const session = this.sessions.find((s) => s.id === this.drilldownSessionId);
     const title = session ? session.title : this.drilldownSessionId ?? "?";
-    const prefix = `${BOX.h}${BOX.h} ${title} `;
+    const noteText = this.drilldownSessionId ? this.sessionNotes.get(this.drilldownSessionId) : undefined;
+    const noteSuffix = noteText ? `"${noteText}" ` : "";
+    const prefix = `${BOX.h}${BOX.h} ${title} ${noteSuffix}`;
     let hints: string;
     if (this.drilldownScrollOffset > 0) {
       const outputLines = this.sessionOutputs.get(this.drilldownSessionId ?? "") ?? [];
@@ -1369,4 +1442,4 @@ export function hitTestSession(row: number, headerHeight: number, sessionCount: 
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
-export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator, computeSparkline, formatSparkline, sortSessions, nextSortMode, SORT_MODES, formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN, PIN_ICON, MUTE_ICON };
+export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator, computeSparkline, formatSparkline, sortSessions, nextSortMode, SORT_MODES, formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN, PIN_ICON, MUTE_ICON, NOTE_ICON };

@@ -25,6 +25,8 @@ export type MarkHandler = () => void; // add bookmark
 export type JumpHandler = (num: number) => void; // jump to bookmark N
 export type MarksHandler = () => void; // list bookmarks
 export type MuteHandler = (target: string) => void; // session index or name to mute/unmute
+export type NoteHandler = (target: string, text: string) => void; // session + note text (empty = clear)
+export type NotesHandler = () => void; // list all session notes
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -77,6 +79,8 @@ export class InputReader {
   private jumpHandler: JumpHandler | null = null;
   private marksHandler: MarksHandler | null = null;
   private muteHandler: MuteHandler | null = null;
+  private noteHandler: NoteHandler | null = null;
+  private notesHandler: NotesHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -162,6 +166,16 @@ export class InputReader {
   // register a callback for mute/unmute commands (/mute <target>)
   onMute(handler: MuteHandler): void {
     this.muteHandler = handler;
+  }
+
+  // register a callback for note commands (/note <target> <text>)
+  onNote(handler: NoteHandler): void {
+    this.noteHandler = handler;
+  }
+
+  // register a callback for listing notes (/notes)
+  onNotes(handler: NotesHandler): void {
+    this.notesHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -360,6 +374,8 @@ ${BOLD}navigation:${RESET}
   /bell              toggle terminal bell on errors/completions
   /focus             toggle focus mode (show only pinned sessions)
   /mute [N|name]     mute/unmute a session's activity entries (toggle)
+  /note N|name text  attach a note to a session (no text = clear)
+  /notes             list all session notes
   /mark              bookmark current activity position
   /jump N            jump to bookmark N
   /marks             list all bookmarks
@@ -513,6 +529,35 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/note": {
+        const noteArg = line.slice("/note".length).trim();
+        if (this.noteHandler) {
+          // split: first word is target, rest is note text
+          const spaceIdx = noteArg.indexOf(" ");
+          if (spaceIdx > 0) {
+            const target = noteArg.slice(0, spaceIdx);
+            const text = noteArg.slice(spaceIdx + 1).trim();
+            this.noteHandler(target, text);
+          } else if (noteArg) {
+            // target only, no text — clear note
+            this.noteHandler(noteArg, "");
+          } else {
+            console.error(`${DIM}usage: /note <N|name> <text> — set note, or /note <N|name> — clear${RESET}`);
+          }
+        } else {
+          console.error(`${DIM}notes not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/notes":
+        if (this.notesHandler) {
+          this.notesHandler();
+        } else {
+          console.error(`${DIM}notes not available (no TUI)${RESET}`);
+        }
+        break;
 
       case "/mark":
         if (this.markHandler) {

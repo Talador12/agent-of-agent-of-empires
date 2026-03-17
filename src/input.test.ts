@@ -618,3 +618,55 @@ describe("InputReader onMute", () => {
     assert.equal(t2.length, 0);
   });
 });
+
+// ── InputReader onNote ──────────────────────────────────────────────────────
+
+describe("InputReader onNote", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    const calls: Array<{ target: string; text: string }> = [];
+    reader.onNote((target, text) => calls.push({ target, text }));
+    assert.equal(calls.length, 0);
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    const a: Array<{ target: string; text: string }> = [];
+    const b: Array<{ target: string; text: string }> = [];
+    reader.onNote((target, text) => a.push({ target, text }));
+    reader.onNote((target, text) => b.push({ target, text }));
+    assert.equal(a.length, 0);
+    assert.equal(b.length, 0);
+  });
+});
+
+// ── InputReader onNotes ─────────────────────────────────────────────────────
+
+describe("InputReader onNotes", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    let called = 0;
+    reader.onNotes(() => called++);
+    assert.equal(called, 0);
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    let a = 0;
+    let b = 0;
+    reader.onNotes(() => a++);
+    reader.onNotes(() => b++);
+    assert.equal(a, 0);
+    assert.equal(b, 0);
+  });
+});

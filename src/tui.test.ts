@@ -14,6 +14,7 @@ import {
   shouldBell, BELL_COOLDOWN_MS,
   computeBookmarkOffset, MAX_BOOKMARKS,
   shouldMuteEntry, MUTE_ICON,
+  truncateNote, MAX_NOTE_LEN, NOTE_ICON,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry, SortMode } from "./tui.js";
@@ -1884,4 +1885,132 @@ describe("TUI mute state", () => {
   });
 });
 
+// ── truncateNote ────────────────────────────────────────────────────────────
+
+describe("truncateNote", () => {
+  it("returns text unchanged when under limit", () => {
+    assert.equal(truncateNote("short note"), "short note");
+  });
+
+  it("truncates long text with '..' suffix", () => {
+    const long = "a".repeat(100);
+    const result = truncateNote(long);
+    assert.equal(result.length, MAX_NOTE_LEN);
+    assert.ok(result.endsWith(".."));
+    assert.equal(result, "a".repeat(78) + "..");
+  });
+
+  it("returns text unchanged at exact limit", () => {
+    const exact = "b".repeat(MAX_NOTE_LEN);
+    assert.equal(truncateNote(exact), exact);
+  });
+
+  it("handles empty string", () => {
+    assert.equal(truncateNote(""), "");
+  });
+});
+
+// ── MAX_NOTE_LEN ────────────────────────────────────────────────────────────
+
+describe("MAX_NOTE_LEN", () => {
+  it("is 80", () => {
+    assert.equal(MAX_NOTE_LEN, 80);
+  });
+});
+
+// ── NOTE_ICON ───────────────────────────────────────────────────────────────
+
+describe("NOTE_ICON", () => {
+  it("is the pencil character", () => {
+    assert.equal(NOTE_ICON, "✎");
+  });
+});
+
+// ── TUI note state ──────────────────────────────────────────────────────────
+
+describe("TUI note state", () => {
+  it("initial state has no notes", () => {
+    const tui = new TUI();
+    assert.equal(tui.getNoteCount(), 0);
+    assert.equal(tui.getAllNotes().size, 0);
+  });
+
+  it("setNote by index works with sessions present", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+      { id: "s2", title: "Bravo", status: "working", tool: "cursor", currentTask: "test", userActive: false },
+    ]});
+    assert.equal(tui.setNote(1, "working on auth"), true);
+    assert.equal(tui.getNote("s1"), "working on auth");
+    assert.equal(tui.getNote("s2"), undefined);
+    assert.equal(tui.getNoteCount(), 1);
+  });
+
+  it("setNote by name works (case-insensitive)", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    assert.equal(tui.setNote("alpha", "fixing tests"), true);
+    assert.equal(tui.getNote("s1"), "fixing tests");
+  });
+
+  it("setNote with empty text clears note", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    tui.setNote(1, "some note");
+    assert.equal(tui.getNoteCount(), 1);
+    tui.setNote(1, "");
+    assert.equal(tui.getNoteCount(), 0);
+    assert.equal(tui.getNote("s1"), undefined);
+  });
+
+  it("setNote returns false for unknown session", () => {
+    const tui = new TUI();
+    assert.equal(tui.setNote(1, "test"), false);
+    assert.equal(tui.setNote("nonexistent", "test"), false);
+  });
+
+  it("getNote returns undefined for unknown ID", () => {
+    const tui = new TUI();
+    assert.equal(tui.getNote("nonexistent"), undefined);
+  });
+
+  it("getAllNotes returns all set notes", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+      { id: "s2", title: "Bravo", status: "working", tool: "cursor", currentTask: "test", userActive: false },
+    ]});
+    tui.setNote(1, "note one");
+    tui.setNote(2, "note two");
+    const notes = tui.getAllNotes();
+    assert.equal(notes.size, 2);
+    assert.equal(notes.get("s1"), "note one");
+    assert.equal(notes.get("s2"), "note two");
+  });
+
+  it("getSessions returns current session list", () => {
+    const tui = new TUI();
+    const sessions = [
+      { id: "s1", title: "Alpha", status: "idle" as const, tool: "opencode", currentTask: "", userActive: false },
+    ];
+    tui.updateState({ sessions });
+    const result = tui.getSessions();
+    assert.equal(result.length, 1);
+    assert.equal(result[0].id, "s1");
+    assert.equal(result[0].title, "Alpha");
+  });
+
+  it("setNote is safe when TUI is not active", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    assert.doesNotThrow(() => tui.setNote(1, "safe note"));
+  });
+});
 
