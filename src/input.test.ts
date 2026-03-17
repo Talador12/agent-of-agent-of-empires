@@ -592,3 +592,29 @@ describe("InputReader onMarks", () => {
     assert.equal(b, 0);
   });
 });
+
+// ── InputReader onMute ──────────────────────────────────────────────────────
+
+describe("InputReader onMute", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    const targets: string[] = [];
+    reader.onMute((t) => targets.push(t));
+    assert.equal(targets.length, 0);
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    const t1: string[] = [];
+    const t2: string[] = [];
+    reader.onMute((t) => t1.push(t));
+    reader.onMute((t) => t2.push(t));
+    assert.equal(t1.length, 0);
+    assert.equal(t2.length, 0);
+  });
+});

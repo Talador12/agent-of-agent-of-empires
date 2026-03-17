@@ -24,6 +24,7 @@ export type FocusHandler = () => void; // toggle focus mode
 export type MarkHandler = () => void; // add bookmark
 export type JumpHandler = (num: number) => void; // jump to bookmark N
 export type MarksHandler = () => void; // list bookmarks
+export type MuteHandler = (target: string) => void; // session index or name to mute/unmute
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -75,6 +76,7 @@ export class InputReader {
   private markHandler: MarkHandler | null = null;
   private jumpHandler: JumpHandler | null = null;
   private marksHandler: MarksHandler | null = null;
+  private muteHandler: MuteHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -155,6 +157,11 @@ export class InputReader {
   // register a callback for listing bookmarks (/marks)
   onMarks(handler: MarksHandler): void {
     this.marksHandler = handler;
+  }
+
+  // register a callback for mute/unmute commands (/mute <target>)
+  onMute(handler: MuteHandler): void {
+    this.muteHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -352,6 +359,7 @@ ${BOLD}navigation:${RESET}
   /pin [N|name]      pin/unpin a session to the top (toggle)
   /bell              toggle terminal bell on errors/completions
   /focus             toggle focus mode (show only pinned sessions)
+  /mute [N|name]     mute/unmute a session's activity entries (toggle)
   /mark              bookmark current activity position
   /jump N            jump to bookmark N
   /marks             list all bookmarks
@@ -491,6 +499,20 @@ ${BOLD}other:${RESET}
           console.error(`${DIM}focus not available (no TUI)${RESET}`);
         }
         break;
+
+      case "/mute": {
+        const muteArg = line.slice("/mute".length).trim();
+        if (this.muteHandler) {
+          if (muteArg) {
+            this.muteHandler(muteArg);
+          } else {
+            console.error(`${DIM}usage: /mute <N|name> — toggle mute for a session${RESET}`);
+          }
+        } else {
+          console.error(`${DIM}mute not available (no TUI)${RESET}`);
+        }
+        break;
+      }
 
       case "/mark":
         if (this.markHandler) {

@@ -138,10 +138,10 @@ const PIN_ICON = "▲";
 
 /**
  * Format sessions as inline compact tokens, wrapped to fit maxWidth.
- * Each token: "{idx}{pin?}{dot}{name}" — e.g. "1▲●Alpha" for pinned, "2●Bravo" for unpinned.
+ * Each token: "{idx}{pin?}{mute?}{dot}{name}" — e.g. "1▲●Alpha" for pinned, "2◌●Bravo" for muted.
  * Returns array of formatted row strings (one per display row).
  */
-function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pinnedIds?: Set<string>): string[] {
+function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pinnedIds?: Set<string>, mutedIds?: Set<string>): string[] {
   if (sessions.length === 0) return [`${DIM}no agents connected${RESET}`];
 
   const tokens: string[] = [];
@@ -152,10 +152,12 @@ function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pin
     const idx = String(i + 1);
     const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
     const pinned = pinnedIds?.has(s.id) ?? false;
+    const muted = mutedIds?.has(s.id) ?? false;
     const pin = pinned ? `${AMBER}${PIN_ICON}${RESET}` : "";
+    const muteIcon = muted ? `${DIM}${MUTE_ICON}${RESET}` : "";
     const name = truncatePlain(s.title, COMPACT_NAME_LEN);
-    tokens.push(`${SLATE}${idx}${RESET}${pin}${dot}${BOLD}${name}${RESET}`);
-    widths.push(idx.length + (pinned ? 1 : 0) + 1 + name.length);
+    tokens.push(`${SLATE}${idx}${RESET}${pin}${muteIcon}${dot}${BOLD}${name}${RESET}`);
+    widths.push(idx.length + (pinned ? 1 : 0) + (muted ? 1 : 0) + 1 + name.length);
   }
 
   const rows: string[] = [];
@@ -214,6 +216,18 @@ export interface ActivityEntry {
   time: string;   // "HH:MM:SS"
   tag: string;    // "observation", "reasoner", "explain", "+ action", "! action", "you", "system", "status"
   text: string;   // the message
+  sessionId?: string; // optional: ties entry to a specific session (for muting)
+}
+
+// ── Mute helpers ──────────────────────────────────────────────────────────────
+
+/** Mute indicator for muted sessions (shown dim beside session card). */
+const MUTE_ICON = "◌";
+
+/** Determine if an activity entry should be hidden due to muting. */
+export function shouldMuteEntry(entry: ActivityEntry, mutedIds: Set<string>): boolean {
+  if (!entry.sessionId) return false;
+  return mutedIds.has(entry.sessionId);
 }
 
 // ── TUI class ───────────────────────────────────────────────────────────────
@@ -247,6 +261,7 @@ export class TUI {
   private bookmarks: Bookmark[] = [];    // saved positions in activity buffer
   private bellEnabled = false;
   private lastBellAt = 0;
+  private mutedIds = new Set<string>(); // muted session IDs (activity entries hidden)
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -412,6 +427,46 @@ export class TUI {
   }
 
   /**
+   * Toggle mute for a session (by 1-indexed number, ID, ID prefix, or title).
+   * Muted sessions' activity entries are hidden from the log (still buffered + persisted).
+   * Returns true if session found.
+   */
+  toggleMute(sessionIdOrIndex: string | number): boolean {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return false;
+    if (this.mutedIds.has(sessionId)) {
+      this.mutedIds.delete(sessionId);
+    } else {
+      this.mutedIds.add(sessionId);
+    }
+    // repaint sessions (mute icon) and activity (filter changes)
+    if (this.active) {
+      this.paintSessions();
+      this.repaintActivityRegion();
+    }
+    return true;
+  }
+
+  /** Check if a session ID is muted. */
+  isMuted(id: string): boolean {
+    return this.mutedIds.has(id);
+  }
+
+  /** Return count of muted sessions. */
+  getMutedCount(): number {
+    return this.mutedIds.size;
+  }
+
+  /**
    * Add a bookmark at the current activity position.
    * Returns the bookmark number (1-indexed) or 0 if buffer is empty.
    */
@@ -507,10 +562,11 @@ export class TUI {
   // ── Activity log ────────────────────────────────────────────────────────
 
   // push a new activity entry — this is the primary way to show output
-  log(tag: string, text: string): void {
+  // sessionId optionally ties the entry to a specific session (for mute filtering)
+  log(tag: string, text: string, sessionId?: string): void {
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
-    const entry: ActivityEntry = { time, tag, text };
+    const entry: ActivityEntry = { time, tag, text, ...(sessionId ? { sessionId } : {}) };
     this.activityBuffer.push(entry);
     this.activityTimestamps.push(now.getTime());
     if (this.activityBuffer.length > this.maxActivity) {
@@ -526,7 +582,10 @@ export class TUI {
       }
     }
     if (this.active) {
-      if (this.searchPattern) {
+      // muted entries are still buffered + persisted but hidden from display
+      if (shouldMuteEntry(entry, this.mutedIds)) {
+        // silently skip display — entry is in buffer for scroll-back if unmuted later
+      } else if (this.searchPattern) {
         // search active: only show new entry if it matches
         if (matchesSearch(entry, this.searchPattern)) {
           if (this.scrollOffset > 0) {
@@ -567,9 +626,12 @@ export class TUI {
     if (!this.active) return;
     const visibleLines = this.scrollBottom - this.scrollTop + 1;
     const n = lines ?? Math.max(1, Math.floor(visibleLines / 2));
+    let filtered = this.mutedIds.size > 0
+      ? this.activityBuffer.filter((e) => !shouldMuteEntry(e, this.mutedIds))
+      : this.activityBuffer;
     const entryCount = this.searchPattern
-      ? this.activityBuffer.filter((e) => matchesSearch(e, this.searchPattern!)).length
-      : this.activityBuffer.length;
+      ? filtered.filter((e) => matchesSearch(e, this.searchPattern!)).length
+      : filtered.length;
     const maxOffset = Math.max(0, entryCount - visibleLines);
     this.scrollOffset = Math.min(maxOffset, this.scrollOffset + n);
     this.repaintActivityRegion();
@@ -590,9 +652,12 @@ export class TUI {
   scrollToTop(): void {
     if (!this.active) return;
     const visibleLines = this.scrollBottom - this.scrollTop + 1;
+    let filtered = this.mutedIds.size > 0
+      ? this.activityBuffer.filter((e) => !shouldMuteEntry(e, this.mutedIds))
+      : this.activityBuffer;
     const entryCount = this.searchPattern
-      ? this.activityBuffer.filter((e) => matchesSearch(e, this.searchPattern!)).length
-      : this.activityBuffer.length;
+      ? filtered.filter((e) => matchesSearch(e, this.searchPattern!)).length
+      : filtered.length;
     this.scrollOffset = Math.max(0, entryCount - visibleLines);
     this.repaintActivityRegion();
     this.paintSeparator();
@@ -872,7 +937,7 @@ export class TUI {
       process.stderr.write(moveTo(startRow + 1, 1) + CLEAR_LINE + padded);
     } else if (this.compactMode) {
       // compact: inline tokens, multiple per row (with pin indicators)
-      const compactRows = formatCompactRows(visibleSessions, innerWidth - 1, this.pinnedIds);
+      const compactRows = formatCompactRows(visibleSessions, innerWidth - 1, this.pinnedIds, this.mutedIds);
       for (let r = 0; r < compactRows.length; r++) {
         const line = `${SLATE}${BOX.v}${RESET} ${compactRows[r]}`;
         const padded = padBoxLine(line, this.cols);
@@ -884,9 +949,12 @@ export class TUI {
         const isHovered = this.hoverSessionIdx === i + 1; // 1-indexed
         const bg = isHovered ? BG_HOVER : "";
         const pinned = this.pinnedIds.has(s.id);
+        const muted = this.mutedIds.has(s.id);
         const pin = pinned ? `${AMBER}${PIN_ICON}${RESET} ` : "";
-        const cardWidth = pinned ? innerWidth - 3 : innerWidth - 1; // pin takes 2 extra chars
-        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${formatSessionCard(s, cardWidth)}`;
+        const mute = muted ? `${DIM}${MUTE_ICON}${RESET} ` : "";
+        const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0); // each icon + space = 2 chars
+        const cardWidth = innerWidth - 1 - iconsWidth;
+        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${formatSessionCard(s, cardWidth)}`;
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
@@ -919,9 +987,12 @@ export class TUI {
     const isHovered = this.hoverSessionIdx === idx;
     const bg = isHovered ? BG_HOVER : "";
     const pinned = this.pinnedIds.has(s.id);
+    const muted = this.mutedIds.has(s.id);
     const pin = pinned ? `${AMBER}${PIN_ICON}${RESET} ` : "";
-    const cardWidth = pinned ? innerWidth - 3 : innerWidth - 1;
-    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${formatSessionCard(s, cardWidth)}`;
+    const mute = muted ? `${DIM}${MUTE_ICON}${RESET} ` : "";
+    const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0);
+    const cardWidth = innerWidth - 1 - iconsWidth;
+    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${formatSessionCard(s, cardWidth)}`;
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }
@@ -963,10 +1034,13 @@ export class TUI {
 
   private repaintActivityRegion(): void {
     const visibleLines = this.scrollBottom - this.scrollTop + 1;
-    // when search is active, filter entries first, then paginate
-    const source = this.searchPattern
-      ? this.activityBuffer.filter((e) => matchesSearch(e, this.searchPattern!))
+    // filter: muted entries first, then search on top
+    let source = this.mutedIds.size > 0
+      ? this.activityBuffer.filter((e) => !shouldMuteEntry(e, this.mutedIds))
       : this.activityBuffer;
+    if (this.searchPattern) {
+      source = source.filter((e) => matchesSearch(e, this.searchPattern!));
+    }
     const { start, end } = computeScrollSlice(source.length, visibleLines, this.scrollOffset);
     const entries = source.slice(start, end);
     for (let i = 0; i < visibleLines; i++) {
@@ -1295,4 +1369,4 @@ export function hitTestSession(row: number, headerHeight: number, sessionCount: 
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
-export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator, computeSparkline, formatSparkline, sortSessions, nextSortMode, SORT_MODES, formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN, PIN_ICON };
+export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator, computeSparkline, formatSparkline, sortSessions, nextSortMode, SORT_MODES, formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN, PIN_ICON, MUTE_ICON };

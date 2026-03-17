@@ -428,6 +428,16 @@ async function main() {
         tui!.log("system", `session not found: ${target}`);
       }
     });
+    // wire /mute toggle
+    input.onMute((target) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const ok = tui!.toggleMute(num ?? target);
+      if (ok) {
+        tui!.log("system", `mute toggled: ${target}`);
+      } else {
+        tui!.log("system", `session not found: ${target}`);
+      }
+    });
     // wire mouse move to hover highlight on session cards (disabled in compact)
     input.onMouseMove((row, _col) => {
       if (tui!.getViewMode() === "overview" && !tui!.isCompact()) {
@@ -936,17 +946,17 @@ async function daemonTick(
     const narration = narrateObservation(sessionInfos, changedTitles);
     tui.log("observation", narration + (userMessage ? " +your message" : ""));
 
-    // event highlights — call attention to important events
+    // event highlights — call attention to important events (with sessionId for mute filtering)
     for (const snap of observation.sessions) {
       const s = snap.session;
       if (s.status === "error" && changedTitles.has(s.title)) {
-        tui.log("! action", `${s.title} hit an error! The AI will investigate.`);
+        tui.log("! action", `${s.title} hit an error! The AI will investigate.`, s.id);
       }
       if (s.status === "done" && changedTitles.has(s.title)) {
-        tui.log("+ action", `${s.title} finished its task!`);
+        tui.log("+ action", `${s.title} finished its task!`, s.id);
       }
       if (snap.userActive) {
-        tui.log("status", `You're working in ${s.title} — the AI won't interfere.`);
+        tui.log("status", `You're working in ${s.title} — the AI won't interfere.`, s.id);
       }
     }
   }
@@ -1025,7 +1035,7 @@ async function daemonTick(
       : plainEnglish;
 
     if (tui) {
-      tui.log(tag, displayText);
+      tui.log(tag, displayText, sessionId);
     } else {
       const icon = entry.success ? "+" : "!";
       log(`[${icon}] ${displayText}`);

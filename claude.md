@@ -5,23 +5,78 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.83.0
+## Version: v0.84.0
 
 ## Current Focus
 
-1334 tests across 37 files. v0.83.0 shipped: bookmarks — `/mark` saves current activity position, `/jump N` scrolls to it, `/marks` lists all. `computeBookmarkOffset()` pure function centers the entry in the visible region. Max 20 bookmarks with auto-eviction.
+1351 tests across 37 files. v0.84.0 shipped: session muting — `/mute N|name` hides a session's activity log entries from the TUI while still buffering and persisting them. Entries reappear when unmuted. `◌` mute indicator in both normal and compact mode cards. `shouldMuteEntry()` pure function for testability.
 
 ## Roadmap
 
-### v0.84.0+ — Ideas Backlog
+### v0.85.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Session health pulse** — tiny per-session sparklines in the compact view
 - **Activity heatmap** — colored time-of-day heatmap in stats output
-- **Mute session** — suppress activity log entries from specific sessions
 - **Session notes** — attach persistent notes to sessions visible in drill-down
+- **Unmute all** — `/unmute-all` command to quickly clear all mutes
+- **Activity count badge** — show suppressed entry count next to muted session card
+
+### What shipped in v0.84.0
+
+**Theme: "Mute"** — session muting. `/mute N|name` toggles hiding activity log entries from a specific session. Muted entries still buffer and persist to disk — they're just hidden from the live display and scroll-back. Unmuting immediately makes them visible again. `◌` indicator in session cards (both normal and compact). 17 new tests.
+
+#### 1. `sessionId` on `ActivityEntry` (`src/tui.ts`)
+- Optional `sessionId?: string` field — backwards-compatible, ties an entry to a session for mute filtering
+- Passed through from `log(tag, text, sessionId?)` — existing callers unaffected
+
+#### 2. `shouldMuteEntry()` pure function (`src/tui.ts`)
+- Takes `entry` and `mutedIds: Set<string>`, returns true if entry should be hidden
+- Returns false for entries without `sessionId` or with non-muted IDs
+- Exported for direct testing
+
+#### 3. `MUTE_ICON` constant (`src/tui.ts`)
+- `"◌"` (combining dotted circle) — displayed DIM next to muted session cards
+- Shown in both normal card layout and compact token layout
+
+#### 4. Mute state on TUI class (`src/tui.ts`)
+- `mutedIds: Set<string>` field
+- `toggleMute(sessionIdOrIndex)` — resolves by 1-indexed number, ID, ID prefix, or title (case-insensitive). Returns boolean.
+- `isMuted(id)` — check mute state
+- `getMutedCount()` — count of muted sessions
+- `toggleMute` repaints session cards and activity region
+
+#### 5. Mute filtering in display (`src/tui.ts`)
+- `log()` — muted entries skip live display (still buffered + persisted)
+- `repaintActivityRegion()` — filters out muted entries before pagination
+- `scrollUp()` / `scrollToTop()` — compute max offset from filtered (non-muted) entries
+- Both mute and search filters compose: mute applied first, then search on top
+
+#### 6. Mute indicator in cards (`src/tui.ts`)
+- Normal mode: `◌ ` prefix (DIM) before session card, reduces card width by 2 chars per icon
+- Compact mode: `◌` between index and status dot in token
+- `repaintSessionCard()` includes mute indicator for hover repaints
+- Both pin `▲` and mute `◌` can appear together
+
+#### 7. `/mute` command (`src/input.ts`)
+- `MuteHandler` type: `(target: string) => void`
+- `onMute(handler)` callback registration on `InputReader`
+- `/mute <N|name>` toggles mute, `/mute` shows usage hint
+- `/help` updated with `/mute` in navigation section
+
+#### 8. Wiring (`src/index.ts`)
+- `input.onMute()` → resolves numeric target, calls `tui.toggleMute()`, logs result
+- Event highlights pass `s.id` as `sessionId` to `tui.log()` for mute filtering
+- Action execution results pass `sessionId` to `tui.log()` for mute filtering
+
+#### 9. Tests
+- `src/tui.test.ts` (14 tests): shouldMuteEntry — no sessionId, non-muted, muted, empty set, multiple IDs; MUTE_ICON — is ◌; TUI mute state — initial empty, toggleMute invalid, toggleMute by index, by name, double toggle unmutes, isMuted unknown, safe when inactive, log with muted sessionId
+- `src/input.test.ts` (3 tests): onMute — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +17, net 1351 tests across 37 files.
 
 ### What shipped in v0.83.0
 

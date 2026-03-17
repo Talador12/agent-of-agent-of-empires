@@ -13,6 +13,7 @@ import {
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
   shouldBell, BELL_COOLDOWN_MS,
   computeBookmarkOffset, MAX_BOOKMARKS,
+  shouldMuteEntry, MUTE_ICON,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry, SortMode } from "./tui.js";
@@ -1769,6 +1770,117 @@ describe("TUI bookmark state", () => {
     tui.log("system", "test");
     tui.addBookmark();
     assert.doesNotThrow(() => tui.jumpToBookmark(1));
+  });
+});
+
+// ── shouldMuteEntry ─────────────────────────────────────────────────────────
+
+describe("shouldMuteEntry", () => {
+  it("returns false for entry without sessionId", () => {
+    const entry: ActivityEntry = { time: "12:00:00", tag: "system", text: "hello" };
+    assert.equal(shouldMuteEntry(entry, new Set(["sess-1"])), false);
+  });
+
+  it("returns false for entry with non-muted sessionId", () => {
+    const entry: ActivityEntry = { time: "12:00:00", tag: "system", text: "hello", sessionId: "sess-2" };
+    assert.equal(shouldMuteEntry(entry, new Set(["sess-1"])), false);
+  });
+
+  it("returns true for entry with muted sessionId", () => {
+    const entry: ActivityEntry = { time: "12:00:00", tag: "! action", text: "error!", sessionId: "sess-1" };
+    assert.equal(shouldMuteEntry(entry, new Set(["sess-1"])), true);
+  });
+
+  it("returns false when mutedIds is empty", () => {
+    const entry: ActivityEntry = { time: "12:00:00", tag: "system", text: "hello", sessionId: "sess-1" };
+    assert.equal(shouldMuteEntry(entry, new Set()), false);
+  });
+
+  it("handles multiple muted IDs", () => {
+    const muted = new Set(["a", "b", "c"]);
+    assert.equal(shouldMuteEntry({ time: "12:00:00", tag: "system", text: "x", sessionId: "b" }, muted), true);
+    assert.equal(shouldMuteEntry({ time: "12:00:00", tag: "system", text: "x", sessionId: "d" }, muted), false);
+  });
+});
+
+// ── MUTE_ICON ───────────────────────────────────────────────────────────────
+
+describe("MUTE_ICON", () => {
+  it("is the hollow circle character", () => {
+    assert.equal(MUTE_ICON, "◌");
+  });
+});
+
+// ── TUI mute state ─────────────────────────────────────────────────────────
+
+describe("TUI mute state", () => {
+  it("initial state has no muted sessions", () => {
+    const tui = new TUI();
+    assert.equal(tui.getMutedCount(), 0);
+  });
+
+  it("toggleMute returns false for unknown session", () => {
+    const tui = new TUI();
+    assert.equal(tui.toggleMute(1), false);
+    assert.equal(tui.toggleMute("nonexistent"), false);
+  });
+
+  it("toggleMute by index works with sessions present", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+      { id: "s2", title: "Bravo", status: "working", tool: "cursor", currentTask: "test", userActive: false },
+    ]});
+    assert.equal(tui.toggleMute(1), true);
+    assert.equal(tui.isMuted("s1"), true);
+    assert.equal(tui.isMuted("s2"), false);
+    assert.equal(tui.getMutedCount(), 1);
+  });
+
+  it("toggleMute by name works (case-insensitive)", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    assert.equal(tui.toggleMute("alpha"), true);
+    assert.equal(tui.isMuted("s1"), true);
+  });
+
+  it("double toggle unmutes", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    tui.toggleMute(1);
+    assert.equal(tui.isMuted("s1"), true);
+    tui.toggleMute(1);
+    assert.equal(tui.isMuted("s1"), false);
+    assert.equal(tui.getMutedCount(), 0);
+  });
+
+  it("isMuted returns false for unknown ID", () => {
+    const tui = new TUI();
+    assert.equal(tui.isMuted("nonexistent"), false);
+  });
+
+  it("toggleMute is safe when TUI is not active", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    assert.doesNotThrow(() => tui.toggleMute(1));
+  });
+
+  it("muted session log entries with sessionId are still buffered", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    tui.toggleMute(1);
+    // log an entry tied to the muted session — should not throw
+    assert.doesNotThrow(() => tui.log("! action", "Alpha errored", "s1"));
+    // log a non-session entry — should also work fine
+    assert.doesNotThrow(() => tui.log("system", "general message"));
   });
 });
 
