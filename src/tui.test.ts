@@ -13,7 +13,7 @@ import {
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
   shouldBell, BELL_COOLDOWN_MS,
   computeBookmarkOffset, MAX_BOOKMARKS,
-  shouldMuteEntry, MUTE_ICON,
+  shouldMuteEntry, MUTE_ICON, formatMuteBadge,
   truncateNote, MAX_NOTE_LEN, NOTE_ICON,
   TUI,
 } from "./tui.js";
@@ -2011,6 +2011,157 @@ describe("TUI note state", () => {
       { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
     ]});
     assert.doesNotThrow(() => tui.setNote(1, "safe note"));
+  });
+});
+
+// ── formatMuteBadge ─────────────────────────────────────────────────────────
+
+describe("formatMuteBadge", () => {
+  it("returns empty string for 0", () => {
+    assert.equal(formatMuteBadge(0), "");
+  });
+
+  it("returns empty string for negative", () => {
+    assert.equal(formatMuteBadge(-1), "");
+  });
+
+  it("formats small count", () => {
+    const result = stripAnsi(formatMuteBadge(5));
+    assert.equal(result, "(5)");
+  });
+
+  it("formats larger count", () => {
+    const result = stripAnsi(formatMuteBadge(42));
+    assert.equal(result, "(42)");
+  });
+
+  it("caps at 999+", () => {
+    const result = stripAnsi(formatMuteBadge(1000));
+    assert.equal(result, "(999+)");
+  });
+
+  it("caps at 999+ for huge numbers", () => {
+    const result = stripAnsi(formatMuteBadge(50000));
+    assert.equal(result, "(999+)");
+  });
+});
+
+// ── TUI unmuteAll ───────────────────────────────────────────────────────────
+
+describe("TUI unmuteAll", () => {
+  it("returns 0 when nothing is muted", () => {
+    const tui = new TUI();
+    assert.equal(tui.unmuteAll(), 0);
+  });
+
+  it("unmutes all muted sessions and returns count", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+      { id: "s2", title: "Bravo", status: "working", tool: "cursor", currentTask: "test", userActive: false },
+      { id: "s3", title: "Charlie", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    tui.toggleMute(1);
+    tui.toggleMute(3);
+    assert.equal(tui.getMutedCount(), 2);
+    const count = tui.unmuteAll();
+    assert.equal(count, 2);
+    assert.equal(tui.getMutedCount(), 0);
+    assert.equal(tui.isMuted("s1"), false);
+    assert.equal(tui.isMuted("s3"), false);
+  });
+
+  it("clears suppressed entry counts", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    tui.toggleMute(1);
+    tui.log("! action", "error happened", "s1");
+    assert.equal(tui.getMutedEntryCount("s1"), 1);
+    tui.unmuteAll();
+    assert.equal(tui.getMutedEntryCount("s1"), 0);
+  });
+
+  it("is safe when TUI is not active", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    tui.toggleMute(1);
+    assert.doesNotThrow(() => tui.unmuteAll());
+  });
+});
+
+// ── TUI mutedEntryCount ─────────────────────────────────────────────────────
+
+describe("TUI mutedEntryCount", () => {
+  it("returns 0 for unknown session", () => {
+    const tui = new TUI();
+    assert.equal(tui.getMutedEntryCount("nonexistent"), 0);
+  });
+
+  it("returns 0 for unmuted session", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    assert.equal(tui.getMutedEntryCount("s1"), 0);
+  });
+
+  it("starts at 0 when muted", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    tui.toggleMute(1);
+    assert.equal(tui.getMutedEntryCount("s1"), 0);
+  });
+
+  it("increments on muted log entries", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    tui.toggleMute(1);
+    tui.log("system", "event 1", "s1");
+    tui.log("! action", "event 2", "s1");
+    tui.log("system", "event 3", "s1");
+    assert.equal(tui.getMutedEntryCount("s1"), 3);
+  });
+
+  it("does not increment for non-muted sessions", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+      { id: "s2", title: "Bravo", status: "working", tool: "cursor", currentTask: "test", userActive: false },
+    ]});
+    tui.toggleMute(1);
+    tui.log("system", "from bravo", "s2");
+    assert.equal(tui.getMutedEntryCount("s1"), 0);
+    assert.equal(tui.getMutedEntryCount("s2"), 0);
+  });
+
+  it("resets on unmute (toggle off)", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    tui.toggleMute(1);
+    tui.log("system", "suppressed", "s1");
+    assert.equal(tui.getMutedEntryCount("s1"), 1);
+    tui.toggleMute(1); // unmute
+    assert.equal(tui.getMutedEntryCount("s1"), 0);
+  });
+
+  it("does not count entries without sessionId", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    tui.toggleMute(1);
+    tui.log("system", "general message"); // no sessionId
+    assert.equal(tui.getMutedEntryCount("s1"), 0);
   });
 });
 

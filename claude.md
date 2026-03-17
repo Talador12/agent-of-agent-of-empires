@@ -5,23 +5,65 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.85.0
+## Version: v0.86.0
 
 ## Current Focus
 
-1372 tests across 37 files. v0.85.0 shipped: session notes — `/note N|name text` attaches a short note to a session, visible as `✎` indicator in cards and note text in drill-down separator. `/notes` lists all notes. `truncateNote()` pure function. 21 new tests.
+1392 tests across 37 files. v0.86.0 shipped: mute polish — `/unmute-all` clears all mutes at once, suppressed entry count badge `◌(42)` shows how many entries you've missed per muted session. `formatMuteBadge()` pure function. 20 new tests.
 
 ## Roadmap
 
-### v0.86.0+ — Ideas Backlog
+### v0.87.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Session health pulse** — tiny per-session sparklines in the compact view
 - **Activity heatmap** — colored time-of-day heatmap in stats output
-- **Unmute all** — `/unmute-all` command to quickly clear all mutes
-- **Activity count badge** — show suppressed entry count next to muted session card
+- **Filter by tag** — `/filter error` to show only entries matching a tag type
+- **Session uptime** — show how long each session has been running in card/stats
+- **Auto-pin on error** — optionally auto-pin sessions that emit errors
+
+### What shipped in v0.86.0
+
+**Theme: "Mute Polish"** — quality of life improvements for the mute system. `/unmute-all` clears all mutes at once (returns count of sessions unmuted). Suppressed entry count badge shows `◌(42)` next to muted session cards — tells you how many entries you've missed since muting. Badge caps at `(999+)`. Counts reset on unmute. `formatMuteBadge()` pure function. 20 new tests.
+
+#### 1. `formatMuteBadge()` pure function (`src/tui.ts`)
+- Takes a count, returns dim `(N)` string or empty for 0
+- Caps at `(999+)` for readability
+- Exported for direct testing
+
+#### 2. `mutedEntryCounts` tracking (`src/tui.ts`)
+- `mutedEntryCounts: Map<string, number>` — per-session suppressed count since last mute
+- Incremented in `log()` for every muted entry (regardless of TUI active state)
+- Reset to 0 on mute toggle, cleared on unmute-all
+- `getMutedEntryCount(id)` accessor
+
+#### 3. Badge in card rendering (`src/tui.ts`)
+- Normal mode: `◌(42) ` after mute icon, reduces card width dynamically
+- Both `paintSessions()` and `repaintSessionCard()` render the badge
+- Badge width calculated from count digit length + parens + space
+
+#### 4. `unmuteAll()` method (`src/tui.ts`)
+- Clears `mutedIds` and `mutedEntryCounts`
+- Returns count of sessions unmuted (0 if none)
+- Repaints sessions + activity region
+
+#### 5. `/unmute-all` command (`src/input.ts`)
+- `UnmuteAllHandler` type (no args)
+- `onUnmuteAll(handler)` callback registration
+- `/unmute-all` command case
+- `/help` updated with `/unmute-all`
+
+#### 6. Wiring (`src/index.ts`)
+- `input.onUnmuteAll()` → `tui.unmuteAll()`, logs "unmuted N sessions" or "no sessions are muted"
+
+#### 7. Tests
+- `src/tui.test.ts` (17 tests): formatMuteBadge — 0, negative, small count, large count, 999+ cap, huge number; TUI unmuteAll — returns 0 when empty, unmutes all + returns count, clears entry counts, safe when inactive; TUI mutedEntryCount — unknown session, unmuted session, starts at 0, increments on muted log, no increment for non-muted, resets on unmute toggle, ignores entries without sessionId
+- `src/input.test.ts` (3 tests): onUnmuteAll — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +20, net 1392 tests across 37 files.
 
 ### What shipped in v0.85.0
 

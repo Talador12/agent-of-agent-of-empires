@@ -438,6 +438,15 @@ async function main() {
         tui!.log("system", `session not found: ${target}`);
       }
     });
+    // wire /unmute-all
+    input.onUnmuteAll(() => {
+      const count = tui!.unmuteAll();
+      if (count > 0) {
+        tui!.log("system", `unmuted ${count} session${count === 1 ? "" : "s"}`);
+      } else {
+        tui!.log("system", "no sessions are muted");
+      }
+    });
     // wire /note set/clear
     input.onNote((target, text) => {
       const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;

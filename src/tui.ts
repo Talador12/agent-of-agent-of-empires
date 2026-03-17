@@ -245,6 +245,13 @@ export function shouldMuteEntry(entry: ActivityEntry, mutedIds: Set<string>): bo
   return mutedIds.has(entry.sessionId);
 }
 
+/** Format a suppressed entry count badge for muted sessions. Returns empty string for 0. */
+export function formatMuteBadge(count: number): string {
+  if (count <= 0) return "";
+  const label = count > 999 ? "999+" : String(count);
+  return `${DIM}(${label})${RESET}`;
+}
+
 // ── TUI class ───────────────────────────────────────────────────────────────
 
 export class TUI {
@@ -277,6 +284,7 @@ export class TUI {
   private bellEnabled = false;
   private lastBellAt = 0;
   private mutedIds = new Set<string>(); // muted session IDs (activity entries hidden)
+  private mutedEntryCounts = new Map<string, number>(); // session ID → suppressed entry count since mute
   private sessionNotes = new Map<string, string>(); // session ID → note text
 
   // drill-down mode: show a single session's full output
@@ -461,8 +469,10 @@ export class TUI {
     if (!sessionId) return false;
     if (this.mutedIds.has(sessionId)) {
       this.mutedIds.delete(sessionId);
+      this.mutedEntryCounts.delete(sessionId);
     } else {
       this.mutedIds.add(sessionId);
+      this.mutedEntryCounts.set(sessionId, 0);
     }
     // repaint sessions (mute icon) and activity (filter changes)
     if (this.active) {
@@ -470,6 +480,19 @@ export class TUI {
       this.repaintActivityRegion();
     }
     return true;
+  }
+
+  /** Unmute all sessions at once. Returns count of sessions unmuted. */
+  unmuteAll(): number {
+    const count = this.mutedIds.size;
+    if (count === 0) return 0;
+    this.mutedIds.clear();
+    this.mutedEntryCounts.clear();
+    if (this.active) {
+      this.paintSessions();
+      this.repaintActivityRegion();
+    }
+    return count;
   }
 
   /** Check if a session ID is muted. */
@@ -480,6 +503,11 @@ export class TUI {
   /** Return count of muted sessions. */
   getMutedCount(): number {
     return this.mutedIds.size;
+  }
+
+  /** Return count of suppressed entries for a muted session (0 if not muted). */
+  getMutedEntryCount(id: string): number {
+    return this.mutedEntryCounts.get(id) ?? 0;
   }
 
   /**
@@ -646,6 +674,10 @@ export class TUI {
         this.lastBellAt = nowMs;
         process.stderr.write("\x07");
       }
+    }
+    // track suppressed entry counts regardless of active state (for badge accuracy)
+    if (shouldMuteEntry(entry, this.mutedIds) && entry.sessionId) {
+      this.mutedEntryCounts.set(entry.sessionId, (this.mutedEntryCounts.get(entry.sessionId) ?? 0) + 1);
     }
     if (this.active) {
       // muted entries are still buffered + persisted but hidden from display
@@ -1018,12 +1050,16 @@ export class TUI {
         const pinned = this.pinnedIds.has(s.id);
         const muted = this.mutedIds.has(s.id);
         const noted = this.sessionNotes.has(s.id);
+        const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
+        const muteBadgeWidth = muted ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 2 : 0; // "(N)" visible chars, 0 when count is 0
+        const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0 ? muteBadgeWidth + 1 : 0; // +1 for trailing space
         const pin = pinned ? `${AMBER}${PIN_ICON}${RESET} ` : "";
         const mute = muted ? `${DIM}${MUTE_ICON}${RESET} ` : "";
         const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
-        const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0);
+        const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
+        const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth;
         const cardWidth = innerWidth - 1 - iconsWidth;
-        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${note}${formatSessionCard(s, cardWidth)}`;
+        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${formatSessionCard(s, cardWidth)}`;
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
@@ -1058,12 +1094,16 @@ export class TUI {
     const pinned = this.pinnedIds.has(s.id);
     const muted = this.mutedIds.has(s.id);
     const noted = this.sessionNotes.has(s.id);
+    const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
+    const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0
+      ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 3 : 0; // "(N) " visible chars
     const pin = pinned ? `${AMBER}${PIN_ICON}${RESET} ` : "";
     const mute = muted ? `${DIM}${MUTE_ICON}${RESET} ` : "";
     const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
-    const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0);
+    const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
+    const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth;
     const cardWidth = innerWidth - 1 - iconsWidth;
-    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${note}${formatSessionCard(s, cardWidth)}`;
+    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${formatSessionCard(s, cardWidth)}`;
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }

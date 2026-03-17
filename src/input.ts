@@ -25,6 +25,7 @@ export type MarkHandler = () => void; // add bookmark
 export type JumpHandler = (num: number) => void; // jump to bookmark N
 export type MarksHandler = () => void; // list bookmarks
 export type MuteHandler = (target: string) => void; // session index or name to mute/unmute
+export type UnmuteAllHandler = () => void; // clear all mutes at once
 export type NoteHandler = (target: string, text: string) => void; // session + note text (empty = clear)
 export type NotesHandler = () => void; // list all session notes
 
@@ -79,6 +80,7 @@ export class InputReader {
   private jumpHandler: JumpHandler | null = null;
   private marksHandler: MarksHandler | null = null;
   private muteHandler: MuteHandler | null = null;
+  private unmuteAllHandler: UnmuteAllHandler | null = null;
   private noteHandler: NoteHandler | null = null;
   private notesHandler: NotesHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
@@ -166,6 +168,11 @@ export class InputReader {
   // register a callback for mute/unmute commands (/mute <target>)
   onMute(handler: MuteHandler): void {
     this.muteHandler = handler;
+  }
+
+  // register a callback for unmuting all sessions (/unmute-all)
+  onUnmuteAll(handler: UnmuteAllHandler): void {
+    this.unmuteAllHandler = handler;
   }
 
   // register a callback for note commands (/note <target> <text>)
@@ -374,6 +381,7 @@ ${BOLD}navigation:${RESET}
   /bell              toggle terminal bell on errors/completions
   /focus             toggle focus mode (show only pinned sessions)
   /mute [N|name]     mute/unmute a session's activity entries (toggle)
+  /unmute-all        unmute all sessions at once
   /note N|name text  attach a note to a session (no text = clear)
   /notes             list all session notes
   /mark              bookmark current activity position
@@ -529,6 +537,14 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/unmute-all":
+        if (this.unmuteAllHandler) {
+          this.unmuteAllHandler();
+        } else {
+          console.error(`${DIM}unmute-all not available (no TUI)${RESET}`);
+        }
+        break;
 
       case "/note": {
         const noteArg = line.slice("/note".length).trim();

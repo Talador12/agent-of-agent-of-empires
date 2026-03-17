@@ -670,3 +670,29 @@ describe("InputReader onNotes", () => {
     assert.equal(b, 0);
   });
 });
+
+// ── InputReader onUnmuteAll ─────────────────────────────────────────────────
+
+describe("InputReader onUnmuteAll", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    let called = 0;
+    reader.onUnmuteAll(() => called++);
+    assert.equal(called, 0);
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    let a = 0;
+    let b = 0;
+    reader.onUnmuteAll(() => a++);
+    reader.onUnmuteAll(() => b++);
+    assert.equal(a, 0);
+    assert.equal(b, 0);
+  });
+});
