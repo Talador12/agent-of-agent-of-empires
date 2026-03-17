@@ -6,17 +6,18 @@
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/releases"><img src="https://img.shields.io/github/v/release/Talador12/agent-of-agent-of-empires" alt="GitHub release"></a>
     <img src="https://img.shields.io/badge/tests-1478-brightgreen" alt="tests">
     <img src="https://img.shields.io/badge/node-%3E%3D20-blue" alt="Node.js >= 20">
+    <img src="https://img.shields.io/badge/runtime%20deps-0-brightgreen" alt="zero runtime dependencies">
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   </p>
 </p>
 
-An autonomous supervisor that manages [Agent of Empires](https://github.com/njbrake/agent-of-empires) sessions using [OpenCode](https://github.com/anomalyco/opencode) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as the reasoning engine.
+An autonomous supervisor for [Agent of Empires](https://github.com/njbrake/agent-of-empires) sessions. Uses [OpenCode](https://github.com/anomalyco/opencode) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as the reasoning engine.
 
-> Built on top of [Agent of Empires (AoE)](https://github.com/njbrake/agent-of-empires) by [Nate Brake](https://x.com/natebrake). AoE is the session manager -- aoaoe is the brain that drives it.
+**This project is a companion to [Agent of Empires (AoE)](https://github.com/njbrake/agent-of-empires) by [Nate Brake](https://x.com/natebrake).** AoE is the foundation -- it manages multiple AI coding agents in tmux sessions with git worktrees. aoaoe adds an autonomous supervisor layer on top. You need AoE running first; aoaoe plugs into it.
 
 ## What is this?
 
-[Agent of Empires (AoE)](https://github.com/njbrake/agent-of-empires) manages multiple AI coding agents (Claude Code, OpenCode, Gemini CLI, Codex, etc.) in tmux sessions with git worktrees. It is great at spawning and organizing agents, but someone still needs to watch the tmux panes and intervene when agents get stuck, ask questions, or finish their work.
+[AoE](https://github.com/njbrake/agent-of-empires) is great at spawning and organizing agents, but someone still needs to watch the tmux panes and intervene when agents get stuck, ask questions, or finish their work.
 
 **aoaoe** is that someone -- except it is an LLM. It polls your AoE sessions, reads agent output, decides when to act, and executes without you needing to be there.
 
