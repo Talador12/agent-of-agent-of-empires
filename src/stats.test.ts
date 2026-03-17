@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   parseActionStats, parseHistoryStats, combineStats,
-  formatDuration, formatRate, formatStats,
+  formatDuration, formatRate, formatStats, formatHeatmap,
 } from "./stats.js";
 import type { HistoryEntry } from "./tui-history.js";
 
@@ -207,7 +207,7 @@ describe("combineStats", () => {
 
   it("computes timeRange from history only", () => {
     const history = {
-      total: 10, byTag: new Map(), firstTs: 2000, lastTs: 8000,
+      total: 10, byTag: new Map(), byHour: new Array(24).fill(0), firstTs: 2000, lastTs: 8000,
     };
     const combined = combineStats(null, history);
     assert.ok(combined.timeRange);
@@ -222,7 +222,7 @@ describe("combineStats", () => {
       firstTs: 3000, lastTs: 7000,
     };
     const history = {
-      total: 5, byTag: new Map(), firstTs: 1000, lastTs: 9000,
+      total: 5, byTag: new Map(), byHour: new Array(24).fill(0), firstTs: 1000, lastTs: 9000,
     };
     const combined = combineStats(actions, history);
     assert.ok(combined.timeRange);
@@ -361,7 +361,7 @@ describe("formatStats", () => {
     const history = {
       total: 20,
       byTag: new Map([["observation", 10], ["reasoner", 5], ["you", 3], ["system", 2]]),
-      firstTs: 1000, lastTs: 5000,
+      byHour: new Array(24).fill(0), firstTs: 1000, lastTs: 5000,
     };
     const combined = combineStats(null, history);
     const result = formatStats(combined);
@@ -372,7 +372,7 @@ describe("formatStats", () => {
 
   it("shows 'no actions recorded' when only history exists", () => {
     const history = {
-      total: 5, byTag: new Map([["system", 5]]), firstTs: 1000, lastTs: 5000,
+      total: 5, byTag: new Map([["system", 5]]), byHour: new Array(24).fill(0), firstTs: 1000, lastTs: 5000,
     };
     const combined = combineStats(null, history);
     const result = formatStats(combined);
@@ -414,5 +414,47 @@ describe("parseCliArgs stats subcommand", () => {
     parseCliArgs = mod.parseCliArgs as (argv: string[]) => Record<string, unknown>;
     const result = parseCliArgs(["node", "aoaoe", "--verbose"]);
     assert.strictEqual(result.runStats, false);
+  });
+});
+
+// ── formatHeatmap ────────────────────────────────────────────────────────────
+
+describe("formatHeatmap", () => {
+  it("returns 24-char string for all-zero counts", () => {
+    const counts = new Array(24).fill(0);
+    const result = formatHeatmap(counts);
+    // strip ANSI to check length
+    const stripped = result.replace(/\x1b\[[0-9;]*m/g, "");
+    assert.equal(stripped.length, 24);
+  });
+
+  it("uses block chars for non-zero counts", () => {
+    const counts = new Array(24).fill(0);
+    counts[12] = 10;
+    const result = formatHeatmap(counts);
+    assert.ok(result.includes("█"));
+  });
+
+  it("handles uniform non-zero counts", () => {
+    const counts = new Array(24).fill(5);
+    const result = formatHeatmap(counts);
+    assert.ok(result.length > 0);
+  });
+});
+
+// ── parseHistoryStats byHour ─────────────────────────────────────────────────
+
+describe("parseHistoryStats byHour", () => {
+  it("populates byHour array with 24 buckets", () => {
+    const entries: HistoryEntry[] = [
+      { ts: new Date("2025-01-15T10:00:00Z").getTime(), time: "10:00:00", tag: "system", text: "a" },
+      { ts: new Date("2025-01-15T10:30:00Z").getTime(), time: "10:30:00", tag: "system", text: "b" },
+      { ts: new Date("2025-01-15T22:00:00Z").getTime(), time: "22:00:00", tag: "error", text: "c" },
+    ];
+    const stats = parseHistoryStats(entries);
+    assert.ok(stats);
+    assert.equal(stats!.byHour.length, 24);
+    const totalInBuckets = stats!.byHour.reduce((a, b) => a + b, 0);
+    assert.equal(totalInBuckets, 3);
   });
 });

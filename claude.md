@@ -5,23 +5,29 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.93.0
+## Version: v0.94.0
 
 ## Current Focus
 
-1468 tests across 35 files. v0.93.0 shipped: filter presets — `/filter errors` expands to `error|! action`, `/filter actions` to `+ action|! action`, `/filter system` to `system|status`. Pipe-separated multi-tag matching in `matchesTagFilter()`. 7 new tests.
+1472 tests across 35 files. v0.94.0 shipped: activity heatmap in `aoaoe stats` — colored 24-hour block chart showing when agents are most active. `formatHeatmap()` pure function, `byHour` field in `HistoryStats`. 4 new tests.
 
 ## Roadmap
 
-### v0.94.0+ — Ideas Backlog
+### v0.95.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Session health pulse** — tiny per-session sparklines in the compact view
-- **Activity heatmap** — colored time-of-day heatmap in stats output
 - **Session memory** — show per-session context token usage in cards
 - **Error rate sparkline** — per-session error frequency mini-chart in cards
+
+### What shipped in v0.94.0
+
+**Theme: "Activity Heatmap"** — `aoaoe stats` now renders a 24-hour colored heatmap showing activity distribution by time-of-day. `parseHistoryStats()` populates `byHour` (24 buckets). `formatHeatmap()` renders colored Unicode blocks (░▒▓█) with SLATE→SKY→AMBER→LIME gradient. 4 new tests.
+
+Modified: `src/stats.ts`, `src/stats.test.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +4, net 1472 tests across 35 files.
 
 ### What shipped in v0.93.0
 

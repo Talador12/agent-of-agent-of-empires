@@ -23,6 +23,7 @@ export interface ActionStats {
 export interface HistoryStats {
   total: number;
   byTag: Map<string, number>;
+  byHour: number[];    // 24 buckets (0-23) for heatmap
   firstTs: number;
   lastTs: number;
 }
@@ -95,6 +96,7 @@ export function parseHistoryStats(
 ): HistoryStats | null {
   const cutoff = maxAgeMs ? (now ?? Date.now()) - maxAgeMs : 0;
   const byTag = new Map<string, number>();
+  const byHour = new Array<number>(24).fill(0);
   let total = 0;
   let firstTs = Infinity;
   let lastTs = 0;
@@ -105,10 +107,11 @@ export function parseHistoryStats(
     if (entry.ts < firstTs) firstTs = entry.ts;
     if (entry.ts > lastTs) lastTs = entry.ts;
     byTag.set(entry.tag, (byTag.get(entry.tag) ?? 0) + 1);
+    byHour[new Date(entry.ts).getHours()]++;
   }
 
   if (total === 0) return null;
-  return { total, byTag, firstTs, lastTs };
+  return { total, byTag, byHour, firstTs, lastTs };
 }
 
 /**
@@ -259,7 +262,31 @@ export function formatStats(stats: CombinedStats, windowLabel?: string): string 
     }
   }
 
+  // hourly heatmap
+  if (stats.history && stats.history.total > 0) {
+    lines.push("");
+    lines.push(`  ${BOLD}hourly activity${RESET}`);
+    lines.push(`  ${formatHeatmap(stats.history.byHour)}`);
+    lines.push(`  ${DIM}${"0".padEnd(6)}${"6".padEnd(6)}${"12".padEnd(6)}${"18".padEnd(5)}23${RESET}`);
+  }
+
   lines.push(`  ${hr}`);
   lines.push("");
   return lines.join("\n");
+}
+
+// ── Heatmap ──────────────────────────────────────────────────────────────────
+
+const HEAT_BLOCKS = [" ", "░", "▒", "▓", "█"];
+
+/** Format a 24-element heatmap as a colored block string. */
+export function formatHeatmap(counts: number[]): string {
+  const max = Math.max(...counts);
+  if (max === 0) return DIM + HEAT_BLOCKS[0].repeat(24) + RESET;
+  return counts.map((c) => {
+    if (c === 0) return `${SLATE}${HEAT_BLOCKS[0]}${RESET}`;
+    const level = Math.min(HEAT_BLOCKS.length - 1, Math.ceil((c / max) * (HEAT_BLOCKS.length - 1)));
+    const color = level <= 1 ? SLATE : level <= 2 ? SKY : level <= 3 ? AMBER : LIME;
+    return `${color}${HEAT_BLOCKS[level]}${RESET}`;
+  }).join("");
 }
