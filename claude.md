@@ -5,24 +5,65 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.86.0
+## Version: v0.87.0
 
 ## Current Focus
 
-1392 tests across 37 files. v0.86.0 shipped: mute polish — `/unmute-all` clears all mutes at once, suppressed entry count badge `◌(42)` shows how many entries you've missed per muted session. `formatMuteBadge()` pure function. 20 new tests.
+1409 tests across 37 files. v0.87.0 shipped: tag filter — `/filter error` shows only entries with a matching tag. Composes with mute and search (mute → tag → search pipeline). `matchesTagFilter()` + `formatTagFilterIndicator()` pure functions. Separator shows active filter with match counts. 17 new tests.
 
 ## Roadmap
 
-### v0.87.0+ — Ideas Backlog
+### v0.88.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Session health pulse** — tiny per-session sparklines in the compact view
 - **Activity heatmap** — colored time-of-day heatmap in stats output
-- **Filter by tag** — `/filter error` to show only entries matching a tag type
 - **Session uptime** — show how long each session has been running in card/stats
 - **Auto-pin on error** — optionally auto-pin sessions that emit errors
+- **Sticky filters** — persist filter/search/sort settings across restarts
+- **Filter presets** — `/filter errors` as alias for common multi-tag combos
+
+### What shipped in v0.87.0
+
+**Theme: "Filter by Tag"** — tag-based activity filtering. `/filter error` shows only activity entries with a matching tag (case-insensitive exact match). `/filter` (no arg) clears the filter. Composes with existing mute and search: filter pipeline is mute → tag → search (all three stack). Separator bar shows active filter with match counts: `filter: error (5/200)`. 17 new tests.
+
+#### 1. `matchesTagFilter()` pure function (`src/tui.ts`)
+- Case-insensitive exact match on `entry.tag`
+- Empty tag returns true (no filtering)
+- Does NOT partial-match — "sys" won't match "system"
+
+#### 2. `formatTagFilterIndicator()` pure function (`src/tui.ts`)
+- Formats separator hint: `filter: error (5/200)` with AMBER tag + DIM counts
+- Shows match count relative to non-muted total
+
+#### 3. Tag filter state on TUI class (`src/tui.ts`)
+- `filterTag: string | null` field
+- `setTagFilter(tag)` — sets or clears (empty/null = clear), resets scroll, repaints
+- `getTagFilter()` — current filter or null
+
+#### 4. Filter pipeline integration (`src/tui.ts`)
+- `log()` — tag filter applied after mute, before search
+- `repaintActivityRegion()` — mute → tag → search pipeline
+- `scrollUp()` / `scrollToTop()` — tag filter in entry count calculation
+- `paintSeparator()` — tag filter indicator takes precedence over search/scroll hints
+
+#### 5. `/filter` command (`src/input.ts`)
+- `TagFilterHandler` type: `(tag: string | null) => void`
+- `onTagFilter(handler)` callback registration
+- `/filter <tag>` sets filter, `/filter` clears
+- `/help` updated with `/filter`
+
+#### 6. Wiring (`src/index.ts`)
+- `input.onTagFilter()` → `tui.setTagFilter()`, logs "filter: tag" or "filter cleared"
+
+#### 7. Tests
+- `src/tui.test.ts` (14 tests): matchesTagFilter — empty tag, exact match (case variants), non-match, multi-word tags, no partial match; formatTagFilterIndicator — includes tag, counts, label; TUI tag filter state — initial null, set/clear/empty, resets scroll, safe when inactive
+- `src/input.test.ts` (3 tests): onTagFilter — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +17, net 1409 tests across 37 files.
 
 ### What shipped in v0.86.0
 

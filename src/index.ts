@@ -447,6 +447,15 @@ async function main() {
         tui!.log("system", "no sessions are muted");
       }
     });
+    // wire /filter tag
+    input.onTagFilter((tag) => {
+      tui!.setTagFilter(tag);
+      if (tag) {
+        tui!.log("system", `filter: ${tag}`);
+      } else {
+        tui!.log("system", "filter cleared");
+      }
+    });
     // wire /note set/clear
     input.onNote((target, text) => {
       const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;

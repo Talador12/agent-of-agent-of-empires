@@ -252,6 +252,17 @@ export function formatMuteBadge(count: number): string {
   return `${DIM}(${label})${RESET}`;
 }
 
+/** Check if an activity entry matches a tag filter (case-insensitive exact match on tag). */
+export function matchesTagFilter(entry: ActivityEntry, tag: string): boolean {
+  if (!tag) return true;
+  return entry.tag.toLowerCase() === tag.toLowerCase();
+}
+
+/** Format the tag filter indicator text for the separator bar. */
+export function formatTagFilterIndicator(tag: string, matchCount: number, totalCount: number): string {
+  return `${SLATE}filter:${RESET} ${AMBER}${tag}${RESET} ${DIM}(${matchCount}/${totalCount})${RESET}`;
+}
+
 // ── TUI class ───────────────────────────────────────────────────────────────
 
 export class TUI {
@@ -272,6 +283,7 @@ export class TUI {
   private newWhileScrolled = 0;  // entries added while user is scrolled back
   private pendingCount = 0;      // queued user messages awaiting next tick
   private searchPattern: string | null = null; // active search filter pattern
+  private filterTag: string | null = null;     // active tag filter (exact match on entry.tag)
   private hoverSessionIdx: number | null = null; // 1-indexed session under mouse cursor (null = none)
   private activityTimestamps: number[] = []; // epoch ms of each log() call for sparkline
   private sortMode: SortMode = "default";
@@ -683,6 +695,8 @@ export class TUI {
       // muted entries are still buffered + persisted but hidden from display
       if (shouldMuteEntry(entry, this.mutedIds)) {
         // silently skip display — entry is in buffer for scroll-back if unmuted later
+      } else if (this.filterTag && !matchesTagFilter(entry, this.filterTag)) {
+        // tag filter active: silently skip non-matching entries
       } else if (this.searchPattern) {
         // search active: only show new entry if it matches
         if (matchesSearch(entry, this.searchPattern)) {
@@ -727,6 +741,7 @@ export class TUI {
     let filtered = this.mutedIds.size > 0
       ? this.activityBuffer.filter((e) => !shouldMuteEntry(e, this.mutedIds))
       : this.activityBuffer;
+    if (this.filterTag) filtered = filtered.filter((e) => matchesTagFilter(e, this.filterTag!));
     const entryCount = this.searchPattern
       ? filtered.filter((e) => matchesSearch(e, this.searchPattern!)).length
       : filtered.length;
@@ -753,6 +768,7 @@ export class TUI {
     let filtered = this.mutedIds.size > 0
       ? this.activityBuffer.filter((e) => !shouldMuteEntry(e, this.mutedIds))
       : this.activityBuffer;
+    if (this.filterTag) filtered = filtered.filter((e) => matchesTagFilter(e, this.filterTag!));
     const entryCount = this.searchPattern
       ? filtered.filter((e) => matchesSearch(e, this.searchPattern!)).length
       : filtered.length;
@@ -899,6 +915,24 @@ export class TUI {
   /** Get the current search pattern (or null if no active search). */
   getSearchPattern(): string | null {
     return this.searchPattern;
+  }
+
+  // ── Tag filter ─────────────────────────────────────────────────────────
+
+  /** Set or clear the tag filter. Resets scroll and repaints. */
+  setTagFilter(tag: string | null): void {
+    this.filterTag = tag && tag.length > 0 ? tag : null;
+    this.scrollOffset = 0;
+    this.newWhileScrolled = 0;
+    if (this.active && this.viewMode === "overview") {
+      this.repaintActivityRegion();
+      this.paintSeparator();
+    }
+  }
+
+  /** Get the current tag filter (or null if none active). */
+  getTagFilter(): string | null {
+    return this.filterTag;
   }
 
   // ── Hover ───────────────────────────────────────────────────────────────
@@ -1111,7 +1145,14 @@ export class TUI {
   private paintSeparator(): void {
     const prefix = `${BOX.h}${BOX.h} activity `;
     let hints: string;
-    if (this.searchPattern) {
+    if (this.filterTag) {
+      // tag filter takes precedence in the separator display
+      let source = this.mutedIds.size > 0
+        ? this.activityBuffer.filter((e) => !shouldMuteEntry(e, this.mutedIds))
+        : this.activityBuffer;
+      const matchCount = source.filter((e) => matchesTagFilter(e, this.filterTag!)).length;
+      hints = formatTagFilterIndicator(this.filterTag, matchCount, source.length);
+    } else if (this.searchPattern) {
       const filtered = this.activityBuffer.filter((e) => matchesSearch(e, this.searchPattern!));
       hints = formatSearchIndicator(this.searchPattern, filtered.length, this.activityBuffer.length);
     } else if (this.scrollOffset > 0) {
@@ -1145,10 +1186,11 @@ export class TUI {
 
   private repaintActivityRegion(): void {
     const visibleLines = this.scrollBottom - this.scrollTop + 1;
-    // filter: muted entries first, then search on top
+    // filter pipeline: muted → tag → search
     let source = this.mutedIds.size > 0
       ? this.activityBuffer.filter((e) => !shouldMuteEntry(e, this.mutedIds))
       : this.activityBuffer;
+    if (this.filterTag) source = source.filter((e) => matchesTagFilter(e, this.filterTag!));
     if (this.searchPattern) {
       source = source.filter((e) => matchesSearch(e, this.searchPattern!));
     }

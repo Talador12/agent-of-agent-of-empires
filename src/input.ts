@@ -26,6 +26,7 @@ export type JumpHandler = (num: number) => void; // jump to bookmark N
 export type MarksHandler = () => void; // list bookmarks
 export type MuteHandler = (target: string) => void; // session index or name to mute/unmute
 export type UnmuteAllHandler = () => void; // clear all mutes at once
+export type TagFilterHandler = (tag: string | null) => void; // set or clear tag filter
 export type NoteHandler = (target: string, text: string) => void; // session + note text (empty = clear)
 export type NotesHandler = () => void; // list all session notes
 
@@ -81,6 +82,7 @@ export class InputReader {
   private marksHandler: MarksHandler | null = null;
   private muteHandler: MuteHandler | null = null;
   private unmuteAllHandler: UnmuteAllHandler | null = null;
+  private tagFilterHandler: TagFilterHandler | null = null;
   private noteHandler: NoteHandler | null = null;
   private notesHandler: NotesHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
@@ -173,6 +175,11 @@ export class InputReader {
   // register a callback for unmuting all sessions (/unmute-all)
   onUnmuteAll(handler: UnmuteAllHandler): void {
     this.unmuteAllHandler = handler;
+  }
+
+  // register a callback for tag filter commands (/filter <tag>)
+  onTagFilter(handler: TagFilterHandler): void {
+    this.tagFilterHandler = handler;
   }
 
   // register a callback for note commands (/note <target> <text>)
@@ -382,6 +389,7 @@ ${BOLD}navigation:${RESET}
   /focus             toggle focus mode (show only pinned sessions)
   /mute [N|name]     mute/unmute a session's activity entries (toggle)
   /unmute-all        unmute all sessions at once
+  /filter [tag]      filter activity by tag (error, system, etc. — no arg = clear)
   /note N|name text  attach a note to a session (no text = clear)
   /notes             list all session notes
   /mark              bookmark current activity position
@@ -545,6 +553,16 @@ ${BOLD}other:${RESET}
           console.error(`${DIM}unmute-all not available (no TUI)${RESET}`);
         }
         break;
+
+      case "/filter": {
+        const filterArg = line.slice("/filter".length).trim();
+        if (this.tagFilterHandler) {
+          this.tagFilterHandler(filterArg || null);
+        } else {
+          console.error(`${DIM}filter not available (no TUI)${RESET}`);
+        }
+        break;
+      }
 
       case "/note": {
         const noteArg = line.slice("/note".length).trim();

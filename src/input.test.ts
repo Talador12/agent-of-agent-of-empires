@@ -696,3 +696,29 @@ describe("InputReader onUnmuteAll", () => {
     assert.equal(b, 0);
   });
 });
+
+// ── InputReader onTagFilter ─────────────────────────────────────────────────
+
+describe("InputReader onTagFilter", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    const tags: Array<string | null> = [];
+    reader.onTagFilter((t) => tags.push(t));
+    assert.equal(tags.length, 0);
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    const a: Array<string | null> = [];
+    const b: Array<string | null> = [];
+    reader.onTagFilter((t) => a.push(t));
+    reader.onTagFilter((t) => b.push(t));
+    assert.equal(a.length, 0);
+    assert.equal(b.length, 0);
+  });
+});

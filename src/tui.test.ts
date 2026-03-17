@@ -15,6 +15,7 @@ import {
   computeBookmarkOffset, MAX_BOOKMARKS,
   shouldMuteEntry, MUTE_ICON, formatMuteBadge,
   truncateNote, MAX_NOTE_LEN, NOTE_ICON,
+  matchesTagFilter, formatTagFilterIndicator,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry, SortMode } from "./tui.js";
@@ -2162,6 +2163,99 @@ describe("TUI mutedEntryCount", () => {
     tui.toggleMute(1);
     tui.log("system", "general message"); // no sessionId
     assert.equal(tui.getMutedEntryCount("s1"), 0);
+  });
+});
+
+// ── matchesTagFilter ────────────────────────────────────────────────────────
+
+describe("matchesTagFilter", () => {
+  it("returns true when tag is empty", () => {
+    const entry: ActivityEntry = { time: "12:00:00", tag: "error", text: "boom" };
+    assert.equal(matchesTagFilter(entry, ""), true);
+  });
+
+  it("matches exact tag (case-insensitive)", () => {
+    const entry: ActivityEntry = { time: "12:00:00", tag: "error", text: "boom" };
+    assert.equal(matchesTagFilter(entry, "error"), true);
+    assert.equal(matchesTagFilter(entry, "ERROR"), true);
+    assert.equal(matchesTagFilter(entry, "Error"), true);
+  });
+
+  it("rejects non-matching tag", () => {
+    const entry: ActivityEntry = { time: "12:00:00", tag: "system", text: "hello" };
+    assert.equal(matchesTagFilter(entry, "error"), false);
+  });
+
+  it("matches multi-word tags", () => {
+    const entry: ActivityEntry = { time: "12:00:00", tag: "+ action", text: "sent input" };
+    assert.equal(matchesTagFilter(entry, "+ action"), true);
+    assert.equal(matchesTagFilter(entry, "! action"), false);
+  });
+
+  it("does not partial-match", () => {
+    const entry: ActivityEntry = { time: "12:00:00", tag: "system", text: "hello" };
+    assert.equal(matchesTagFilter(entry, "sys"), false);
+  });
+});
+
+// ── formatTagFilterIndicator ────────────────────────────────────────────────
+
+describe("formatTagFilterIndicator", () => {
+  it("includes the tag name", () => {
+    const result = stripAnsi(formatTagFilterIndicator("error", 5, 100));
+    assert.ok(result.includes("error"));
+  });
+
+  it("includes match/total counts", () => {
+    const result = stripAnsi(formatTagFilterIndicator("system", 42, 200));
+    assert.ok(result.includes("42/200"));
+  });
+
+  it("includes 'filter:' label", () => {
+    const result = stripAnsi(formatTagFilterIndicator("error", 0, 50));
+    assert.ok(result.includes("filter:"));
+  });
+});
+
+// ── TUI tag filter state ────────────────────────────────────────────────────
+
+describe("TUI tag filter state", () => {
+  it("initial state has no tag filter", () => {
+    const tui = new TUI();
+    assert.equal(tui.getTagFilter(), null);
+  });
+
+  it("setTagFilter sets the filter", () => {
+    const tui = new TUI();
+    tui.setTagFilter("error");
+    assert.equal(tui.getTagFilter(), "error");
+  });
+
+  it("setTagFilter with null clears the filter", () => {
+    const tui = new TUI();
+    tui.setTagFilter("error");
+    tui.setTagFilter(null);
+    assert.equal(tui.getTagFilter(), null);
+  });
+
+  it("setTagFilter with empty string clears the filter", () => {
+    const tui = new TUI();
+    tui.setTagFilter("error");
+    tui.setTagFilter("");
+    assert.equal(tui.getTagFilter(), null);
+  });
+
+  it("setTagFilter resets scroll offset", () => {
+    const tui = new TUI();
+    // can't directly test scrollOffset (private), but setTagFilter is safe to call
+    assert.doesNotThrow(() => tui.setTagFilter("system"));
+    assert.doesNotThrow(() => tui.setTagFilter(null));
+  });
+
+  it("setTagFilter is safe when TUI is not active", () => {
+    const tui = new TUI();
+    assert.doesNotThrow(() => tui.setTagFilter("error"));
+    assert.doesNotThrow(() => tui.setTagFilter(null));
   });
 });
 
