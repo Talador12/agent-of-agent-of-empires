@@ -5,23 +5,67 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.81.0
+## Version: v0.82.0
 
 ## Current Focus
 
-1298 tests across 37 files. v0.81.0 shipped: terminal bell notifications — `/bell` toggles opt-in audible alerts for high-signal events (errors, failed actions, task completions). 5s cooldown prevents buzzing. Pure `shouldBell()` function for testability.
+1310 tests across 37 files. v0.82.0 shipped: focus mode — `/focus` toggles hiding all sessions except pinned ones. Header shows "2/5 agents" when focused. Empty state guides: "no pinned agents — /pin to add, /focus to exit". Works with compact mode, sort, hover, hit testing. Pairs with Pin (v0.80.0) for a complete workflow.
 
 ## Roadmap
 
-### v0.82.0+ — Ideas Backlog
+### v0.83.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Bookmarks** — save and jump to specific activity entries
 - **Session health pulse** — tiny per-session sparklines in the compact view
-- **Focus mode** — hide all sessions except the pinned ones
 - **Activity heatmap** — colored time-of-day heatmap in stats output
+
+### What shipped in v0.82.0
+
+**Theme: "Focus"** — focus mode. `/focus` toggles hiding all sessions except pinned ones. Header shows "2/5 agents" in focus mode. Empty state in focus guides users: "no pinned agents — /pin to add, /focus to exit". `getVisibleCount()` private helper filters sessions consistently across layout, paint, hit testing, and compact mode. "focus" tag appears in panel border. 12 new tests.
+
+#### 1. Focus state on TUI class (`src/tui.ts`)
+- `focusMode` field (default: false)
+- `setFocus(enabled)` — toggles focus, recomputes layout, repaints
+- `isFocused()` — read-only accessor
+- `getVisibleCount()` private helper — returns all sessions count when normal, pinned-only count when focused
+
+#### 2. Visible sessions throughout layout + paint (`src/tui.ts`)
+- `getSessionCount()` now returns visible count (for hit testing)
+- `paintSessions()` renders only visible sessions (pinned sessions sort to top, so `sessions.slice(0, visibleCount)` works)
+- `computeLayout()` uses visible count for row calculation
+- `updateState()` detects visible count changes for layout recomputation
+- `onResize()`, `setCompact()`, `enterDrilldown()`, `exitDrilldown()` all use visible count
+- Compact mode passes only visible sessions to `formatCompactRows()`
+
+#### 3. Header shows focus info (`src/tui.ts`)
+- Normal: "5 agents"
+- Focus: "2/5 agents" — visible/total
+
+#### 4. Empty state guidance (`src/tui.ts`)
+- Focus with no pins: "no pinned agents — /pin to add, /focus to exit"
+- Normal with no sessions: "no agents connected" (unchanged)
+
+#### 5. Border label (`src/tui.ts`)
+- "focus" tag added to border: ` agents (focus, compact, status) `
+
+#### 6. `/focus` command (`src/input.ts`)
+- `FocusHandler` type: `() => void`
+- `onFocus(handler)` callback registration on `InputReader`
+- `/focus` toggles focus mode
+- `/help` updated with `/focus` in navigation section
+
+#### 7. Wiring (`src/index.ts`)
+- `input.onFocus()` → toggles `tui.setFocus(!tui.isFocused())`, logs "focus mode: on/off"
+
+#### 8. Tests
+- `src/tui.test.ts` (9 tests): TUI focus state — initial off, setFocus on/off, no-op same value, safe when inactive; getSessionCount returns all when not focused, pinned-only when focused, 0 when focused with no pins; focus + pin + unpin updates count
+- `src/input.test.ts` (3 tests): onFocus — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +12, net 1310 tests across 37 files.
 
 ### What shipped in v0.81.0
 

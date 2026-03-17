@@ -214,6 +214,7 @@ export class TUI {
   private prevLastActivity = new Map<string, string>();   // session ID → previous lastActivity string
   private compactMode = false;
   private pinnedIds = new Set<string>(); // pinned session IDs (always sort to top)
+  private focusMode = false;             // focus mode: hide all sessions except pinned
   private bellEnabled = false;
   private lastBellAt = 0;
 
@@ -270,9 +271,9 @@ export class TUI {
     return this.active;
   }
 
-  /** Return the current number of sessions (for mouse hit testing) */
+  /** Return the current number of visible sessions (for mouse hit testing) */
   getSessionCount(): number {
-    return this.sessions.length;
+    return this.getVisibleCount();
   }
 
   /** Set the session sort mode and repaint. */
@@ -296,7 +297,7 @@ export class TUI {
     if (enabled === this.compactMode) return;
     this.compactMode = enabled;
     if (this.active) {
-      this.computeLayout(this.sessions.length);
+      this.computeLayout(this.getVisibleCount());
       this.paintAll();
     }
   }
@@ -345,6 +346,31 @@ export class TUI {
     return this.pinnedIds.size;
   }
 
+  /** Enable or disable focus mode. When focused, only pinned sessions are visible. */
+  setFocus(enabled: boolean): void {
+    if (enabled === this.focusMode) return;
+    this.focusMode = enabled;
+    if (this.active) {
+      this.computeLayout(this.getVisibleCount());
+      this.paintAll();
+    }
+  }
+
+  /** Return whether focus mode is enabled. */
+  isFocused(): boolean {
+    return this.focusMode;
+  }
+
+  /** Return count of visible sessions (all in normal mode, pinned-only in focus mode). */
+  private getVisibleCount(): number {
+    if (!this.focusMode) return this.sessions.length;
+    let count = 0;
+    for (const s of this.sessions) {
+      if (this.pinnedIds.has(s.id)) count++;
+    }
+    return count;
+  }
+
   /** Enable or disable terminal bell notifications. */
   setBell(enabled: boolean): void {
     this.bellEnabled = enabled;
@@ -383,10 +409,11 @@ export class TUI {
         if (s.lastActivity !== undefined) this.prevLastActivity.set(s.id, s.lastActivity);
       }
       const sorted = sortSessions(opts.sessions, this.sortMode, this.lastChangeAt, this.pinnedIds);
-      const sessionCountChanged = sorted.length !== this.sessions.length;
+      const prevVisibleCount = this.getVisibleCount();
       this.sessions = sorted;
-      if (sessionCountChanged) {
-        this.computeLayout(this.sessions.length);
+      const newVisibleCount = this.getVisibleCount();
+      if (newVisibleCount !== prevVisibleCount) {
+        this.computeLayout(newVisibleCount);
         this.paintAll();
         return;
       }
@@ -585,7 +612,7 @@ export class TUI {
     this.drilldownNewWhileScrolled = 0;
     this.hoverSessionIdx = null;
     if (this.active) {
-      this.computeLayout(this.sessions.length);
+      this.computeLayout(this.getVisibleCount());
       this.paintAll();
     }
     return true;
@@ -600,7 +627,7 @@ export class TUI {
     this.drilldownNewWhileScrolled = 0;
     this.hoverSessionIdx = null;
     if (this.active) {
-      this.computeLayout(this.sessions.length);
+      this.computeLayout(this.getVisibleCount());
       this.paintAll();
     }
   }
@@ -670,8 +697,9 @@ export class TUI {
       this.scrollBottom = this.rows - 1;
     } else {
       // overview: header (1) + sessions box + separator + activity + input
+      const visibleSessions = this.sessions.slice(0, this.getVisibleCount());
       const sessBodyRows = this.compactMode
-        ? computeCompactRowCount(this.sessions, this.cols - 2)
+        ? computeCompactRowCount(visibleSessions, this.cols - 2)
         : Math.max(sessionCount, 1);
       this.sessionRows = sessBodyRows + 2; // + top/bottom borders
       this.separatorRow = this.headerHeight + this.sessionRows + 1;
@@ -686,7 +714,7 @@ export class TUI {
   }
 
   private onResize(): void {
-    this.computeLayout(this.sessions.length);
+    this.computeLayout(this.getVisibleCount());
     this.paintAll();
   }
 
@@ -714,7 +742,10 @@ export class TUI {
       line = formatDrilldownHeader(this.drilldownSessionId, this.sessions, this.phase, this.paused, this.spinnerFrame, this.cols);
     } else {
       const phaseText = phaseDisplay(this.phase, this.paused, this.spinnerFrame);
-      const sessCount = `${this.sessions.length} agent${this.sessions.length !== 1 ? "s" : ""}`;
+      const visCount = this.getVisibleCount();
+      const sessCount = this.focusMode
+        ? `${visCount}/${this.sessions.length} agent${this.sessions.length !== 1 ? "s" : ""}`
+        : `${this.sessions.length} agent${this.sessions.length !== 1 ? "s" : ""}`;
       const activeCount = this.sessions.filter((s) => s.userActive).length;
       const activeTag = activeCount > 0 ? `  ${SLATE}│${RESET}  ${AMBER}${activeCount} user${RESET}` : "";
 
@@ -740,32 +771,38 @@ export class TUI {
   private paintSessions(): void {
     const startRow = this.headerHeight + 1;
     const innerWidth = this.cols - 2; // inside the box borders
+    const visibleCount = this.getVisibleCount();
+    const visibleSessions = this.sessions.slice(0, visibleCount); // pinned sort to top
 
-    // top border with label (includes compact/sort mode tags)
+    // top border with label (includes focus/compact/sort mode tags)
+    const focusTag = this.focusMode ? "focus" : "";
     const sortTag = this.sortMode !== "default" ? this.sortMode : "";
     const compactTag = this.compactMode ? "compact" : "";
-    const tags = [compactTag, sortTag].filter(Boolean).join(", ");
+    const tags = [focusTag, compactTag, sortTag].filter(Boolean).join(", ");
     const label = tags ? ` agents (${tags}) ` : " agents ";
     const borderAfterLabel = Math.max(0, innerWidth - label.length);
     const topBorder = `${SLATE}${BOX.rtl}${BOX.h}${RESET}${SLATE}${label}${RESET}${SLATE}${BOX.h.repeat(borderAfterLabel)}${BOX.rtr}${RESET}`;
     process.stderr.write(SAVE_CURSOR + moveTo(startRow, 1) + CLEAR_LINE + truncateAnsi(topBorder, this.cols));
 
-    if (this.sessions.length === 0) {
+    if (visibleSessions.length === 0) {
       // empty state
-      const empty = `${SLATE}${BOX.v}${RESET}  ${DIM}no agents connected${RESET}`;
+      const msg = this.focusMode && this.sessions.length > 0
+        ? `${DIM}no pinned agents — /pin to add, /focus to exit${RESET}`
+        : `${DIM}no agents connected${RESET}`;
+      const empty = `${SLATE}${BOX.v}${RESET}  ${msg}`;
       const padded = padBoxLine(empty, this.cols);
       process.stderr.write(moveTo(startRow + 1, 1) + CLEAR_LINE + padded);
     } else if (this.compactMode) {
       // compact: inline tokens, multiple per row (with pin indicators)
-      const compactRows = formatCompactRows(this.sessions, innerWidth - 1, this.pinnedIds);
+      const compactRows = formatCompactRows(visibleSessions, innerWidth - 1, this.pinnedIds);
       for (let r = 0; r < compactRows.length; r++) {
         const line = `${SLATE}${BOX.v}${RESET} ${compactRows[r]}`;
         const padded = padBoxLine(line, this.cols);
         process.stderr.write(moveTo(startRow + 1 + r, 1) + CLEAR_LINE + padded);
       }
     } else {
-      for (let i = 0; i < this.sessions.length; i++) {
-        const s = this.sessions[i];
+      for (let i = 0; i < visibleSessions.length; i++) {
+        const s = visibleSessions[i];
         const isHovered = this.hoverSessionIdx === i + 1; // 1-indexed
         const bg = isHovered ? BG_HOVER : "";
         const pinned = this.pinnedIds.has(s.id);
@@ -779,8 +816,8 @@ export class TUI {
 
     // bottom border
     const bodyRows = this.compactMode
-      ? computeCompactRowCount(this.sessions, innerWidth)
-      : Math.max(this.sessions.length, 1);
+      ? computeCompactRowCount(visibleSessions, innerWidth)
+      : Math.max(visibleCount, 1);
     const bottomRow = startRow + 1 + bodyRows;
     const bottomBorder = `${SLATE}${BOX.rbl}${BOX.h.repeat(Math.max(0, this.cols - 2))}${BOX.rbr}${RESET}`;
     process.stderr.write(moveTo(bottomRow, 1) + CLEAR_LINE + truncateAnsi(bottomBorder, this.cols));

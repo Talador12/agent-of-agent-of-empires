@@ -377,6 +377,12 @@ async function main() {
       tui!.setCompact(enabled);
       tui!.log("system", `compact mode: ${enabled ? "on" : "off"}`);
     });
+    // wire /focus toggle
+    input.onFocus(() => {
+      const enabled = !tui!.isFocused();
+      tui!.setFocus(enabled);
+      tui!.log("system", `focus mode: ${enabled ? "on (pinned only)" : "off (all sessions)"}`);
+    });
     // wire /bell toggle
     input.onBell(() => {
       const enabled = !tui!.isBellEnabled();

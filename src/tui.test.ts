@@ -1580,4 +1580,92 @@ describe("TUI bell state", () => {
   });
 });
 
+// ── TUI focus state ─────────────────────────────────────────────────────────
+
+describe("TUI focus state", () => {
+  it("initial focus mode is off", () => {
+    const tui = new TUI();
+    assert.equal(tui.isFocused(), false);
+  });
+
+  it("setFocus(true) enables focus mode", () => {
+    const tui = new TUI();
+    tui.setFocus(true);
+    assert.equal(tui.isFocused(), true);
+  });
+
+  it("setFocus(false) disables focus mode", () => {
+    const tui = new TUI();
+    tui.setFocus(true);
+    tui.setFocus(false);
+    assert.equal(tui.isFocused(), false);
+  });
+
+  it("setFocus no-ops for same value", () => {
+    const tui = new TUI();
+    tui.setFocus(false); // already false, should not throw
+    assert.equal(tui.isFocused(), false);
+  });
+
+  it("setFocus is safe when TUI is not active", () => {
+    const tui = new TUI();
+    tui.setFocus(true); // not started, should not throw
+    assert.equal(tui.isFocused(), true);
+  });
+
+  it("getSessionCount returns all sessions when not focused", () => {
+    const tui = new TUI();
+    tui.updateState({
+      sessions: [
+        makeSession({ id: "a", title: "Alpha" }),
+        makeSession({ id: "b", title: "Bravo" }),
+        makeSession({ id: "c", title: "Charlie" }),
+      ],
+    });
+    assert.equal(tui.getSessionCount(), 3);
+  });
+
+  it("getSessionCount returns pinned-only count when focused", () => {
+    const tui = new TUI();
+    tui.updateState({
+      sessions: [
+        makeSession({ id: "a", title: "Alpha" }),
+        makeSession({ id: "b", title: "Bravo" }),
+        makeSession({ id: "c", title: "Charlie" }),
+      ],
+    });
+    tui.togglePin(1); // pin "a" (Alpha)
+    tui.setFocus(true);
+    assert.equal(tui.getSessionCount(), 1);
+  });
+
+  it("getSessionCount returns 0 when focused with no pins", () => {
+    const tui = new TUI();
+    tui.updateState({
+      sessions: [
+        makeSession({ id: "a", title: "Alpha" }),
+        makeSession({ id: "b", title: "Bravo" }),
+      ],
+    });
+    tui.setFocus(true);
+    assert.equal(tui.getSessionCount(), 0);
+  });
+
+  it("focus + pin + unpin updates visible count", () => {
+    const tui = new TUI();
+    tui.updateState({
+      sessions: [
+        makeSession({ id: "a", title: "Alpha" }),
+        makeSession({ id: "b", title: "Bravo" }),
+      ],
+    });
+    tui.togglePin(1); // pin a
+    tui.togglePin(2); // pin b
+    tui.setFocus(true);
+    assert.equal(tui.getSessionCount(), 2);
+    tui.togglePin(1); // unpin a
+    assert.equal(tui.getSessionCount(), 1);
+  });
+});
+
 

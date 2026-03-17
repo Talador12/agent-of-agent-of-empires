@@ -20,6 +20,7 @@ export type SortHandler = (mode: string | null) => void; // null = cycle to next
 export type CompactHandler = () => void; // toggle compact mode
 export type PinHandler = (target: string) => void; // session index or name to pin/unpin
 export type BellHandler = () => void; // toggle bell notifications
+export type FocusHandler = () => void; // toggle focus mode
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -67,6 +68,7 @@ export class InputReader {
   private compactHandler: CompactHandler | null = null;
   private pinHandler: PinHandler | null = null;
   private bellHandler: BellHandler | null = null;
+  private focusHandler: FocusHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -127,6 +129,11 @@ export class InputReader {
   // register a callback for bell toggle (/bell)
   onBell(handler: BellHandler): void {
     this.bellHandler = handler;
+  }
+
+  // register a callback for focus mode toggle (/focus)
+  onFocus(handler: FocusHandler): void {
+    this.focusHandler = handler;
   }
 
   private notifyQueueChange(): void {
@@ -323,6 +330,7 @@ ${BOLD}navigation:${RESET}
   /compact           toggle compact mode (dense session panel)
   /pin [N|name]      pin/unpin a session to the top (toggle)
   /bell              toggle terminal bell on errors/completions
+  /focus             toggle focus mode (show only pinned sessions)
   /search <pattern>  filter activity entries by substring (case-insensitive)
   /search            clear active search filter
   click session      click an agent card to drill down (click again to go back)
@@ -449,6 +457,14 @@ ${BOLD}other:${RESET}
           this.bellHandler();
         } else {
           console.error(`${DIM}bell not available (no TUI)${RESET}`);
+        }
+        break;
+
+      case "/focus":
+        if (this.focusHandler) {
+          this.focusHandler();
+        } else {
+          console.error(`${DIM}focus not available (no TUI)${RESET}`);
         }
         break;
 
