@@ -775,6 +775,32 @@ describe("InputReader onAutoPin", () => {
   });
 });
 
+// ── InputReader onWho ───────────────────────────────────────────────────────
+
+describe("InputReader onWho", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    let called = 0;
+    reader.onWho(() => called++);
+    assert.equal(called, 0);
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    let a = 0;
+    let b = 0;
+    reader.onWho(() => a++);
+    reader.onWho(() => b++);
+    assert.equal(a, 0);
+    assert.equal(b, 0);
+  });
+});
+
 // ── InputReader onDiff ──────────────────────────────────────────────────────
 
 describe("InputReader onDiff", () => {

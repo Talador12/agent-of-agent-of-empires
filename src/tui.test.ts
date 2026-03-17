@@ -2619,3 +2619,29 @@ describe("saveTuiPrefs", () => {
   });
 });
 
+// ── TUI getSessionErrorCounts ──────────────────────────────────────────────
+
+describe("TUI getSessionErrorCounts", () => {
+  it("returns empty map initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.getSessionErrorCounts().size, 0);
+  });
+
+  it("counts error-tagged entries per session", () => {
+    const tui = new TUI();
+    tui.log("error", "boom", "s1");
+    tui.log("! action", "fail", "s1");
+    tui.log("system", "ok", "s1"); // not an error
+    tui.log("error", "crash", "s2");
+    const counts = tui.getSessionErrorCounts();
+    assert.equal(counts.get("s1"), 2);
+    assert.equal(counts.get("s2"), 1);
+  });
+
+  it("does not count entries without sessionId", () => {
+    const tui = new TUI();
+    tui.log("error", "no session"); // no sessionId
+    assert.equal(tui.getSessionErrorCounts().size, 0);
+  });
+});
+

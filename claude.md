@@ -5,15 +5,15 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.94.0
+## Version: v0.95.0
 
 ## Current Focus
 
-1472 tests across 35 files. v0.94.0 shipped: activity heatmap in `aoaoe stats` — colored 24-hour block chart showing when agents are most active. `formatHeatmap()` pure function, `byHour` field in `HistoryStats`. 4 new tests.
+1478 tests across 35 files. v0.95.0 shipped: `/who` fleet status command — one-line-per-session summary showing name, status, uptime, error count, and notes. Sorted by "needs attention" (most errors first). Per-session error counter tracked in `log()`. 6 new tests.
 
 ## Roadmap
 
-### v0.95.0+ — Ideas Backlog
+### v0.96.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
@@ -21,6 +21,14 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Session health pulse** — tiny per-session sparklines in the compact view
 - **Session memory** — show per-session context token usage in cards
 - **Error rate sparkline** — per-session error frequency mini-chart in cards
+- **`/alias` custom shortcuts** — user-defined command aliases persisted in prefs
+
+### What shipped in v0.95.0
+
+**Theme: "Who"** — `/who` shows fleet status at a glance. One line per session: name, status, uptime, error count, notes. Sorted by attention priority (errors first, then status, then alphabetical). Per-session error counter in `sessionErrorCounts` map, incremented in `log()` for `shouldAutoPin()` tags. 6 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +6, net 1478 tests across 35 files.
 
 ### What shipped in v0.94.0
 

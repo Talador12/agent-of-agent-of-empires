@@ -373,6 +373,7 @@ export class TUI {
   private sessionNotes = new Map<string, string>(); // session ID → note text
   private sessionFirstSeen = new Map<string, number>(); // session ID → epoch ms when first observed
   private autoPinOnError = false; // auto-pin sessions that emit errors
+  private sessionErrorCounts = new Map<string, number>(); // session ID → cumulative error count
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -674,6 +675,11 @@ export class TUI {
     return this.activityBuffer;
   }
 
+  /** Return per-session error counts (for /who). */
+  getSessionErrorCounts(): ReadonlyMap<string, number> {
+    return this.sessionErrorCounts;
+  }
+
   /**
    * Add a bookmark at the current activity position.
    * Returns the bookmark number (1-indexed) or 0 if buffer is empty.
@@ -789,6 +795,10 @@ export class TUI {
         this.lastBellAt = nowMs;
         process.stderr.write("\x07");
       }
+    }
+    // track per-session error counts
+    if (sessionId && shouldAutoPin(tag)) {
+      this.sessionErrorCounts.set(sessionId, (this.sessionErrorCounts.get(sessionId) ?? 0) + 1);
     }
     // auto-pin sessions that emit errors (when enabled)
     if (this.autoPinOnError && sessionId && shouldAutoPin(tag) && !this.pinnedIds.has(sessionId)) {

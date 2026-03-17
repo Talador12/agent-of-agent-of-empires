@@ -32,7 +32,8 @@ export type AutoPinHandler = () => void; // toggle auto-pin on error
 export type NoteHandler = (target: string, text: string) => void; // session + note text (empty = clear)
 export type NotesHandler = () => void;
 export type ClipHandler = (count: number) => void;
-export type DiffHandler = (bookmarkNum: number) => void; // list all session notes
+export type DiffHandler = (bookmarkNum: number) => void;
+export type WhoHandler = () => void; // list all session notes
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -93,6 +94,7 @@ export class InputReader {
   private notesHandler: NotesHandler | null = null;
   private clipHandler: ClipHandler | null = null;
   private diffHandler: DiffHandler | null = null;
+  private whoHandler: WhoHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -208,6 +210,11 @@ export class InputReader {
   // register a callback for listing notes (/notes)
   onNotes(handler: NotesHandler): void {
     this.notesHandler = handler;
+  }
+
+  // register a callback for fleet status (/who)
+  onWho(handler: WhoHandler): void {
+    this.whoHandler = handler;
   }
 
   // register a callback for clipboard export (/clip [N])
@@ -418,6 +425,7 @@ ${BOLD}navigation:${RESET}
   /mute [N|name]     mute/unmute a session's activity entries (toggle)
   /unmute-all        unmute all sessions at once
   /filter [tag]      filter activity by tag — presets: errors, actions, system (no arg = clear)
+  /who               show fleet status (all sessions at a glance)
   /uptime            show session uptimes (time since first observed)
   /auto-pin          toggle auto-pin on error (pin sessions that emit errors)
   /note N|name text  attach a note to a session (no text = clear)
@@ -595,6 +603,14 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/who":
+        if (this.whoHandler) {
+          this.whoHandler();
+        } else {
+          console.error(`${DIM}who not available (no TUI)${RESET}`);
+        }
+        break;
 
       case "/uptime":
         if (this.uptimeHandler) {

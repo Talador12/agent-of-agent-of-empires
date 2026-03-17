@@ -507,6 +507,34 @@ async function main() {
       }
       persistPrefs();
     });
+    // wire /who fleet status
+    input.onWho(() => {
+      const sessions = tui!.getSessions();
+      if (sessions.length === 0) {
+        tui!.log("system", "no sessions");
+        return;
+      }
+      const firstSeen = tui!.getAllFirstSeen();
+      const errors = tui!.getSessionErrorCounts();
+      const notes = tui!.getAllNotes();
+      // sort: errors first, then status priority, then alphabetical
+      const statusPriority: Record<string, number> = { error: 0, waiting: 1, working: 2, running: 2, idle: 3, stopped: 4, done: 5 };
+      const sorted = [...sessions].sort((a, b) => {
+        const ea = errors.get(a.id) ?? 0, eb = errors.get(b.id) ?? 0;
+        if (ea !== eb) return eb - ea; // most errors first
+        const pa = statusPriority[a.status] ?? 3, pb = statusPriority[b.status] ?? 3;
+        if (pa !== pb) return pa - pb;
+        return a.title.localeCompare(b.title);
+      });
+      for (const s of sorted) {
+        const up = firstSeen.has(s.id) ? formatUptime(Date.now() - firstSeen.get(s.id)!) : "?";
+        const errCount = errors.get(s.id) ?? 0;
+        const errStr = errCount > 0 ? ` ${errCount}err` : "";
+        const note = notes.get(s.id);
+        const noteStr = note ? ` "${note}"` : "";
+        tui!.log("system", `  ${s.title} — ${s.status} ${up}${errStr}${noteStr}`);
+      }
+    });
     // wire /uptime listing
     input.onUptime(() => {
       const firstSeen = tui!.getAllFirstSeen();
