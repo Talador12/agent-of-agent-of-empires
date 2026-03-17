@@ -722,3 +722,29 @@ describe("InputReader onTagFilter", () => {
     assert.equal(b.length, 0);
   });
 });
+
+// ── InputReader onUptime ────────────────────────────────────────────────────
+
+describe("InputReader onUptime", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    let called = 0;
+    reader.onUptime(() => called++);
+    assert.equal(called, 0);
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    let a = 0;
+    let b = 0;
+    reader.onUptime(() => a++);
+    reader.onUptime(() => b++);
+    assert.equal(a, 0);
+    assert.equal(b, 0);
+  });
+});

@@ -263,6 +263,21 @@ export function formatTagFilterIndicator(tag: string, matchCount: number, totalC
   return `${SLATE}filter:${RESET} ${AMBER}${tag}${RESET} ${DIM}(${matchCount}/${totalCount})${RESET}`;
 }
 
+// ── Uptime ───────────────────────────────────────────────────────────────────
+
+/** Format milliseconds as human-readable uptime: "2h 15m", "45m", "3d 2h", "< 1m". */
+export function formatUptime(ms: number): string {
+  if (ms < 0) return "< 1m";
+  const totalMin = Math.floor(ms / 60_000);
+  if (totalMin < 1) return "< 1m";
+  const days = Math.floor(totalMin / 1440);
+  const hours = Math.floor((totalMin % 1440) / 60);
+  const minutes = totalMin % 60;
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${minutes}m`;
+}
+
 // ── TUI class ───────────────────────────────────────────────────────────────
 
 export class TUI {
@@ -298,6 +313,7 @@ export class TUI {
   private mutedIds = new Set<string>(); // muted session IDs (activity entries hidden)
   private mutedEntryCounts = new Map<string, number>(); // session ID → suppressed entry count since mute
   private sessionNotes = new Map<string, string>(); // session ID → note text
+  private sessionFirstSeen = new Map<string, number>(); // session ID → epoch ms when first observed
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -572,6 +588,18 @@ export class TUI {
     return this.sessions;
   }
 
+  /** Return the uptime in ms for a session (0 if not tracked). */
+  getUptime(id: string): number {
+    const firstSeen = this.sessionFirstSeen.get(id);
+    if (firstSeen === undefined) return 0;
+    return Date.now() - firstSeen;
+  }
+
+  /** Return all session first-seen timestamps (for /uptime listing). */
+  getAllFirstSeen(): ReadonlyMap<string, number> {
+    return this.sessionFirstSeen;
+  }
+
   /**
    * Add a bookmark at the current activity position.
    * Returns the bookmark number (1-indexed) or 0 if buffer is empty.
@@ -638,9 +666,10 @@ export class TUI {
     if (opts.nextTickAt !== undefined) this.nextTickAt = opts.nextTickAt;
     if (opts.pendingCount !== undefined) this.pendingCount = opts.pendingCount;
     if (opts.sessions !== undefined) {
-      // track activity changes for sort-by-activity
+      // track activity changes for sort-by-activity + first-seen for uptime
       const now = Date.now();
       for (const s of opts.sessions) {
+        if (!this.sessionFirstSeen.has(s.id)) this.sessionFirstSeen.set(s.id, now);
         const prev = this.prevLastActivity.get(s.id);
         if (s.lastActivity !== undefined && s.lastActivity !== prev) {
           this.lastChangeAt.set(s.id, now);
@@ -1214,7 +1243,9 @@ export class TUI {
     const title = session ? session.title : this.drilldownSessionId ?? "?";
     const noteText = this.drilldownSessionId ? this.sessionNotes.get(this.drilldownSessionId) : undefined;
     const noteSuffix = noteText ? `"${noteText}" ` : "";
-    const prefix = `${BOX.h}${BOX.h} ${title} ${noteSuffix}`;
+    const firstSeen = this.drilldownSessionId ? this.sessionFirstSeen.get(this.drilldownSessionId) : undefined;
+    const uptimeSuffix = firstSeen !== undefined ? `${DIM}${formatUptime(Date.now() - firstSeen)}${RESET} ` : "";
+    const prefix = `${BOX.h}${BOX.h} ${title} ${uptimeSuffix}${noteSuffix}`;
     let hints: string;
     if (this.drilldownScrollOffset > 0) {
       const outputLines = this.sessionOutputs.get(this.drilldownSessionId ?? "") ?? [];

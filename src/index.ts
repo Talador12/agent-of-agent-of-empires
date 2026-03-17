@@ -16,7 +16,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
@@ -454,6 +454,21 @@ async function main() {
         tui!.log("system", `filter: ${tag}`);
       } else {
         tui!.log("system", "filter cleared");
+      }
+    });
+    // wire /uptime listing
+    input.onUptime(() => {
+      const firstSeen = tui!.getAllFirstSeen();
+      const sessions = tui!.getSessions();
+      if (sessions.length === 0) {
+        tui!.log("system", "no sessions — uptime not available");
+      } else {
+        const now = Date.now();
+        for (const s of sessions) {
+          const start = firstSeen.get(s.id);
+          const up = start !== undefined ? formatUptime(now - start) : "unknown";
+          tui!.log("system", `  ${s.title}: ${up}`);
+        }
       }
     });
     // wire /note set/clear

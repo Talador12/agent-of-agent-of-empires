@@ -16,6 +16,7 @@ import {
   shouldMuteEntry, MUTE_ICON, formatMuteBadge,
   truncateNote, MAX_NOTE_LEN, NOTE_ICON,
   matchesTagFilter, formatTagFilterIndicator,
+  formatUptime,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry, SortMode } from "./tui.js";
@@ -2256,6 +2257,105 @@ describe("TUI tag filter state", () => {
     const tui = new TUI();
     assert.doesNotThrow(() => tui.setTagFilter("error"));
     assert.doesNotThrow(() => tui.setTagFilter(null));
+  });
+});
+
+// ── formatUptime ────────────────────────────────────────────────────────────
+
+describe("formatUptime", () => {
+  it("returns '< 1m' for negative values", () => {
+    assert.equal(formatUptime(-1000), "< 1m");
+  });
+
+  it("returns '< 1m' for zero", () => {
+    assert.equal(formatUptime(0), "< 1m");
+  });
+
+  it("returns '< 1m' for under a minute", () => {
+    assert.equal(formatUptime(30_000), "< 1m");
+  });
+
+  it("returns minutes for < 1 hour", () => {
+    assert.equal(formatUptime(45 * 60_000), "45m");
+  });
+
+  it("returns hours and minutes", () => {
+    assert.equal(formatUptime(2 * 3600_000 + 15 * 60_000), "2h 15m");
+  });
+
+  it("returns hours only when no remainder", () => {
+    assert.equal(formatUptime(3 * 3600_000), "3h");
+  });
+
+  it("returns days and hours", () => {
+    assert.equal(formatUptime(3 * 86400_000 + 2 * 3600_000), "3d 2h");
+  });
+
+  it("returns days only when no hour remainder", () => {
+    assert.equal(formatUptime(1 * 86400_000), "1d");
+  });
+
+  it("returns 1m for exactly one minute", () => {
+    assert.equal(formatUptime(60_000), "1m");
+  });
+});
+
+// ── TUI uptime state ────────────────────────────────────────────────────────
+
+describe("TUI uptime state", () => {
+  it("getUptime returns 0 for unknown session", () => {
+    const tui = new TUI();
+    assert.equal(tui.getUptime("nonexistent"), 0);
+  });
+
+  it("getUptime returns positive value after updateState", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    const uptime = tui.getUptime("s1");
+    assert.ok(uptime >= 0);
+  });
+
+  it("getAllFirstSeen tracks first-seen timestamps", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+      { id: "s2", title: "Bravo", status: "working", tool: "cursor", currentTask: "test", userActive: false },
+    ]});
+    const firstSeen = tui.getAllFirstSeen();
+    assert.equal(firstSeen.size, 2);
+    assert.ok(firstSeen.has("s1"));
+    assert.ok(firstSeen.has("s2"));
+  });
+
+  it("first-seen time does not change on subsequent updateState calls", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    const first = tui.getAllFirstSeen().get("s1");
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "working", tool: "opencode", currentTask: "building", userActive: false },
+    ]});
+    const second = tui.getAllFirstSeen().get("s1");
+    assert.equal(first, second);
+  });
+
+  it("new sessions get their own first-seen time", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    const t1 = tui.getAllFirstSeen().get("s1");
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+      { id: "s2", title: "Bravo", status: "working", tool: "cursor", currentTask: "test", userActive: false },
+    ]});
+    const t2 = tui.getAllFirstSeen().get("s2");
+    assert.ok(t1 !== undefined);
+    assert.ok(t2 !== undefined);
+    assert.ok(t2! >= t1!);
   });
 });
 

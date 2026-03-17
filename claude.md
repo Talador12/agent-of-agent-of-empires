@@ -5,25 +5,61 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.87.0
+## Version: v0.88.0
 
 ## Current Focus
 
-1409 tests across 37 files. v0.87.0 shipped: tag filter — `/filter error` shows only entries with a matching tag. Composes with mute and search (mute → tag → search pipeline). `matchesTagFilter()` + `formatTagFilterIndicator()` pure functions. Separator shows active filter with match counts. 17 new tests.
+1426 tests across 37 files. v0.88.0 shipped: session uptime — `/uptime` lists how long each session has been running. `formatUptime()` pure function for human-readable duration. Uptime shown in drill-down separator. First-seen tracking per session. 17 new tests.
 
 ## Roadmap
 
-### v0.88.0+ — Ideas Backlog
+### v0.89.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Session health pulse** — tiny per-session sparklines in the compact view
 - **Activity heatmap** — colored time-of-day heatmap in stats output
-- **Session uptime** — show how long each session has been running in card/stats
 - **Auto-pin on error** — optionally auto-pin sessions that emit errors
 - **Sticky filters** — persist filter/search/sort settings across restarts
 - **Filter presets** — `/filter errors` as alias for common multi-tag combos
+- **Session memory** — show per-session context token usage in cards
+- **Activity export clip** — `/clip N` copies last N activity entries to clipboard
+
+### What shipped in v0.88.0
+
+**Theme: "Session Uptime"** — track and display session duration. `formatUptime(ms)` formats milliseconds as `2h 15m`, `45m`, `3d 2h`, `< 1m` etc. Sessions are timestamped when first observed via `updateState()` — survives status changes but not daemon restarts. Uptime shown in drill-down separator alongside title and notes. `/uptime` command lists all sessions with their running time. 17 new tests.
+
+#### 1. `formatUptime()` pure function (`src/tui.ts`)
+- Takes milliseconds, returns human-readable: `< 1m`, `45m`, `2h 15m`, `3d 2h`
+- Handles edge cases: negative, zero, under-a-minute, exact boundaries
+- Exported for direct testing
+
+#### 2. Session first-seen tracking (`src/tui.ts`)
+- `sessionFirstSeen: Map<string, number>` — epoch ms when first observed
+- Set once per session ID in `updateState()` — never overwritten
+- `getUptime(id)` — returns ms since first seen (0 if unknown)
+- `getAllFirstSeen()` — read-only Map for `/uptime` listing
+
+#### 3. Uptime in drill-down separator (`src/tui.ts`)
+- `paintDrilldownSeparator()` shows uptime next to title: `── Alpha 2h 15m "working on auth" ──`
+- DIM styled, between title and note text
+
+#### 4. `/uptime` command (`src/input.ts`)
+- `UptimeHandler` type (no args)
+- `onUptime(handler)` callback registration
+- `/uptime` command case
+- `/help` updated
+
+#### 5. Wiring (`src/index.ts`)
+- `input.onUptime()` → iterates sessions, calls `formatUptime()` on each, logs results
+
+#### 6. Tests
+- `src/tui.test.ts` (14 tests): formatUptime — negative, zero, under minute, minutes, hours+min, hours only, days+hours, days only, exact 1m; TUI uptime state — unknown session, positive after update, tracks first-seen, stable across updates, new sessions get own timestamp
+- `src/input.test.ts` (3 tests): onUptime — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +17, net 1426 tests across 37 files.
 
 ### What shipped in v0.87.0
 
