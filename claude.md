@@ -5,26 +5,62 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.88.0
+## Version: v0.89.0
 
 ## Current Focus
 
-1426 tests across 37 files. v0.88.0 shipped: session uptime — `/uptime` lists how long each session has been running. `formatUptime()` pure function for human-readable duration. Uptime shown in drill-down separator. First-seen tracking per session. 17 new tests.
+1443 tests across 37 files. v0.89.0 shipped: auto-pin on error — `/auto-pin` toggles automatic pinning of sessions that emit error-like log entries. `shouldAutoPin()` pure function. Sessions get pinned on `! action` or `error` tags. 17 new tests.
 
 ## Roadmap
 
-### v0.89.0+ — Ideas Backlog
+### v0.90.0+ — Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Session health pulse** — tiny per-session sparklines in the compact view
 - **Activity heatmap** — colored time-of-day heatmap in stats output
-- **Auto-pin on error** — optionally auto-pin sessions that emit errors
 - **Sticky filters** — persist filter/search/sort settings across restarts
 - **Filter presets** — `/filter errors` as alias for common multi-tag combos
 - **Session memory** — show per-session context token usage in cards
 - **Activity export clip** — `/clip N` copies last N activity entries to clipboard
+- **Error rate sparkline** — per-session error frequency mini-chart in cards
+- **Session diff** — `/diff N` shows what changed since bookmark N
+
+### What shipped in v0.89.0
+
+**Theme: "Auto-pin on Error"** — reactive session pinning. `/auto-pin` toggles automatic pinning of sessions that emit error-like activity. When enabled, any `log()` call with `! action` or `error` tags and a `sessionId` auto-pins that session to the top. Already-pinned sessions are skipped. `shouldAutoPin()` pure function for testability. 17 new tests.
+
+#### 1. `shouldAutoPin()` pure function (`src/tui.ts`)
+- Takes a tag string, returns true for `! action` and `error` (case-insensitive)
+- Returns false for `system`, `+ action`, `reasoner`, etc.
+- Exported for direct testing
+
+#### 2. Auto-pin state on TUI class (`src/tui.ts`)
+- `autoPinOnError: boolean` field (default: false)
+- `setAutoPin(enabled)` — enable/disable
+- `isAutoPinEnabled()` — current state
+
+#### 3. Auto-pin logic in `log()` (`src/tui.ts`)
+- Checks: autoPinOnError + sessionId + shouldAutoPin(tag) + not already pinned
+- Adds to `pinnedIds` and repaints sessions
+- Fires before mute tracking, so muted+error sessions still get pinned
+
+#### 4. `/auto-pin` command (`src/input.ts`)
+- `AutoPinHandler` type (no args)
+- `onAutoPin(handler)` callback registration
+- `/auto-pin` command case
+- `/help` updated
+
+#### 5. Wiring (`src/index.ts`)
+- `input.onAutoPin()` → toggles `tui.isAutoPinEnabled()`, logs "auto-pin on error: on/off"
+
+#### 6. Tests
+- `src/tui.test.ts` (14 tests): shouldAutoPin — ! action, error, case-insensitive, rejects system/+ action/reasoner; TUI auto-pin state — default off, enable/disable, auto-pins on error log, no pin when disabled, no pin for non-error tags, no pin without sessionId, no double-pin
+- `src/input.test.ts` (3 tests): onAutoPin — register handler, safe without handler, handler replacement
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +17, net 1443 tests across 37 files.
 
 ### What shipped in v0.88.0
 

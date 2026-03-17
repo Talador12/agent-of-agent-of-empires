@@ -263,6 +263,14 @@ export function formatTagFilterIndicator(tag: string, matchCount: number, totalC
   return `${SLATE}filter:${RESET} ${AMBER}${tag}${RESET} ${DIM}(${matchCount}/${totalCount})${RESET}`;
 }
 
+// ── Auto-pin ─────────────────────────────────────────────────────────────────
+
+/** Determine if a log entry should trigger auto-pin (error-like tags). */
+export function shouldAutoPin(tag: string): boolean {
+  const lower = tag.toLowerCase();
+  return lower === "! action" || lower === "error";
+}
+
 // ── Uptime ───────────────────────────────────────────────────────────────────
 
 /** Format milliseconds as human-readable uptime: "2h 15m", "45m", "3d 2h", "< 1m". */
@@ -314,6 +322,7 @@ export class TUI {
   private mutedEntryCounts = new Map<string, number>(); // session ID → suppressed entry count since mute
   private sessionNotes = new Map<string, string>(); // session ID → note text
   private sessionFirstSeen = new Map<string, number>(); // session ID → epoch ms when first observed
+  private autoPinOnError = false; // auto-pin sessions that emit errors
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -476,6 +485,16 @@ export class TUI {
   /** Return whether terminal bell is enabled. */
   isBellEnabled(): boolean {
     return this.bellEnabled;
+  }
+
+  /** Enable or disable auto-pin on error. */
+  setAutoPin(enabled: boolean): void {
+    this.autoPinOnError = enabled;
+  }
+
+  /** Return whether auto-pin on error is enabled. */
+  isAutoPinEnabled(): boolean {
+    return this.autoPinOnError;
   }
 
   /**
@@ -715,6 +734,11 @@ export class TUI {
         this.lastBellAt = nowMs;
         process.stderr.write("\x07");
       }
+    }
+    // auto-pin sessions that emit errors (when enabled)
+    if (this.autoPinOnError && sessionId && shouldAutoPin(tag) && !this.pinnedIds.has(sessionId)) {
+      this.pinnedIds.add(sessionId);
+      if (this.active) this.paintSessions();
     }
     // track suppressed entry counts regardless of active state (for badge accuracy)
     if (shouldMuteEntry(entry, this.mutedIds) && entry.sessionId) {

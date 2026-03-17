@@ -28,6 +28,7 @@ export type MuteHandler = (target: string) => void; // session index or name to 
 export type UnmuteAllHandler = () => void; // clear all mutes at once
 export type TagFilterHandler = (tag: string | null) => void; // set or clear tag filter
 export type UptimeHandler = () => void; // list all session uptimes
+export type AutoPinHandler = () => void; // toggle auto-pin on error
 export type NoteHandler = (target: string, text: string) => void; // session + note text (empty = clear)
 export type NotesHandler = () => void; // list all session notes
 
@@ -85,6 +86,7 @@ export class InputReader {
   private unmuteAllHandler: UnmuteAllHandler | null = null;
   private tagFilterHandler: TagFilterHandler | null = null;
   private uptimeHandler: UptimeHandler | null = null;
+  private autoPinHandler: AutoPinHandler | null = null;
   private noteHandler: NoteHandler | null = null;
   private notesHandler: NotesHandler | null = null;
   private mouseDataListener: ((data: Buffer) => void) | null = null;
@@ -187,6 +189,11 @@ export class InputReader {
   // register a callback for uptime listing (/uptime)
   onUptime(handler: UptimeHandler): void {
     this.uptimeHandler = handler;
+  }
+
+  // register a callback for auto-pin toggle (/auto-pin)
+  onAutoPin(handler: AutoPinHandler): void {
+    this.autoPinHandler = handler;
   }
 
   // register a callback for note commands (/note <target> <text>)
@@ -398,6 +405,7 @@ ${BOLD}navigation:${RESET}
   /unmute-all        unmute all sessions at once
   /filter [tag]      filter activity by tag (error, system, etc. — no arg = clear)
   /uptime            show session uptimes (time since first observed)
+  /auto-pin          toggle auto-pin on error (pin sessions that emit errors)
   /note N|name text  attach a note to a session (no text = clear)
   /notes             list all session notes
   /mark              bookmark current activity position
@@ -577,6 +585,14 @@ ${BOLD}other:${RESET}
           this.uptimeHandler();
         } else {
           console.error(`${DIM}uptime not available (no TUI)${RESET}`);
+        }
+        break;
+
+      case "/auto-pin":
+        if (this.autoPinHandler) {
+          this.autoPinHandler();
+        } else {
+          console.error(`${DIM}auto-pin not available (no TUI)${RESET}`);
         }
         break;
 

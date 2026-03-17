@@ -471,6 +471,12 @@ async function main() {
         }
       }
     });
+    // wire /auto-pin toggle
+    input.onAutoPin(() => {
+      const enabled = !tui!.isAutoPinEnabled();
+      tui!.setAutoPin(enabled);
+      tui!.log("system", `auto-pin on error: ${enabled ? "on" : "off"}`);
+    });
     // wire /note set/clear
     input.onNote((target, text) => {
       const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;

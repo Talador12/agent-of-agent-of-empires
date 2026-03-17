@@ -17,6 +17,7 @@ import {
   truncateNote, MAX_NOTE_LEN, NOTE_ICON,
   matchesTagFilter, formatTagFilterIndicator,
   formatUptime,
+  shouldAutoPin,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry, SortMode } from "./tui.js";
@@ -2356,6 +2357,107 @@ describe("TUI uptime state", () => {
     assert.ok(t1 !== undefined);
     assert.ok(t2 !== undefined);
     assert.ok(t2! >= t1!);
+  });
+});
+
+// ── shouldAutoPin ───────────────────────────────────────────────────────────
+
+describe("shouldAutoPin", () => {
+  it("returns true for '! action' tag", () => {
+    assert.equal(shouldAutoPin("! action"), true);
+  });
+
+  it("returns true for 'error' tag", () => {
+    assert.equal(shouldAutoPin("error"), true);
+  });
+
+  it("returns true case-insensitively", () => {
+    assert.equal(shouldAutoPin("! Action"), true);
+    assert.equal(shouldAutoPin("ERROR"), true);
+  });
+
+  it("returns false for 'system' tag", () => {
+    assert.equal(shouldAutoPin("system"), false);
+  });
+
+  it("returns false for '+ action' tag", () => {
+    assert.equal(shouldAutoPin("+ action"), false);
+  });
+
+  it("returns false for 'reasoner' tag", () => {
+    assert.equal(shouldAutoPin("reasoner"), false);
+  });
+});
+
+// ── TUI auto-pin state ─────────────────────────────────────────────────────
+
+describe("TUI auto-pin state", () => {
+  it("auto-pin is disabled by default", () => {
+    const tui = new TUI();
+    assert.equal(tui.isAutoPinEnabled(), false);
+  });
+
+  it("setAutoPin enables auto-pin", () => {
+    const tui = new TUI();
+    tui.setAutoPin(true);
+    assert.equal(tui.isAutoPinEnabled(), true);
+  });
+
+  it("setAutoPin(false) disables auto-pin", () => {
+    const tui = new TUI();
+    tui.setAutoPin(true);
+    tui.setAutoPin(false);
+    assert.equal(tui.isAutoPinEnabled(), false);
+  });
+
+  it("auto-pins session on error log entry", () => {
+    const tui = new TUI();
+    tui.setAutoPin(true);
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    assert.equal(tui.isPinned("s1"), false);
+    tui.log("! action", "something failed", "s1");
+    assert.equal(tui.isPinned("s1"), true);
+  });
+
+  it("does not auto-pin when disabled", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    tui.log("! action", "something failed", "s1");
+    assert.equal(tui.isPinned("s1"), false);
+  });
+
+  it("does not auto-pin for non-error tags", () => {
+    const tui = new TUI();
+    tui.setAutoPin(true);
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    tui.log("system", "normal message", "s1");
+    assert.equal(tui.isPinned("s1"), false);
+  });
+
+  it("does not auto-pin entries without sessionId", () => {
+    const tui = new TUI();
+    tui.setAutoPin(true);
+    tui.log("! action", "error happened"); // no sessionId
+    // should not throw or pin anything
+  });
+
+  it("does not double-pin already pinned sessions", () => {
+    const tui = new TUI();
+    tui.setAutoPin(true);
+    tui.updateState({ sessions: [
+      { id: "s1", title: "Alpha", status: "idle", tool: "opencode", currentTask: "", userActive: false },
+    ]});
+    tui.togglePin(1); // manual pin
+    assert.equal(tui.isPinned("s1"), true);
+    // should not throw
+    assert.doesNotThrow(() => tui.log("! action", "error", "s1"));
+    assert.equal(tui.isPinned("s1"), true);
   });
 });
 
