@@ -1,8 +1,12 @@
 <p align="center">
   <h1 align="center">Agent of Agent of Empires (aoaoe)</h1>
   <p align="center">
+    <a href="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml"><img src="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="https://www.npmjs.com/package/aoaoe"><img src="https://img.shields.io/npm/v/aoaoe" alt="npm version"></a>
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/releases"><img src="https://img.shields.io/github/v/release/Talador12/agent-of-agent-of-empires" alt="GitHub release"></a>
+    <img src="https://img.shields.io/badge/tests-1478-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/node-%3E%3D20-blue" alt="Node.js >= 20">
+    <img src="https://img.shields.io/badge/dependencies-0-brightgreen" alt="zero dependencies">
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   </p>
 </p>
@@ -195,9 +199,89 @@ View task status:
 aoaoe tasks    # show task progress table
 ```
 
+## Daemon TUI Commands
+
+The daemon runs an interactive TUI with a rich command set. These commands are available when the daemon is running (started with `aoaoe`).
+
+### Talking to the AI
+
+| Command | What it does |
+|---------|-------------|
+| _(any text)_ | Send a message -- queued for the next reasoning cycle |
+| `!message` | Insist -- interrupt + deliver message immediately |
+| `/insist <msg>` | Same as `!message` |
+| `/explain` | Ask the AI to explain what's happening right now |
+
+### Controls
+
+| Command | What it does |
+|---------|-------------|
+| `/pause` | Pause the supervisor (stops reasoning) |
+| `/resume` | Resume after pause |
+| `/interrupt` | Interrupt the AI mid-thought |
+| ESC ESC | Same as `/interrupt` (shortcut) |
+
+### Navigation
+
+| Command | What it does |
+|---------|-------------|
+| `1`-`9` | Quick-switch: jump to session N |
+| `/view [N\|name]` | Drill into a session's live output (default: 1) |
+| `/back` | Return to overview from drill-down |
+| `/sort [mode]` | Sort sessions: `status`, `name`, `activity`, `default` (no arg = cycle) |
+| `/compact` | Toggle compact mode (dense session panel) |
+| `/pin [N\|name]` | Pin/unpin a session to the top |
+| `/bell` | Toggle terminal bell on errors/completions |
+| `/focus` | Toggle focus mode (show only pinned sessions) |
+| `/mute [N\|name]` | Mute/unmute a session's activity entries |
+| `/unmute-all` | Unmute all sessions at once |
+| `/filter [tag]` | Filter activity by tag -- presets: `errors`, `actions`, `system` (no arg = clear) |
+| `/who` | Show fleet status (all sessions at a glance) |
+| `/uptime` | Show session uptimes |
+| `/auto-pin` | Toggle auto-pin on error |
+| `/note N\|name text` | Attach a note to a session (no text = clear) |
+| `/notes` | List all session notes |
+| `/clip [N]` | Copy last N activity entries to clipboard (default 20) |
+| `/diff N` | Show activity since bookmark N |
+| `/mark` | Bookmark current activity position |
+| `/jump N` | Jump to bookmark N |
+| `/marks` | List all bookmarks |
+| `/search <pattern>` | Filter activity entries by substring (no arg = clear) |
+| Click session | Click an agent card to drill down (click again to go back) |
+| Mouse wheel | Scroll activity (overview) or session output (drill-down) |
+| PgUp / PgDn | Scroll through activity or session output |
+| Home / End | Jump to oldest / return to live |
+
+### Info
+
+| Command | What it does |
+|---------|-------------|
+| `/status` | Show daemon state |
+| `/dashboard` | Show full dashboard |
+| `/tasks` | Show task progress table |
+| `/task [sub] [args]` | Task management (list, start, stop, edit, new, rm) |
+
+### Other
+
+| Command | What it does |
+|---------|-------------|
+| `/verbose` | Toggle detailed logging |
+| `/clear` | Clear the screen |
+| `/help` | Show all commands |
+
+### TUI Features
+
+- **Activity sparkline** -- 10-minute activity rate chart in the separator bar (Unicode blocks with color gradient)
+- **Session cards** -- per-session status with pin `▲`, mute `◌`, note `✎` indicators
+- **Sticky preferences** -- sort mode, compact, focus, bell, auto-pin, and tag filter persist across restarts (`~/.aoaoe/tui-prefs.json`)
+- **Filter pipeline** -- mute, tag filter, and search compose: mute → tag → search
+- **Activity heatmap** -- 24-hour colored block chart via `aoaoe stats`
+- **Bookmarks** -- mark positions in the activity stream, jump back to them, diff since a bookmark
+- **Clipboard export** -- `/clip` copies activity to system clipboard (macOS) or `~/.aoaoe/clip.txt`
+
 ## Chat UI Commands
 
-Once inside the chat UI (via `aoe` -> select "aoaoe"):
+The chat UI (`aoaoe-chat`) runs inside an AoE tmux pane. Register it with `aoaoe register`, then access via `aoe` -> select "aoaoe".
 
 | Command | What it does |
 |---------|-------------|
@@ -491,38 +575,43 @@ The daemon and chat UI communicate via files in `~/.aoaoe/`:
 
 ```
 src/
-  index.ts          # daemon entry point, main loop, subcommands
-  loop.ts           # extracted tick logic (poll->reason->execute), testable with mocks
-  chat.ts           # interactive chat UI (aoaoe-chat binary)
-  config.ts         # config loader and CLI arg parser
-  types.ts          # shared types (SessionSnapshot, Action, DaemonState, etc.)
-  poller.ts         # aoe CLI + tmux capture-pane wrapper
-  executor.ts       # maps action decisions to shell commands
-  console.ts        # conversation log + file-based IPC
-  dashboard.ts      # periodic CLI status table with task column
-  daemon-state.ts   # shared IPC state file + interrupt flag
-  tui.ts            # in-place terminal UI (alternate screen, scroll regions)
-  tui-history.ts    # persisted TUI history (JSONL file with rotation, replay on startup)
-  input.ts          # stdin readline listener with inject() for post-interrupt
-  init.ts           # `aoaoe init`: auto-discover tools, sessions, generate config
-  notify.ts         # webhook + Slack notification dispatcher for daemon events
-  health.ts         # HTTP health check endpoint (GET /health JSON status)
-  colors.ts         # shared ANSI color/style constants
-  context.ts        # discoverContextFiles, resolveProjectDir, loadSessionContext
-  activity.ts       # detect human keystrokes in tmux sessions
-  prompt-watcher.ts # reactive permission prompt clearing via tmux pipe-pane
-  task-manager.ts   # task orchestration: definitions, persistent state
-  task-cli.ts       # `aoaoe task` subcommand: list, start, stop, new, rm, edit
-  task-parser.ts    # parse OpenCode TODO patterns, model, tokens, cost from tmux
-  message.ts        # classifyMessages, formatUserMessages, shouldSkipSleep
-  wake.ts           # wakeableSleep with fs.watch for instant message delivery
-  shell.ts          # exec() wrappers with AbortSignal support
+  index.ts            # daemon entry point, main loop, subcommands
+  loop.ts             # extracted tick logic (poll->reason->execute), testable with mocks
+  chat.ts             # interactive chat UI (aoaoe-chat binary)
+  config.ts           # config loader and CLI arg parser
+  config-watcher.ts   # config hot-reload via fs.watch, safe field merge
+  types.ts            # shared types (SessionSnapshot, Action, DaemonState, etc.)
+  poller.ts           # aoe CLI + tmux capture-pane wrapper
+  executor.ts         # maps action decisions to shell commands
+  console.ts          # conversation log + file-based IPC
+  dashboard.ts        # periodic CLI status table with task column
+  daemon-state.ts     # shared IPC state file + interrupt flag
+  tui.ts              # in-place terminal UI (alternate screen, scroll, sparklines, cards)
+  tui-history.ts      # persisted TUI history (JSONL file with rotation, replay on startup)
+  input.ts            # stdin readline + keypress handlers (all /commands live here)
+  init.ts             # `aoaoe init`: auto-discover tools, sessions, generate config
+  notify.ts           # webhook + Slack notification dispatcher for daemon events
+  health.ts           # HTTP health check endpoint (GET /health JSON status)
+  colors.ts           # shared ANSI color/style constants
+  context.ts          # discoverContextFiles, resolveProjectDir, loadSessionContext
+  activity.ts         # detect human keystrokes in tmux sessions
+  prompt-watcher.ts   # reactive permission prompt clearing via tmux pipe-pane
+  task-manager.ts     # task orchestration: definitions, persistent state
+  task-cli.ts         # `aoaoe task` subcommand: list, start, stop, new, rm, edit
+  task-parser.ts      # parse OpenCode TODO patterns, model, tokens, cost from tmux
+  message.ts          # classifyMessages, formatUserMessages, shouldSkipSleep
+  wake.ts             # wakeableSleep with fs.watch for instant message delivery
+  shell.ts            # exec() wrappers with AbortSignal support
+  export.ts           # timeline export (JSON/Markdown) from actions + history
+  tail.ts             # `aoaoe tail`: live-stream daemon activity to another terminal
+  stats.ts            # `aoaoe stats`: aggregate statistics + activity heatmap
+  replay.ts           # `aoaoe replay`: play back tui-history.jsonl with timing
   reasoner/
-    index.ts        # common Reasoner interface + factory
-    prompt.ts       # system prompt + observation formatting
-    parse.ts        # response parsing, JSON extraction, action validation
-    opencode.ts     # OpenCode SDK backend
-    claude-code.ts  # Claude Code CLI backend
+    index.ts          # common Reasoner interface + factory
+    prompt.ts         # system prompt + observation formatting
+    parse.ts          # response parsing, JSON extraction, action validation
+    opencode.ts       # OpenCode SDK backend
+    claude-code.ts    # Claude Code CLI backend
 ```
 
 ## Related Projects

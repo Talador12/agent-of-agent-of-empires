@@ -9,7 +9,7 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 
 ## Current Focus
 
-1478 tests across 35 files. v0.95.0 shipped: `/who` fleet status command — one-line-per-session summary showing name, status, uptime, error count, and notes. Sorted by "needs attention" (most errors first). Per-session error counter tracked in `log()`. 6 new tests.
+README overhaul for GitHub presentation. Added CI/test/node/zero-deps badges, full TUI Daemon Commands section (30+ commands the README was missing), updated project structure with newer files (export, tail, stats, replay, config-watcher). No code changes, docs only.
 
 ## Roadmap
 
@@ -22,6 +22,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Session memory** — show per-session context token usage in cards
 - **Error rate sparkline** — per-session error frequency mini-chart in cards
 - **`/alias` custom shortcuts** — user-defined command aliases persisted in prefs
+
+### README overhaul (docs only, no version bump)
+
+**Theme: "GitHub Presentation"** — organized the repo for public consumption. Added CI status, test count (1478), Node >= 20, zero dependencies badges. Added complete "Daemon TUI Commands" section documenting all 30+ interactive commands (the README previously only had chat UI commands). Updated project structure with 5 missing files (config-watcher, export, tail, stats, replay). Improved file descriptions.
+
+Modified: `README.md`, `claude.md`
+Test changes: none.
 
 ### What shipped in v0.95.0
 
