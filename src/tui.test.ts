@@ -34,6 +34,7 @@ import {
   formatQuietStatus,
   parseSessionAge, formatSessionAge,
   formatHealthSparkline, MAX_HEALTH_HISTORY,
+  isOverBudget, formatBudgetAlert,
   truncateRename, MAX_RENAME_LEN,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
@@ -4279,6 +4280,152 @@ describe("TUI getSessionOutput", () => {
   it("getDrilldownId returns null before entering drilldown", () => {
     const tui = new TUI();
     assert.equal(tui.getDrilldownId(), null);
+  });
+});
+
+// ── isOverBudget ──────────────────────────────────────────────────────────
+
+describe("isOverBudget", () => {
+  it("returns false for undefined costStr", () => {
+    assert.equal(isOverBudget(undefined, 5.00), false);
+  });
+  it("returns false when cost is under budget", () => {
+    assert.equal(isOverBudget("$2.00", 5.00), false);
+  });
+  it("returns true when cost exceeds budget", () => {
+    assert.equal(isOverBudget("$6.00", 5.00), true);
+  });
+  it("returns false when cost equals budget (not strictly over)", () => {
+    assert.equal(isOverBudget("$5.00", 5.00), false);
+  });
+  it("returns false for unparseable cost", () => {
+    assert.equal(isOverBudget("no cost", 5.00), false);
+  });
+});
+
+// ── formatBudgetAlert ─────────────────────────────────────────────────────
+
+describe("formatBudgetAlert", () => {
+  it("includes session title", () => {
+    assert.ok(formatBudgetAlert("Alpha", "$6.00", 5.00).includes("Alpha"));
+  });
+  it("includes cost string", () => {
+    assert.ok(formatBudgetAlert("Alpha", "$6.00", 5.00).includes("$6.00"));
+  });
+  it("includes budget value", () => {
+    assert.ok(formatBudgetAlert("Alpha", "$6.00", 5.00).includes("$5.00"));
+  });
+  it("includes 'exceeded'", () => {
+    assert.ok(formatBudgetAlert("Alpha", "$6.00", 5.00).toLowerCase().includes("exceed"));
+  });
+});
+
+// ── TUI session budget ────────────────────────────────────────────────────
+
+describe("TUI session budget", () => {
+  const sess = { id: "b1", title: "Alpha", status: "idle" as const, tool: "opencode",
+    contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined };
+
+  it("starts with no budgets", () => {
+    const tui = new TUI();
+    assert.equal(tui.getGlobalBudget(), null);
+    assert.equal(tui.getAllSessionBudgets().size, 0);
+  });
+
+  it("setGlobalBudget sets global", () => {
+    const tui = new TUI();
+    tui.setGlobalBudget(5.00);
+    assert.equal(tui.getGlobalBudget(), 5.00);
+  });
+
+  it("setGlobalBudget null clears", () => {
+    const tui = new TUI();
+    tui.setGlobalBudget(5.00);
+    tui.setGlobalBudget(null);
+    assert.equal(tui.getGlobalBudget(), null);
+  });
+
+  it("setSessionBudget by index sets budget", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    const ok = tui.setSessionBudget(1, 2.50);
+    assert.equal(ok, true);
+    assert.equal(tui.getSessionBudget("b1"), 2.50);
+  });
+
+  it("setSessionBudget null clears per-session budget", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.setSessionBudget(1, 2.50);
+    tui.setSessionBudget(1, null);
+    assert.equal(tui.getSessionBudget("b1"), null);
+  });
+
+  it("setSessionBudget returns false for unknown session", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    assert.equal(tui.setSessionBudget("zzz", 1.00), false);
+  });
+
+  it("fires budget alert when cost exceeds session budget", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.setSessionBudget(1, 1.00);
+    let alertFired = false;
+    const origLog = (tui as unknown as { log: (tag: string, text: string) => void }).log;
+    (tui as unknown as { log: (tag: string, text: string) => void }).log = (tag, text) => {
+      if (tag === "status" && text.includes("exceeded")) alertFired = true;
+      origLog.call(tui, tag, text);
+    };
+    tui.updateState({ sessions: [{ ...sess, costStr: "$5.00" }] });
+    assert.equal(alertFired, true);
+  });
+
+  it("fires budget alert using global budget when no per-session budget", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.setGlobalBudget(1.00);
+    let alertFired = false;
+    const origLog = (tui as unknown as { log: (tag: string, text: string) => void }).log;
+    (tui as unknown as { log: (tag: string, text: string) => void }).log = (tag, text) => {
+      if (tag === "status" && text.includes("exceeded")) alertFired = true;
+      origLog.call(tui, tag, text);
+    };
+    tui.updateState({ sessions: [{ ...sess, costStr: "$3.00" }] });
+    assert.equal(alertFired, true);
+  });
+
+  it("does not fire when under budget", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.setGlobalBudget(10.00);
+    let alertFired = false;
+    const origLog = (tui as unknown as { log: (tag: string, text: string) => void }).log;
+    (tui as unknown as { log: (tag: string, text: string) => void }).log = (tag, text) => {
+      if (tag === "status" && text.includes("exceeded")) alertFired = true;
+      origLog.call(tui, tag, text);
+    };
+    tui.updateState({ sessions: [{ ...sess, costStr: "$2.00" }] });
+    assert.equal(alertFired, false);
+  });
+});
+
+// ── formatSessionCard with ageStr ─────────────────────────────────────────
+
+describe("formatSessionCard with ageStr", () => {
+  const session: DaemonSessionState = {
+    id: "s1", title: "Alpha", status: "idle", tool: "opencode",
+    contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined,
+  };
+
+  it("does not include age when not provided", () => {
+    const result = stripAnsi(formatSessionCard(session, 80));
+    assert.ok(!result.includes("age:"));
+  });
+
+  it("includes age when provided", () => {
+    const result = stripAnsi(formatSessionCard(session, 80, undefined, undefined, undefined, undefined, "2h"));
+    assert.ok(result.includes("age:2h"));
   });
 });
 

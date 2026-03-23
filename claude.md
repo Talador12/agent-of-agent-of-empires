@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.146.0
+## Version: v0.149.0
 
 ## Current Focus
 
-2035 tests across 35 files. v0.143–v0.146 shipped: `/quiet-status`, session age from `created_at`, health history sparklines in `/stats`, and `/alert-log`.
+2061 tests across 35 files. v0.147–v0.149 shipped: session age badge in cards, per-session cost budgets with alerts, and `/pause-all`/`/resume-all` bulk control.
 
 ## Roadmap
 
@@ -30,6 +30,17 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **`/budget <N>`** — set a cost budget per session; alert when exceeded
 - **`/pause-all`/`/resume-all`** — bulk pause/resume all sessions via tmux send-keys
 - **Parallel `/stats` refresh** — auto-refresh `/stats` output every N seconds in TUI drill-down
+
+### What shipped in v0.147.0–v0.149.0
+
+**v0.147.0 — Session Age in Cards**: `formatSessionCard` gains optional `ageStr` param rendered as `age:Nh` DIM suffix. Both `paintSessions()` and `repaintSessionCard()` compute age from `s.createdAt` using `formatSessionAge()`.
+
+**v0.148.0 — /budget**: `isOverBudget(costStr, budgetUSD)` and `formatBudgetAlert()` pure fns. TUI tracks `sessionBudgets` (per-session) and `globalBudget` (fallback). Budget check fires in `updateState()` when `costStr` is set — rate-limited to once per 5 min per session, respects quiet hours. `/budget [$N]` sets global, `/budget <N> $N` sets per-session, `/budget clear` removes global. `setSessionBudget()`, `setGlobalBudget()`, `getSessionBudget()`, `getGlobalBudget()`, `getAllSessionBudgets()` on TUI.
+
+**v0.149.0 — /pause-all and /resume-all**: `onBulkControl` handler. `/pause-all` sends `Escape` to all session tmux panes; `/resume-all` sends `Enter`. Best-effort fire-and-forget. 26 new tests total.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +26, net 2061 tests across 35 files.
 
 ### What shipped in v0.143.0–v0.146.0
 

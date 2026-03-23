@@ -70,6 +70,8 @@ export type CostSummaryHandler = () => void; // show cost summary across session
 export type SessionReportHandler = (target: string) => void; // generate session markdown report
 export type QuietStatusHandler = () => void; // show quiet hours status
 export type AlertLogHandler = (count: number) => void; // show recent auto-generated alerts
+export type BudgetHandler = (target: string | null, budgetUSD: number | null) => void; // set cost budget
+export type BulkControlHandler = (action: "pause" | "resume") => void; // pause-all / resume-all
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -166,6 +168,8 @@ export class InputReader {
   private sessionReportHandler: SessionReportHandler | null = null;
   private quietStatusHandler: QuietStatusHandler | null = null;
   private alertLogHandler: AlertLogHandler | null = null;
+  private budgetHandler: BudgetHandler | null = null;
+  private bulkControlHandler: BulkControlHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -432,6 +436,8 @@ export class InputReader {
   onSessionReport(handler: SessionReportHandler): void { this.sessionReportHandler = handler; }
   onQuietStatus(handler: QuietStatusHandler): void { this.quietStatusHandler = handler; }
   onAlertLog(handler: AlertLogHandler): void { this.alertLogHandler = handler; }
+  onBudget(handler: BudgetHandler): void { this.budgetHandler = handler; }
+  onBulkControl(handler: BulkControlHandler): void { this.bulkControlHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -713,6 +719,9 @@ ${BOLD}navigation:${RESET}
   /color-all [c]     set accent color for all sessions (no color = clear all)
   /quiet-hours [H-H] suppress watchdog+burn alerts during hours (e.g. 22-06; no arg = clear)
   /quiet-status      show whether quiet hours are currently active
+  /budget [N] [$]    set cost budget: /budget 1 2.50 (session), /budget 2.50 (global), /budget clear
+  /pause-all         send interrupt to all sessions
+  /resume-all        send resume to all sessions
   /alert-log [N]     show last N auto-generated alerts (burn-rate/watchdog/ceiling; default 20)
   /history-stats     show aggregate statistics from persisted activity history
   /cost-summary      show total estimated spend across all sessions
@@ -1262,6 +1271,40 @@ ${BOLD}other:${RESET}
         } else {
           console.error(`${DIM}history-stats not available (no TUI)${RESET}`);
         }
+        break;
+
+      case "/budget": {
+        const bArgs = line.slice("/budget".length).trim().split(/\s+/).filter(Boolean);
+        if (bArgs.length === 0 || bArgs[0] === "clear") {
+          // clear global budget
+          if (this.budgetHandler) this.budgetHandler(null, null);
+          else console.error(`${DIM}budget not available${RESET}`);
+          break;
+        }
+        if (this.budgetHandler) {
+          // /budget <$N> → global, /budget <N|name> <$N> → per-session
+          const maybeUSD = parseFloat(bArgs[bArgs.length - 1].replace("$", ""));
+          if (!isNaN(maybeUSD) && bArgs.length === 1) {
+            this.budgetHandler(null, maybeUSD); // global
+          } else if (!isNaN(maybeUSD) && bArgs.length >= 2) {
+            this.budgetHandler(bArgs[0], maybeUSD); // per-session
+          } else {
+            console.error(`${DIM}usage: /budget [$N.NN] — global, /budget <N|name> $N.NN — per-session, /budget clear — remove${RESET}`);
+          }
+        } else {
+          console.error(`${DIM}budget not available${RESET}`);
+        }
+        break;
+      }
+
+      case "/pause-all":
+        if (this.bulkControlHandler) this.bulkControlHandler("pause");
+        else console.error(`${DIM}pause-all not available${RESET}`);
+        break;
+
+      case "/resume-all":
+        if (this.bulkControlHandler) this.bulkControlHandler("resume");
+        else console.error(`${DIM}resume-all not available${RESET}`);
         break;
 
       case "/quiet-status":

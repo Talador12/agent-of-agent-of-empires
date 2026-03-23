@@ -1539,6 +1539,38 @@ describe("onHistoryStats", () => {
   it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["historyStatsHandler"]?.()); });
 });
 
+describe("onBudget", () => {
+  it("calls handler with target and budget", () => {
+    const r = new InputReader(); let tgt: string | null = "unset"; let bud: number | null = -1;
+    r.onBudget((t, b) => { tgt = t; bud = b; });
+    r["budgetHandler"]!("alpha", 2.50);
+    assert.equal(tgt, "alpha"); assert.equal(bud, 2.50);
+  });
+  it("passes null target for global budget", () => {
+    const r = new InputReader(); let tgt: string | null = "unset";
+    r.onBudget((t) => { tgt = t; });
+    r["budgetHandler"]!(null, 5.00);
+    assert.equal(tgt, null);
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["budgetHandler"]?.(null, null)); });
+});
+
+describe("onBulkControl", () => {
+  it("calls handler with pause action", () => {
+    const r = new InputReader(); let action = "";
+    r.onBulkControl((a) => { action = a; });
+    r["bulkControlHandler"]!("pause");
+    assert.equal(action, "pause");
+  });
+  it("calls handler with resume action", () => {
+    const r = new InputReader(); let action = "";
+    r.onBulkControl((a) => { action = a; });
+    r["bulkControlHandler"]!("resume");
+    assert.equal(action, "resume");
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["bulkControlHandler"]?.("pause")); });
+});
+
 describe("onQuietStatus", () => {
   it("calls handler", () => {
     const r = new InputReader(); let called = false;

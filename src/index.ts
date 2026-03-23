@@ -969,6 +969,43 @@ async function main() {
       tui!.log("system", `quiet hours: ${specs.join(", ")} — watchdog+burn alerts suppressed`);
       persistPrefs();
     });
+    // wire /budget cost alerts
+    input.onBudget((target, budgetUSD) => {
+      if (budgetUSD === null) {
+        // clear global budget
+        tui!.setGlobalBudget(null);
+        tui!.log("system", "budget: global budget cleared");
+        return;
+      }
+      if (target === null) {
+        tui!.setGlobalBudget(budgetUSD);
+        tui!.log("system", `budget: global budget set to $${budgetUSD.toFixed(2)}`);
+        return;
+      }
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const ok = tui!.setSessionBudget(num ?? target, budgetUSD);
+      if (ok) tui!.log("system", `budget: $${budgetUSD.toFixed(2)} set for ${target}`);
+      else tui!.log("system", `session not found: ${target}`);
+    });
+    // wire /pause-all and /resume-all
+    input.onBulkControl((action) => {
+      const sessions = tui!.getSessions();
+      if (sessions.length === 0) {
+        tui!.log("system", `${action}-all: no sessions`);
+        return;
+      }
+      // ESC for pause, Enter for resume (nudge sessions out of waiting)
+      const keys = action === "pause" ? "Escape" : "Enter";
+      let count = 0;
+      for (const s of sessions) {
+        const tmuxName = computeTmuxName(s.title, s.id);
+        shellExec("tmux", ["send-keys", "-t", tmuxName, "", keys])
+          .then(() => { /* silent */ })
+          .catch((_e: unknown) => { /* best effort */ });
+        count++;
+      }
+      tui!.log("system", `${action}-all: sent to ${count} session${count !== 1 ? "s" : ""}`);
+    });
     // wire /quiet-status
     input.onQuietStatus(() => {
       const { active, message } = formatQuietStatus(tui!.getQuietHours());

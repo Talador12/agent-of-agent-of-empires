@@ -647,6 +647,20 @@ export function formatSessionReport(data: SessionReportData): string {
   return lines.join("\n");
 }
 
+// ── Session cost budget (pure, exported for testing) ─────────────────────────
+
+/** Check if a cost string exceeds a budget value. Returns true when over budget. */
+export function isOverBudget(costStr: string | undefined, budgetUSD: number): boolean {
+  if (!costStr) return false;
+  const val = parseCostValue(costStr);
+  return val !== null && val > budgetUSD;
+}
+
+/** Format a budget-exceeded alert message. */
+export function formatBudgetAlert(title: string, costStr: string, budgetUSD: number): string {
+  return `${title}: cost ${costStr} exceeded budget $${budgetUSD.toFixed(2)}`;
+}
+
 // ── Duplicate session helpers (pure, exported for testing) ───────────────────
 
 /**
@@ -904,6 +918,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy", "/stats", "/recall", "/pin-all-errors", "/export-stats",
   "/mute-errors", "/prev-goal", "/tag", "/tags", "/tag-filter", "/find", "/reset-health", "/timeline", "/color", "/clear-history",
   "/duplicate", "/color-all", "/quiet-hours", "/quiet-status", "/history-stats", "/cost-summary", "/session-report", "/alert-log",
+  "/budget", "/pause-all", "/resume-all",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -1250,6 +1265,9 @@ export class TUI {
   private quietHoursRanges: Array<[number, number]> = []; // quiet-hour start/end pairs
   private sessionHealthHistory = new Map<string, HealthSnapshot[]>(); // session ID → health snapshots
   private alertLog: ActivityEntry[] = []; // recent auto-generated status alerts (ring buffer, max 100)
+  private sessionBudgets = new Map<string, number>(); // session ID → USD budget
+  private globalBudget: number | null = null;          // global fallback budget in USD
+  private budgetAlerted = new Map<string, number>();   // session ID → epoch ms of last budget alert
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -1755,6 +1773,46 @@ export class TUI {
 
   // ── Session timeline ─────────────────────────────────────────────────────
 
+  // ── Session cost budget ──────────────────────────────────────────────────
+
+  /** Set a per-session budget in USD. Pass null to clear. */
+  setSessionBudget(sessionIdOrIndex: string | number, budgetUSD: number | null): boolean {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return false;
+    if (budgetUSD === null) this.sessionBudgets.delete(sessionId);
+    else this.sessionBudgets.set(sessionId, budgetUSD);
+    return true;
+  }
+
+  /** Set global fallback budget (applies to all sessions without per-session budget). */
+  setGlobalBudget(budgetUSD: number | null): void {
+    this.globalBudget = budgetUSD;
+  }
+
+  /** Get the per-session budget (or null). */
+  getSessionBudget(id: string): number | null {
+    return this.sessionBudgets.get(id) ?? null;
+  }
+
+  /** Get the global budget (or null if not set). */
+  getGlobalBudget(): number | null {
+    return this.globalBudget;
+  }
+
+  /** Return all per-session budgets. */
+  getAllSessionBudgets(): ReadonlyMap<string, number> {
+    return this.sessionBudgets;
+  }
+
   /** Return health history for a session (for sparkline). */
   getSessionHealthHistory(id: string): readonly HealthSnapshot[] {
     return this.sessionHealthHistory.get(id) ?? [];
@@ -2109,8 +2167,18 @@ export class TUI {
           this.lastChangeAt.set(s.id, now);
         }
         if (s.lastActivity !== undefined) this.prevLastActivity.set(s.id, s.lastActivity);
-        // track cost string
-        if (s.costStr) this.sessionCosts.set(s.id, s.costStr);
+        // track cost string + check budget
+        if (s.costStr) {
+          this.sessionCosts.set(s.id, s.costStr);
+          const budget = this.sessionBudgets.get(s.id) ?? this.globalBudget;
+          if (budget !== null && isOverBudget(s.costStr, budget) && !quietNow) {
+            const lastAlert = this.budgetAlerted.get(s.id) ?? 0;
+            if (now - lastAlert >= 5 * 60_000) {
+              this.budgetAlerted.set(s.id, now);
+              this.log("status", formatBudgetAlert(s.title, s.costStr, budget), s.id);
+            }
+          }
+        }
         // track context token history for burn-rate alerts
         const tokens = parseContextTokenNumber(s.contextTokens);
         if (tokens !== null) {
@@ -2710,7 +2778,8 @@ export class TUI {
         const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
         const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth + colorDotWidth;
         const cardWidth = innerWidth - 1 - iconsWidth;
-        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge}${colorDot}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined, displayName)}`;
+        const cardAge = s.createdAt ? formatSessionAge(s.createdAt, nowMs) : undefined;
+        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge}${colorDot}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined, displayName, cardAge || undefined)}`;
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
@@ -2782,7 +2851,8 @@ export class TUI {
     const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
     const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth2 + colorDotWidth2;
     const cardWidth = innerWidth - 1 - iconsWidth;
-    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge2}${colorDot2}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge2 || undefined, displayName2)}`;
+    const cardAge2 = s.createdAt ? formatSessionAge(s.createdAt, nowMs2) : undefined;
+    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge2}${colorDot2}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge2 || undefined, displayName2, cardAge2 || undefined)}`;
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }
@@ -2910,7 +2980,8 @@ export class TUI {
 // idleSinceMs: optional ms since last activity change (shown when idle/stopped)
 // healthBadge: optional pre-formatted health score badge ("⬡83" colored)
 // displayName: optional custom name override (from /rename)
-function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkline?: string, idleSinceMs?: number, healthBadge?: string, displayName?: string): string {
+// ageStr: optional session age string (from createdAt)
+function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkline?: string, idleSinceMs?: number, healthBadge?: string, displayName?: string, ageStr?: string): string {
   const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
   const title = displayName ?? s.title;
   const name = displayName ? `${BOLD}${displayName}${DIM} (${s.title})${RESET}` : `${BOLD}${s.title}${RESET}`;
@@ -2947,7 +3018,8 @@ function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkli
     desc = `${SLATE}${s.status}${RESET}`;
   }
 
-  return truncateAnsi(`${dot} ${healthPrefix}${name} ${toolBadge}${contextBadge} ${SLATE}${BOX.h}${RESET} ${desc}${sparkSuffix}`, maxWidth);
+  const ageSuffix = ageStr ? ` ${DIM}age:${ageStr}${RESET}` : "";
+  return truncateAnsi(`${dot} ${healthPrefix}${name} ${toolBadge}${contextBadge} ${SLATE}${BOX.h}${RESET} ${desc}${ageSuffix}${sparkSuffix}`, maxWidth);
 }
 
 // colorize an activity entry based on its tag
