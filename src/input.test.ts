@@ -1001,6 +1001,39 @@ describe("onGroupFilter", () => {
   });
 });
 
+describe("onRename", () => {
+  it("registers and calls rename handler with target and name", () => {
+    const reader = new InputReader();
+    let tgt = "", nm = "";
+    reader.onRename((t, n) => { tgt = t; nm = n; });
+    reader["renameHandler"]!("alpha", "My Alpha");
+    assert.equal(tgt, "alpha");
+    assert.equal(nm, "My Alpha");
+  });
+
+  it("registers and calls rename handler with empty name (clear)", () => {
+    const reader = new InputReader();
+    let nm = "not-empty";
+    reader.onRename((_t, n) => { nm = n; });
+    reader["renameHandler"]!("alpha", "");
+    assert.equal(nm, "");
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["renameHandler"]?.("alpha", "Foo"); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onRename(() => { calls++; });
+    reader.onRename(() => { calls += 10; });
+    reader["renameHandler"]!("x", "y");
+    assert.equal(calls, 10);
+  });
+});
+
 describe("onCeiling", () => {
   it("registers and calls ceiling handler", () => {
     const reader = new InputReader();

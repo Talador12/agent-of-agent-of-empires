@@ -19,6 +19,7 @@ import {
   CONTEXT_BURN_THRESHOLD, CONTEXT_BURN_WINDOW_MS, MAX_CONTEXT_HISTORY,
   parseContextCeiling, formatContextCeilingAlert, CONTEXT_CEILING_THRESHOLD,
   computeHealthScore, formatHealthBadge, HEALTH_GOOD, HEALTH_WARN, HEALTH_ICON,
+  truncateRename, MAX_RENAME_LEN,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
   shouldBell, BELL_COOLDOWN_MS,
@@ -3880,6 +3881,142 @@ describe("formatGroupBadge", () => {
   it("returns ANSI-colored string", () => {
     const badge = formatGroupBadge("backend");
     assert.ok(badge.includes("\x1b["));
+  });
+});
+
+// ── truncateRename ────────────────────────────────────────────────────────
+
+describe("truncateRename", () => {
+  it("returns name unchanged when under limit", () => {
+    assert.equal(truncateRename("Alpha"), "Alpha");
+  });
+
+  it("truncates with .. when over max length", () => {
+    const long = "a".repeat(MAX_RENAME_LEN + 5);
+    const result = truncateRename(long);
+    assert.ok(result.length <= MAX_RENAME_LEN);
+    assert.ok(result.endsWith(".."));
+  });
+
+  it("handles exact max length", () => {
+    const exact = "a".repeat(MAX_RENAME_LEN);
+    assert.equal(truncateRename(exact), exact);
+  });
+});
+
+// ── MAX_RENAME_LEN ────────────────────────────────────────────────────────
+
+describe("MAX_RENAME_LEN", () => {
+  it("is 32", () => {
+    assert.equal(MAX_RENAME_LEN, 32);
+  });
+});
+
+// ── TUI rename state ──────────────────────────────────────────────────────
+
+function makeSessionsForRename(): DaemonSessionState[] {
+  return [
+    { id: "r1", title: "Alpha", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "r2", title: "Bravo", status: "working", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+  ];
+}
+
+describe("TUI rename state", () => {
+  it("starts with no aliases", () => {
+    const tui = new TUI();
+    assert.equal(tui.getAllSessionAliases().size, 0);
+  });
+
+  it("renameSession by index sets alias", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForRename() });
+    const ok = tui.renameSession(1, "My Alpha");
+    assert.equal(ok, true);
+    assert.equal(tui.getSessionAlias("r1"), "My Alpha");
+  });
+
+  it("renameSession by name sets alias", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForRename() });
+    tui.renameSession("bravo", "Beta");
+    assert.equal(tui.getSessionAlias("r2"), "Beta");
+  });
+
+  it("renameSession with empty string clears alias", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForRename() });
+    tui.renameSession(1, "MyName");
+    tui.renameSession(1, "");
+    assert.equal(tui.getSessionAlias("r1"), undefined);
+  });
+
+  it("renameSession with null clears alias", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForRename() });
+    tui.renameSession(1, "MyName");
+    tui.renameSession(1, null);
+    assert.equal(tui.getSessionAlias("r1"), undefined);
+  });
+
+  it("renameSession returns false for unknown session", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForRename() });
+    assert.equal(tui.renameSession("zzz", "Foo"), false);
+  });
+
+  it("truncates long names to MAX_RENAME_LEN", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForRename() });
+    tui.renameSession(1, "a".repeat(MAX_RENAME_LEN + 10));
+    const alias = tui.getSessionAlias("r1");
+    assert.ok(alias !== undefined && alias.length <= MAX_RENAME_LEN);
+  });
+
+  it("restoreSessionAliases bulk-sets aliases", () => {
+    const tui = new TUI();
+    tui.restoreSessionAliases({ "r1": "Custom Alpha", "r2": "Custom Bravo" });
+    assert.equal(tui.getSessionAlias("r1"), "Custom Alpha");
+    assert.equal(tui.getSessionAlias("r2"), "Custom Bravo");
+  });
+
+  it("getAllSessionAliases returns all aliases", () => {
+    const tui = new TUI();
+    tui.restoreSessionAliases({ "x": "Foo", "y": "Bar" });
+    assert.equal(tui.getAllSessionAliases().size, 2);
+  });
+
+  it("is safe when TUI is not active", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForRename() });
+    assert.doesNotThrow(() => {
+      tui.renameSession(1, "Test");
+      tui.restoreSessionAliases({ "r1": "Test" });
+    });
+  });
+});
+
+// ── formatSessionCard with displayName ───────────────────────────────────
+
+describe("formatSessionCard with displayName", () => {
+  const session: DaemonSessionState = {
+    id: "s1", title: "Alpha", status: "working", tool: "opencode",
+    contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined,
+  };
+
+  it("shows original title when no displayName", () => {
+    const result = stripAnsi(formatSessionCard(session, 80));
+    assert.ok(result.includes("Alpha"));
+  });
+
+  it("shows custom display name when provided", () => {
+    const result = stripAnsi(formatSessionCard(session, 80, undefined, undefined, undefined, "My Worker"));
+    assert.ok(result.includes("My Worker"));
+  });
+
+  it("shows original title in dim when displayName set", () => {
+    // the original title should still appear (in dim) for disambiguation
+    const result = stripAnsi(formatSessionCard(session, 80, undefined, undefined, undefined, "My Worker"));
+    assert.ok(result.includes("Alpha"));
   });
 });
 

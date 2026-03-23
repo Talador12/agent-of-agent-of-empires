@@ -326,6 +326,16 @@ export function formatIdleSince(ms: number, thresholdMs = 2 * 60_000): string {
   return `idle ${formatUptime(ms)}`;
 }
 
+// ── Session rename ────────────────────────────────────────────────────────────
+
+/** Max visible length for a custom session display name. */
+export const MAX_RENAME_LEN = 32;
+
+/** Truncate a custom display name to the max length. */
+export function truncateRename(name: string): string {
+  return name.length > MAX_RENAME_LEN ? name.slice(0, MAX_RENAME_LEN - 2) + ".." : name;
+}
+
 // ── Watchdog ──────────────────────────────────────────────────────────────────
 
 /** Default watchdog threshold: 10 minutes of no output change triggers alert. */
@@ -345,7 +355,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
-  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling",
+  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -620,6 +630,7 @@ export interface TuiPrefs {
   tagFilter?: string | null;
   aliases?: Record<string, string>;
   sessionGroups?: Record<string, string>;
+  sessionAliases?: Record<string, string>;
 }
 
 const PREFS_PATH = join(homedir(), ".aoaoe", "tui-prefs.json");
@@ -676,6 +687,7 @@ export class TUI {
   private ceilingAlerted = new Map<string, number>(); // session ID → epoch ms of last ceiling alert (cooldown)
   private sessionGroups = new Map<string, string>(); // session ID → group tag
   private groupFilter: string | null = null; // active group filter (null = show all)
+  private sessionAliases = new Map<string, string>(); // session ID → custom display name
   private watchdogThresholdMs: number | null = null; // null = disabled; ms of inactivity before alert
   private watchdogAlerted = new Map<string, number>(); // session ID → epoch ms of last watchdog alert
 
@@ -1092,6 +1104,47 @@ export class TUI {
   /** Get the current group filter (or null if none). */
   getGroupFilter(): string | null {
     return this.groupFilter;
+  }
+
+  /**
+   * Set or clear a custom display name for a session (by 1-indexed number, ID, ID prefix, or title).
+   * Returns true if session found. Pass empty/null to clear.
+   */
+  renameSession(sessionIdOrIndex: string | number, displayName: string | null): boolean {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return false;
+    if (!displayName || displayName.trim() === "") {
+      this.sessionAliases.delete(sessionId);
+    } else {
+      this.sessionAliases.set(sessionId, truncateRename(displayName.trim()));
+    }
+    if (this.active) this.paintSessions();
+    return true;
+  }
+
+  /** Get the custom display name for a session (or undefined if not renamed). */
+  getSessionAlias(id: string): string | undefined {
+    return this.sessionAliases.get(id);
+  }
+
+  /** Return all session aliases (for persistence and listing). */
+  getAllSessionAliases(): ReadonlyMap<string, string> {
+    return this.sessionAliases;
+  }
+
+  /** Restore session aliases from persisted prefs (bulk restore). */
+  restoreSessionAliases(aliases: Record<string, string>): void {
+    this.sessionAliases.clear();
+    for (const [id, name] of Object.entries(aliases)) this.sessionAliases.set(id, name);
   }
 
   /**
@@ -1693,6 +1746,7 @@ export class TUI {
           watchdogThresholdMs: this.watchdogThresholdMs,
         });
         const healthBadge = formatHealthBadge(healthScore);
+        const displayName = this.sessionAliases.get(s.id);
         const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
         const muteBadgeWidth = muted ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 2 : 0; // "(N)" visible chars, 0 when count is 0
         const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0 ? muteBadgeWidth + 1 : 0; // +1 for trailing space
@@ -1704,7 +1758,7 @@ export class TUI {
         const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
         const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth;
         const cardWidth = innerWidth - 1 - iconsWidth;
-        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined)}`;
+        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined, displayName)}`;
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
@@ -1758,6 +1812,7 @@ export class TUI {
       watchdogThresholdMs: this.watchdogThresholdMs,
     });
     const healthBadge2 = formatHealthBadge(healthScore2);
+    const displayName2 = this.sessionAliases.get(s.id);
     const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
     const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0
       ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 3 : 0; // "(N) " visible chars
@@ -1769,7 +1824,7 @@ export class TUI {
     const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
     const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth;
     const cardWidth = innerWidth - 1 - iconsWidth;
-    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge2 || undefined)}`;
+    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge2 || undefined, displayName2)}`;
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }
@@ -1901,9 +1956,11 @@ export class TUI {
 // errorSparkline: optional pre-formatted ROSE sparkline string (5 chars) for recent errors
 // idleSinceMs: optional ms since last activity change (shown when idle/stopped)
 // healthBadge: optional pre-formatted health score badge ("⬡83" colored)
-function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkline?: string, idleSinceMs?: number, healthBadge?: string): string {
+// displayName: optional custom name override (from /rename)
+function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkline?: string, idleSinceMs?: number, healthBadge?: string, displayName?: string): string {
   const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
-  const name = `${BOLD}${s.title}${RESET}`;
+  const title = displayName ?? s.title;
+  const name = displayName ? `${BOLD}${displayName}${DIM} (${s.title})${RESET}` : `${BOLD}${s.title}${RESET}`;
   const toolBadge = `${SLATE}${s.tool}${RESET}`;
   const contextBadge = s.contextTokens ? ` ${DIM}(${s.contextTokens})${RESET}` : "";
   const sparkSuffix = errorSparkline ? ` ${errorSparkline}` : "";
@@ -1923,7 +1980,7 @@ function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkli
     desc = `${AMBER}you're active${RESET}`;
   } else if (s.status === "working" || s.status === "running") {
     desc = s.currentTask
-      ? truncatePlain(s.currentTask, Math.max(20, maxWidth - s.title.length - s.tool.length - 16 - sparkWidth))
+      ? truncatePlain(s.currentTask, Math.max(20, maxWidth - title.length - s.tool.length - 16 - sparkWidth))
       : `${LIME}working${RESET}`;
   } else if (s.status === "idle" || s.status === "stopped") {
     desc = idleLabel ? `${SLATE}${idleLabel}${RESET}` : `${SLATE}idle${RESET}`;

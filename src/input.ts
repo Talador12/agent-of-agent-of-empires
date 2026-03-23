@@ -46,6 +46,7 @@ export type BroadcastHandler = (message: string, group: string | null) => void; 
 export type WatchdogHandler = (thresholdMinutes: number | null) => void; // set watchdog (null = off)
 export type TopHandler = (mode: string) => void; // show ranked session view
 export type CeilingHandler = () => void; // show context ceiling for all sessions
+export type RenameHandler = (target: string, name: string) => void; // rename a session display name
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -118,6 +119,7 @@ export class InputReader {
   private watchdogHandler: WatchdogHandler | null = null;
   private topHandler: TopHandler | null = null;
   private ceilingHandler: CeilingHandler | null = null;
+  private renameHandler: RenameHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -294,6 +296,11 @@ export class InputReader {
   // register a callback for /ceiling
   onCeiling(handler: CeilingHandler): void {
     this.ceilingHandler = handler;
+  }
+
+  // register a callback for /rename <N|name> [display name]
+  onRename(handler: RenameHandler): void {
+    this.renameHandler = handler;
   }
 
   /** Set aliases from persisted prefs. */
@@ -549,6 +556,7 @@ ${BOLD}navigation:${RESET}
   /watchdog [N]      alert if session stalls N minutes (default 10); /watchdog off to disable
   /top [mode]        rank sessions by errors (default), burn, or idle
   /ceiling           show context token usage vs limit for all sessions
+  /rename N|name [display] set custom display name in TUI (no display = clear)
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -931,6 +939,28 @@ ${BOLD}other:${RESET}
           this.groupFilterHandler(gfArg || null);
         } else {
           console.error(`${DIM}group filter not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/rename": {
+        const renameArg = line.slice("/rename".length).trim();
+        if (!renameArg) {
+          console.error(`${DIM}usage: /rename <N|name> [display name] — set custom display name (no name = clear)${RESET}`);
+          break;
+        }
+        if (this.renameHandler) {
+          const spaceIdx = renameArg.indexOf(" ");
+          if (spaceIdx > 0) {
+            const target = renameArg.slice(0, spaceIdx);
+            const display = renameArg.slice(spaceIdx + 1).trim();
+            this.renameHandler(target, display);
+          } else {
+            // target only — clear alias
+            this.renameHandler(renameArg, "");
+          }
+        } else {
+          console.error(`${DIM}rename not available (no TUI)${RESET}`);
         }
         break;
       }

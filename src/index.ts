@@ -207,12 +207,15 @@ async function main() {
     if (prefs.autoPin) tui.setAutoPin(true);
     if (prefs.tagFilter) tui.setTagFilter(prefs.tagFilter);
     if (prefs.sessionGroups) tui.restoreGroups(prefs.sessionGroups);
+    if (prefs.sessionAliases) tui.restoreSessionAliases(prefs.sessionAliases);
   }
   const persistPrefs = () => {
     if (!tui) return;
-    // persist session groups (ID → group tag)
+    // persist session groups (ID → group tag) and session aliases (ID → display name)
     const groupsObj: Record<string, string> = {};
     for (const [id, g] of tui.getAllGroups()) groupsObj[id] = g;
+    const aliasesObj: Record<string, string> = {};
+    for (const [id, name] of tui.getAllSessionAliases()) aliasesObj[id] = name;
     saveTuiPrefs({
       sortMode: tui.getSortMode(),
       compact: tui.isCompact(),
@@ -222,6 +225,7 @@ async function main() {
       tagFilter: tui.getTagFilter(),
       aliases: input.getAliases(),
       sessionGroups: groupsObj,
+      sessionAliases: aliasesObj,
     });
   };
 
@@ -719,6 +723,21 @@ async function main() {
         }
       }
       if (!any) tui!.log("system", `  threshold: ${CONTEXT_BURN_THRESHOLD.toLocaleString()} tokens/min`);
+    });
+    // wire /rename custom display name
+    input.onRename((target, displayName) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const ok = tui!.renameSession(num ?? target, displayName || null);
+      if (ok) {
+        if (displayName) {
+          tui!.log("system", `renamed ${target} → "${displayName}"`);
+        } else {
+          tui!.log("system", `rename cleared for ${target}`);
+        }
+        persistPrefs();
+      } else {
+        tui!.log("system", `session not found: ${target}`);
+      }
     });
     // wire /ceiling context usage view
     input.onCeiling(() => {

@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.112.0
+## Version: v0.113.0
 
 ## Current Focus
 
-1718 tests across 35 files. v0.112.0 shipped: session health score (0–100) shown as colored `⬡N` badge in every session card — composite of errors, burn rate, context ceiling proximity, and stall time.
+1739 tests across 35 files. v0.113.0 shipped: `/rename` — set a custom TUI display name for any session; persisted across restarts, shown bold in cards with original name dim alongside.
 
 ## Roadmap
 
@@ -32,6 +32,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Session health score** — composite 0-100 score from error rate, idle time, burn rate shown in card
 - **`/top` command** — show sessions ranked by burn rate, error count, or idle time
 - **Multi-key quick-switch** — extend quick-switch from 1-9 to 1-99 via two-digit prefix
+
+### What shipped in v0.113.0
+
+**Theme: "Session Rename"** — `/rename <N|name> <display>` sets a custom TUI display name for a session. `/rename <N|name>` clears it. Display name shown bold in normal cards with original name dim in parens `Alpha (alpha-original)` for disambiguation. Max 32 chars (auto-truncated). Persisted in `~/.aoaoe/tui-prefs.json` as `sessionAliases`. Restored on startup. `truncateRename()` pure fn. `renameSession()`, `getSessionAlias()`, `getAllSessionAliases()`, `restoreSessionAliases()` on TUI. 21 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +21, net 1739 tests across 35 files.
 
 ### What shipped in v0.112.0
 
