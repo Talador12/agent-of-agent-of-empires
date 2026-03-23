@@ -327,7 +327,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
-  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot",
+  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -463,6 +463,15 @@ export function formatSnapshotMarkdown(data: SnapshotData): string {
     }
   }
   return lines.join("\n");
+}
+
+// ── Broadcast helpers ────────────────────────────────────────────────────────
+
+/** Format a broadcast summary for the activity log. */
+export function formatBroadcastSummary(count: number, group: string | null): string {
+  if (count === 0) return group ? `no sessions in group "${group}"` : "no sessions to broadcast to";
+  const target = group ? `group "${group}"` : "all sessions";
+  return `broadcast to ${count} session${count !== 1 ? "s" : ""} (${target})`;
 }
 
 // ── Sticky prefs ─────────────────────────────────────────────────────────────

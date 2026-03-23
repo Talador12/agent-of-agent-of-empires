@@ -42,6 +42,7 @@ export type GroupsHandler = () => void; // list all groups
 export type GroupFilterHandler = (group: string | null) => void; // filter sessions to a group (null = clear)
 export type BurnRateHandler = () => void; // show current context burn rates
 export type SnapshotHandler = (format: "json" | "md") => void; // export snapshot
+export type BroadcastHandler = (message: string, group: string | null) => void; // broadcast to sessions
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -110,6 +111,7 @@ export class InputReader {
   private groupFilterHandler: GroupFilterHandler | null = null;
   private burnRateHandler: BurnRateHandler | null = null;
   private snapshotHandler: SnapshotHandler | null = null;
+  private broadcastHandler: BroadcastHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -266,6 +268,11 @@ export class InputReader {
   // register a callback for snapshot export (/snapshot [md])
   onSnapshot(handler: SnapshotHandler): void {
     this.snapshotHandler = handler;
+  }
+
+  // register a callback for broadcast (/broadcast [group:<tag>] <message>)
+  onBroadcast(handler: BroadcastHandler): void {
+    this.broadcastHandler = handler;
   }
 
   /** Set aliases from persisted prefs. */
@@ -517,6 +524,7 @@ ${BOLD}navigation:${RESET}
   /group-filter tag  show only sessions in a group (no arg = clear)
   /burn-rate         show context token burn rates for all sessions
   /snapshot [md]     export session state snapshot to JSON (or Markdown with md)
+  /broadcast <msg>   send message to all sessions; /broadcast group:<tag> <msg> for group
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -910,6 +918,26 @@ ${BOLD}other:${RESET}
           console.error(`${DIM}burn-rate not available (no TUI)${RESET}`);
         }
         break;
+
+      case "/broadcast": {
+        const broadcastArg = line.slice("/broadcast".length).trim();
+        if (!broadcastArg) {
+          console.error(`${DIM}usage: /broadcast <message>  or  /broadcast group:<tag> <message>${RESET}`);
+          break;
+        }
+        if (this.broadcastHandler) {
+          // check for group:<tag> prefix
+          const groupMatch = broadcastArg.match(/^group:([a-z0-9_-]+)\s+([\s\S]+)$/i);
+          if (groupMatch) {
+            this.broadcastHandler(groupMatch[2].trim(), groupMatch[1].toLowerCase());
+          } else {
+            this.broadcastHandler(broadcastArg, null);
+          }
+        } else {
+          console.error(`${DIM}broadcast not available (no TUI)${RESET}`);
+        }
+        break;
+      }
 
       case "/snapshot": {
         const snapArg = line.slice("/snapshot".length).trim().toLowerCase();

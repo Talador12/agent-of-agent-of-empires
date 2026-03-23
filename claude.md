@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.107.0
+## Version: v0.108.0
 
 ## Current Focus
 
-1628 tests across 35 files. v0.107.0 shipped: `/snapshot` — exports all current session state to a timestamped JSON or Markdown file in `~/.aoaoe/`.
+1638 tests across 35 files. v0.108.0 shipped: `/broadcast` — send a message to all sessions or all sessions in a group via tmux.
 
 ## Roadmap
 
@@ -18,17 +18,24 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Session health pulse** — tiny per-session sparklines in the compact view
-- **Error rate sparkline** — per-session error frequency mini-chart in cards
-- **Burn-rate alerts** — nudge when a session's context/token usage spikes quickly
 - **Trust ladder mode** — auto-escalate observe -> dry-run -> confirm -> autopilot from stable behavior
 - **Decision confidence hint** — show low/medium/high confidence with each planned action bundle
 - **Task fan-out templates** — generate a starter task list from currently active/inactive AoE sessions
 - **Task intake UX** — guided `/task new` flow in TUI (prompt for repo/mode/goal)
 - **Natural language task intent** — infer task updates from plain lines like "task for adventure: ..."
 - **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
-- **Session snapshot export** — `/snapshot` command exports current session states to JSON/Markdown
-- **Group broadcast** — `/broadcast group:name message` sends a message to all sessions in a group
-- **Idle time per session** — show time since last activity change alongside uptime
+- **Idle-since indicator** — show time since last activity change per session in `/who` and cards
+- **Session tagging** — arbitrary freeform tags (multi-tag, vs single group per session)
+- **Watchdog mode** — alert if a session hasn't changed output in N minutes
+- **Context ceiling warning** — warn when a session is within 10% of its context limit
+- **Activity rate badge** — show messages/min rolling rate in compact mode tokens
+
+### What shipped in v0.108.0
+
+**Theme: "Group Broadcast"** — `/broadcast <message>` sends a message to every active session via `tmux send-keys`. `/broadcast group:<tag> <message>` narrows to sessions in that group. Fire-and-forget per-session with `+ action` / `! action` log entries on success/failure. Gracefully logs `[dry-run]` when no executor available. `formatBroadcastSummary(count, group)` pure function. 10 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +10, net 1638 tests across 35 files.
 
 ### What shipped in v0.107.0
 

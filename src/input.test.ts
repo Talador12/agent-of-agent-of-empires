@@ -1001,6 +1001,42 @@ describe("onGroupFilter", () => {
   });
 });
 
+describe("onBroadcast", () => {
+  it("registers and calls broadcast handler with message and no group", () => {
+    const reader = new InputReader();
+    let msg = "";
+    let grp: string | null = "unset";
+    reader.onBroadcast((m, g) => { msg = m; grp = g; });
+    reader["broadcastHandler"]!("hello agents", null);
+    assert.equal(msg, "hello agents");
+    assert.equal(grp, null);
+  });
+
+  it("registers and calls broadcast handler with group", () => {
+    const reader = new InputReader();
+    let msg = "";
+    let grp: string | null = "unset";
+    reader.onBroadcast((m, g) => { msg = m; grp = g; });
+    reader["broadcastHandler"]!("rebase now", "frontend");
+    assert.equal(msg, "rebase now");
+    assert.equal(grp, "frontend");
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["broadcastHandler"]?.("msg", null); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onBroadcast(() => { calls++; });
+    reader.onBroadcast(() => { calls += 10; });
+    reader["broadcastHandler"]!("x", null);
+    assert.equal(calls, 10);
+  });
+});
+
 describe("onSnapshot", () => {
   it("registers and calls snapshot handler with json format", () => {
     const reader = new InputReader();

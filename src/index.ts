@@ -17,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
@@ -735,6 +735,27 @@ async function main() {
         }
       } catch (err) {
         tui!.log("error", `snapshot failed: ${err}`);
+      }
+    });
+    // wire /broadcast — send a message to all sessions (or group-filtered)
+    input.onBroadcast((message, group) => {
+      const sessions = tui!.getSessions();
+      const groups = tui!.getAllGroups();
+      const targets = group
+        ? sessions.filter((s) => groups.get(s.id) === group)
+        : sessions;
+      if (targets.length === 0) {
+        tui!.log("system", formatBroadcastSummary(0, group));
+        return;
+      }
+      // fire send_input for each target session via tmux (bypasses executor rate limit)
+      tui!.log("system", formatBroadcastSummary(targets.length, group));
+      for (const s of targets) {
+        // resolve tmux pane name (aoe_<title>_<first8id>)
+        const tmuxName = computeTmuxName(s.title, s.id);
+        shellExec("tmux", ["send-keys", "-t", tmuxName, message, "Enter"])
+          .then(() => tui!.log("+ action", `broadcast → ${s.title}`, s.id))
+          .catch((err: unknown) => tui!.log("! action", `broadcast failed → ${s.title}: ${err}`, s.id));
       }
     });
     // wire mouse move to hover highlight on session cards (disabled in compact)

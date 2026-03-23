@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown,
+  formatBroadcastSummary,
   formatActivity, formatSessionCard, formatSessionSentence,
   truncateAnsi, truncatePlain,
   padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay,
@@ -2767,6 +2768,43 @@ describe("BUILTIN_COMMANDS", () => {
 
   it("has at least 30 commands", () => {
     assert.ok(BUILTIN_COMMANDS.size >= 30);
+  });
+});
+
+// ── formatBroadcastSummary ────────────────────────────────────────────────
+
+describe("formatBroadcastSummary", () => {
+  it("no sessions, no group", () => {
+    assert.ok(formatBroadcastSummary(0, null).includes("no sessions"));
+  });
+
+  it("no sessions, with group", () => {
+    const msg = formatBroadcastSummary(0, "frontend");
+    assert.ok(msg.includes("frontend"));
+  });
+
+  it("1 session, no group", () => {
+    const msg = formatBroadcastSummary(1, null);
+    assert.ok(msg.includes("1 session"));
+    assert.ok(msg.includes("all sessions"));
+  });
+
+  it("multiple sessions, no group", () => {
+    const msg = formatBroadcastSummary(3, null);
+    assert.ok(msg.includes("3 sessions"));
+  });
+
+  it("multiple sessions, with group", () => {
+    const msg = formatBroadcastSummary(2, "backend");
+    assert.ok(msg.includes("2 sessions"));
+    assert.ok(msg.includes("backend"));
+  });
+
+  it("singular vs plural", () => {
+    const one = formatBroadcastSummary(1, null);
+    const two = formatBroadcastSummary(2, null);
+    assert.ok(one.includes("1 session"));
+    assert.ok(two.includes("2 sessions"));
   });
 });
 
