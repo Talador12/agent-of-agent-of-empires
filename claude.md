@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.105.0
+## Version: v0.106.0
 
 ## Current Focus
 
-1573 tests across 35 files. v0.105.0 shipped: per-session error sparklines in session cards — ROSE-colored 5-bucket mini-chart in the last 5 minutes of error activity, rendered live in each card.
+1603 tests across 35 files. v0.106.0 shipped: context burn-rate alerts — automatic nudge in the activity log when a session's context usage spikes above 5k tokens/min, plus `/burn-rate` command.
 
 ## Roadmap
 
@@ -29,6 +29,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Session snapshot export** — `/snapshot` command exports current session states to JSON/Markdown
 - **Group broadcast** — `/broadcast group:name message` sends a message to all sessions in a group
 - **Idle time per session** — show time since last activity change alongside uptime
+
+### What shipped in v0.106.0
+
+**Theme: "Burn-Rate Alerts"** — context token spike detection and TUI nudge. Tracks `contextTokens` readings per session in a rolling history (max 30 entries, pruned on session removal). `parseContextTokenNumber()` parses "137,918 tokens" → raw number. `computeContextBurnRate(history, windowMs)` computes tokens/min over the last 2 minutes. When burn rate exceeds `CONTEXT_BURN_THRESHOLD` (5000 tokens/min), a "status" activity entry fires — rate-limited to once per 5 minutes per session. `/burn-rate` command shows current rates for all sessions. `getAllBurnRates()` accessor. 30 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +30, net 1603 tests across 35 files.
 
 ### What shipped in v0.105.0
 

@@ -1000,3 +1000,27 @@ describe("onGroupFilter", () => {
     assert.equal(calls, 10);
   });
 });
+
+describe("onBurnRate", () => {
+  it("registers and calls burn-rate handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onBurnRate(() => { called = true; });
+    reader["burnRateHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["burnRateHandler"]?.(); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onBurnRate(() => { calls++; });
+    reader.onBurnRate(() => { calls += 10; });
+    reader["burnRateHandler"]!();
+    assert.equal(calls, 10);
+  });
+});

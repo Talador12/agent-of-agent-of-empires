@@ -40,6 +40,7 @@ export type GoalCaptureModeHandler = () => boolean;
 export type GroupHandler = (target: string, group: string) => void; // session + group tag (empty = clear)
 export type GroupsHandler = () => void; // list all groups
 export type GroupFilterHandler = (group: string | null) => void; // filter sessions to a group (null = clear)
+export type BurnRateHandler = () => void; // show current context burn rates
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -106,6 +107,7 @@ export class InputReader {
   private groupHandler: GroupHandler | null = null;
   private groupsHandler: GroupsHandler | null = null;
   private groupFilterHandler: GroupFilterHandler | null = null;
+  private burnRateHandler: BurnRateHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -252,6 +254,11 @@ export class InputReader {
   // register a callback for group filter (/group-filter <name> or /group-filter to clear)
   onGroupFilter(handler: GroupFilterHandler): void {
     this.groupFilterHandler = handler;
+  }
+
+  // register a callback for burn-rate reporting (/burn-rate)
+  onBurnRate(handler: BurnRateHandler): void {
+    this.burnRateHandler = handler;
   }
 
   /** Set aliases from persisted prefs. */
@@ -501,6 +508,7 @@ ${BOLD}navigation:${RESET}
   /group N|name tag  assign session to a group (no tag = clear)
   /groups            list all groups and their sessions
   /group-filter tag  show only sessions in a group (no arg = clear)
+  /burn-rate         show context token burn rates for all sessions
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -886,6 +894,14 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/burn-rate":
+        if (this.burnRateHandler) {
+          this.burnRateHandler();
+        } else {
+          console.error(`${DIM}burn-rate not available (no TUI)${RESET}`);
+        }
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

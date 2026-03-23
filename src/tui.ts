@@ -327,7 +327,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
-  "/group", "/groups", "/group-filter",
+  "/group", "/groups", "/group-filter", "/burn-rate",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -431,6 +431,8 @@ export class TUI {
   private autoPinOnError = false; // auto-pin sessions that emit errors
   private sessionErrorCounts = new Map<string, number>(); // session ID → cumulative error count
   private sessionErrorTimestamps = new Map<string, number[]>(); // session ID → recent error epoch ms (last 100)
+  private sessionContextHistory = new Map<string, ContextHistoryEntry[]>(); // session ID → context token history
+  private burnRateAlerted = new Map<string, number>(); // session ID → epoch ms of last burn-rate alert (cooldown)
   private sessionGroups = new Map<string, string>(); // session ID → group tag
   private groupFilter: string | null = null; // active group filter (null = show all)
 
@@ -747,6 +749,21 @@ export class TUI {
     return this.sessionErrorTimestamps.get(id) ?? [];
   }
 
+  /** Return context token history for a session (for burn-rate reporting). */
+  getSessionContextHistory(id: string): readonly ContextHistoryEntry[] {
+    return this.sessionContextHistory.get(id) ?? [];
+  }
+
+  /** Return all sessions with their current burn rates (tokens/min, null if insufficient data). */
+  getAllBurnRates(now?: number): Map<string, number | null> {
+    const result = new Map<string, number | null>();
+    for (const s of this.sessions) {
+      const hist = this.sessionContextHistory.get(s.id);
+      result.set(s.id, hist && hist.length >= 2 ? computeContextBurnRate(hist, now) : null);
+    }
+    return result;
+  }
+
   /**
    * Set or clear a group on a session (by 1-indexed number, ID, ID prefix, or title).
    * Returns true if session found. Pass empty/null group to clear.
@@ -872,6 +889,7 @@ export class TUI {
     if (opts.sessions !== undefined) {
       // track activity changes for sort-by-activity + first-seen for uptime
       const now = Date.now();
+      const BURN_ALERT_COOLDOWN_MS = 5 * 60 * 1000; // max one alert per session per 5 minutes
       for (const s of opts.sessions) {
         if (!this.sessionFirstSeen.has(s.id)) this.sessionFirstSeen.set(s.id, now);
         const prev = this.prevLastActivity.get(s.id);
@@ -879,6 +897,28 @@ export class TUI {
           this.lastChangeAt.set(s.id, now);
         }
         if (s.lastActivity !== undefined) this.prevLastActivity.set(s.id, s.lastActivity);
+        // track context token history for burn-rate alerts
+        const tokens = parseContextTokenNumber(s.contextTokens);
+        if (tokens !== null) {
+          const hist = this.sessionContextHistory.get(s.id) ?? [];
+          hist.push({ tokens, ts: now });
+          if (hist.length > MAX_CONTEXT_HISTORY) hist.splice(0, hist.length - MAX_CONTEXT_HISTORY);
+          this.sessionContextHistory.set(s.id, hist);
+          // check burn rate and emit alert if above threshold (with cooldown)
+          const burnRate = computeContextBurnRate(hist, now);
+          if (burnRate !== null && burnRate > CONTEXT_BURN_THRESHOLD) {
+            const lastAlert = this.burnRateAlerted.get(s.id) ?? 0;
+            if (now - lastAlert >= BURN_ALERT_COOLDOWN_MS) {
+              this.burnRateAlerted.set(s.id, now);
+              this.log("status", formatBurnRateAlert(s.title, burnRate), s.id);
+            }
+          }
+        }
+      }
+      // prune context history for sessions that no longer exist
+      const currentIds = new Set(opts.sessions.map((s) => s.id));
+      for (const id of this.sessionContextHistory.keys()) {
+        if (!currentIds.has(id)) this.sessionContextHistory.delete(id);
       }
       const sorted = sortSessions(opts.sessions, this.sortMode, this.lastChangeAt, this.pinnedIds);
       const prevVisibleCount = this.getVisibleCount();
@@ -1756,6 +1796,52 @@ function formatSparkline(counts: number[]): string {
     return `${color}${SPARK_BLOCKS[level]}${RESET}`;
   });
   return blocks.join("");
+}
+
+// ── Context burn-rate tracking (pure, exported for testing) ─────────────────
+
+/** Parse a context token string like "137,918 tokens" to a raw number, or null if unparseable. */
+export function parseContextTokenNumber(contextTokens: string | undefined): number | null {
+  if (!contextTokens) return null;
+  const match = contextTokens.replace(/,/g, "").match(/(\d+)/);
+  if (!match) return null;
+  const n = parseInt(match[1], 10);
+  return isNaN(n) ? null : n;
+}
+
+/** Context history entry: token count at a timestamp. */
+export interface ContextHistoryEntry {
+  tokens: number;
+  ts: number; // epoch ms
+}
+
+/** Default alert threshold: tokens per minute that triggers a burn-rate nudge. */
+export const CONTEXT_BURN_THRESHOLD = 5_000;
+/** Burn-rate window: compare token counts over the last 2 minutes. */
+export const CONTEXT_BURN_WINDOW_MS = 2 * 60 * 1000;
+/** Max context history entries stored per session (keeps memory bounded). */
+export const MAX_CONTEXT_HISTORY = 30;
+
+/**
+ * Compute tokens-per-minute burn rate over the last windowMs.
+ * Returns null if fewer than 2 data points are within the window.
+ */
+export function computeContextBurnRate(history: readonly ContextHistoryEntry[], now?: number, windowMs?: number): number | null {
+  const cutoff = (now ?? Date.now()) - (windowMs ?? CONTEXT_BURN_WINDOW_MS);
+  const recent = history.filter((h) => h.ts >= cutoff);
+  if (recent.length < 2) return null;
+  const oldest = recent[0];
+  const newest = recent[recent.length - 1];
+  const deltaTokens = newest.tokens - oldest.tokens;
+  const deltaMs = newest.ts - oldest.ts;
+  if (deltaMs <= 0) return null;
+  return (deltaTokens / deltaMs) * 60_000; // convert ms to per-minute
+}
+
+/** Format a burn-rate alert message for the activity log. */
+export function formatBurnRateAlert(title: string, tokensPerMin: number): string {
+  const rounded = Math.round(tokensPerMin / 100) * 100; // round to nearest 100
+  return `${title}: context burning at ~${rounded.toLocaleString()} tokens/min — context limit approaching`;
 }
 
 // ── Session error sparkline (pure, exported for testing) ────────────────────

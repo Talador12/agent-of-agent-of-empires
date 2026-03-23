@@ -17,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
@@ -685,6 +685,30 @@ async function main() {
       } else {
         tui!.log("system", "group filter cleared");
       }
+    });
+    // wire /burn-rate to show context token burn rates
+    input.onBurnRate(() => {
+      const sessions = tui!.getSessions();
+      if (sessions.length === 0) {
+        tui!.log("system", "no sessions — burn rate not available");
+        return;
+      }
+      const rates = tui!.getAllBurnRates();
+      let any = false;
+      for (const s of sessions) {
+        const rate = rates.get(s.id);
+        if (rate === null || rate === undefined) {
+          tui!.log("system", `  ${s.title}: no context data yet`);
+        } else if (rate <= 0) {
+          tui!.log("system", `  ${s.title}: stable (${s.contextTokens ?? "no token data"})`);
+        } else {
+          const rounded = Math.round(rate / 100) * 100;
+          const alert = rate > CONTEXT_BURN_THRESHOLD ? " ⚠ high" : "";
+          tui!.log("system", `  ${s.title}: ~${rounded.toLocaleString()} tokens/min${alert}`);
+          any = true;
+        }
+      }
+      if (!any) tui!.log("system", `  threshold: ${CONTEXT_BURN_THRESHOLD.toLocaleString()} tokens/min`);
     });
     // wire mouse move to hover highlight on session cards (disabled in compact)
     input.onMouseMove((row, _col) => {

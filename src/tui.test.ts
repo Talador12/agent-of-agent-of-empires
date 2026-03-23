@@ -10,6 +10,8 @@ import {
   matchesSearch, formatSearchIndicator,
   computeSparkline, formatSparkline,
   formatSessionErrorSparkline, SESSION_SPARK_BUCKETS, SESSION_SPARK_WINDOW_MS, MAX_ERROR_TIMESTAMPS,
+  parseContextTokenNumber, computeContextBurnRate, formatBurnRateAlert,
+  CONTEXT_BURN_THRESHOLD, CONTEXT_BURN_WINDOW_MS, MAX_CONTEXT_HISTORY,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
   shouldBell, BELL_COOLDOWN_MS,
@@ -2764,6 +2766,203 @@ describe("BUILTIN_COMMANDS", () => {
 
   it("has at least 30 commands", () => {
     assert.ok(BUILTIN_COMMANDS.size >= 30);
+  });
+});
+
+// ── parseContextTokenNumber ────────────────────────────────────────────────
+
+describe("parseContextTokenNumber", () => {
+  it("parses simple token string", () => {
+    assert.equal(parseContextTokenNumber("137918 tokens"), 137918);
+  });
+
+  it("parses comma-formatted string", () => {
+    assert.equal(parseContextTokenNumber("137,918 tokens"), 137918);
+  });
+
+  it("parses number-only string", () => {
+    assert.equal(parseContextTokenNumber("50000"), 50000);
+  });
+
+  it("returns null for undefined", () => {
+    assert.equal(parseContextTokenNumber(undefined), null);
+  });
+
+  it("returns null for empty string", () => {
+    assert.equal(parseContextTokenNumber(""), null);
+  });
+
+  it("returns null for non-numeric string", () => {
+    assert.equal(parseContextTokenNumber("no tokens here"), null);
+  });
+
+  it("parses first number from mixed string", () => {
+    assert.equal(parseContextTokenNumber("12,500 / 200,000 tokens"), 12500);
+  });
+});
+
+// ── computeContextBurnRate ─────────────────────────────────────────────────
+
+describe("computeContextBurnRate", () => {
+  it("returns null for empty history", () => {
+    assert.equal(computeContextBurnRate([]), null);
+  });
+
+  it("returns null for single entry", () => {
+    const now = Date.now();
+    assert.equal(computeContextBurnRate([{ tokens: 1000, ts: now }], now), null);
+  });
+
+  it("computes correct burn rate for simple case", () => {
+    const now = Date.now();
+    const oneMinAgo = now - 60_000;
+    // 6000 tokens gained in 1 minute = 6000/min
+    const rate = computeContextBurnRate(
+      [{ tokens: 10_000, ts: oneMinAgo }, { tokens: 16_000, ts: now }],
+      now
+    );
+    assert.ok(rate !== null);
+    assert.ok(Math.abs(rate! - 6000) < 10); // within 10 tokens/min of expected
+  });
+
+  it("returns null when no entries in window", () => {
+    const now = Date.now();
+    const tooOld = now - CONTEXT_BURN_WINDOW_MS - 5000;
+    const rate = computeContextBurnRate(
+      [{ tokens: 10_000, ts: tooOld }, { tokens: 11_000, ts: tooOld + 1000 }],
+      now
+    );
+    assert.equal(rate, null);
+  });
+
+  it("returns null for zero delta time", () => {
+    const now = Date.now();
+    const rate = computeContextBurnRate(
+      [{ tokens: 10_000, ts: now }, { tokens: 11_000, ts: now }],
+      now
+    );
+    assert.equal(rate, null);
+  });
+
+  it("handles stable context (no change)", () => {
+    const now = Date.now();
+    const oneMinAgo = now - 60_000;
+    const rate = computeContextBurnRate(
+      [{ tokens: 10_000, ts: oneMinAgo }, { tokens: 10_000, ts: now }],
+      now
+    );
+    assert.ok(rate !== null);
+    assert.equal(rate, 0);
+  });
+});
+
+// ── formatBurnRateAlert ────────────────────────────────────────────────────
+
+describe("formatBurnRateAlert", () => {
+  it("includes session title", () => {
+    const msg = formatBurnRateAlert("Alpha", 6000);
+    assert.ok(msg.includes("Alpha"));
+  });
+
+  it("includes tokens per minute rounded to nearest 100", () => {
+    const msg = formatBurnRateAlert("Alpha", 6000);
+    assert.ok(msg.includes("6,000"));
+  });
+
+  it("includes 'tokens/min'", () => {
+    const msg = formatBurnRateAlert("Alpha", 6000);
+    assert.ok(msg.includes("tokens/min"));
+  });
+
+  it("rounds to nearest 100", () => {
+    const msg = formatBurnRateAlert("Alpha", 6450);
+    assert.ok(msg.includes("6,500") || msg.includes("6500"));
+  });
+});
+
+// ── CONTEXT_BURN_THRESHOLD ─────────────────────────────────────────────────
+
+describe("CONTEXT_BURN_THRESHOLD", () => {
+  it("is 5000", () => {
+    assert.equal(CONTEXT_BURN_THRESHOLD, 5_000);
+  });
+});
+
+// ── CONTEXT_BURN_WINDOW_MS ─────────────────────────────────────────────────
+
+describe("CONTEXT_BURN_WINDOW_MS", () => {
+  it("is 2 minutes", () => {
+    assert.equal(CONTEXT_BURN_WINDOW_MS, 2 * 60 * 1000);
+  });
+});
+
+// ── MAX_CONTEXT_HISTORY ────────────────────────────────────────────────────
+
+describe("MAX_CONTEXT_HISTORY", () => {
+  it("is 30", () => {
+    assert.equal(MAX_CONTEXT_HISTORY, 30);
+  });
+});
+
+// ── TUI context burn-rate tracking ────────────────────────────────────────
+
+describe("TUI context burn-rate tracking", () => {
+  it("starts with empty context history", () => {
+    const tui = new TUI();
+    assert.deepEqual(tui.getSessionContextHistory("s1"), []);
+  });
+
+  it("records context history on updateState with tokens", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{
+      id: "s1", title: "Alpha", status: "working", tool: "opencode",
+      contextTokens: "10,000 tokens", lastActivity: undefined, userActive: false, currentTask: undefined,
+    }] });
+    const hist = tui.getSessionContextHistory("s1");
+    assert.equal(hist.length, 1);
+    assert.equal(hist[0].tokens, 10000);
+  });
+
+  it("accumulates history across multiple updateState calls", () => {
+    const tui = new TUI();
+    const base = { id: "s1", title: "Alpha", status: "working" as const, tool: "opencode", lastActivity: undefined, userActive: false, currentTask: undefined };
+    tui.updateState({ sessions: [{ ...base, contextTokens: "10,000 tokens" }] });
+    tui.updateState({ sessions: [{ ...base, contextTokens: "15,000 tokens" }] });
+    const hist = tui.getSessionContextHistory("s1");
+    assert.equal(hist.length, 2);
+    assert.equal(hist[0].tokens, 10000);
+    assert.equal(hist[1].tokens, 15000);
+  });
+
+  it("caps context history at MAX_CONTEXT_HISTORY", () => {
+    const tui = new TUI();
+    const base = { id: "s1", title: "Alpha", status: "idle" as const, tool: "opencode", lastActivity: undefined, userActive: false, currentTask: undefined };
+    for (let i = 0; i <= MAX_CONTEXT_HISTORY + 5; i++) {
+      tui.updateState({ sessions: [{ ...base, contextTokens: `${i * 1000} tokens` }] });
+    }
+    assert.ok(tui.getSessionContextHistory("s1").length <= MAX_CONTEXT_HISTORY);
+  });
+
+  it("prunes context history when session disappears", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "s1", title: "Alpha", status: "idle" as const, tool: "opencode", contextTokens: "10,000 tokens", lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    assert.equal(tui.getSessionContextHistory("s1").length, 1);
+    // Update with no sessions — s1 disappears
+    tui.updateState({ sessions: [] });
+    assert.equal(tui.getSessionContextHistory("s1").length, 0);
+  });
+
+  it("getAllBurnRates returns null for sessions with insufficient history", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "s1", title: "Alpha", status: "idle" as const, tool: "opencode", contextTokens: "10,000 tokens", lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    const rates = tui.getAllBurnRates();
+    assert.equal(rates.get("s1"), null);
+  });
+
+  it("skips recording when contextTokens is undefined", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "s1", title: "Alpha", status: "idle" as const, tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    assert.equal(tui.getSessionContextHistory("s1").length, 0);
   });
 });
 
