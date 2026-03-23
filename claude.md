@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.115.0
+## Version: v0.116.0
 
 ## Current Focus
 
-1748 tests across 35 files. v0.115.0 shipped: `/copy [N|name]` — copies session pane output to clipboard; falls back to `~/.aoaoe/copy.txt`. Default target is current drill-down session.
+1752 tests across 35 files. v0.116.0 shipped: health score glyph `⬡` in compact mode tokens — AMBER when score 60–79, ROSE when <60, invisible at 100 (no clutter for healthy sessions).
 
 ## Roadmap
 
@@ -32,6 +32,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Session health score** — composite 0-100 score from error rate, idle time, burn rate shown in card
 - **`/top` command** — show sessions ranked by burn rate, error count, or idle time
 - **Multi-key quick-switch** — extend quick-switch from 1-9 to 1-99 via two-digit prefix
+
+### What shipped in v0.116.0
+
+**Theme: "Health in Compact Mode"** — `formatCompactRows` gains optional `healthScores: Map<string, number>` parameter. When a session's score is below `HEALTH_GOOD` (80), a single `⬡` glyph is appended to its compact token: AMBER for 60–79, ROSE for <60. Zero extra chars at 100 (no noise for healthy sessions). Health scores computed per visible session in `paintSessions()` compact branch. 4 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `package.json`, `claude.md`
+Test changes: +4, net 1752 tests across 35 files.
 
 ### What shipped in v0.115.0
 

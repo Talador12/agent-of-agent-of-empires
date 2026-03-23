@@ -141,10 +141,10 @@ const PIN_ICON = "▲";
 
 /**
  * Format sessions as inline compact tokens, wrapped to fit maxWidth.
- * Each token: "{idx}{pin?}{mute?}{dot}{name}" — e.g. "1▲●Alpha" for pinned, "2◌●Bravo" for muted.
+ * Each token: "{idx}{pin?}{mute?}{dot}{name}{health?}" — e.g. "1▲●Alpha" for pinned, "2◌●Bravo" for muted.
  * Returns array of formatted row strings (one per display row).
  */
-function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pinnedIds?: Set<string>, mutedIds?: Set<string>, noteIds?: Set<string>): string[] {
+function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pinnedIds?: Set<string>, mutedIds?: Set<string>, noteIds?: Set<string>, healthScores?: Map<string, number>): string[] {
   if (sessions.length === 0) return [`${DIM}no agents connected${RESET}`];
 
   const tokens: string[] = [];
@@ -161,8 +161,13 @@ function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pin
     const muteIcon = muted ? `${DIM}${MUTE_ICON}${RESET}` : "";
     const noteIcon = noted ? `${TEAL}${NOTE_ICON}${RESET}` : "";
     const name = truncatePlain(s.title, COMPACT_NAME_LEN);
-    tokens.push(`${SLATE}${idx}${RESET}${pin}${muteIcon}${noteIcon}${dot}${BOLD}${name}${RESET}`);
-    widths.push(idx.length + (pinned ? 1 : 0) + (muted ? 1 : 0) + (noted ? 1 : 0) + 1 + name.length);
+    // health indicator: single ⬡ glyph when score < HEALTH_GOOD, colored by severity
+    const score = healthScores?.get(s.id);
+    const healthGlyph = (score !== undefined && score < HEALTH_GOOD)
+      ? `${score < HEALTH_WARN ? ROSE : AMBER}${HEALTH_ICON}${RESET}` : "";
+    const healthWidth = (score !== undefined && score < HEALTH_GOOD) ? 1 : 0;
+    tokens.push(`${SLATE}${idx}${RESET}${pin}${muteIcon}${noteIcon}${dot}${BOLD}${name}${RESET}${healthGlyph}`);
+    widths.push(idx.length + (pinned ? 1 : 0) + (muted ? 1 : 0) + (noted ? 1 : 0) + 1 + name.length + healthWidth);
   }
 
   const rows: string[] = [];
@@ -1735,9 +1740,26 @@ export class TUI {
       const padded = padBoxLine(empty, this.cols);
       process.stderr.write(moveTo(startRow + 1, 1) + CLEAR_LINE + padded);
     } else if (this.compactMode) {
-      // compact: inline tokens, multiple per row (with pin indicators)
+      // compact: inline tokens, multiple per row (with pin indicators + health glyphs)
+      const nowMsCompact = Date.now();
       const noteIdSet = new Set(this.sessionNotes.keys());
-      const compactRows = formatCompactRows(visibleSessions, innerWidth - 1, this.pinnedIds, this.mutedIds, noteIdSet);
+      const compactHealthScores = new Map<string, number>();
+      for (const s of visibleSessions) {
+        const ceilingC = parseContextCeiling(s.contextTokens);
+        const cfC = ceilingC ? ceilingC.current / ceilingC.max : null;
+        const bhC = this.sessionContextHistory.get(s.id);
+        const brC = bhC ? computeContextBurnRate(bhC, nowMsCompact) : null;
+        const lcC = this.lastChangeAt.get(s.id);
+        const idleC = lcC !== undefined ? nowMsCompact - lcC : null;
+        compactHealthScores.set(s.id, computeHealthScore({
+          errorCount: this.sessionErrorCounts.get(s.id) ?? 0,
+          burnRatePerMin: brC,
+          contextFraction: cfC,
+          idleMs: idleC,
+          watchdogThresholdMs: this.watchdogThresholdMs,
+        }));
+      }
+      const compactRows = formatCompactRows(visibleSessions, innerWidth - 1, this.pinnedIds, this.mutedIds, noteIdSet, compactHealthScores);
       for (let r = 0; r < compactRows.length; r++) {
         const line = `${SLATE}${BOX.v}${RESET} ${compactRows[r]}`;
         const padded = padBoxLine(line, this.cols);

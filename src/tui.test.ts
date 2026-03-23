@@ -1462,6 +1462,40 @@ describe("formatCompactRows with pinnedIds", () => {
   });
 });
 
+// ── formatCompactRows with health scores ─────────────────────────────────────
+
+describe("formatCompactRows with healthScores", () => {
+  it("includes health glyph for low-health sessions", () => {
+    const sessions = [makeSession({ id: "a", title: "Alpha" })];
+    const healthScores = new Map([["a", 50]]); // below HEALTH_GOOD(80)
+    const rows = formatCompactRows(sessions, 80, undefined, undefined, undefined, healthScores);
+    const plain = stripAnsi(rows.join(""));
+    assert.ok(plain.includes(HEALTH_ICON), "should include health icon for unhealthy session");
+  });
+
+  it("does not include health glyph for healthy sessions (score=100)", () => {
+    const sessions = [makeSession({ id: "a", title: "Alpha" })];
+    const healthScores = new Map([["a", 100]]);
+    const rows = formatCompactRows(sessions, 80, undefined, undefined, undefined, healthScores);
+    const plain = stripAnsi(rows.join(""));
+    assert.ok(!plain.includes(HEALTH_ICON), "should not include health icon at 100");
+  });
+
+  it("does not include health glyph when no scores provided", () => {
+    const sessions = [makeSession({ id: "a", title: "Alpha" })];
+    const rows = formatCompactRows(sessions, 80);
+    const plain = stripAnsi(rows.join(""));
+    assert.ok(!plain.includes(HEALTH_ICON));
+  });
+
+  it("includes ANSI color codes for unhealthy session glyph", () => {
+    const sessions = [makeSession({ id: "a", title: "Alpha" })];
+    const healthScores = new Map([["a", 40]]); // ROSE threshold
+    const rows = formatCompactRows(sessions, 80, undefined, undefined, undefined, healthScores);
+    assert.ok(rows.join("").includes("\x1b["));
+  });
+});
+
 // ── TUI pin state ───────────────────────────────────────────────────────────
 
 describe("TUI pin state", () => {
