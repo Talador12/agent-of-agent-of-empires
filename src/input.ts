@@ -59,6 +59,8 @@ export type TagsListHandler = () => void; // list all session tags
 export type TagFilterHandler2 = (tag: string | null) => void; // filter sessions by freeform tag (null = clear)
 export type FindHandler = (text: string) => void; // search session outputs
 export type ResetHealthHandler = (target: string) => void; // reset a session's health state
+export type TimelineHandler = (target: string, count: number) => void; // show session activity timeline
+export type ColorHandler = (target: string, colorName: string) => void; // set session accent color
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -144,6 +146,8 @@ export class InputReader {
   private tagFilter2Handler: TagFilterHandler2 | null = null;
   private findHandler: FindHandler | null = null;
   private resetHealthHandler: ResetHealthHandler | null = null;
+  private timelineHandler: TimelineHandler | null = null;
+  private colorHandler: ColorHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -385,6 +389,16 @@ export class InputReader {
   // register a callback for /reset-health <N|name> — clear session health state
   onResetHealth(handler: ResetHealthHandler): void {
     this.resetHealthHandler = handler;
+  }
+
+  // register a callback for /timeline <N|name> [count]
+  onTimeline(handler: TimelineHandler): void {
+    this.timelineHandler = handler;
+  }
+
+  // register a callback for /color <N|name> [colorname]
+  onColor(handler: ColorHandler): void {
+    this.colorHandler = handler;
   }
 
   /** Set aliases from persisted prefs. */
@@ -660,6 +674,8 @@ ${BOLD}navigation:${RESET}
   /tag-filter [tag]  show only sessions with given freeform tag (no arg = clear)
   /find <text>       search session pane outputs for text
   /reset-health N    clear error counts + context history for a session
+  /timeline N [n]    show last n activity entries for session N (default 30)
+  /color N [color]   set accent color for session (lime/amber/rose/teal/sky/slate; no color = clear)
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -1121,6 +1137,42 @@ ${BOLD}other:${RESET}
           this.findHandler(findArg);
         } else {
           console.error(`${DIM}find not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/timeline": {
+        const tlArgs = line.slice("/timeline".length).trim().split(/\s+/);
+        const tlTarget = tlArgs[0] ?? "";
+        const tlCount = tlArgs[1] ? parseInt(tlArgs[1], 10) : 30;
+        if (!tlTarget) {
+          console.error(`${DIM}usage: /timeline <N|name> [count] — show last N activity entries for session${RESET}`);
+          break;
+        }
+        if (this.timelineHandler) {
+          this.timelineHandler(tlTarget, isNaN(tlCount) || tlCount < 1 ? 30 : Math.min(tlCount, 500));
+        } else {
+          console.error(`${DIM}timeline not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/color": {
+        const colorArgs = line.slice("/color".length).trim();
+        if (!colorArgs) {
+          console.error(`${DIM}usage: /color <N|name> [color] — set accent color (lime/amber/rose/teal/sky/slate; no color = clear)${RESET}`);
+          break;
+        }
+        if (this.colorHandler) {
+          const spaceIdx = colorArgs.indexOf(" ");
+          if (spaceIdx > 0) {
+            this.colorHandler(colorArgs.slice(0, spaceIdx), colorArgs.slice(spaceIdx + 1).trim().toLowerCase());
+          } else {
+            // no color = clear
+            this.colorHandler(colorArgs, "");
+          }
+        } else {
+          console.error(`${DIM}color not available (no TUI)${RESET}`);
         }
         break;
       }

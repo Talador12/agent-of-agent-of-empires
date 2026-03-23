@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.129.0
+## Version: v0.132.0
 
 ## Current Focus
 
-1887 tests across 35 files. v0.127–v0.129 shipped: `/tag-filter` session panel filter by freeform tag, `/find` searches session pane outputs, `/reset-health` clears error counts + context history.
+1922 tests across 35 files. v0.130–v0.132 shipped: `/timeline` per-session activity log view, `/color` per-session accent dot in cards, and config hot-diff with styled `⚙ config` tag.
 
 ## Roadmap
 
@@ -25,12 +25,22 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
 - **Reasoner confidence badge** — if reasoner returns a confidence signal, show in header
 - **Quiet hours** — configurable time windows where watchdog alerts are suppressed
-- **`/tag-filter`** — filter session panel to only sessions with a given freeform tag
-- **`/find <text>`** — find sessions whose output contains text (searches sessionOutputs)
-- **Session timeline view** — `/timeline <N|name>` shows last N activity entries for one session
-- **`/reset-health`** — clear error counts + context history to reset a session's health score
-- **Config hot-diff** — show what changed when config reloads (already detects, add TUI display)
-- **`/color <N> <color>`** — set a custom accent color for a session's card border
+- **`/clear-history`** — clear (or truncate) the persisted tui-history.jsonl file from TUI
+- **`/duplicate <N> <title>`** — spawn a new AoE session with the same tool/path as an existing one
+- **Error trend** — show whether error count is rising/stable/falling via ↑/→/↓ in `/stats` output
+- **`/color-all <color>`** — set same accent color for all sessions at once
+- **Per-session cost tracking** — parse `$N.NN spent` from pane output and show in `/stats`
+
+### What shipped in v0.130.0–v0.132.0
+
+**v0.130.0 — /timeline**: `filterSessionTimeline(buffer, sessionId, count)` pure fn filters activity buffer to entries for one session. `getSessionTimeline(sessionIdOrIndex, count)` on TUI. `/timeline <N|name> [n]` logs last n entries. `TIMELINE_DEFAULT_COUNT=30`.
+
+**v0.131.0 — /color**: Per-session accent dot `●` in card using named colors (lime/amber/rose/teal/sky/slate/indigo/cyan). `SESSION_COLOR_NAMES`, `validateColorName()`, `formatColorDot()`. `setSessionColor()`, `getSessionColor()`, `getAllSessionColors()`, `restoreSessionColors()` on TUI. Persisted in `tui-prefs.json`. Dot also shown in `repaintSessionCard`.
+
+**v0.132.0 — Config hot-diff**: Config-watcher callback now logs with tag `"config"` (was `"system"`). `formatActivity` switch handles `"config"` tag with TEAL `⚙ config` prefix. `FILTER_PRESETS.config = "config"` so `/filter config` shows only config change entries. 35 new tests total.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +35, net 1922 tests across 35 files.
 
 ### What shipped in v0.127.0–v0.129.0
 

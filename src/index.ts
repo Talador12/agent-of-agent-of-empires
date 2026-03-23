@@ -17,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
@@ -209,6 +209,7 @@ async function main() {
     if (prefs.sessionGroups) tui.restoreGroups(prefs.sessionGroups);
     if (prefs.sessionAliases) tui.restoreSessionAliases(prefs.sessionAliases);
     if (prefs.sessionTags) tui.restoreSessionTags(prefs.sessionTags);
+    if (prefs.sessionColors) tui.restoreSessionColors(prefs.sessionColors);
   }
   const persistPrefs = () => {
     if (!tui) return;
@@ -219,6 +220,8 @@ async function main() {
     for (const [id, name] of tui.getAllSessionAliases()) aliasesObj[id] = name;
     const sTagsObj: Record<string, string[]> = {};
     for (const [id, tset] of tui.getAllSessionTags()) sTagsObj[id] = [...tset];
+    const sColorsObj: Record<string, string> = {};
+    for (const [id, c] of tui.getAllSessionColors()) sColorsObj[id] = c;
     saveTuiPrefs({
       sortMode: tui.getSortMode(),
       compact: tui.isCompact(),
@@ -230,6 +233,7 @@ async function main() {
       sessionGroups: groupsObj,
       sessionAliases: aliasesObj,
       sessionTags: sTagsObj,
+      sessionColors: sColorsObj,
     });
   };
 
@@ -823,6 +827,41 @@ async function main() {
         tui!.log("system", `find: "${text}" found in ${found} session${found !== 1 ? "s" : ""}`);
       }
     });
+    // wire /timeline session activity
+    input.onTimeline((target, count) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const entries = tui!.getSessionTimeline(num ?? target, count);
+      if (entries === null) {
+        tui!.log("system", `session not found: ${target}`);
+        return;
+      }
+      const sessions = tui!.getSessions();
+      const session = num !== undefined ? sessions[num - 1] : sessions.find((s) => s.title.toLowerCase() === target.toLowerCase());
+      const label = session?.title ?? target;
+      if (entries.length === 0) {
+        tui!.log("system", `timeline: no activity for ${label}`);
+        return;
+      }
+      tui!.log("system", `timeline: ${label} — last ${entries.length} entr${entries.length !== 1 ? "ies" : "y"}:`);
+      for (const e of entries) {
+        tui!.log("system", `  ${e.time}  ${e.tag}  ${e.text}`);
+      }
+    });
+    // wire /color session accent
+    input.onColor((target, colorName) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      if (!colorName) {
+        const ok = tui!.setSessionColor(num ?? target, null);
+        if (ok) { tui!.log("system", `color cleared for ${target}`); persistPrefs(); }
+        else tui!.log("system", `session not found: ${target}`);
+        return;
+      }
+      const err = validateColorName(colorName);
+      if (err) { tui!.log("system", err); return; }
+      const ok = tui!.setSessionColor(num ?? target, colorName);
+      if (ok) { tui!.log("system", `color set for ${target}: ${colorName}`); persistPrefs(); }
+      else tui!.log("system", `session not found: ${target}`);
+    });
     // wire /reset-health
     input.onResetHealth((target) => {
       const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
@@ -1232,12 +1271,12 @@ async function main() {
     const applied = changes.filter((c) => c.applied);
     const needsRestart = changes.filter((c) => !c.applied);
     for (const c of applied) {
-      const msg = `config: ${formatConfigChange(c)}`;
-      if (tui) tui.log("system", msg); else log(msg);
+      const msg = `${formatConfigChange(c)}`;
+      if (tui) tui.log("config", msg); else log(`config: ${msg}`);
     }
     for (const c of needsRestart) {
-      const msg = `config: ${c.field} changed but requires restart`;
-      if (tui) tui.log("system", msg); else log(msg);
+      const msg = `${c.field} changed — restart required`;
+      if (tui) tui.log("config", msg); else log(`config: ${msg}`);
     }
   });
   if (watchedPath) {

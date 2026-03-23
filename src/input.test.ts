@@ -1449,3 +1449,52 @@ describe("onResetHealth", () => {
     assert.doesNotThrow(() => { reader["resetHealthHandler"]?.("x"); });
   });
 });
+
+describe("onTimeline", () => {
+  it("registers and calls timeline handler with target and count", () => {
+    const reader = new InputReader();
+    let tgt = "", cnt = 0;
+    reader.onTimeline((t, c) => { tgt = t; cnt = c; });
+    reader["timelineHandler"]!("alpha", 20);
+    assert.equal(tgt, "alpha");
+    assert.equal(cnt, 20);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["timelineHandler"]?.("x", 30); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onTimeline(() => { calls++; });
+    reader.onTimeline(() => { calls += 10; });
+    reader["timelineHandler"]!("x", 30);
+    assert.equal(calls, 10);
+  });
+});
+
+describe("onColor", () => {
+  it("registers and calls color handler", () => {
+    const reader = new InputReader();
+    let tgt = "", col = "";
+    reader.onColor((t, c) => { tgt = t; col = c; });
+    reader["colorHandler"]!("alpha", "lime");
+    assert.equal(tgt, "alpha");
+    assert.equal(col, "lime");
+  });
+
+  it("empty color means clear", () => {
+    const reader = new InputReader();
+    let col = "unset";
+    reader.onColor((_t, c) => { col = c; });
+    reader["colorHandler"]!("alpha", "");
+    assert.equal(col, "");
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["colorHandler"]?.("x", "lime"); });
+  });
+});

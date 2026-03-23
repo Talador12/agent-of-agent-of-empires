@@ -329,6 +329,7 @@ export const FILTER_PRESETS: Record<string, string> = {
   errors: "error|! action",
   actions: "+ action|! action",
   system: "system|status",
+  config: "config",
 };
 
 /** Resolve a filter string — expands preset names, returns raw tag otherwise. */
@@ -385,6 +386,54 @@ export function formatUptime(ms: number): string {
 export function formatIdleSince(ms: number, thresholdMs = 2 * 60_000): string {
   if (ms < 0 || ms < thresholdMs) return "";
   return `idle ${formatUptime(ms)}`;
+}
+
+// ── Session timeline (pure, exported for testing) ────────────────────────────
+
+/** Default number of entries shown by /timeline. */
+export const TIMELINE_DEFAULT_COUNT = 30;
+
+/**
+ * Filter the activity buffer to entries for a specific session, most-recent-last.
+ * Returns up to `count` entries.
+ */
+export function filterSessionTimeline(
+  buffer: readonly ActivityEntry[],
+  sessionId: string,
+  count = TIMELINE_DEFAULT_COUNT,
+): ActivityEntry[] {
+  const matching = buffer.filter((e) => e.sessionId === sessionId);
+  return matching.slice(-count);
+}
+
+// ── Session accent colors (pure, exported for testing) ────────────────────────
+
+/** Supported accent color names for /color command. */
+export const SESSION_COLOR_NAMES = ["lime", "amber", "rose", "teal", "sky", "slate", "indigo", "cyan"] as const;
+export type SessionColorName = typeof SESSION_COLOR_NAMES[number];
+
+const SESSION_COLOR_MAP: Record<SessionColorName, string> = {
+  lime:   LIME,
+  amber:  AMBER,
+  rose:   ROSE,
+  teal:   TEAL,
+  sky:    SKY,
+  slate:  SLATE,
+  indigo: INDIGO,
+  cyan:   CYAN,
+};
+
+/** Validate a color name. Returns null if valid, error string otherwise. */
+export function validateColorName(name: string): string | null {
+  if ((SESSION_COLOR_NAMES as readonly string[]).includes(name.toLowerCase())) return null;
+  return `unknown color "${name}" — valid: ${SESSION_COLOR_NAMES.join(", ")}`;
+}
+
+/** Format a session color dot prefix for use in cards. Returns empty string for unknown colors. */
+export function formatColorDot(colorName: string): string {
+  const color = SESSION_COLOR_MAP[colorName.toLowerCase() as SessionColorName];
+  if (!color) return "";
+  return `${color}${DOT.filled}${RESET} `;
 }
 
 // ── Suppressed tags (mute-errors style) ──────────────────────────────────────
@@ -536,7 +585,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
   "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy", "/stats", "/recall", "/pin-all-errors", "/export-stats",
-  "/mute-errors", "/prev-goal", "/tag", "/tags", "/tag-filter", "/find", "/reset-health",
+  "/mute-errors", "/prev-goal", "/tag", "/tags", "/tag-filter", "/find", "/reset-health", "/timeline", "/color",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -813,6 +862,7 @@ export interface TuiPrefs {
   sessionGroups?: Record<string, string>;
   sessionAliases?: Record<string, string>;
   sessionTags?: Record<string, string[]>;
+  sessionColors?: Record<string, string>;
 }
 
 const PREFS_PATH = join(homedir(), ".aoaoe", "tui-prefs.json");
@@ -876,6 +926,7 @@ export class TUI {
   private sessionGoalHistory = new Map<string, string[]>(); // session ID → last N goals (newest last)
   private sessionTags = new Map<string, Set<string>>(); // session ID → freeform tag set
   private tagFilter2: string | null = null; // active freeform tag filter on session panel
+  private sessionColors = new Map<string, string>(); // session ID → accent color name
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -1302,6 +1353,59 @@ export class TUI {
     for (const [id, arr] of Object.entries(tags)) {
       if (arr.length > 0) this.sessionTags.set(id, new Set(arr));
     }
+  }
+
+  // ── Session accent colors ────────────────────────────────────────────────
+
+  setSessionColor(sessionIdOrIndex: string | number, colorName: string | null): boolean {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return false;
+    if (!colorName) {
+      this.sessionColors.delete(sessionId);
+    } else {
+      this.sessionColors.set(sessionId, colorName.toLowerCase());
+    }
+    if (this.active) this.paintSessions();
+    return true;
+  }
+
+  getSessionColor(id: string): string | undefined {
+    return this.sessionColors.get(id);
+  }
+
+  getAllSessionColors(): ReadonlyMap<string, string> {
+    return this.sessionColors;
+  }
+
+  restoreSessionColors(colors: Record<string, string>): void {
+    this.sessionColors.clear();
+    for (const [id, c] of Object.entries(colors)) this.sessionColors.set(id, c);
+  }
+
+  // ── Session timeline ─────────────────────────────────────────────────────
+
+  getSessionTimeline(sessionIdOrIndex: string | number, count = TIMELINE_DEFAULT_COUNT): ActivityEntry[] | null {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return null;
+    return filterSessionTimeline(this.activityBuffer, sessionId, count);
   }
 
   /** Set or clear the freeform tag filter (filters session panel). */
@@ -2182,6 +2286,9 @@ export class TUI {
         const sTags = this.sessionTags.get(s.id);
         const tagsBadge = sTags && sTags.size > 0 ? `${formatSessionTagsBadge(sTags)} ` : "";
         const tagsBadgeWidth = sTags && sTags.size > 0 ? stripAnsiForLen(formatSessionTagsBadge(sTags)) + 1 : 0;
+        const colorName = this.sessionColors.get(s.id);
+        const colorDot = colorName ? formatColorDot(colorName) : "";
+        const colorDotWidth = colorName ? 2 : 0; // dot + space
         const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
         const muteBadgeWidth = muted ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 2 : 0; // "(N)" visible chars, 0 when count is 0
         const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0 ? muteBadgeWidth + 1 : 0; // +1 for trailing space
@@ -2191,9 +2298,9 @@ export class TUI {
         const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
         const groupBadge = group ? `${formatGroupBadge(group)} ` : "";
         const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
-        const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth;
+        const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth + colorDotWidth;
         const cardWidth = innerWidth - 1 - iconsWidth;
-        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined, displayName)}`;
+        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge}${colorDot}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined, displayName)}`;
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
@@ -2248,6 +2355,12 @@ export class TUI {
     });
     const healthBadge2 = formatHealthBadge(healthScore2);
     const displayName2 = this.sessionAliases.get(s.id);
+    const sTags2 = this.sessionTags.get(s.id);
+    const tagsBadge2 = sTags2 && sTags2.size > 0 ? `${formatSessionTagsBadge(sTags2)} ` : "";
+    const tagsBadgeWidth2 = sTags2 && sTags2.size > 0 ? stripAnsiForLen(formatSessionTagsBadge(sTags2)) + 1 : 0;
+    const colorName2 = this.sessionColors.get(s.id);
+    const colorDot2 = colorName2 ? formatColorDot(colorName2) : "";
+    const colorDotWidth2 = colorName2 ? 2 : 0;
     const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
     const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0
       ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 3 : 0; // "(N) " visible chars
@@ -2257,9 +2370,9 @@ export class TUI {
     const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
     const groupBadge = group ? `${formatGroupBadge(group)} ` : "";
     const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
-    const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth;
+    const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth2 + colorDotWidth2;
     const cardWidth = innerWidth - 1 - iconsWidth;
-    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge2 || undefined, displayName2)}`;
+    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge2}${colorDot2}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge2 || undefined, displayName2)}`;
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }
@@ -2442,6 +2555,7 @@ function formatActivity(entry: ActivityEntry, maxCols: number): string {
     case "you":         color = LIME; break;
     case "system":      color = SLATE; break;
     case "status":      color = SLATE; break;
+    case "config":      color = TEAL; prefix = "⚙ config"; break;
     default:            color = SLATE; break;
   }
 

@@ -24,6 +24,8 @@ import {
   computeHealthScore, formatHealthBadge, HEALTH_GOOD, HEALTH_WARN, HEALTH_ICON,
   isSuppressedEntry, MUTE_ERRORS_PATTERN,
   MAX_GOAL_HISTORY, validateSessionTag, formatSessionTagsBadge, MAX_SESSION_TAGS, MAX_SESSION_TAG_LEN,
+  filterSessionTimeline, TIMELINE_DEFAULT_COUNT,
+  validateColorName, formatColorDot, SESSION_COLOR_NAMES,
   truncateRename, MAX_RENAME_LEN,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
@@ -2296,6 +2298,11 @@ describe("FILTER_PRESETS", () => {
     assert.ok("actions" in FILTER_PRESETS);
     assert.ok("system" in FILTER_PRESETS);
   });
+
+  it("has config key", () => {
+    assert.ok("config" in FILTER_PRESETS);
+    assert.equal(FILTER_PRESETS.config, "config");
+  });
 });
 
 // ── formatTagFilterIndicator ────────────────────────────────────────────────
@@ -4264,6 +4271,211 @@ describe("TUI getSessionOutput", () => {
   it("getDrilldownId returns null before entering drilldown", () => {
     const tui = new TUI();
     assert.equal(tui.getDrilldownId(), null);
+  });
+});
+
+// ── filterSessionTimeline ────────────────────────────────────────────────
+
+describe("filterSessionTimeline", () => {
+  const makeEntry = (tag: string, text: string, sessionId?: string): ActivityEntry =>
+    ({ time: "12:00", tag, text, sessionId });
+
+  it("returns empty for empty buffer", () => {
+    assert.deepEqual(filterSessionTimeline([], "s1"), []);
+  });
+
+  it("returns only entries matching sessionId", () => {
+    const buf = [
+      makeEntry("system", "a", "s1"),
+      makeEntry("system", "b", "s2"),
+      makeEntry("system", "c", "s1"),
+    ];
+    const result = filterSessionTimeline(buf, "s1");
+    assert.equal(result.length, 2);
+    assert.ok(result.every((e) => e.sessionId === "s1"));
+  });
+
+  it("returns empty when no entries for session", () => {
+    const buf = [makeEntry("system", "x", "s2")];
+    assert.equal(filterSessionTimeline(buf, "s1").length, 0);
+  });
+
+  it("caps at count", () => {
+    const buf = Array.from({ length: 50 }, (_, i) => makeEntry("system", `msg${i}`, "s1"));
+    const result = filterSessionTimeline(buf, "s1", 10);
+    assert.equal(result.length, 10);
+  });
+
+  it("returns most recent entries (last N)", () => {
+    const buf = [
+      makeEntry("system", "old", "s1"),
+      makeEntry("system", "new", "s1"),
+    ];
+    const result = filterSessionTimeline(buf, "s1", 1);
+    assert.equal(result[0].text, "new");
+  });
+
+  it("excludes entries without matching sessionId", () => {
+    const buf = [makeEntry("system", "no-session"), makeEntry("system", "s1-entry", "s1")];
+    const result = filterSessionTimeline(buf, "s1");
+    assert.equal(result.length, 1);
+  });
+});
+
+// ── TIMELINE_DEFAULT_COUNT ────────────────────────────────────────────────
+
+describe("TIMELINE_DEFAULT_COUNT", () => {
+  it("is 30", () => {
+    assert.equal(TIMELINE_DEFAULT_COUNT, 30);
+  });
+});
+
+// ── TUI getSessionTimeline ────────────────────────────────────────────────
+
+describe("TUI getSessionTimeline", () => {
+  it("returns null for unknown session", () => {
+    const tui = new TUI();
+    assert.equal(tui.getSessionTimeline("zzz"), null);
+  });
+
+  it("returns entries for known session by index", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "s1", title: "Alpha", status: "working" as const, tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    tui.log("system", "hello", "s1");
+    const result = tui.getSessionTimeline(1);
+    assert.ok(result !== null && result.length >= 1);
+  });
+
+  it("returns entries for known session by name", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "s1", title: "Alpha", status: "idle" as const, tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    tui.log("system", "world", "s1");
+    const result = tui.getSessionTimeline("alpha");
+    assert.ok(result !== null && result.length >= 1);
+  });
+});
+
+// ── validateColorName ─────────────────────────────────────────────────────
+
+describe("validateColorName", () => {
+  it("accepts all valid color names", () => {
+    for (const c of SESSION_COLOR_NAMES) {
+      assert.equal(validateColorName(c), null, `expected ${c} to be valid`);
+    }
+  });
+
+  it("is case-insensitive", () => {
+    assert.equal(validateColorName("LIME"), null);
+    assert.equal(validateColorName("Amber"), null);
+  });
+
+  it("rejects unknown color", () => {
+    assert.ok(validateColorName("purple") !== null);
+  });
+
+  it("rejects empty string", () => {
+    assert.ok(validateColorName("") !== null);
+  });
+});
+
+// ── formatColorDot ────────────────────────────────────────────────────────
+
+describe("formatColorDot", () => {
+  it("returns non-empty for valid color", () => {
+    assert.ok(formatColorDot("lime").length > 0);
+  });
+
+  it("includes ANSI codes", () => {
+    assert.ok(formatColorDot("rose").includes("\x1b["));
+  });
+
+  it("returns empty for unknown color", () => {
+    assert.equal(formatColorDot("purple"), "");
+  });
+
+  it("ends with space", () => {
+    const dot = stripAnsi(formatColorDot("teal"));
+    assert.ok(dot.endsWith(" "));
+  });
+});
+
+// ── SESSION_COLOR_NAMES ───────────────────────────────────────────────────
+
+describe("SESSION_COLOR_NAMES", () => {
+  it("contains lime, amber, rose, teal, sky, slate", () => {
+    const set = new Set(SESSION_COLOR_NAMES);
+    assert.ok(set.has("lime"));
+    assert.ok(set.has("amber"));
+    assert.ok(set.has("rose"));
+    assert.ok(set.has("teal"));
+    assert.ok(set.has("sky"));
+    assert.ok(set.has("slate"));
+  });
+
+  it("has at least 6 colors", () => {
+    assert.ok(SESSION_COLOR_NAMES.length >= 6);
+  });
+});
+
+// ── TUI session accent colors ─────────────────────────────────────────────
+
+describe("TUI session accent colors", () => {
+  const sess = { id: "c1", title: "Alpha", status: "idle" as const, tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined };
+
+  it("starts with no colors", () => {
+    const tui = new TUI();
+    assert.equal(tui.getAllSessionColors().size, 0);
+  });
+
+  it("setSessionColor by index sets color", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    const ok = tui.setSessionColor(1, "lime");
+    assert.equal(ok, true);
+    assert.equal(tui.getSessionColor("c1"), "lime");
+  });
+
+  it("setSessionColor by name sets color", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.setSessionColor("alpha", "rose");
+    assert.equal(tui.getSessionColor("c1"), "rose");
+  });
+
+  it("setSessionColor null clears color", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.setSessionColor(1, "lime");
+    tui.setSessionColor(1, null);
+    assert.equal(tui.getSessionColor("c1"), undefined);
+  });
+
+  it("setSessionColor returns false for unknown session", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    assert.equal(tui.setSessionColor("zzz", "lime"), false);
+  });
+
+  it("restoreSessionColors bulk-sets colors", () => {
+    const tui = new TUI();
+    tui.restoreSessionColors({ "c1": "teal", "c2": "sky" });
+    assert.equal(tui.getSessionColor("c1"), "teal");
+    assert.equal(tui.getSessionColor("c2"), "sky");
+  });
+
+  it("getAllSessionColors returns all", () => {
+    const tui = new TUI();
+    tui.restoreSessionColors({ "x": "lime", "y": "amber" });
+    assert.equal(tui.getAllSessionColors().size, 2);
+  });
+
+  it("is safe when TUI not active", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    assert.doesNotThrow(() => {
+      tui.setSessionColor(1, "sky");
+      tui.setSessionColor(1, null);
+    });
   });
 });
 
