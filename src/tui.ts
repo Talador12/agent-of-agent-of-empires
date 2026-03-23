@@ -387,6 +387,50 @@ export function formatIdleSince(ms: number, thresholdMs = 2 * 60_000): string {
   return `idle ${formatUptime(ms)}`;
 }
 
+// ── Suppressed tags (mute-errors style) ──────────────────────────────────────
+
+/**
+ * Check if an activity entry's tag matches any tag in the suppressed set.
+ * Handles pipe-separated patterns (same logic as matchesTagFilter).
+ */
+export function isSuppressedEntry(entry: ActivityEntry, suppressedTags: ReadonlySet<string>): boolean {
+  if (suppressedTags.size === 0) return false;
+  for (const pattern of suppressedTags) {
+    if (matchesTagFilter(entry, pattern)) return true;
+  }
+  return false;
+}
+
+/** Default error-suppression pattern matching "! action" and "error" tags. */
+export const MUTE_ERRORS_PATTERN = "error|! action";
+
+// ── Per-session goal history ──────────────────────────────────────────────────
+
+/** Max previous goals stored per session. */
+export const MAX_GOAL_HISTORY = 5;
+
+// ── Session multi-tags ────────────────────────────────────────────────────────
+
+/** Max tags per session. */
+export const MAX_SESSION_TAGS = 10;
+/** Max length of a single session tag. */
+export const MAX_SESSION_TAG_LEN = 20;
+
+/** Validate a session tag name. Returns null if valid, error string if not. */
+export function validateSessionTag(tag: string): string | null {
+  if (!tag || tag.trim().length === 0) return "tag cannot be empty";
+  const t = tag.trim();
+  if (t.length > MAX_SESSION_TAG_LEN) return `tag too long (max ${MAX_SESSION_TAG_LEN})`;
+  if (!/^[a-z0-9_-]+$/i.test(t)) return "tag must be alphanumeric (a-z, 0-9, - _)";
+  return null;
+}
+
+/** Format a session tags badge for display in cards. Returns empty string if no tags. */
+export function formatSessionTagsBadge(tags: ReadonlySet<string>): string {
+  if (tags.size === 0) return "";
+  return `${DIM}[${[...tags].sort().join(",")}]${RESET}`;
+}
+
 // ── Session stats ─────────────────────────────────────────────────────────────
 
 export interface SessionStatEntry {
@@ -492,6 +536,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
   "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy", "/stats", "/recall", "/pin-all-errors", "/export-stats",
+  "/mute-errors", "/prev-goal", "/tag", "/tags",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -767,6 +812,7 @@ export interface TuiPrefs {
   aliases?: Record<string, string>;
   sessionGroups?: Record<string, string>;
   sessionAliases?: Record<string, string>;
+  sessionTags?: Record<string, string[]>;
 }
 
 const PREFS_PATH = join(homedir(), ".aoaoe", "tui-prefs.json");
@@ -826,6 +872,9 @@ export class TUI {
   private sessionAliases = new Map<string, string>(); // session ID → custom display name
   private watchdogThresholdMs: number | null = null; // null = disabled; ms of inactivity before alert
   private watchdogAlerted = new Map<string, number>(); // session ID → epoch ms of last watchdog alert
+  private suppressedTags = new Set<string>();        // activity tags excluded from display (/mute-errors)
+  private sessionGoalHistory = new Map<string, string[]>(); // session ID → last N goals (newest last)
+  private sessionTags = new Map<string, Set<string>>(); // session ID → freeform tag set
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -1147,6 +1196,107 @@ export class TUI {
   /** Return the activity buffer (for /clip export). */
   getActivityBuffer(): readonly ActivityEntry[] {
     return this.activityBuffer;
+  }
+
+  // ── Suppressed tags ─────────────────────────────────────────────────────
+
+  /** Toggle suppression of error-tagged entries ("! action" and "error"). */
+  toggleMuteErrors(): boolean {
+    if (this.suppressedTags.has(MUTE_ERRORS_PATTERN)) {
+      this.suppressedTags.delete(MUTE_ERRORS_PATTERN);
+      if (this.active) this.repaintActivityRegion();
+      return false; // now unmuted
+    }
+    this.suppressedTags.add(MUTE_ERRORS_PATTERN);
+    if (this.active) this.repaintActivityRegion();
+    return true; // now muted
+  }
+
+  /** Return whether error tags are currently suppressed. */
+  isErrorsMuted(): boolean {
+    return this.suppressedTags.has(MUTE_ERRORS_PATTERN);
+  }
+
+  /** Return the full suppressed-tags set (readonly). */
+  getSuppressedTags(): ReadonlySet<string> {
+    return this.suppressedTags;
+  }
+
+  // ── Per-session goal history ─────────────────────────────────────────────
+
+  /** Record a goal for a session (push to front of history, cap at MAX_GOAL_HISTORY). */
+  pushGoalHistory(sessionId: string, goal: string): void {
+    if (!goal || !goal.trim()) return;
+    const hist = this.sessionGoalHistory.get(sessionId) ?? [];
+    // avoid duplicating the same consecutive goal
+    if (hist.length > 0 && hist[hist.length - 1] === goal.trim()) return;
+    hist.push(goal.trim());
+    if (hist.length > MAX_GOAL_HISTORY) hist.shift();
+    this.sessionGoalHistory.set(sessionId, hist);
+  }
+
+  /** Get goal history for a session (oldest first, most recent last). */
+  getGoalHistory(sessionId: string): readonly string[] {
+    return this.sessionGoalHistory.get(sessionId) ?? [];
+  }
+
+  /** Restore a previous goal (1 = most recent, 2 = two back, etc.). Returns the goal string or null. */
+  getPreviousGoal(sessionId: string, nBack = 1): string | null {
+    const hist = this.sessionGoalHistory.get(sessionId) ?? [];
+    const idx = hist.length - nBack;
+    return idx >= 0 ? hist[idx] : null;
+  }
+
+  // ── Session multi-tags ───────────────────────────────────────────────────
+
+  /**
+   * Set tags for a session (replaces existing). Pass empty array to clear.
+   * Returns true if session found.
+   */
+  setSessionTags(sessionIdOrIndex: string | number, tags: string[]): boolean {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return false;
+    if (tags.length === 0) {
+      this.sessionTags.delete(sessionId);
+    } else {
+      const tagSet = new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean));
+      this.sessionTags.set(sessionId, tagSet);
+    }
+    if (this.active) this.paintSessions();
+    return true;
+  }
+
+  /** Get tags for a session ID (empty set if none). */
+  getSessionTags(id: string): ReadonlySet<string> {
+    return this.sessionTags.get(id) ?? new Set();
+  }
+
+  /** Return all session tags (id → tag set). */
+  getAllSessionTags(): ReadonlyMap<string, ReadonlySet<string>> {
+    return this.sessionTags as ReadonlyMap<string, ReadonlySet<string>>;
+  }
+
+  /** Return sessions that have a given tag. */
+  getSessionsWithTag(tag: string): DaemonSessionState[] {
+    const lower = tag.toLowerCase();
+    return this.sessions.filter((s) => this.sessionTags.get(s.id)?.has(lower));
+  }
+
+  /** Restore session tags from persisted prefs. */
+  restoreSessionTags(tags: Record<string, string[]>): void {
+    this.sessionTags.clear();
+    for (const [id, arr] of Object.entries(tags)) {
+      if (arr.length > 0) this.sessionTags.set(id, new Set(arr));
+    }
   }
 
   /** Return the activity timestamps (epoch ms per entry, parallel to activityBuffer). */
@@ -1538,6 +1688,8 @@ export class TUI {
       // muted entries are still buffered + persisted but hidden from display
       if (shouldMuteEntry(entry, this.mutedIds)) {
         // silently skip display — entry is in buffer for scroll-back if unmuted later
+      } else if (isSuppressedEntry(entry, this.suppressedTags)) {
+        // suppressed tag (e.g. /mute-errors) — silently buffered, hidden from display
       } else if (this.filterTag && !matchesTagFilter(entry, this.filterTag)) {
         // tag filter active: silently skip non-matching entries
       } else if (this.searchPattern) {
@@ -1575,19 +1727,23 @@ export class TUI {
     }
   }
 
+  /** Apply all active display filters to an entry array: mute, suppress, tag, search. */
+  private applyDisplayFilters(entries: ActivityEntry[]): ActivityEntry[] {
+    let out = entries;
+    if (this.mutedIds.size > 0) out = out.filter((e) => !shouldMuteEntry(e, this.mutedIds));
+    if (this.suppressedTags.size > 0) out = out.filter((e) => !isSuppressedEntry(e, this.suppressedTags));
+    if (this.filterTag) out = out.filter((e) => matchesTagFilter(e, this.filterTag!));
+    if (this.searchPattern) out = out.filter((e) => matchesSearch(e, this.searchPattern!));
+    return out;
+  }
+
   // ── Scroll navigation ────────────────────────────────────────────────────
 
   scrollUp(lines?: number): void {
     if (!this.active) return;
     const visibleLines = this.scrollBottom - this.scrollTop + 1;
     const n = lines ?? Math.max(1, Math.floor(visibleLines / 2));
-    let filtered = this.mutedIds.size > 0
-      ? this.activityBuffer.filter((e) => !shouldMuteEntry(e, this.mutedIds))
-      : this.activityBuffer;
-    if (this.filterTag) filtered = filtered.filter((e) => matchesTagFilter(e, this.filterTag!));
-    const entryCount = this.searchPattern
-      ? filtered.filter((e) => matchesSearch(e, this.searchPattern!)).length
-      : filtered.length;
+    const entryCount = this.applyDisplayFilters(this.activityBuffer).length;
     const maxOffset = Math.max(0, entryCount - visibleLines);
     this.scrollOffset = Math.min(maxOffset, this.scrollOffset + n);
     this.repaintActivityRegion();
@@ -1608,13 +1764,7 @@ export class TUI {
   scrollToTop(): void {
     if (!this.active) return;
     const visibleLines = this.scrollBottom - this.scrollTop + 1;
-    let filtered = this.mutedIds.size > 0
-      ? this.activityBuffer.filter((e) => !shouldMuteEntry(e, this.mutedIds))
-      : this.activityBuffer;
-    if (this.filterTag) filtered = filtered.filter((e) => matchesTagFilter(e, this.filterTag!));
-    const entryCount = this.searchPattern
-      ? filtered.filter((e) => matchesSearch(e, this.searchPattern!)).length
-      : filtered.length;
+    const entryCount = this.applyDisplayFilters(this.activityBuffer).length;
     this.scrollOffset = Math.max(0, entryCount - visibleLines);
     this.repaintActivityRegion();
     this.paintSeparator();
@@ -1983,6 +2133,9 @@ export class TUI {
         });
         const healthBadge = formatHealthBadge(healthScore);
         const displayName = this.sessionAliases.get(s.id);
+        const sTags = this.sessionTags.get(s.id);
+        const tagsBadge = sTags && sTags.size > 0 ? `${formatSessionTagsBadge(sTags)} ` : "";
+        const tagsBadgeWidth = sTags && sTags.size > 0 ? stripAnsiForLen(formatSessionTagsBadge(sTags)) + 1 : 0;
         const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
         const muteBadgeWidth = muted ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 2 : 0; // "(N)" visible chars, 0 when count is 0
         const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0 ? muteBadgeWidth + 1 : 0; // +1 for trailing space
@@ -1992,9 +2145,9 @@ export class TUI {
         const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
         const groupBadge = group ? `${formatGroupBadge(group)} ` : "";
         const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
-        const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth;
+        const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth;
         const cardWidth = innerWidth - 1 - iconsWidth;
-        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined, displayName)}`;
+        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined, displayName)}`;
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
@@ -2068,13 +2221,14 @@ export class TUI {
   private paintSeparator(): void {
     const prefix = `${BOX.h}${BOX.h} activity `;
     let hints: string;
+    // suppressed-errors indicator when active (shown before other filters)
+    const suppressedSuffix = this.suppressedTags.size > 0
+      ? `  ${DIM}${MUTE_ICON}errors${RESET}` : "";
     if (this.filterTag) {
       // tag filter takes precedence in the separator display
-      let source = this.mutedIds.size > 0
-        ? this.activityBuffer.filter((e) => !shouldMuteEntry(e, this.mutedIds))
-        : this.activityBuffer;
+      const source = this.applyDisplayFilters(this.activityBuffer.filter((e) => !isSuppressedEntry(e, this.suppressedTags)));
       const matchCount = source.filter((e) => matchesTagFilter(e, this.filterTag!)).length;
-      hints = formatTagFilterIndicator(this.filterTag, matchCount, source.length);
+      hints = formatTagFilterIndicator(this.filterTag, matchCount, source.length) + suppressedSuffix;
     } else if (this.searchPattern) {
       const filtered = this.activityBuffer.filter((e) => matchesSearch(e, this.searchPattern!));
       hints = formatSearchIndicator(this.searchPattern, filtered.length, this.activityBuffer.length);
@@ -2109,14 +2263,8 @@ export class TUI {
 
   private repaintActivityRegion(): void {
     const visibleLines = this.scrollBottom - this.scrollTop + 1;
-    // filter pipeline: muted → tag → search
-    let source = this.mutedIds.size > 0
-      ? this.activityBuffer.filter((e) => !shouldMuteEntry(e, this.mutedIds))
-      : this.activityBuffer;
-    if (this.filterTag) source = source.filter((e) => matchesTagFilter(e, this.filterTag!));
-    if (this.searchPattern) {
-      source = source.filter((e) => matchesSearch(e, this.searchPattern!));
-    }
+    // filter pipeline: muted → suppressed → tag → search
+    const source = this.applyDisplayFilters(this.activityBuffer);
     const { start, end } = computeScrollSlice(source.length, visibleLines, this.scrollOffset);
     const entries = source.slice(start, end);
     for (let i = 0; i < visibleLines; i++) {

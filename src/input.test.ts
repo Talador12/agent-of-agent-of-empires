@@ -1334,3 +1334,65 @@ describe("onRecall", () => {
     assert.equal(calls, 10);
   });
 });
+
+describe("onMuteErrors", () => {
+  it("registers and calls mute-errors handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onMuteErrors(() => { called = true; });
+    reader["muteErrorsHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["muteErrorsHandler"]?.(); });
+  });
+});
+
+describe("onPrevGoal", () => {
+  it("registers and calls handler with target and nBack", () => {
+    const reader = new InputReader();
+    let tgt = "", nb = 0;
+    reader.onPrevGoal((t, n) => { tgt = t; nb = n; });
+    reader["prevGoalHandler"]!("alpha", 2);
+    assert.equal(tgt, "alpha");
+    assert.equal(nb, 2);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["prevGoalHandler"]?.("x", 1); });
+  });
+});
+
+describe("onTag", () => {
+  it("registers and calls tag handler", () => {
+    const reader = new InputReader();
+    let tgt = "", tgs: string[] = [];
+    reader.onTag((t, ts) => { tgt = t; tgs = ts; });
+    reader["tagHandler"]!("alpha", ["frontend", "prod"]);
+    assert.equal(tgt, "alpha");
+    assert.deepEqual(tgs, ["frontend", "prod"]);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["tagHandler"]?.("x", []); });
+  });
+});
+
+describe("onTagsList", () => {
+  it("registers and calls tags-list handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onTagsList(() => { called = true; });
+    reader["tagsListHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["tagsListHandler"]?.(); });
+  });
+});

@@ -52,6 +52,10 @@ export type StatsHandler = () => void; // show per-session stats summary
 export type RecallHandler = (keyword: string, maxResults: number) => void; // search history
 export type PinAllErrorsHandler = () => void; // pin all sessions currently in error
 export type ExportStatsHandler = () => void; // export /stats to JSON file
+export type MuteErrorsHandler = () => void; // toggle suppression of error-tagged entries
+export type PrevGoalHandler = (target: string, nBack: number) => void; // restore previous goal
+export type TagHandler = (target: string, tags: string[]) => void; // set session tags (empty = clear)
+export type TagsListHandler = () => void; // list all session tags
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -130,6 +134,10 @@ export class InputReader {
   private recallHandler: RecallHandler | null = null;
   private pinAllErrorsHandler: PinAllErrorsHandler | null = null;
   private exportStatsHandler: ExportStatsHandler | null = null;
+  private muteErrorsHandler: MuteErrorsHandler | null = null;
+  private prevGoalHandler: PrevGoalHandler | null = null;
+  private tagHandler: TagHandler | null = null;
+  private tagsListHandler: TagsListHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -338,6 +346,26 @@ export class InputReader {
     this.exportStatsHandler = handler;
   }
 
+  // register a callback for /mute-errors — toggle error-tag suppression
+  onMuteErrors(handler: MuteErrorsHandler): void {
+    this.muteErrorsHandler = handler;
+  }
+
+  // register a callback for /prev-goal <N|name> [nBack] — restore previous goal
+  onPrevGoal(handler: PrevGoalHandler): void {
+    this.prevGoalHandler = handler;
+  }
+
+  // register a callback for /tag <N|name> [tag1,tag2] — set session tags
+  onTag(handler: TagHandler): void {
+    this.tagHandler = handler;
+  }
+
+  // register a callback for /tags — list all session tags
+  onTagsList(handler: TagsListHandler): void {
+    this.tagsListHandler = handler;
+  }
+
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
     this.aliases.clear();
@@ -495,7 +523,13 @@ export class InputReader {
       return;
     }
 
-    // quick-switch: bare digit 1-9 jumps to that session
+    // quick-switch: bare digit 1-9, or g+N for sessions 1-99
+    const gSwitch = line.match(/^g([1-9]\d?)$/);
+    if (gSwitch && this.quickSwitchHandler) {
+      this.quickSwitchHandler(parseInt(gSwitch[1], 10));
+      this.rl?.prompt();
+      return;
+    }
     if (/^[1-9]$/.test(line) && this.quickSwitchHandler) {
       this.quickSwitchHandler(parseInt(line, 10));
       this.rl?.prompt();
@@ -567,6 +601,7 @@ ${BOLD}controls:${RESET}
 
 ${BOLD}navigation:${RESET}
   1-9                quick-switch: jump to session N (type digit + Enter)
+  g1-g99             quick-switch for sessions 10+ (e.g. g12 jumps to session 12)
   /view [N|name]     drill into a session's live output (default: 1)
   /back              return to overview from drill-down
   /sort [mode]       sort sessions: status, name, activity, default (or cycle)
@@ -597,6 +632,10 @@ ${BOLD}navigation:${RESET}
   /recall <keyword>  search persisted activity history (last 7 days) for keyword
   /pin-all-errors    pin every session currently in error status
   /export-stats      export /stats output as JSON to ~/.aoaoe/stats-<ts>.json
+  /mute-errors       toggle suppression of error/! action entries in activity log
+  /prev-goal N [n]   restore Nth session's goal from history (n=1 most recent)
+  /tag N tag1,tag2   set freeform tags on a session (no tags = clear)
+  /tags              list all session tags
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -982,6 +1021,61 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/mute-errors":
+        if (this.muteErrorsHandler) {
+          this.muteErrorsHandler();
+        } else {
+          console.error(`${DIM}mute-errors not available (no TUI)${RESET}`);
+        }
+        break;
+
+      case "/prev-goal": {
+        const pgArgs = line.slice("/prev-goal".length).trim().split(/\s+/);
+        const pgTarget = pgArgs[0] ?? "";
+        const pgN = pgArgs[1] ? parseInt(pgArgs[1], 10) : 1;
+        if (!pgTarget) {
+          console.error(`${DIM}usage: /prev-goal <N|name> [n] — restore nth most-recent goal (default 1)${RESET}`);
+          break;
+        }
+        if (this.prevGoalHandler) {
+          this.prevGoalHandler(pgTarget, isNaN(pgN) || pgN < 1 ? 1 : pgN);
+        } else {
+          console.error(`${DIM}prev-goal not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/tag": {
+        const tagArgs = line.slice("/tag".length).trim();
+        if (!tagArgs) {
+          console.error(`${DIM}usage: /tag <N|name> [tag1,tag2,...] — set tags (no tags = clear)${RESET}`);
+          break;
+        }
+        if (this.tagHandler) {
+          const spaceIdx = tagArgs.indexOf(" ");
+          if (spaceIdx > 0) {
+            const target = tagArgs.slice(0, spaceIdx);
+            const rawTags = tagArgs.slice(spaceIdx + 1).trim();
+            const tags = rawTags ? rawTags.split(",").map((t) => t.trim()).filter(Boolean) : [];
+            this.tagHandler(target, tags);
+          } else {
+            // target only — clear tags
+            this.tagHandler(tagArgs, []);
+          }
+        } else {
+          console.error(`${DIM}tag not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/tags":
+        if (this.tagsListHandler) {
+          this.tagsListHandler();
+        } else {
+          console.error(`${DIM}tags not available (no TUI)${RESET}`);
+        }
+        break;
 
       case "/pin-all-errors":
         if (this.pinAllErrorsHandler) {

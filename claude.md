@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.122.0
+## Version: v0.126.0
 
 ## Current Focus
 
-1815 tests across 35 files. v0.120–v0.122 shipped: `/pin-all-errors`, `/export-stats` to JSON, and activity rate badge `3/m` in compact tokens.
+1868 tests across 35 files. v0.123–v0.126 shipped: `/mute-errors` toggle, per-session goal history + `/prev-goal`, `g1-g99` multi-key quick-switch, and `/tag`+`/tags` freeform session tagging.
 
 ## Roadmap
 
@@ -23,15 +23,27 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Task intake UX** — guided `/task new` flow in TUI (prompt for repo/mode/goal)
 - **Natural language task intent** — infer task updates from plain lines like "task for adventure: ..."
 - **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
-- **Session tagging** — arbitrary freeform tags (multi-tag, vs single group per session)
-- **Activity rate badge** — show messages/min rolling rate in compact mode tokens
-- **Multi-key quick-switch** — extend quick-switch from 1-9 to 1-99 via two-digit prefix
-- **`/pin-all-errors`** — pin every session currently in error state at once
-- **Per-session goal history** — track previous goals and allow `/prev-goal` to restore
-- **`/export-stats`** — write `/stats` output as JSON to `~/.aoaoe/stats-<ts>.json`
 - **Reasoner confidence badge** — if reasoner returns a confidence signal, show in header
-- **`/mute-errors`** — mute all "! action" entries across all sessions at once
 - **Quiet hours** — configurable time windows where watchdog alerts are suppressed
+- **`/tag-filter`** — filter session panel to only sessions with a given freeform tag
+- **`/find <text>`** — find sessions whose output contains text (searches sessionOutputs)
+- **Session timeline view** — `/timeline <N|name>` shows last N activity entries for one session
+- **`/reset-health`** — clear error counts + context history to reset a session's health score
+- **Config hot-diff** — show what changed when config reloads (already detects, add TUI display)
+- **`/color <N> <color>`** — set a custom accent color for a session's card border
+
+### What shipped in v0.123.0–v0.126.0
+
+**v0.123.0 — /mute-errors**: `toggleMuteErrors()` on TUI adds `MUTE_ERRORS_PATTERN` to `suppressedTags` set. `isSuppressedEntry()` pure function filters matching entries from display (buffered, not deleted). `applyDisplayFilters()` private helper consolidates mute+suppress+tag+search into one chain. Separator shows `◌errors` indicator when active.
+
+**v0.124.0 — Per-session goal history**: `pushGoalHistory(id, goal)` records up to 5 goals per session. `getGoalHistory(id)`, `getPreviousGoal(id, nBack)`. `/prev-goal <N|name> [n]` restores nth-most-recent goal by injecting a task update. Goal deduplication (consecutive same goal) and whitespace trimming.
+
+**v0.125.0 — Multi-key quick-switch**: `g<N>` (e.g. `g12`, `g99`) in `handleLine()` calls `quickSwitchHandler` for sessions 1–99. Parsed before the existing 1-9 handler. `/help` updated with `g1-g99` docs.
+
+**v0.126.0 — /tag + /tags**: `setSessionTags(id, tags[])` replaces session's tag set. `getSessionTags()`, `getAllSessionTags()`, `getSessionsWithTag()`, `restoreSessionTags()`. `validateSessionTag()` enforces alphanumeric rules. `formatSessionTagsBadge()` renders `[tag1,tag2]` DIM in cards. Persisted in `~/.aoaoe/tui-prefs.json` as `sessionTags`. 53 new tests total.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +53, net 1868 tests across 35 files.
 
 ### What shipped in v0.120.0–v0.122.0
 

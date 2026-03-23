@@ -17,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
@@ -208,14 +208,17 @@ async function main() {
     if (prefs.tagFilter) tui.setTagFilter(prefs.tagFilter);
     if (prefs.sessionGroups) tui.restoreGroups(prefs.sessionGroups);
     if (prefs.sessionAliases) tui.restoreSessionAliases(prefs.sessionAliases);
+    if (prefs.sessionTags) tui.restoreSessionTags(prefs.sessionTags);
   }
   const persistPrefs = () => {
     if (!tui) return;
-    // persist session groups (ID → group tag) and session aliases (ID → display name)
+    // persist session groups, aliases, and multi-tags
     const groupsObj: Record<string, string> = {};
     for (const [id, g] of tui.getAllGroups()) groupsObj[id] = g;
     const aliasesObj: Record<string, string> = {};
     for (const [id, name] of tui.getAllSessionAliases()) aliasesObj[id] = name;
+    const sTagsObj: Record<string, string[]> = {};
+    for (const [id, tset] of tui.getAllSessionTags()) sTagsObj[id] = [...tset];
     saveTuiPrefs({
       sortMode: tui.getSortMode(),
       compact: tui.isCompact(),
@@ -226,6 +229,7 @@ async function main() {
       aliases: input.getAliases(),
       sessionGroups: groupsObj,
       sessionAliases: aliasesObj,
+      sessionTags: sTagsObj,
     });
   };
 
@@ -723,6 +727,64 @@ async function main() {
         }
       }
       if (!any) tui!.log("system", `  threshold: ${CONTEXT_BURN_THRESHOLD.toLocaleString()} tokens/min`);
+    });
+    // wire /mute-errors toggle
+    input.onMuteErrors(() => {
+      const muted = tui!.toggleMuteErrors();
+      tui!.log("system", `mute-errors: ${muted ? "on — error entries hidden from activity log" : "off — all entries visible"}`);
+    });
+    // wire /prev-goal
+    input.onPrevGoal((target, nBack) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const sessions = tui!.getSessions();
+      const session = num !== undefined
+        ? sessions[num - 1]
+        : sessions.find((s) => s.title.toLowerCase() === target.toLowerCase() || s.id.startsWith(target));
+      if (!session) {
+        tui!.log("system", `session not found: ${target}`);
+        return;
+      }
+      const goal = tui!.getPreviousGoal(session.id, nBack);
+      if (!goal) {
+        tui!.log("system", `no goal history for ${session.title} (${nBack} back)`);
+        return;
+      }
+      // queue as a task update for that session
+      input.inject(`__CMD_QUICKTASK__${goal}`);
+      tui!.log("system", `prev-goal restored for ${session.title}: "${goal}"`);
+    });
+    // wire /tag set session tags
+    input.onTag((target, tags) => {
+      for (const t of tags) {
+        const err = validateSessionTag(t);
+        if (err) { tui!.log("system", `invalid tag "${t}": ${err}`); return; }
+      }
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const ok = tui!.setSessionTags(num ?? target, tags);
+      if (ok) {
+        if (tags.length > 0) {
+          tui!.log("system", `tags set for ${target}: ${tags.join(", ")}`);
+        } else {
+          tui!.log("system", `tags cleared for ${target}`);
+        }
+        persistPrefs();
+      } else {
+        tui!.log("system", `session not found: ${target}`);
+      }
+    });
+    // wire /tags list
+    input.onTagsList(() => {
+      const allTags = tui!.getAllSessionTags();
+      if (allTags.size === 0) {
+        tui!.log("system", "no tags — use /tag <N|name> <tag1,tag2> to assign");
+        return;
+      }
+      const sessions = tui!.getSessions();
+      for (const [id, tset] of allTags) {
+        const s = sessions.find((s) => s.id === id);
+        const label = s?.title ?? id.slice(0, 8);
+        tui!.log("system", `  ${label}: ${[...tset].sort().join(", ")}`);
+      }
     });
     // wire /pin-all-errors
     input.onPinAllErrors(() => {

@@ -22,6 +22,8 @@ import {
   CONTEXT_BURN_THRESHOLD, CONTEXT_BURN_WINDOW_MS, MAX_CONTEXT_HISTORY,
   parseContextCeiling, formatContextCeilingAlert, CONTEXT_CEILING_THRESHOLD,
   computeHealthScore, formatHealthBadge, HEALTH_GOOD, HEALTH_WARN, HEALTH_ICON,
+  isSuppressedEntry, MUTE_ERRORS_PATTERN,
+  MAX_GOAL_HISTORY, validateSessionTag, formatSessionTagsBadge, MAX_SESSION_TAGS, MAX_SESSION_TAG_LEN,
   truncateRename, MAX_RENAME_LEN,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
@@ -4262,6 +4264,313 @@ describe("TUI getSessionOutput", () => {
   it("getDrilldownId returns null before entering drilldown", () => {
     const tui = new TUI();
     assert.equal(tui.getDrilldownId(), null);
+  });
+});
+
+// ── isSuppressedEntry ─────────────────────────────────────────────────────
+
+describe("isSuppressedEntry", () => {
+  const entry = (tag: string): ActivityEntry => ({ time: "12:00", tag, text: "msg" });
+
+  it("returns false for empty suppressed set", () => {
+    assert.equal(isSuppressedEntry(entry("error"), new Set()), false);
+  });
+
+  it("returns true when entry tag matches suppressed pattern", () => {
+    const suppressed = new Set([MUTE_ERRORS_PATTERN]);
+    assert.equal(isSuppressedEntry(entry("error"), suppressed), true);
+  });
+
+  it("returns true for pipe-separated pattern match", () => {
+    const suppressed = new Set([MUTE_ERRORS_PATTERN]);
+    assert.equal(isSuppressedEntry(entry("! action"), suppressed), true);
+  });
+
+  it("returns false for non-matching tag", () => {
+    const suppressed = new Set([MUTE_ERRORS_PATTERN]);
+    assert.equal(isSuppressedEntry(entry("system"), suppressed), false);
+  });
+
+  it("is case-insensitive", () => {
+    const suppressed = new Set(["error"]);
+    assert.equal(isSuppressedEntry(entry("ERROR"), suppressed), true);
+  });
+});
+
+// ── MUTE_ERRORS_PATTERN ───────────────────────────────────────────────────
+
+describe("MUTE_ERRORS_PATTERN", () => {
+  it("matches error tag", () => {
+    const entry = { time: "12:00", tag: "error", text: "x" };
+    assert.equal(isSuppressedEntry(entry, new Set([MUTE_ERRORS_PATTERN])), true);
+  });
+
+  it("matches ! action tag", () => {
+    const entry = { time: "12:00", tag: "! action", text: "x" };
+    assert.equal(isSuppressedEntry(entry, new Set([MUTE_ERRORS_PATTERN])), true);
+  });
+
+  it("does not match system tag", () => {
+    const entry = { time: "12:00", tag: "system", text: "x" };
+    assert.equal(isSuppressedEntry(entry, new Set([MUTE_ERRORS_PATTERN])), false);
+  });
+});
+
+// ── TUI toggleMuteErrors / isErrorsMuted ──────────────────────────────────
+
+describe("TUI toggleMuteErrors", () => {
+  it("starts with errors not muted", () => {
+    const tui = new TUI();
+    assert.equal(tui.isErrorsMuted(), false);
+  });
+
+  it("toggleMuteErrors mutes errors", () => {
+    const tui = new TUI();
+    const nowMuted = tui.toggleMuteErrors();
+    assert.equal(nowMuted, true);
+    assert.equal(tui.isErrorsMuted(), true);
+  });
+
+  it("toggleMuteErrors toggles off", () => {
+    const tui = new TUI();
+    tui.toggleMuteErrors();
+    const nowMuted = tui.toggleMuteErrors();
+    assert.equal(nowMuted, false);
+    assert.equal(tui.isErrorsMuted(), false);
+  });
+
+  it("getSuppressedTags reflects muted state", () => {
+    const tui = new TUI();
+    assert.equal(tui.getSuppressedTags().size, 0);
+    tui.toggleMuteErrors();
+    assert.equal(tui.getSuppressedTags().size, 1);
+  });
+
+  it("is safe when TUI not active", () => {
+    const tui = new TUI();
+    assert.doesNotThrow(() => { tui.toggleMuteErrors(); tui.toggleMuteErrors(); });
+  });
+});
+
+// ── TUI per-session goal history ──────────────────────────────────────────
+
+describe("TUI per-session goal history", () => {
+  it("starts with empty history", () => {
+    const tui = new TUI();
+    assert.deepEqual(tui.getGoalHistory("s1"), []);
+  });
+
+  it("pushGoalHistory records goal", () => {
+    const tui = new TUI();
+    tui.pushGoalHistory("s1", "build the thing");
+    assert.equal(tui.getGoalHistory("s1").length, 1);
+    assert.equal(tui.getGoalHistory("s1")[0], "build the thing");
+  });
+
+  it("pushGoalHistory appends multiple goals", () => {
+    const tui = new TUI();
+    tui.pushGoalHistory("s1", "goal 1");
+    tui.pushGoalHistory("s1", "goal 2");
+    const hist = tui.getGoalHistory("s1");
+    assert.equal(hist.length, 2);
+    assert.equal(hist[hist.length - 1], "goal 2");
+  });
+
+  it("caps at MAX_GOAL_HISTORY", () => {
+    const tui = new TUI();
+    for (let i = 0; i <= MAX_GOAL_HISTORY + 2; i++) {
+      tui.pushGoalHistory("s1", `goal ${i}`);
+    }
+    assert.ok(tui.getGoalHistory("s1").length <= MAX_GOAL_HISTORY);
+  });
+
+  it("does not duplicate consecutive same goal", () => {
+    const tui = new TUI();
+    tui.pushGoalHistory("s1", "same");
+    tui.pushGoalHistory("s1", "same");
+    assert.equal(tui.getGoalHistory("s1").length, 1);
+  });
+
+  it("ignores empty/whitespace goals", () => {
+    const tui = new TUI();
+    tui.pushGoalHistory("s1", "");
+    tui.pushGoalHistory("s1", "   ");
+    assert.equal(tui.getGoalHistory("s1").length, 0);
+  });
+
+  it("getPreviousGoal returns most recent (nBack=1)", () => {
+    const tui = new TUI();
+    tui.pushGoalHistory("s1", "old goal");
+    tui.pushGoalHistory("s1", "new goal");
+    assert.equal(tui.getPreviousGoal("s1", 1), "new goal");
+  });
+
+  it("getPreviousGoal returns older goal (nBack=2)", () => {
+    const tui = new TUI();
+    tui.pushGoalHistory("s1", "first");
+    tui.pushGoalHistory("s1", "second");
+    assert.equal(tui.getPreviousGoal("s1", 2), "first");
+  });
+
+  it("getPreviousGoal returns null when nBack exceeds history", () => {
+    const tui = new TUI();
+    tui.pushGoalHistory("s1", "only");
+    assert.equal(tui.getPreviousGoal("s1", 5), null);
+  });
+
+  it("history is per-session independent", () => {
+    const tui = new TUI();
+    tui.pushGoalHistory("s1", "alpha goal");
+    tui.pushGoalHistory("s2", "bravo goal");
+    assert.equal(tui.getPreviousGoal("s1", 1), "alpha goal");
+    assert.equal(tui.getPreviousGoal("s2", 1), "bravo goal");
+  });
+});
+
+// ── MAX_GOAL_HISTORY ──────────────────────────────────────────────────────
+
+describe("MAX_GOAL_HISTORY", () => {
+  it("is 5", () => {
+    assert.equal(MAX_GOAL_HISTORY, 5);
+  });
+});
+
+// ── validateSessionTag ────────────────────────────────────────────────────
+
+describe("validateSessionTag", () => {
+  it("accepts simple tag", () => {
+    assert.equal(validateSessionTag("frontend"), null);
+  });
+
+  it("accepts tag with dash", () => {
+    assert.equal(validateSessionTag("my-tag"), null);
+  });
+
+  it("accepts tag with underscore", () => {
+    assert.equal(validateSessionTag("my_tag"), null);
+  });
+
+  it("rejects empty tag", () => {
+    assert.ok(validateSessionTag("") !== null);
+  });
+
+  it("rejects too-long tag", () => {
+    assert.ok(validateSessionTag("a".repeat(MAX_SESSION_TAG_LEN + 1)) !== null);
+  });
+
+  it("accepts max-length tag", () => {
+    assert.equal(validateSessionTag("a".repeat(MAX_SESSION_TAG_LEN)), null);
+  });
+
+  it("rejects spaces", () => {
+    assert.ok(validateSessionTag("my tag") !== null);
+  });
+
+  it("rejects special chars", () => {
+    assert.ok(validateSessionTag("tag!") !== null);
+  });
+});
+
+// ── formatSessionTagsBadge ────────────────────────────────────────────────
+
+describe("formatSessionTagsBadge", () => {
+  it("returns empty for empty set", () => {
+    assert.equal(stripAnsi(formatSessionTagsBadge(new Set())), "");
+  });
+
+  it("includes tag names", () => {
+    const badge = stripAnsi(formatSessionTagsBadge(new Set(["frontend", "prod"])));
+    assert.ok(badge.includes("frontend"));
+    assert.ok(badge.includes("prod"));
+  });
+
+  it("sorts tags alphabetically", () => {
+    const badge = stripAnsi(formatSessionTagsBadge(new Set(["zzz", "aaa"])));
+    assert.ok(badge.indexOf("aaa") < badge.indexOf("zzz"));
+  });
+
+  it("is wrapped in brackets", () => {
+    const badge = stripAnsi(formatSessionTagsBadge(new Set(["x"])));
+    assert.ok(badge.includes("[") && badge.includes("]"));
+  });
+});
+
+// ── TUI session multi-tags ────────────────────────────────────────────────
+
+describe("TUI session multi-tags", () => {
+  function makeTagSessions(): DaemonSessionState[] {
+    return [
+      { id: "t1", title: "Alpha", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+      { id: "t2", title: "Bravo", status: "working", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    ];
+  }
+
+  it("starts with no tags", () => {
+    const tui = new TUI();
+    assert.equal(tui.getAllSessionTags().size, 0);
+  });
+
+  it("setSessionTags by index sets tags", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeTagSessions() });
+    const ok = tui.setSessionTags(1, ["frontend", "prod"]);
+    assert.equal(ok, true);
+    const tags = tui.getSessionTags("t1");
+    assert.ok(tags.has("frontend"));
+    assert.ok(tags.has("prod"));
+  });
+
+  it("setSessionTags by name sets tags", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeTagSessions() });
+    tui.setSessionTags("bravo", ["backend"]);
+    assert.ok(tui.getSessionTags("t2").has("backend"));
+  });
+
+  it("setSessionTags empty array clears tags", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeTagSessions() });
+    tui.setSessionTags(1, ["x"]);
+    tui.setSessionTags(1, []);
+    assert.equal(tui.getSessionTags("t1").size, 0);
+  });
+
+  it("setSessionTags returns false for unknown session", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeTagSessions() });
+    assert.equal(tui.setSessionTags("zzz", ["x"]), false);
+  });
+
+  it("getSessionsWithTag filters correctly", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeTagSessions() });
+    tui.setSessionTags(1, ["backend"]);
+    tui.setSessionTags(2, ["frontend"]);
+    const be = tui.getSessionsWithTag("backend");
+    assert.equal(be.length, 1);
+    assert.equal(be[0].title, "Alpha");
+  });
+
+  it("restoreSessionTags bulk-sets tags", () => {
+    const tui = new TUI();
+    tui.restoreSessionTags({ "t1": ["frontend"], "t2": ["backend"] });
+    assert.ok(tui.getSessionTags("t1").has("frontend"));
+    assert.ok(tui.getSessionTags("t2").has("backend"));
+  });
+
+  it("getAllSessionTags returns all", () => {
+    const tui = new TUI();
+    tui.restoreSessionTags({ "t1": ["a"], "t2": ["b"] });
+    assert.equal(tui.getAllSessionTags().size, 2);
+  });
+
+  it("is safe when TUI not active", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeTagSessions() });
+    assert.doesNotThrow(() => {
+      tui.setSessionTags(1, ["x"]);
+      tui.restoreSessionTags({ "t1": ["y"] });
+    });
   });
 });
 
