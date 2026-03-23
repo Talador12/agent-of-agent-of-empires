@@ -315,6 +315,60 @@ export function formatUptime(ms: number): string {
   return `${minutes}m`;
 }
 
+// ── Aliases ──────────────────────────────────────────────────────────────────
+
+/** Maximum number of user-defined aliases. */
+export const MAX_ALIASES = 50;
+
+/** All built-in slash commands that cannot be overridden by aliases. */
+export const BUILTIN_COMMANDS = new Set([
+  "/help", "/pause", "/resume", "/interrupt", "/status", "/dashboard",
+  "/explain", "/verbose", "/clear", "/view", "/back", "/sort", "/compact",
+  "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
+  "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
+  "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
+  "/group", "/groups", "/group-filter",
+]);
+
+/** Resolve a slash command through the alias map. Returns the expanded command or the original. */
+export function resolveAlias(line: string, aliases: ReadonlyMap<string, string>): string {
+  const [cmd] = line.split(/\s+/);
+  const target = aliases.get(cmd);
+  if (!target) return line;
+  return target + line.slice(cmd.length);
+}
+
+/** Validate an alias name. Returns an error message or null if valid. */
+export function validateAliasName(name: string): string | null {
+  if (!name.startsWith("/")) return "alias must start with /";
+  if (name.length < 2) return "alias name too short";
+  if (BUILTIN_COMMANDS.has(name)) return `${name} is a built-in command`;
+  if (!/^\/[a-z0-9-]+$/.test(name)) return "alias must be lowercase alphanumeric (a-z, 0-9, -)";
+  return null;
+}
+
+// ── Session grouping ─────────────────────────────────────────────────────────
+
+/** Group indicator icon shown in session cards. */
+export const GROUP_ICON = "⊹";
+
+/** Max visible length for a group name in a session card badge. */
+export const MAX_GROUP_NAME_LEN = 16;
+
+/** Validate a group name (alphanumeric, dash, underscore, 1-16 chars). */
+export function validateGroupName(name: string): string | null {
+  if (!name || name.trim().length === 0) return "group name cannot be empty";
+  const cleaned = name.trim();
+  if (cleaned.length > MAX_GROUP_NAME_LEN) return `group name too long (max ${MAX_GROUP_NAME_LEN})`;
+  if (!/^[a-z0-9_-]+$/i.test(cleaned)) return "group name must be alphanumeric (a-z, 0-9, - _)";
+  return null;
+}
+
+/** Format group badge for a session card — DIM colored with GROUP_ICON. */
+export function formatGroupBadge(group: string): string {
+  return `${DIM}${GROUP_ICON}${group}${RESET}`;
+}
+
 // ── Sticky prefs ─────────────────────────────────────────────────────────────
 
 export interface TuiPrefs {
@@ -324,6 +378,8 @@ export interface TuiPrefs {
   bell?: boolean;
   autoPin?: boolean;
   tagFilter?: string | null;
+  aliases?: Record<string, string>;
+  sessionGroups?: Record<string, string>;
 }
 
 const PREFS_PATH = join(homedir(), ".aoaoe", "tui-prefs.json");
@@ -374,6 +430,8 @@ export class TUI {
   private sessionFirstSeen = new Map<string, number>(); // session ID → epoch ms when first observed
   private autoPinOnError = false; // auto-pin sessions that emit errors
   private sessionErrorCounts = new Map<string, number>(); // session ID → cumulative error count
+  private sessionGroups = new Map<string, string>(); // session ID → group tag
+  private groupFilter: string | null = null; // active group filter (null = show all)
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -518,14 +576,17 @@ export class TUI {
     return this.focusMode;
   }
 
-  /** Return count of visible sessions (all in normal mode, pinned-only in focus mode). */
+  /** Return count of visible sessions (filtered by focus mode and group filter). */
   private getVisibleCount(): number {
-    if (!this.focusMode) return this.sessions.length;
-    let count = 0;
-    for (const s of this.sessions) {
-      if (this.pinnedIds.has(s.id)) count++;
-    }
-    return count;
+    return this.getVisibleSessions().length;
+  }
+
+  /** Return visible sessions array (focus mode + group filter applied). */
+  private getVisibleSessions(): DaemonSessionState[] {
+    let sessions = this.sessions;
+    if (this.focusMode) sessions = sessions.filter((s) => this.pinnedIds.has(s.id));
+    if (this.groupFilter) sessions = sessions.filter((s) => this.sessionGroups.get(s.id) === this.groupFilter);
+    return sessions;
   }
 
   /** Enable or disable terminal bell notifications. */
@@ -678,6 +739,63 @@ export class TUI {
   /** Return per-session error counts (for /who). */
   getSessionErrorCounts(): ReadonlyMap<string, number> {
     return this.sessionErrorCounts;
+  }
+
+  /**
+   * Set or clear a group on a session (by 1-indexed number, ID, ID prefix, or title).
+   * Returns true if session found. Pass empty/null group to clear.
+   */
+  setGroup(sessionIdOrIndex: string | number, group: string | null): boolean {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return false;
+    if (!group || group.trim() === "") {
+      this.sessionGroups.delete(sessionId);
+    } else {
+      this.sessionGroups.set(sessionId, group.trim().toLowerCase());
+    }
+    if (this.active) this.paintSessions();
+    return true;
+  }
+
+  /** Get the group tag for a session ID (or undefined if none). */
+  getGroup(id: string): string | undefined {
+    return this.sessionGroups.get(id);
+  }
+
+  /** Return all session groups (for /groups listing). */
+  getAllGroups(): ReadonlyMap<string, string> {
+    return this.sessionGroups;
+  }
+
+  /** Return count of sessions with a group assigned. */
+  getGroupCount(): number {
+    return this.sessionGroups.size;
+  }
+
+  /** Set session groups from persisted prefs (bulk restore). */
+  restoreGroups(groups: Record<string, string>): void {
+    this.sessionGroups.clear();
+    for (const [id, g] of Object.entries(groups)) this.sessionGroups.set(id, g);
+  }
+
+  /** Set or clear the group filter. Repaints sessions. */
+  setGroupFilter(group: string | null): void {
+    this.groupFilter = group && group.trim().length > 0 ? group.trim().toLowerCase() : null;
+    if (this.active) this.paintSessions();
+  }
+
+  /** Get the current group filter (or null if none). */
+  getGroupFilter(): string | null {
+    return this.groupFilter;
   }
 
   /**
@@ -1090,7 +1208,7 @@ export class TUI {
       this.scrollBottom = this.rows - 1;
     } else {
       // overview: header (1) + sessions box + separator + activity + input
-      const visibleSessions = this.sessions.slice(0, this.getVisibleCount());
+      const visibleSessions = this.getVisibleSessions();
       const sessBodyRows = this.compactMode
         ? computeCompactRowCount(visibleSessions, this.cols - 2)
         : Math.max(sessionCount, 1);
@@ -1164,24 +1282,30 @@ export class TUI {
   private paintSessions(): void {
     const startRow = this.headerHeight + 1;
     const innerWidth = this.cols - 2; // inside the box borders
-    const visibleCount = this.getVisibleCount();
-    const visibleSessions = this.sessions.slice(0, visibleCount); // pinned sort to top
+    const visibleSessions = this.getVisibleSessions();
+    const visibleCount = visibleSessions.length;
 
-    // top border with label (includes focus/compact/sort mode tags)
+    // top border with label (includes focus/compact/sort/group filter tags)
     const focusTag = this.focusMode ? "focus" : "";
     const sortTag = this.sortMode !== "default" ? this.sortMode : "";
     const compactTag = this.compactMode ? "compact" : "";
-    const tags = [focusTag, compactTag, sortTag].filter(Boolean).join(", ");
+    const groupTag = this.groupFilter ? `group:${this.groupFilter}` : "";
+    const tags = [focusTag, compactTag, sortTag, groupTag].filter(Boolean).join(", ");
     const label = tags ? ` agents (${tags}) ` : " agents ";
     const borderAfterLabel = Math.max(0, innerWidth - label.length);
     const topBorder = `${SLATE}${BOX.rtl}${BOX.h}${RESET}${SLATE}${label}${RESET}${SLATE}${BOX.h.repeat(borderAfterLabel)}${BOX.rtr}${RESET}`;
     process.stderr.write(SAVE_CURSOR + moveTo(startRow, 1) + CLEAR_LINE + truncateAnsi(topBorder, this.cols));
 
     if (visibleSessions.length === 0) {
-      // empty state
-      const msg = this.focusMode && this.sessions.length > 0
-        ? `${DIM}no pinned agents — /pin to add, /focus to exit${RESET}`
-        : `${DIM}no agents connected${RESET}`;
+      // empty state — distinguish between filter states
+      let msg: string;
+      if (this.groupFilter && this.sessions.length > 0) {
+        msg = `${DIM}no agents in group "${this.groupFilter}" — /group <N> <tag> to assign, /group-filter to exit${RESET}`;
+      } else if (this.focusMode && this.sessions.length > 0) {
+        msg = `${DIM}no pinned agents — /pin to add, /focus to exit${RESET}`;
+      } else {
+        msg = `${DIM}no agents connected${RESET}`;
+      }
       const empty = `${SLATE}${BOX.v}${RESET}  ${msg}`;
       const padded = padBoxLine(empty, this.cols);
       process.stderr.write(moveTo(startRow + 1, 1) + CLEAR_LINE + padded);
@@ -1202,16 +1326,19 @@ export class TUI {
         const pinned = this.pinnedIds.has(s.id);
         const muted = this.mutedIds.has(s.id);
         const noted = this.sessionNotes.has(s.id);
+        const group = this.sessionGroups.get(s.id);
         const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
         const muteBadgeWidth = muted ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 2 : 0; // "(N)" visible chars, 0 when count is 0
         const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0 ? muteBadgeWidth + 1 : 0; // +1 for trailing space
+        const groupBadgeWidth = group ? group.length + 1 + 1 : 0; // icon + name + space
         const pin = pinned ? `${AMBER}${PIN_ICON}${RESET} ` : "";
         const mute = muted ? `${DIM}${MUTE_ICON}${RESET} ` : "";
         const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
+        const groupBadge = group ? `${formatGroupBadge(group)} ` : "";
         const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
-        const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth;
+        const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth;
         const cardWidth = innerWidth - 1 - iconsWidth;
-        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${formatSessionCard(s, cardWidth)}`;
+        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth)}`;
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
@@ -1237,25 +1364,29 @@ export class TUI {
   private repaintSessionCard(idx: number): void {
     if (!this.active || this.viewMode !== "overview") return;
     const i = idx - 1; // 0-indexed
-    if (i < 0 || i >= this.sessions.length) return;
+    const visibleSessions = this.getVisibleSessions();
+    if (i < 0 || i >= visibleSessions.length) return;
     const startRow = this.headerHeight + 1;
     const innerWidth = this.cols - 2;
-    const s = this.sessions[i];
+    const s = visibleSessions[i];
     const isHovered = this.hoverSessionIdx === idx;
     const bg = isHovered ? BG_HOVER : "";
     const pinned = this.pinnedIds.has(s.id);
     const muted = this.mutedIds.has(s.id);
     const noted = this.sessionNotes.has(s.id);
+    const group = this.sessionGroups.get(s.id);
     const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
     const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0
       ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 3 : 0; // "(N) " visible chars
+    const groupBadgeWidth = group ? group.length + 1 + 1 : 0; // icon + name + space
     const pin = pinned ? `${AMBER}${PIN_ICON}${RESET} ` : "";
     const mute = muted ? `${DIM}${MUTE_ICON}${RESET} ` : "";
     const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
+    const groupBadge = group ? `${formatGroupBadge(group)} ` : "";
     const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
-    const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth;
+    const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth;
     const cardWidth = innerWidth - 1 - iconsWidth;
-    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${formatSessionCard(s, cardWidth)}`;
+    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth)}`;
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }
@@ -1388,6 +1519,7 @@ function formatSessionCard(s: DaemonSessionState, maxWidth: number): string {
   const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
   const name = `${BOLD}${s.title}${RESET}`;
   const toolBadge = `${SLATE}${s.tool}${RESET}`;
+  const contextBadge = s.contextTokens ? ` ${DIM}(${s.contextTokens})${RESET}` : "";
 
   // status description
   let desc: string;
@@ -1409,7 +1541,7 @@ function formatSessionCard(s: DaemonSessionState, maxWidth: number): string {
     desc = `${SLATE}${s.status}${RESET}`;
   }
 
-  return truncateAnsi(`${dot} ${name} ${toolBadge} ${SLATE}${BOX.h}${RESET} ${desc}`, maxWidth);
+  return truncateAnsi(`${dot} ${name} ${toolBadge}${contextBadge} ${SLATE}${BOX.h}${RESET} ${desc}`, maxWidth);
 }
 
 // colorize an activity entry based on its tag

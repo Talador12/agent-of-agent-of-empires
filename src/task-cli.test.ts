@@ -7,6 +7,7 @@ function makeTask(overrides: Partial<TaskState> = {}): TaskState {
   return {
     repo: "github/adventure",
     sessionTitle: "adventure",
+    sessionMode: "auto",
     tool: "opencode",
     goal: "Build the game",
     status: "active",

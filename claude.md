@@ -5,23 +5,93 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.95.0
+## Version: v0.104.0
 
 ## Current Focus
 
-README overhaul for GitHub presentation. Added CI/test/node/zero-deps badges, full TUI Daemon Commands section (30+ commands the README was missing), updated project structure with newer files (export, tail, stats, replay, config-watcher). No code changes, docs only.
+1553 tests across 35 files. v0.104.0 shipped: session grouping — tag sessions by project/team, filter the session panel by group, badges in cards, persisted across restarts.
 
 ## Roadmap
 
-### v0.96.0+ — Ideas Backlog
+### Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- **Session grouping** — tag sessions by project/team, filter views by group
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Session health pulse** — tiny per-session sparklines in the compact view
-- **Session memory** — show per-session context token usage in cards
 - **Error rate sparkline** — per-session error frequency mini-chart in cards
-- **`/alias` custom shortcuts** — user-defined command aliases persisted in prefs
+- **Burn-rate alerts** — nudge when a session's context/token usage spikes quickly
+- **Trust ladder mode** — auto-escalate observe -> dry-run -> confirm -> autopilot from stable behavior
+- **Decision confidence hint** — show low/medium/high confidence with each planned action bundle
+- **Task fan-out templates** — generate a starter task list from currently active/inactive AoE sessions
+- **Task intake UX** — guided `/task new` flow in TUI (prompt for repo/mode/goal)
+- **Natural language task intent** — infer task updates from plain lines like "task for adventure: ..."
+- **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
+- **Session snapshot export** — `/snapshot` command exports current session states to JSON/Markdown
+- **Group broadcast** — `/broadcast group:name message` sends a message to all sessions in a group
+- **Idle time per session** — show time since last activity change alongside uptime
+
+### What shipped in v0.104.0
+
+**Theme: "Session Grouping"** — tag sessions by project/team for organization and filtering. `/group <N|name> <tag>` assigns a group (lowercase alphanumeric, dash, underscore, max 16 chars). `/group <N|name>` clears. `/groups` lists all groups with their members. `/group-filter <tag>` narrows the session panel to only show sessions in that group (border shows `group:tag` label). Group badges (`⊹tag`) shown DIM in every normal session card. Groups persist across restarts in `~/.aoaoe/tui-prefs.json`. `validateGroupName()` enforces naming rules. 44 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +44, net 1553 tests across 35 files.
+
+### What shipped in v0.103.0
+
+**Theme: "No-Command Goal Capture"** — when you're in drill-down, plain text now defaults to goal editing for that session (no prefix required). `:<goal>` still works, and `/t`/`/todo`/`/idea` remain aliases. Integration test now verifies task import/sync behavior end-to-end: task list updates persist, auto-imported sessions appear once, and daemon restart reload is stable.
+
+Modified: `src/input.ts`, `src/index.ts`, `src/task-cli.ts`, `src/integration-test.ts`, `README.md`, `package.json`, `claude.md`
+Test changes: expanded integration assertions, unit count unchanged (1509 across 35 files).
+
+### What shipped in v0.102.0
+
+**Theme: "Idea-to-Task in One Keystroke"** — added `:<goal>` quick capture for the currently viewed session in drill-down mode (no subcommand ceremony), plus `/t`, `/todo`, and `/idea` aliases to reduce command memory load. Quick task capture gives direct, immediate feedback and updates the persistent task list via existing sync.
+
+Modified: `src/input.ts`, `src/index.ts`, `src/task-cli.ts`, `README.md`, `package.json`, `claude.md`
+Test changes: none, net 1509 tests across 35 files.
+
+### What shipped in v0.101.0
+
+**Theme: "Always-Synced Task List"** — starting `aoaoe` now auto-imports visible AoE sessions into task state and writes them to `aoaoe.tasks.json` (mode=`existing`), so active and inactive sessions are schedulable immediately. Interactive task management now keeps the durable task list updated: `task new/edit/rm` syncs definitions to `aoaoe.tasks.json` as you work.
+
+Modified: `src/index.ts`, `src/task-manager.ts`, `src/task-cli.ts`, `README.md`, `package.json`, `claude.md`
+Test changes: none, net 1509 tests across 35 files.
+
+### What shipped in v0.100.0
+
+**Theme: "Task Placement"** — tasks can now explicitly choose where execution happens: `sessionMode: "existing"` (attach only), `"new"` (create), or `"auto"` (attach-or-create). Optional `sessionTitle` lets you target inactive AoE sessions by name and have aoaoe start them when needed. Task tables now include mode and a context line (`session @ repo`) so routing is visible at a glance.
+
+Modified: `src/task-manager.ts`, `src/task-cli.ts`, `src/types.ts`, `src/init.ts`, `src/task-manager.test.ts`, `src/task-cli.test.ts`, `src/reasoner/prompt.test.ts`, `src/config.test.ts`, `README.md`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +1, net 1509 tests across 35 files.
+
+### What shipped in v0.99.0
+
+**Theme: "Mode Dial"** — new `/mode` command in the daemon TUI: `/mode observe`, `/mode dry-run`, `/mode confirm`, `/mode autopilot` (or `/mode` to show current). This makes trust ramp-up practical in day-to-day usage: start safe, inspect behavior, then escalate in place. Runtime `/status` telemetry now reflects the active mode/label dynamically.
+
+Modified: `src/input.ts`, `src/index.ts`, `README.md`, `package.json`, `claude.md`
+Test changes: none, net 1508 tests across 35 files.
+
+### What shipped in v0.98.0
+
+**Theme: "Trust Telemetry"** — `/status` now answers the trust question directly: what mode the daemon is in, exactly which reasoner/model is active, cumulative polls/decisions/action outcomes, and the most recent reasoner cycle (how long ago, duration, and action summary). This makes it much easier to run in observe/dry-run/confirm while validating behavior before full autopilot.
+
+Modified: `src/index.ts`, `package.json`, `claude.md`
+Test changes: none, net 1508 tests across 35 files.
+
+### What shipped in v0.97.0
+
+**Theme: "Session Memory"** — each session card now shows parsed context usage (for example `137,918 tokens`) when available, so you can spot context-heavy agents without leaving the dashboard. `buildSessionStates()` now parses and caches context tokens per session (reuse on unchanged polls, prune on removed sessions). `/who` also includes context usage in each fleet line.
+
+Modified: `src/daemon-state.ts`, `src/daemon-state.test.ts`, `src/tui.ts`, `src/index.ts`, `src/types.ts`, `package.json`, `AGENTS.md`, `Makefile`, `claude.md`
+Test changes: +2, net 1508 tests across 35 files.
+
+### What shipped in v0.96.0
+
+**Theme: "Alias"** — `/alias` custom command shortcuts. `/alias /e /filter errors` creates a shortcut that expands on use. `/alias` (no args) lists all. `/alias /e` (name only) removes. Aliases persist across restarts in `~/.aoaoe/tui-prefs.json`. Built-in commands (`/help`, `/filter`, `/alias`, etc.) are protected — can't be overridden. `resolveAlias()` pure function handles expansion with trailing arg pass-through. `validateAliasName()` enforces lowercase alphanumeric + rejects built-ins. MAX_ALIASES=50 cap. 28 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `AGENTS.md`, `Makefile`, `README.md`, `claude.md`
+Test changes: +28, net 1506 tests across 35 files.
 
 ### README overhaul (docs only, no version bump)
 

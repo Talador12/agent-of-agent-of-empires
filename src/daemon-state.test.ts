@@ -135,6 +135,43 @@ describe("buildSessionStates", () => {
     const result = buildSessionStates(obs);
     assert.equal(result[0].todoSummary, undefined);
   });
+
+  it("parses context token usage from changed session output", async () => {
+    const { buildSessionStates } = await import("./daemon-state.js");
+    const session = makeSession({ id: "ctx-1" });
+    const output = "Build Claude Sonnet\n137,918 tokens\n";
+    const snap = makeSnapshot({ session, output });
+    const obs: Observation = {
+      timestamp: Date.now(),
+      sessions: [snap],
+      changes: [{ sessionId: session.id, title: session.title, tool: session.tool, status: session.status, newLines: output }],
+    };
+    const result = buildSessionStates(obs);
+    assert.equal(result[0].contextTokens, "137,918 tokens");
+  });
+
+  it("reuses cached context tokens when session has no new output", async () => {
+    const { buildSessionStates } = await import("./daemon-state.js");
+    const session = makeSession({ id: "ctx-cache" });
+    const output1 = "Build Claude Sonnet\n111,881 tokens\n";
+    const output2 = "pane content unchanged\n";
+
+    const obs1: Observation = {
+      timestamp: Date.now(),
+      sessions: [makeSnapshot({ session, output: output1 })],
+      changes: [{ sessionId: session.id, title: session.title, tool: session.tool, status: session.status, newLines: output1 }],
+    };
+    const result1 = buildSessionStates(obs1);
+    assert.equal(result1[0].contextTokens, "111,881 tokens");
+
+    const obs2: Observation = {
+      timestamp: Date.now(),
+      sessions: [makeSnapshot({ session, output: output2 })],
+      changes: [],
+    };
+    const result2 = buildSessionStates(obs2);
+    assert.equal(result2[0].contextTokens, "111,881 tokens");
+  });
 });
 
 describe("setSessionTask", () => {

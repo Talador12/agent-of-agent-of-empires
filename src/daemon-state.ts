@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { toDaemonState } from "./types.js";
 import type { DaemonState, DaemonPhase, DaemonSessionState, Observation } from "./types.js";
-import { parseTasks, formatTaskList } from "./task-parser.js";
+import { parseTasks, formatTaskList, parseContext } from "./task-parser.js";
 
 // default state directory — overridable via setStateDir() for test isolation
 let AOAOE_DIR = join(homedir(), ".aoaoe");
@@ -57,6 +57,8 @@ export function resetInternalState(): void {
 const sessionTasks = new Map<string, string>();
 // cache parsed TODO summaries for unchanged sessions
 const todoCache = new Map<string, string | undefined>();
+// cache parsed context token usage for unchanged sessions
+const contextCache = new Map<string, string | undefined>();
 
 export function setSessionTask(sessionId: string, task: string): void {
   // keep task text short for display
@@ -113,6 +115,12 @@ export function buildSessionStates(obs: Observation): DaemonSessionState[] {
   for (const id of sessionTasks.keys()) {
     if (!currentIds.has(id)) sessionTasks.delete(id);
   }
+  for (const id of todoCache.keys()) {
+    if (!currentIds.has(id)) todoCache.delete(id);
+  }
+  for (const id of contextCache.keys()) {
+    if (!currentIds.has(id)) contextCache.delete(id);
+  }
 
   // only re-parse TODO items for sessions that have new output
   const changedIds = new Set(obs.changes.map((c) => c.sessionId));
@@ -131,6 +139,13 @@ export function buildSessionStates(obs: Observation): DaemonSessionState[] {
     } else {
       todoSummary = todoCache.get(s.id);
     }
+    let contextTokens: string | undefined;
+    if (changedIds.has(s.id)) {
+      contextTokens = parseContext(snap.output);
+      contextCache.set(s.id, contextTokens);
+    } else {
+      contextTokens = contextCache.get(s.id);
+    }
     return {
       id: s.id,
       title: s.title,
@@ -140,6 +155,7 @@ export function buildSessionStates(obs: Observation): DaemonSessionState[] {
       lastActivity: lastActivity && lastActivity.length > 100
         ? lastActivity.slice(0, 97) + "..."
         : lastActivity,
+      contextTokens,
       todoSummary,
       userActive: snap.userActive ?? false,
     };

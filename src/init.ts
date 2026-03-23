@@ -267,6 +267,7 @@ export async function runInit(forceOverwrite = false): Promise<InitResult> {
       const task: TaskState = {
         repo,
         sessionTitle: s.title,
+        sessionMode: "existing",
         tool: s.tool || "opencode",
         goal: "Continue the roadmap in claude.md",
         status,

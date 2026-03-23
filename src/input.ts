@@ -5,6 +5,7 @@ import { createInterface, emitKeypressEvents, type Interface } from "node:readli
 import { requestInterrupt } from "./daemon-state.js";
 
 import { GREEN, DIM, YELLOW, RED, BOLD, RESET } from "./colors.js";
+import { resolveAlias, validateAliasName, MAX_ALIASES } from "./tui.js";
 
 // ESC-ESC interrupt detection
 const ESC_DOUBLE_TAP_MS = 500;
@@ -33,7 +34,12 @@ export type NoteHandler = (target: string, text: string) => void; // session + n
 export type NotesHandler = () => void;
 export type ClipHandler = (count: number) => void;
 export type DiffHandler = (bookmarkNum: number) => void;
-export type WhoHandler = () => void; // list all session notes
+export type WhoHandler = () => void;
+export type AliasChangeHandler = () => void; // list all session notes
+export type GoalCaptureModeHandler = () => boolean;
+export type GroupHandler = (target: string, group: string) => void; // session + group tag (empty = clear)
+export type GroupsHandler = () => void; // list all groups
+export type GroupFilterHandler = (group: string | null) => void; // filter sessions to a group (null = clear)
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -95,6 +101,12 @@ export class InputReader {
   private clipHandler: ClipHandler | null = null;
   private diffHandler: DiffHandler | null = null;
   private whoHandler: WhoHandler | null = null;
+  private aliasChangeHandler: AliasChangeHandler | null = null;
+  private goalCaptureModeHandler: GoalCaptureModeHandler | null = null;
+  private groupHandler: GroupHandler | null = null;
+  private groupsHandler: GroupsHandler | null = null;
+  private groupFilterHandler: GroupFilterHandler | null = null;
+  private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
@@ -215,6 +227,42 @@ export class InputReader {
   // register a callback for fleet status (/who)
   onWho(handler: WhoHandler): void {
     this.whoHandler = handler;
+  }
+
+  // register a callback for alias changes (to persist)
+  onAliasChange(handler: AliasChangeHandler): void {
+    this.aliasChangeHandler = handler;
+  }
+
+  // register a callback to decide whether plain text should update goals (task capture mode)
+  onGoalCaptureMode(handler: GoalCaptureModeHandler): void {
+    this.goalCaptureModeHandler = handler;
+  }
+
+  // register a callback for group assignment (/group <N|name> <tag>)
+  onGroup(handler: GroupHandler): void {
+    this.groupHandler = handler;
+  }
+
+  // register a callback for listing groups (/groups)
+  onGroups(handler: GroupsHandler): void {
+    this.groupsHandler = handler;
+  }
+
+  // register a callback for group filter (/group-filter <name> or /group-filter to clear)
+  onGroupFilter(handler: GroupFilterHandler): void {
+    this.groupFilterHandler = handler;
+  }
+
+  /** Set aliases from persisted prefs. */
+  setAliases(aliases: Record<string, string>): void {
+    this.aliases.clear();
+    for (const [k, v] of Object.entries(aliases)) this.aliases.set(k, v);
+  }
+
+  /** Get current aliases as a plain object. */
+  getAliases(): Record<string, string> {
+    return Object.fromEntries(this.aliases);
   }
 
   // register a callback for clipboard export (/clip [N])
@@ -370,9 +418,19 @@ export class InputReader {
       return;
     }
 
-    // built-in slash commands
+    // ultra-fast task capture: ":<goal>" updates current drill-down session task
+    if (line.startsWith(":") && line.trim().length > 1) {
+      const goal = line.slice(1).trim();
+      this.queue.push(`__CMD_QUICKTASK__${goal}`);
+      this.notifyQueueChange();
+      console.error(`${GREEN}captured${RESET} ${DIM}task goal queued for current session${RESET}`);
+      this.rl?.prompt();
+      return;
+    }
+
+    // built-in slash commands (resolve aliases first)
     if (line.startsWith("/")) {
-      this.handleCommand(line);
+      this.handleCommand(resolveAlias(line, this.aliases));
       this.rl?.prompt();
       return;
     }
@@ -387,7 +445,16 @@ export class InputReader {
       }
     }
 
-    // queue as a user message for the reasoner
+    // plain text in drill-down defaults to task goal capture
+    if (this.goalCaptureModeHandler?.()) {
+      this.queue.push(`__CMD_QUICKTASK__${line}`);
+      this.notifyQueueChange();
+      console.error(`${GREEN}captured${RESET} ${DIM}goal updated for current session${RESET}`);
+      this.rl?.prompt();
+      return;
+    }
+
+    // otherwise, queue as a user message for the reasoner
     this.queue.push(line);
     this.notifyQueueChange();
     const pending = this.queue.filter(m => !m.startsWith("__CMD_")).length;
@@ -402,7 +469,7 @@ export class InputReader {
       case "/help":
         console.error(`
 ${BOLD}talking to the AI:${RESET}
-  just type          send a message — queued for next cycle
+  just type          in drill-down: update goal for that session; otherwise message AI
   !message           insist — interrupt + deliver message immediately
   /insist <msg>      same as !message
   /explain           ask the AI to explain what's happening right now
@@ -410,6 +477,7 @@ ${BOLD}talking to the AI:${RESET}
 ${BOLD}controls:${RESET}
   /pause             pause the supervisor
   /resume            resume the supervisor
+  /mode [name]       set mode: observe, dry-run, confirm, autopilot (no arg = show)
   /interrupt         interrupt the AI mid-thought
   ESC ESC            same as /interrupt (shortcut)
 
@@ -430,6 +498,9 @@ ${BOLD}navigation:${RESET}
   /auto-pin          toggle auto-pin on error (pin sessions that emit errors)
   /note N|name text  attach a note to a session (no text = clear)
   /notes             list all session notes
+  /group N|name tag  assign session to a group (no tag = clear)
+  /groups            list all groups and their sessions
+  /group-filter tag  show only sessions in a group (no arg = clear)
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -447,8 +518,11 @@ ${BOLD}info:${RESET}
   /dashboard         show full dashboard
   /tasks             show task progress table
   /task [sub] [args] task management (list, start, stop, edit, new, rm)
+  /task <s> :: <g>   quick update goal <g> for session/task <s>
+  :<goal>            fastest path: set goal for current drill-down session
 
 ${BOLD}other:${RESET}
+  /alias /x /cmd     create alias (/x expands to /cmd). no args = list all
   /verbose           toggle detailed logging
   /clear             clear the screen
 `);
@@ -467,6 +541,12 @@ ${BOLD}other:${RESET}
       case "/status":
         this.queue.push("__CMD_STATUS__");
         break;
+
+      case "/mode": {
+        const modeArg = line.slice("/mode".length).trim().toLowerCase();
+        this.queue.push(`__CMD_MODE__${modeArg}`);
+        break;
+      }
 
       case "/dashboard":
         this.queue.push("__CMD_DASHBOARD__");
@@ -498,6 +578,14 @@ ${BOLD}other:${RESET}
       case "/tasks":
         this.queue.push("__CMD_TASK__list");
         break;
+
+      case "/t":
+      case "/todo":
+      case "/idea": {
+        const taskArgs = line.slice(cmd.length).trim();
+        this.queue.push(`__CMD_TASK__${taskArgs}`);
+        break;
+      }
 
       case "/task": {
         // pass arguments after "/task" as __CMD_TASK__ marker with args
@@ -722,12 +810,89 @@ ${BOLD}other:${RESET}
         break;
       }
 
+      case "/alias": {
+        const aliasArgs = line.slice("/alias".length).trim();
+        if (!aliasArgs) {
+          // list all aliases
+          if (this.aliases.size === 0) {
+            console.error(`${DIM}no aliases — use /alias /shortcut /command${RESET}`);
+          } else {
+            for (const [k, v] of this.aliases) console.error(`${DIM}  ${k} → ${v}${RESET}`);
+          }
+        } else {
+          const parts = aliasArgs.split(/\s+/);
+          const name = parts[0].startsWith("/") ? parts[0] : `/${parts[0]}`;
+          const target = parts.slice(1).join(" ");
+          if (!target) {
+            // clear alias
+            if (this.aliases.has(name)) {
+              this.aliases.delete(name);
+              console.error(`${DIM}alias ${name} removed${RESET}`);
+              this.aliasChangeHandler?.();
+            } else {
+              console.error(`${DIM}no alias ${name} to remove${RESET}`);
+            }
+          } else {
+            const err = validateAliasName(name);
+            if (err) {
+              console.error(`${RED}${err}${RESET}`);
+            } else if (this.aliases.size >= MAX_ALIASES && !this.aliases.has(name)) {
+              console.error(`${RED}max ${MAX_ALIASES} aliases — remove one first${RESET}`);
+            } else {
+              const targetCmd = target.startsWith("/") ? target : `/${target}`;
+              this.aliases.set(name, targetCmd);
+              console.error(`${DIM}alias ${name} → ${targetCmd}${RESET}`);
+              this.aliasChangeHandler?.();
+            }
+          }
+        }
+        break;
+      }
+
+      case "/group": {
+        const groupArg = line.slice("/group".length).trim();
+        if (this.groupHandler) {
+          const spaceIdx = groupArg.indexOf(" ");
+          if (spaceIdx > 0) {
+            const target = groupArg.slice(0, spaceIdx);
+            const tag = groupArg.slice(spaceIdx + 1).trim();
+            this.groupHandler(target, tag);
+          } else if (groupArg) {
+            // target only — clear group
+            this.groupHandler(groupArg, "");
+          } else {
+            console.error(`${DIM}usage: /group <N|name> <tag> — assign group, or /group <N|name> — clear${RESET}`);
+          }
+        } else {
+          console.error(`${DIM}groups not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/groups":
+        if (this.groupsHandler) {
+          this.groupsHandler();
+        } else {
+          console.error(`${DIM}groups not available (no TUI)${RESET}`);
+        }
+        break;
+
+      case "/group-filter": {
+        const gfArg = line.slice("/group-filter".length).trim();
+        if (this.groupFilterHandler) {
+          this.groupFilterHandler(gfArg || null);
+        } else {
+          console.error(`${DIM}group filter not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");
         break;
 
       default:
-        console.error(`${DIM}unknown command: ${cmd} (try /help)${RESET}`);
+        console.error(`${DIM}unknown command: ${cmd} (try /help — or in drill-down use :<goal>)${RESET}`);
         break;
     }
   }

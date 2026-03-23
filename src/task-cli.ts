@@ -3,11 +3,19 @@
 import { exec } from "./shell.js";
 import { existsSync } from "node:fs";
 import { resolve, basename } from "node:path";
-import { loadTaskState, saveTaskState, formatTaskTable } from "./task-manager.js";
+import { loadTaskState, saveTaskState, formatTaskTable, syncTaskDefinitionsFromState } from "./task-manager.js";
 import { toAoeSessionList } from "./types.js";
-import type { TaskState, TaskStatus } from "./types.js";
+import type { TaskState, TaskSessionMode } from "./types.js";
 
 import { BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET } from "./colors.js";
+
+interface AoeSessionLite {
+  id: string;
+  title: string;
+  path?: string;
+  tool?: string;
+  status?: string;
+}
 
 // resolve a fuzzy reference to a task: match by title, repo basename, or session ID prefix
 export function resolveTask(ref: string, tasks: TaskState[]): TaskState | undefined {
@@ -98,6 +106,7 @@ export function taskEdit(ref: string, newGoal: string): boolean {
   task.goal = newGoal;
   states.set(task.repo, task);
   saveTaskState(states);
+  syncTaskDefinitionsFromState(process.cwd(), states);
   console.log(`${GREEN}updated${RESET} ${task.sessionTitle}`);
   console.log(`  ${DIM}was: ${oldGoal}${RESET}`);
   console.log(`  ${BOLD}now: ${newGoal}${RESET}`);
@@ -105,7 +114,7 @@ export function taskEdit(ref: string, newGoal: string): boolean {
 }
 
 // create a new session + task
-export async function taskNew(title: string, path: string, tool = "opencode"): Promise<boolean> {
+export async function taskNew(title: string, path: string, tool = "opencode", mode: TaskSessionMode = "new"): Promise<boolean> {
   const resolvedPath = resolve(path);
   if (!existsSync(resolvedPath)) {
     console.error(`${RED}path not found: ${resolvedPath}${RESET}`);
@@ -120,23 +129,40 @@ export async function taskNew(title: string, path: string, tool = "opencode"): P
     return false;
   }
 
-  // create AoE session
-  console.log(`${DIM}creating session...${RESET}`);
-  const result = await exec("aoe", ["add", resolvedPath, "-t", title, "-c", tool, "-y"]);
-  if (result.exitCode !== 0) {
-    console.error(`${RED}failed to create session: ${result.stderr.trim()}${RESET}`);
-    return false;
+  let sessionId: string | undefined;
+
+  if (mode === "existing" || mode === "auto") {
+    const listResult = await exec("aoe", ["list", "--json"]);
+    if (listResult.exitCode === 0) {
+      try {
+        const sessions = toAoeSessionList(JSON.parse(listResult.stdout));
+        const found = sessions.find((s) => s.title.toLowerCase() === lower);
+        sessionId = found?.id;
+      } catch {}
+    }
   }
 
-  // find the new session ID
-  const listResult = await exec("aoe", ["list", "--json"]);
-  let sessionId: string | undefined;
-  if (listResult.exitCode === 0) {
-    try {
-      const sessions = toAoeSessionList(JSON.parse(listResult.stdout));
-      const found = sessions.find((s) => s.title.toLowerCase() === lower);
-      sessionId = found?.id;
-    } catch {}
+  if ((mode === "new" || mode === "auto") && !sessionId) {
+    console.log(`${DIM}creating session...${RESET}`);
+    const result = await exec("aoe", ["add", resolvedPath, "-t", title, "-c", tool, "-y"]);
+    if (result.exitCode !== 0) {
+      console.error(`${RED}failed to create session: ${result.stderr.trim()}${RESET}`);
+      return false;
+    }
+    const listResult = await exec("aoe", ["list", "--json"]);
+    if (listResult.exitCode === 0) {
+      try {
+        const sessions = toAoeSessionList(JSON.parse(listResult.stdout));
+        const found = sessions.find((s) => s.title.toLowerCase() === lower);
+        sessionId = found?.id;
+      } catch {}
+    }
+  }
+
+  const status = sessionId ? "active" : "pending";
+
+  if (mode === "existing" && !sessionId) {
+    console.log(`${YELLOW}session '${title}' not found yet — task created in pending state${RESET}`);
   }
 
   // compute repo key (relative to cwd)
@@ -145,9 +171,10 @@ export async function taskNew(title: string, path: string, tool = "opencode"): P
   const task: TaskState = {
     repo,
     sessionTitle: title,
+    sessionMode: mode,
     tool,
     goal: "Continue the roadmap in claude.md",
-    status: "active",
+    status,
     sessionId,
     createdAt: Date.now(),
     progress: [],
@@ -155,9 +182,70 @@ export async function taskNew(title: string, path: string, tool = "opencode"): P
 
   states.set(repo, task);
   saveTaskState(states);
+  syncTaskDefinitionsFromState(process.cwd(), states);
   console.log(`${GREEN}created${RESET} ${title} → ${resolvedPath}`);
-  if (sessionId) console.log(`  ${DIM}session: ${sessionId.slice(0, 8)}${RESET}`);
+  console.log(`  ${DIM}mode: ${mode}${RESET}`);
+  if (sessionId) {
+    console.log(`  ${DIM}session: ${sessionId.slice(0, 8)}${RESET}`);
+  }
   return true;
+}
+
+function parseTaskMode(raw: string | undefined): TaskSessionMode {
+  if (!raw) return "new";
+  const v = raw.toLowerCase();
+  if (v === "auto" || v === "existing" || v === "new") return v;
+  return "new";
+}
+
+async function findAoeSession(ref: string): Promise<AoeSessionLite | undefined> {
+  const listResult = await exec("aoe", ["list", "--json"]);
+  if (listResult.exitCode !== 0) return undefined;
+  try {
+    const sessions = JSON.parse(listResult.stdout) as AoeSessionLite[];
+    const lower = ref.toLowerCase();
+    return (
+      sessions.find((s) => s.id.startsWith(ref)) ??
+      sessions.find((s) => s.title.toLowerCase() === lower) ??
+      sessions.find((s) => s.title.toLowerCase().includes(lower))
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+export async function quickTaskUpdate(ref: string, goal: string): Promise<string> {
+  const states = loadTaskState();
+  const tasks = [...states.values()];
+  const task = resolveTask(ref, tasks);
+  if (task) {
+    task.goal = goal;
+    if (task.sessionMode !== "existing") task.sessionMode = "existing";
+    states.set(task.repo, task);
+    saveTaskState(states);
+    syncTaskDefinitionsFromState(process.cwd(), states);
+    return `updated ${task.sessionTitle} goal`; 
+  }
+
+  const session = await findAoeSession(ref);
+  if (!session) return `session not found: ${ref}`;
+  const repo = session.path ? resolve(session.path) : session.title;
+  const status: TaskState["status"] = session.status === "stopped" ? "paused" : "active";
+  const newTask: TaskState = {
+    repo,
+    sessionTitle: session.title,
+    sessionMode: "existing",
+    tool: session.tool || "opencode",
+    goal,
+    status,
+    sessionId: session.id,
+    createdAt: Date.now(),
+    progress: [],
+  };
+  states.set(newTask.repo, newTask);
+  saveTaskState(states);
+  syncTaskDefinitionsFromState(process.cwd(), states);
+  return `created task for existing session ${session.title}`;
 }
 
 // remove a task and its session
@@ -178,6 +266,7 @@ export async function taskRemove(ref: string): Promise<boolean> {
 
   states.delete(task.repo);
   saveTaskState(states);
+  syncTaskDefinitionsFromState(process.cwd(), states);
   console.log(`${RED}deleted${RESET} task '${task.sessionTitle}' (repo: ${task.repo})`);
   return true;
 }
@@ -212,13 +301,16 @@ export async function runTaskCli(argv: string[]): Promise<void> {
     case "new":
     case "create":
     case "add": {
-      if (!args[0] || !args[1]) { console.error(`usage: aoaoe task new <title> <path> [--tool opencode]`); return; }
+      if (!args[0] || !args[1]) { console.error(`usage: aoaoe task new <title> <path> [--tool opencode] [--mode new|existing|auto]`); return; }
       const title = args[0];
       const path = args[1];
       let tool = "opencode";
       const toolIdx = args.indexOf("--tool");
       if (toolIdx !== -1 && args[toolIdx + 1]) tool = args[toolIdx + 1];
-      await taskNew(title, path, tool);
+      let mode: TaskSessionMode = "new";
+      const modeIdx = args.indexOf("--mode");
+      if (modeIdx !== -1) mode = parseTaskMode(args[modeIdx + 1]);
+      await taskNew(title, path, tool, mode);
       return;
     }
     case "rm":
@@ -236,7 +328,27 @@ export async function runTaskCli(argv: string[]): Promise<void> {
 
 // handle /task slash commands from within the running daemon (returns human-readable output)
 export async function handleTaskSlashCommand(args: string): Promise<string> {
-  const parts = args.trim().split(/\s+/);
+  const raw = args.trim();
+  if (raw.includes("::")) {
+    const [lhsRaw, rhsRaw] = raw.split("::", 2);
+    const lhs = lhsRaw.trim();
+    const goal = rhsRaw.trim();
+    if (!lhs || !goal) return "usage: /task <session> :: <goal>  or  /task <mode> <title> <path> :: <goal>";
+    const lhsParts = lhs.split(/\s+/);
+    if (lhsParts[0] === "new" || lhsParts[0] === "auto" || lhsParts[0] === "existing") {
+      if (!lhsParts[1] || !lhsParts[2]) {
+        return "usage: /task <mode> <title> <path> :: <goal>";
+      }
+      const mode = parseTaskMode(lhsParts[0]);
+      const ok = await taskNew(lhsParts[1], lhsParts[2], "opencode", mode);
+      if (!ok) return `failed to create ${lhsParts[1]}`;
+      const edited = taskEdit(lhsParts[1], goal);
+      return edited ? `created ${lhsParts[1]} + set goal` : `created ${lhsParts[1]}`;
+    }
+    return await quickTaskUpdate(lhsParts[0], goal);
+  }
+
+  const parts = raw.split(/\s+/);
   const sub = parts[0] || "list";
   const rest = parts.slice(1);
 

@@ -4,7 +4,7 @@
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml"><img src="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="https://www.npmjs.com/package/aoaoe"><img src="https://img.shields.io/npm/v/aoaoe" alt="npm version"></a>
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/releases"><img src="https://img.shields.io/github/v/release/Talador12/agent-of-agent-of-empires" alt="GitHub release"></a>
-    <img src="https://img.shields.io/badge/tests-1478-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/tests-1509-brightgreen" alt="tests">
     <img src="https://img.shields.io/badge/node-%3E%3D20-blue" alt="Node.js >= 20">
     <img src="https://img.shields.io/badge/runtime%20deps-0-brightgreen" alt="zero runtime dependencies">
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
@@ -175,19 +175,38 @@ aoaoe can automatically create and manage AoE sessions from a task list. Define 
 
 ```json
 [
-  { "repo": "github/adventure", "tool": "opencode", "goal": "Continue the roadmap in claude.md" },
-  { "repo": "github/cloud-hypervisor", "goal": "Address PR review feedback" },
-  { "repo": "cc/cloudchamber" }
+  {
+    "repo": "github/adventure",
+    "sessionTitle": "adventure",
+    "sessionMode": "existing",
+    "goal": "Process queued TODOs in this existing AoE session"
+  },
+  {
+    "repo": "github/agent-of-agent-of-empires",
+    "sessionTitle": "aoaoe-roadmap",
+    "sessionMode": "new",
+    "tool": "opencode",
+    "goal": "Ship next roadmap item with tests"
+  },
+  {
+    "repo": "github/cloud-hypervisor",
+    "sessionMode": "auto",
+    "goal": "Address PR review feedback"
+  }
 ]
 ```
 
 | Field | Required | Description |
 |-------|:--------:|-------------|
 | `repo` | Yes | Path to the project directory (relative to cwd or absolute) |
+| `sessionTitle` | No | AoE session title to target. Default: derived from `repo` basename |
+| `sessionMode` | No | Session allocation strategy: `existing` (link only), `new` (create), `auto` (link or create). Default: `auto` |
 | `tool` | No | Agent tool to use (`opencode`, `claude-code`, etc.). Default: `opencode` |
 | `goal` | No | Goal text injected into the supervisor's context for this task |
 
-When the daemon starts, it reconciles sessions automatically: creates new AoE sessions for tasks that don't have one, links existing sessions to matching tasks. Progress is tracked persistently in `~/.aoaoe/task-state.json` and survives session cleanup.
+When the daemon starts, it now auto-imports any currently visible AoE sessions into the task list (mode=`existing`) so active and inactive sessions are immediately schedulable. Then it reconciles tasks: creates new AoE sessions when needed, links existing sessions by title, and starts linked sessions as needed. Progress is tracked persistently in `~/.aoaoe/task-state.json` and survives session cleanup.
+
+Interactive task updates (`aoaoe task new/edit/rm` or `/task ...`) also sync back to `aoaoe.tasks.json`, so your list evolves as you go.
 
 The supervisor can report progress milestones and mark tasks complete via two special actions:
 - `report_progress` — logs a milestone summary to persistent state
@@ -218,6 +237,7 @@ The daemon runs an interactive TUI with a rich command set. These commands are a
 |---------|-------------|
 | `/pause` | Pause the supervisor (stops reasoning) |
 | `/resume` | Resume after pause |
+| `/mode [name]` | Switch mode at runtime: `observe`, `dry-run`, `confirm`, `autopilot` (no arg = show current) |
 | `/interrupt` | Interrupt the AI mid-thought |
 | ESC ESC | Same as `/interrupt` (shortcut) |
 
@@ -259,7 +279,11 @@ The daemon runs an interactive TUI with a rich command set. These commands are a
 | `/status` | Show daemon state |
 | `/dashboard` | Show full dashboard |
 | `/tasks` | Show task progress table |
+| `/t ...` `/todo ...` `/idea ...` | Aliases for `/task ...` |
 | `/task [sub] [args]` | Task management (list, start, stop, edit, new, rm) |
+| `/task <session> :: <goal>` | Fast path: update/create task for an existing session and set its goal |
+| `:<goal>` | Fastest path in drill-down: set goal for that session |
+| `just type` (in drill-down) | Default behavior: update goal for the focused session |
 
 ### Other
 

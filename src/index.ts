@@ -15,9 +15,9 @@ import { tick as loopTick } from "./loop.js";
 import { exec as shellExec } from "./shell.js";
 import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
-import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable } from "./task-manager.js";
-import { runTaskCli, handleTaskSlashCommand } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs } from "./tui.js";
+import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
+import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
@@ -205,9 +205,13 @@ async function main() {
     if (prefs.bell) tui.setBell(true);
     if (prefs.autoPin) tui.setAutoPin(true);
     if (prefs.tagFilter) tui.setTagFilter(prefs.tagFilter);
+    if (prefs.sessionGroups) tui.restoreGroups(prefs.sessionGroups);
   }
   const persistPrefs = () => {
     if (!tui) return;
+    // persist session groups (ID → group tag)
+    const groupsObj: Record<string, string> = {};
+    for (const [id, g] of tui.getAllGroups()) groupsObj[id] = g;
     saveTuiPrefs({
       sortMode: tui.getSortMode(),
       compact: tui.isCompact(),
@@ -215,6 +219,8 @@ async function main() {
       bell: tui.isBellEnabled(),
       autoPin: tui.isAutoPinEnabled(),
       tagFilter: tui.getTagFilter(),
+      aliases: input.getAliases(),
+      sessionGroups: groupsObj,
     });
   };
 
@@ -265,6 +271,10 @@ async function main() {
 
   // load tasks from aoaoe.tasks.json or config
   const basePath = process.cwd();
+  const importedTasks = await importAoeSessionsToTasks(basePath);
+  if (importedTasks.imported.length > 0) {
+    console.error(`  tasks: imported ${importedTasks.imported.length} AoE session(s) into task list`);
+  }
   const taskDefs = loadTaskDefinitions(basePath);
   let taskManager: TaskManager | undefined;
 
@@ -298,6 +308,12 @@ async function main() {
     log("reasoner ready");
   }
 
+  // restore aliases from sticky prefs
+  if (tui) {
+    const prefs = loadTuiPrefs();
+    if (prefs.aliases) input.setAliases(prefs.aliases);
+  }
+
   // start interactive input listener and conversation log
   input.start();
   await reasonerConsole.start();
@@ -326,6 +342,8 @@ async function main() {
     input.onQueueChange((count) => {
       tui!.updateState({ pendingCount: count });
     });
+    // plain text in drill-down defaults to task goal capture
+    input.onGoalCaptureMode(() => tui!.getViewMode() === "drilldown");
     // wire /view and /back commands to TUI drill-down
     input.onView((target) => {
       if (target === null) {
@@ -530,9 +548,10 @@ async function main() {
         const up = firstSeen.has(s.id) ? formatUptime(Date.now() - firstSeen.get(s.id)!) : "?";
         const errCount = errors.get(s.id) ?? 0;
         const errStr = errCount > 0 ? ` ${errCount}err` : "";
+        const ctxStr = s.contextTokens ? ` ${s.contextTokens}` : "";
         const note = notes.get(s.id);
         const noteStr = note ? ` "${note}"` : "";
-        tui!.log("system", `  ${s.title} — ${s.status} ${up}${errStr}${noteStr}`);
+        tui!.log("system", `  ${s.title} — ${s.status} ${up}${ctxStr}${errStr}${noteStr}`);
       }
     });
     // wire /uptime listing
@@ -607,6 +626,66 @@ async function main() {
         }
       }
     });
+    // wire alias changes to persist prefs
+    input.onAliasChange(() => {
+      persistPrefs();
+    });
+    // wire /group assignment
+    input.onGroup((target, tag) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      if (!tag) {
+        // clear group
+        const ok = tui!.setGroup(num ?? target, null);
+        if (ok) {
+          tui!.log("system", `group cleared for ${target}`);
+          persistPrefs();
+        } else {
+          tui!.log("system", `session not found: ${target}`);
+        }
+        return;
+      }
+      const err = validateGroupName(tag);  // validates alphanumeric, max length
+      if (err) {
+        tui!.log("system", `invalid group name: ${err}`);
+        return;
+      }
+      const ok = tui!.setGroup(num ?? target, tag);
+      if (ok) {
+        tui!.log("system", `group set for ${target}: ${tag}`);
+        persistPrefs();
+      } else {
+        tui!.log("system", `session not found: ${target}`);
+      }
+    });
+    // wire /groups listing
+    input.onGroups(() => {
+      const groups = tui!.getAllGroups();
+      if (groups.size === 0) {
+        tui!.log("system", "no groups — use /group <N|name> <tag> to assign one");
+        return;
+      }
+      const sessions = tui!.getSessions();
+      // group sessions by group tag
+      const byGroup = new Map<string, string[]>();
+      for (const [id, g] of groups) {
+        const session = sessions.find((s) => s.id === id);
+        const label = session ? session.title : id.slice(0, 8);
+        if (!byGroup.has(g)) byGroup.set(g, []);
+        byGroup.get(g)!.push(label);
+      }
+      for (const [g, members] of [...byGroup].sort()) {
+        tui!.log("system", `  ${g}: ${members.join(", ")}`);
+      }
+    });
+    // wire /group-filter
+    input.onGroupFilter((group) => {
+      tui!.setGroupFilter(group);
+      if (group) {
+        tui!.log("system", `group filter: ${group}`);
+      } else {
+        tui!.log("system", "group filter cleared");
+      }
+    });
     // wire mouse move to hover highlight on session cards (disabled in compact)
     input.onMouseMove((row, _col) => {
       if (tui!.getViewMode() === "overview" && !tui!.isCompact()) {
@@ -626,6 +705,24 @@ async function main() {
     });
   }
 
+  const getReasonerLabel = (): string => (
+    config.observe
+      ? "observe-only"
+      : config.reasoner === "opencode"
+        ? `opencode${config.opencode.model ? `:${config.opencode.model}` : ""}`
+        : `claude-code${config.claudeCode.model ? `:${config.claudeCode.model}` : ""}`
+  );
+
+  const getRunMode = (): string => (
+    config.observe
+      ? "observe"
+      : config.confirm
+        ? "confirm"
+        : config.dryRun
+          ? "dry-run"
+          : "autopilot"
+  );
+
   // start TUI (alternate screen buffer) after input is ready
   if (tui) {
     // replay persisted history from previous runs before entering alt screen
@@ -635,7 +732,7 @@ async function main() {
     if (history.length > 0) tui.replayHistory(history);
 
     tui.start(pkg || "dev");
-    tui.updateState({ reasonerName: config.observe ? "observe-only" : config.reasoner });
+    tui.updateState({ reasonerName: getReasonerLabel() });
 
     // welcome banner — plain-English explanation of what's happening
     tui.log("system", "");
@@ -684,6 +781,10 @@ async function main() {
   let totalActionsExecuted = 0;
   let totalActionsFailed = 0;
   let totalPolls = 0;
+  let lastReasonerAt = 0;
+  let lastReasonerDurationMs = 0;
+  let lastReasonerSummary = "";
+  let lastReasonerActionCount = 0;
 
   // graceful shutdown — wrap in .catch so unhandled rejections from
   // reasoner.shutdown() or reasonerConsole.stop() don't get swallowed
@@ -830,8 +931,56 @@ async function main() {
     for (const cmd of commands) {
       if (cmd === "__CMD_STATUS__") {
         const isPausedNow = paused || input.isPaused();
-        const msg = `status: poll #${pollCount}, reasoner=${config.reasoner}, paused=${isPausedNow}, dry-run=${config.dryRun}`;
-        if (tui) tui.log("status", msg); else log(msg);
+        const modeMsg = `status: poll #${pollCount}, mode=${getRunMode()}, reasoner=${getReasonerLabel()}, paused=${isPausedNow}`;
+        const totalsMsg = `lifetime: polls=${totalPolls}, decisions=${totalDecisions}, actions=${totalActionsExecuted} ok / ${totalActionsFailed} failed`;
+        const reasonerMsg = lastReasonerAt > 0
+          ? `reasoner: last cycle ${Math.max(0, Math.floor((Date.now() - lastReasonerAt) / 1000))}s ago, took ${lastReasonerDurationMs}ms, actions=${lastReasonerActionCount}${lastReasonerSummary ? ` (${lastReasonerSummary})` : ""}`
+          : "reasoner: no completed cycles yet";
+        if (tui) {
+          tui.log("status", modeMsg);
+          tui.log("status", totalsMsg);
+          tui.log("status", reasonerMsg);
+        } else {
+          log(modeMsg);
+          log(totalsMsg);
+          log(reasonerMsg);
+        }
+        reasonerConsole.writeSystem(modeMsg);
+        reasonerConsole.writeSystem(totalsMsg);
+        reasonerConsole.writeSystem(reasonerMsg);
+      } else if (cmd.startsWith("__CMD_MODE__")) {
+        const modeArg = cmd.slice("__CMD_MODE__".length).trim().toLowerCase();
+        if (!modeArg) {
+          const msg = `mode: ${getRunMode()} (options: observe, dry-run, confirm, autopilot)`;
+          if (tui) tui.log("system", msg); else log(msg);
+          reasonerConsole.writeSystem(msg);
+          continue;
+        }
+        if (modeArg === "observe") {
+          config.observe = true;
+          config.confirm = false;
+          config.dryRun = false;
+        } else if (modeArg === "dry-run" || modeArg === "dryrun") {
+          config.observe = false;
+          config.confirm = false;
+          config.dryRun = true;
+        } else if (modeArg === "confirm") {
+          config.observe = false;
+          config.confirm = true;
+          config.dryRun = false;
+        } else if (modeArg === "autopilot" || modeArg === "auto") {
+          config.observe = false;
+          config.confirm = false;
+          config.dryRun = false;
+        } else {
+          const msg = `unknown mode: ${modeArg} (use observe, dry-run, confirm, autopilot)`;
+          if (tui) tui.log("error", msg); else log(msg);
+          reasonerConsole.writeSystem(msg);
+          continue;
+        }
+        if (tui) tui.updateState({ reasonerName: getReasonerLabel() });
+        const msg = `mode set: ${getRunMode()} (reasoner=${getReasonerLabel()})`;
+        if (tui) tui.log("system", msg); else log(msg);
         reasonerConsole.writeSystem(msg);
       } else if (cmd === "__CMD_DASHBOARD__") {
         forceDashboard = true;
@@ -861,6 +1010,24 @@ async function main() {
           reasonerConsole.writeSystem(output);
         } catch (err) {
           const msg = `task command error: ${err}`;
+          if (tui) tui.log("error", msg); else log(msg);
+        }
+      } else if (cmd.startsWith("__CMD_QUICKTASK__")) {
+        const goal = cmd.slice("__CMD_QUICKTASK__".length).trim();
+        if (!goal) continue;
+        const sessionId = tui?.getDrilldownSessionId();
+        if (!sessionId) {
+          const msg = "quick task needs a target session: use /view first, then type :<goal>";
+          if (tui) tui.log("system", msg); else log(msg);
+          reasonerConsole.writeSystem(msg);
+          continue;
+        }
+        try {
+          const output = await quickTaskUpdate(sessionId, goal);
+          if (tui) tui.log("system", output); else log(output);
+          reasonerConsole.writeSystem(output);
+        } catch (err) {
+          const msg = `quick task error: ${err}`;
           if (tui) tui.log("error", msg); else log(msg);
         }
       }
@@ -912,10 +1079,24 @@ async function main() {
 
       const activeTaskContext = taskManager ? taskManager.tasks.filter((t) => t.status !== "completed") : undefined;
       if (!reasoner || !executor) throw new Error("reasoner/executor unexpectedly null in normal mode");
-      const { interrupted, decisionsThisTick, actionsOk, actionsFail } = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager, tui);
+      const {
+        interrupted,
+        decisionsThisTick,
+        actionsOk,
+        actionsFail,
+        reasonerDurationMs,
+        reasonerActionCount,
+        reasonerSummary,
+      } = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager, tui);
       totalDecisions += decisionsThisTick;
       totalActionsExecuted += actionsOk;
       totalActionsFailed += actionsFail;
+      if (reasonerDurationMs !== undefined) {
+        lastReasonerAt = Date.now();
+        lastReasonerDurationMs = reasonerDurationMs;
+        lastReasonerActionCount = reasonerActionCount ?? 0;
+        lastReasonerSummary = reasonerSummary ?? "";
+      }
       forceDashboard = false;
 
       // if the reasoner was interrupted, continue to next tick immediately.
@@ -976,7 +1157,15 @@ async function daemonTick(
   taskContext?: TaskState[],
   taskManager?: TaskManager,
   tui?: TUI | null,
-): Promise<{ interrupted: boolean; decisionsThisTick: number; actionsOk: number; actionsFail: number }> {
+): Promise<{
+  interrupted: boolean;
+  decisionsThisTick: number;
+  actionsOk: number;
+  actionsFail: number;
+  reasonerDurationMs?: number;
+  reasonerActionCount?: number;
+  reasonerSummary?: string;
+}> {
   // pre-tick: write IPC state + tick separator in conversation log
   writeState("polling", { pollCount, pollIntervalMs: config.pollIntervalMs, tickStartedAt: Date.now() });
   reasonerConsole.writeTickSeparator(pollCount);
@@ -987,6 +1176,10 @@ async function daemonTick(
     reasonerConsole.writeUserMessage(userMessage);
   }
 
+  let reasonerDurationMs: number | undefined;
+  let reasonerActionCount: number | undefined;
+  let reasonerSummary: string | undefined;
+
   // wrap reasoner with timeout + interrupt support (passes AbortSignal to backends)
   const wrappedReasoner: import("./types.js").Reasoner = {
     init: () => reasoner.init(),
@@ -995,6 +1188,7 @@ async function daemonTick(
       writeState("reasoning", { pollCount, pollIntervalMs: config.pollIntervalMs });
       if (tui) tui.updateState({ phase: "reasoning" }); else process.stdout.write(" | reasoning...");
 
+      const startedAt = Date.now();
       const { result: r, interrupted } = await withTimeoutAndInterrupt(
         (signal) => reasoner.decide(obs, signal),
         90_000,
@@ -1005,6 +1199,9 @@ async function daemonTick(
         reasonerConsole.writeSystem("reasoner interrupted by operator");
         throw new InterruptError();
       }
+      reasonerDurationMs = Date.now() - startedAt;
+      reasonerActionCount = r.actions.length;
+      reasonerSummary = r.actions.map((a) => a.action).join(", ");
       return r;
     },
   };
@@ -1038,7 +1235,15 @@ async function daemonTick(
       config, poller, reasoner: wrappedReasoner, executor, policyStates, pollCount, userMessage, taskContext, beforeExecute,
     });
   } catch (err) {
-    if (err instanceof InterruptError) return { interrupted: true, decisionsThisTick: 0, actionsOk: 0, actionsFail: 0 };
+    if (err instanceof InterruptError) return {
+      interrupted: true,
+      decisionsThisTick: 0,
+      actionsOk: 0,
+      actionsFail: 0,
+      reasonerDurationMs,
+      reasonerActionCount,
+      reasonerSummary,
+    };
     throw err;
   }
 
@@ -1062,7 +1267,15 @@ async function daemonTick(
     tui.setSessionOutputs(outputs);
   }
 
-  const noStats = { interrupted: false, decisionsThisTick: 0, actionsOk: 0, actionsFail: 0 };
+  const noStats = {
+    interrupted: false,
+    decisionsThisTick: 0,
+    actionsOk: 0,
+    actionsFail: 0,
+    reasonerDurationMs,
+    reasonerActionCount,
+    reasonerSummary,
+  };
 
   // skip cases
   if (skippedReason === "no sessions") {
@@ -1178,7 +1391,15 @@ async function daemonTick(
       if (tui) tui.log("+ action", `[dry-run] ${msg}`); else log(`[dry-run] ${msg}`);
       reasonerConsole.writeAction(action.action, "dry-run", true);
     }
-    return { interrupted: false, decisionsThisTick: 1, actionsOk: 0, actionsFail: 0 };
+    return {
+      interrupted: false,
+      decisionsThisTick: 1,
+      actionsOk: 0,
+      actionsFail: 0,
+      reasonerDurationMs,
+      reasonerActionCount,
+      reasonerSummary,
+    };
   }
 
   // execution results — resolve session IDs to titles for display
@@ -1220,7 +1441,15 @@ async function daemonTick(
   }
   const actionsOk = executed.filter((e) => e.success && e.action.action !== "wait").length;
   const actionsFail = executed.filter((e) => !e.success && e.action.action !== "wait").length;
-  return { interrupted: false, decisionsThisTick: result ? 1 : 0, actionsOk, actionsFail };
+  return {
+    interrupted: false,
+    decisionsThisTick: result ? 1 : 0,
+    actionsOk,
+    actionsFail,
+    reasonerDurationMs,
+    reasonerActionCount,
+    reasonerSummary,
+  };
 }
 
 class InterruptError extends Error { constructor() { super("interrupted"); this.name = "InterruptError"; } }

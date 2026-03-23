@@ -980,6 +980,7 @@ describe("toTaskState", () => {
   const valid = {
     repo: "github/adventure",
     sessionTitle: "adventure",
+    sessionMode: "auto",
     tool: "opencode",
     goal: "build it",
     status: "active",
@@ -1021,8 +1022,9 @@ describe("toTaskState", () => {
   });
 
   it("preserves optional fields when present", () => {
-    const result = toTaskState({ ...valid, sessionId: "abc-123", createdAt: 1000, lastProgressAt: 2000, completedAt: 3000 });
+    const result = toTaskState({ ...valid, sessionMode: "existing", sessionId: "abc-123", createdAt: 1000, lastProgressAt: 2000, completedAt: 3000 });
     assert.ok(result);
+    assert.equal(result.sessionMode, "existing");
     assert.equal(result.sessionId, "abc-123");
     assert.equal(result.createdAt, 1000);
     assert.equal(result.lastProgressAt, 2000);
@@ -1030,8 +1032,9 @@ describe("toTaskState", () => {
   });
 
   it("drops optional fields with wrong types", () => {
-    const result = toTaskState({ ...valid, sessionId: 42, createdAt: "not-a-number" });
+    const result = toTaskState({ ...valid, sessionMode: "banana", sessionId: 42, createdAt: "not-a-number" });
     assert.ok(result);
+    assert.equal(result.sessionMode, "auto");
     assert.equal(result.sessionId, undefined);
     assert.equal(result.createdAt, undefined);
   });

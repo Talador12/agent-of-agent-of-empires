@@ -21,6 +21,8 @@ import {
   formatClipText, CLIP_DEFAULT_COUNT,
   loadTuiPrefs, saveTuiPrefs,
   FILTER_PRESETS, resolveFilterPreset,
+  resolveAlias, validateAliasName, MAX_ALIASES, BUILTIN_COMMANDS,
+  validateGroupName, formatGroupBadge, GROUP_ICON, MAX_GROUP_NAME_LEN,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry, SortMode, TuiPrefs } from "./tui.js";
@@ -2642,6 +2644,334 @@ describe("TUI getSessionErrorCounts", () => {
     const tui = new TUI();
     tui.log("error", "no session"); // no sessionId
     assert.equal(tui.getSessionErrorCounts().size, 0);
+  });
+});
+
+// ── resolveAlias ───────────────────────────────────────────────────────────
+
+describe("resolveAlias", () => {
+  it("returns original line when no alias matches", () => {
+    const aliases = new Map<string, string>();
+    assert.equal(resolveAlias("/help", aliases), "/help");
+  });
+
+  it("expands a simple alias", () => {
+    const aliases = new Map([[ "/e", "/filter errors" ]]);
+    assert.equal(resolveAlias("/e", aliases), "/filter errors");
+  });
+
+  it("appends trailing args from original line", () => {
+    const aliases = new Map([[ "/n", "/note" ]]);
+    assert.equal(resolveAlias("/n 1 hello", aliases), "/note 1 hello");
+  });
+
+  it("does not expand non-slash text", () => {
+    const aliases = new Map([[ "/x", "/who" ]]);
+    assert.equal(resolveAlias("hello", aliases), "hello");
+  });
+
+  it("matches first word only", () => {
+    const aliases = new Map([[ "/x", "/who" ]]);
+    assert.equal(resolveAlias("/x extra", aliases), "/who extra");
+  });
+
+  it("empty alias map returns original", () => {
+    assert.equal(resolveAlias("/foo bar", new Map()), "/foo bar");
+  });
+});
+
+// ── validateAliasName ──────────────────────────────────────────────────────
+
+describe("validateAliasName", () => {
+  it("accepts valid alias name", () => {
+    assert.equal(validateAliasName("/e"), null);
+  });
+
+  it("accepts multi-char alias", () => {
+    assert.equal(validateAliasName("/my-filter"), null);
+  });
+
+  it("rejects name without slash", () => {
+    assert.ok(validateAliasName("foo") !== null);
+  });
+
+  it("rejects single slash", () => {
+    assert.ok(validateAliasName("/") !== null);
+  });
+
+  it("rejects built-in command /help", () => {
+    const err = validateAliasName("/help");
+    assert.ok(err !== null);
+    assert.ok(err!.includes("built-in"));
+  });
+
+  it("rejects built-in command /alias", () => {
+    assert.ok(validateAliasName("/alias") !== null);
+  });
+
+  it("rejects built-in command /filter", () => {
+    assert.ok(validateAliasName("/filter") !== null);
+  });
+
+  it("rejects uppercase characters", () => {
+    assert.ok(validateAliasName("/Foo") !== null);
+  });
+
+  it("rejects special characters", () => {
+    assert.ok(validateAliasName("/foo!") !== null);
+  });
+
+  it("accepts numeric alias", () => {
+    assert.equal(validateAliasName("/1"), null);
+  });
+});
+
+// ── MAX_ALIASES ────────────────────────────────────────────────────────────
+
+describe("MAX_ALIASES", () => {
+  it("is 50", () => {
+    assert.equal(MAX_ALIASES, 50);
+  });
+});
+
+// ── BUILTIN_COMMANDS ───────────────────────────────────────────────────────
+
+describe("BUILTIN_COMMANDS", () => {
+  it("contains /help", () => {
+    assert.ok(BUILTIN_COMMANDS.has("/help"));
+  });
+
+  it("contains /alias", () => {
+    assert.ok(BUILTIN_COMMANDS.has("/alias"));
+  });
+
+  it("contains /group", () => {
+    assert.ok(BUILTIN_COMMANDS.has("/group"));
+  });
+
+  it("contains /groups", () => {
+    assert.ok(BUILTIN_COMMANDS.has("/groups"));
+  });
+
+  it("contains /group-filter", () => {
+    assert.ok(BUILTIN_COMMANDS.has("/group-filter"));
+  });
+
+  it("does not contain user aliases", () => {
+    assert.ok(!BUILTIN_COMMANDS.has("/e"));
+  });
+
+  it("has at least 30 commands", () => {
+    assert.ok(BUILTIN_COMMANDS.size >= 30);
+  });
+});
+
+// ── validateGroupName ──────────────────────────────────────────────────────
+
+describe("validateGroupName", () => {
+  it("accepts simple lowercase name", () => {
+    assert.equal(validateGroupName("frontend"), null);
+  });
+
+  it("accepts name with dash", () => {
+    assert.equal(validateGroupName("my-group"), null);
+  });
+
+  it("accepts name with underscore", () => {
+    assert.equal(validateGroupName("my_group"), null);
+  });
+
+  it("accepts alphanumeric", () => {
+    assert.equal(validateGroupName("group1"), null);
+  });
+
+  it("rejects empty name", () => {
+    assert.ok(validateGroupName("") !== null);
+  });
+
+  it("rejects whitespace only", () => {
+    assert.ok(validateGroupName("   ") !== null);
+  });
+
+  it("rejects name too long", () => {
+    assert.ok(validateGroupName("a".repeat(17)) !== null);
+  });
+
+  it("accepts name at max length", () => {
+    assert.equal(validateGroupName("a".repeat(16)), null);
+  });
+
+  it("rejects special characters", () => {
+    assert.ok(validateGroupName("group!") !== null);
+  });
+
+  it("rejects spaces in name", () => {
+    assert.ok(validateGroupName("my group") !== null);
+  });
+});
+
+// ── MAX_GROUP_NAME_LEN ─────────────────────────────────────────────────────
+
+describe("MAX_GROUP_NAME_LEN", () => {
+  it("is 16", () => {
+    assert.equal(MAX_GROUP_NAME_LEN, 16);
+  });
+});
+
+// ── GROUP_ICON ─────────────────────────────────────────────────────────────
+
+describe("GROUP_ICON", () => {
+  it("is ⊹", () => {
+    assert.equal(GROUP_ICON, "⊹");
+  });
+});
+
+// ── formatGroupBadge ───────────────────────────────────────────────────────
+
+describe("formatGroupBadge", () => {
+  it("includes group name", () => {
+    const badge = stripAnsi(formatGroupBadge("frontend"));
+    assert.ok(badge.includes("frontend"));
+  });
+
+  it("includes GROUP_ICON", () => {
+    const badge = stripAnsi(formatGroupBadge("frontend"));
+    assert.ok(badge.includes(GROUP_ICON));
+  });
+
+  it("returns ANSI-colored string", () => {
+    const badge = formatGroupBadge("backend");
+    assert.ok(badge.includes("\x1b["));
+  });
+});
+
+// ── TUI group state ────────────────────────────────────────────────────────
+
+function makeSessionsForGroup(): DaemonSessionState[] {
+  return [
+    { id: "s1", title: "Alpha", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s2", title: "Bravo", status: "working", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s3", title: "Charlie", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+  ];
+}
+
+describe("TUI group state", () => {
+  it("starts with no groups", () => {
+    const tui = new TUI();
+    assert.equal(tui.getGroupCount(), 0);
+  });
+
+  it("setGroup by index assigns group", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForGroup() });
+    const ok = tui.setGroup(1, "frontend");
+    assert.equal(ok, true);
+    assert.equal(tui.getGroup("s1"), "frontend");
+  });
+
+  it("setGroup by name assigns group", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForGroup() });
+    const ok = tui.setGroup("bravo", "backend");
+    assert.equal(ok, true);
+    assert.equal(tui.getGroup("s2"), "backend");
+  });
+
+  it("setGroup normalizes to lowercase", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForGroup() });
+    tui.setGroup(1, "Frontend");
+    assert.equal(tui.getGroup("s1"), "frontend");
+  });
+
+  it("setGroup with empty string clears group", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForGroup() });
+    tui.setGroup(1, "frontend");
+    tui.setGroup(1, "");
+    assert.equal(tui.getGroup("s1"), undefined);
+  });
+
+  it("setGroup with null clears group", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForGroup() });
+    tui.setGroup(1, "frontend");
+    tui.setGroup(1, null);
+    assert.equal(tui.getGroup("s1"), undefined);
+  });
+
+  it("setGroup returns false for unknown session", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForGroup() });
+    const ok = tui.setGroup("zzz", "frontend");
+    assert.equal(ok, false);
+  });
+
+  it("getGroupCount returns correct count", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForGroup() });
+    tui.setGroup(1, "frontend");
+    tui.setGroup(2, "backend");
+    assert.equal(tui.getGroupCount(), 2);
+  });
+
+  it("getAllGroups returns all groups", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForGroup() });
+    tui.setGroup(1, "frontend");
+    tui.setGroup(2, "backend");
+    const all = tui.getAllGroups();
+    assert.equal(all.get("s1"), "frontend");
+    assert.equal(all.get("s2"), "backend");
+  });
+
+  it("restoreGroups bulk-sets groups", () => {
+    const tui = new TUI();
+    tui.restoreGroups({ "s1": "frontend", "s2": "backend" });
+    assert.equal(tui.getGroup("s1"), "frontend");
+    assert.equal(tui.getGroup("s2"), "backend");
+    assert.equal(tui.getGroupCount(), 2);
+  });
+
+  it("getGroupFilter starts null", () => {
+    const tui = new TUI();
+    assert.equal(tui.getGroupFilter(), null);
+  });
+
+  it("setGroupFilter sets filter", () => {
+    const tui = new TUI();
+    tui.setGroupFilter("frontend");
+    assert.equal(tui.getGroupFilter(), "frontend");
+  });
+
+  it("setGroupFilter normalizes to lowercase", () => {
+    const tui = new TUI();
+    tui.setGroupFilter("Frontend");
+    assert.equal(tui.getGroupFilter(), "frontend");
+  });
+
+  it("setGroupFilter null clears filter", () => {
+    const tui = new TUI();
+    tui.setGroupFilter("frontend");
+    tui.setGroupFilter(null);
+    assert.equal(tui.getGroupFilter(), null);
+  });
+
+  it("setGroupFilter empty string clears filter", () => {
+    const tui = new TUI();
+    tui.setGroupFilter("frontend");
+    tui.setGroupFilter("");
+    assert.equal(tui.getGroupFilter(), null);
+  });
+
+  it("is safe when TUI is not active", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessionsForGroup() });
+    assert.doesNotThrow(() => {
+      tui.setGroup(1, "frontend");
+      tui.setGroupFilter("frontend");
+      tui.restoreGroups({ "x": "g" });
+    });
   });
 });
 

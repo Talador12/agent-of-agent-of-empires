@@ -852,3 +852,151 @@ describe("InputReader onClip", () => {
     assert.equal(b, 0);
   });
 });
+
+// ── InputReader onAliasChange ──────────────────────────────────────────────
+
+describe("InputReader onAliasChange", () => {
+  it("registers handler without throwing", () => {
+    const reader = new InputReader();
+    let called = 0;
+    reader.onAliasChange(() => called++);
+    assert.equal(called, 0);
+  });
+
+  it("is safe without registering handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => reader.drain());
+  });
+
+  it("handler can be replaced", () => {
+    const reader = new InputReader();
+    let a = 0;
+    let b = 0;
+    reader.onAliasChange(() => a++);
+    reader.onAliasChange(() => b++);
+    assert.equal(a, 0);
+    assert.equal(b, 0);
+  });
+});
+
+// ── InputReader alias state ────────────────────────────────────────────────
+
+describe("InputReader alias state", () => {
+  it("starts with empty aliases", () => {
+    const reader = new InputReader();
+    assert.deepStrictEqual(reader.getAliases(), {});
+  });
+
+  it("setAliases populates from plain object", () => {
+    const reader = new InputReader();
+    reader.setAliases({ "/e": "/filter errors", "/w": "/who" });
+    const aliases = reader.getAliases();
+    assert.equal(aliases["/e"], "/filter errors");
+    assert.equal(aliases["/w"], "/who");
+  });
+
+  it("setAliases replaces previous aliases", () => {
+    const reader = new InputReader();
+    reader.setAliases({ "/x": "/help" });
+    reader.setAliases({ "/y": "/who" });
+    const aliases = reader.getAliases();
+    assert.equal(aliases["/y"], "/who");
+    assert.equal(aliases["/x"], undefined);
+  });
+
+  it("getAliases returns plain object", () => {
+    const reader = new InputReader();
+    reader.setAliases({ "/e": "/filter errors" });
+    const result = reader.getAliases();
+    assert.equal(typeof result, "object");
+    assert.ok(!Array.isArray(result));
+  });
+});
+
+// ── onGroup / onGroups / onGroupFilter ────────────────────────────────────
+
+describe("onGroup", () => {
+  it("registers and calls group handler", () => {
+    const reader = new InputReader();
+    let calledTarget = "";
+    let calledGroup = "";
+    reader.onGroup((t, g) => { calledTarget = t; calledGroup = g; });
+    // simulate direct call (handler registration works)
+    reader["groupHandler"]!("alpha", "frontend");
+    assert.equal(calledTarget, "alpha");
+    assert.equal(calledGroup, "frontend");
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => {
+      // no handler registered — should not throw
+      reader["groupHandler"]?.("alpha", "frontend");
+    });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onGroup(() => { calls++; });
+    reader.onGroup(() => { calls += 10; });
+    reader["groupHandler"]!("x", "y");
+    assert.equal(calls, 10);
+  });
+});
+
+describe("onGroups", () => {
+  it("registers and calls groups handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onGroups(() => { called = true; });
+    reader["groupsHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["groupsHandler"]?.(); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onGroups(() => { calls++; });
+    reader.onGroups(() => { calls += 10; });
+    reader["groupsHandler"]!();
+    assert.equal(calls, 10);
+  });
+});
+
+describe("onGroupFilter", () => {
+  it("registers and calls group filter handler", () => {
+    const reader = new InputReader();
+    let received: string | null = "unset";
+    reader.onGroupFilter((g) => { received = g; });
+    reader["groupFilterHandler"]!("frontend");
+    assert.equal(received, "frontend");
+  });
+
+  it("passes null for clear", () => {
+    const reader = new InputReader();
+    let received: string | null = "unset";
+    reader.onGroupFilter((g) => { received = g; });
+    reader["groupFilterHandler"]!(null);
+    assert.equal(received, null);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["groupFilterHandler"]?.(null); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onGroupFilter(() => { calls++; });
+    reader.onGroupFilter(() => { calls += 10; });
+    reader["groupFilterHandler"]!(null);
+    assert.equal(calls, 10);
+  });
+});

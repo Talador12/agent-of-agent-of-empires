@@ -69,6 +69,7 @@ function makeTask(overrides: Partial<TaskState> = {}): TaskState {
   return {
     repo: "github/test-project",
     sessionTitle: "test-project",
+    sessionMode: "auto",
     tool: "opencode",
     goal: "Continue the roadmap",
     status: "pending",
@@ -141,11 +142,17 @@ describe("formatTaskTable", () => {
     assert.ok(result.includes("github/foo"));
   });
 
-  it("renders header with REPO STATUS SESSION PROGRESS", () => {
+  it("renders header with REPO STATUS MODE SESSION PROGRESS", () => {
     const result = formatTaskTable([makeTask()]);
     assert.ok(result.includes("REPO"));
     assert.ok(result.includes("STATUS"));
+    assert.ok(result.includes("MODE"));
     assert.ok(result.includes("SESSION"));
     assert.ok(result.includes("PROGRESS"));
+  });
+
+  it("shows context line with session title and repo", () => {
+    const result = formatTaskTable([makeTask({ sessionTitle: "adventure", repo: "github/adventure" })]);
+    assert.ok(result.includes("context: adventure @ github/adventure"));
   });
 });

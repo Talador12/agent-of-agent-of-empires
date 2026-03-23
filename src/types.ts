@@ -162,6 +162,7 @@ export interface DaemonSessionState {
   status: AoeSessionStatus;
   currentTask?: string; // last send_input text sent to this session
   lastActivity?: string; // last non-empty line of output
+  contextTokens?: string; // latest parsed context usage (e.g. "137,918 tokens")
   todoSummary?: string; // formatted OpenCode-style TODO list parsed from pane output
   userActive?: boolean; // true if a human user is interacting with this tmux pane
 }
@@ -182,9 +183,13 @@ export interface DaemonState {
 
 // ── Task system ─────────────────────────────────────────────────────────────
 
+export type TaskSessionMode = "auto" | "existing" | "new";
+
 // user-defined task: "work on this repo"
 export interface TaskDefinition {
   repo: string;          // relative path from cwd (e.g. "github/adventure")
+  sessionTitle?: string; // optional AoE session title to target (default: derive from repo)
+  sessionMode?: TaskSessionMode; // auto=link-or-create, existing=link-only, new=create-only
   tool?: string;         // AoE tool name (default: "opencode")
   goal?: string;         // what to accomplish (default: read from claude.md roadmap)
 }
@@ -203,6 +208,7 @@ const VALID_TASK_STATUSES = new Set<TaskStatus>(["pending", "active", "completed
 export interface TaskState {
   repo: string;
   sessionTitle: string;
+  sessionMode: TaskSessionMode;
   tool: string;
   goal: string;
   status: TaskStatus;
@@ -226,6 +232,7 @@ export function toTaskState(raw: unknown): TaskState | null {
   return {
     repo: r.repo,
     sessionTitle: r.sessionTitle,
+    sessionMode: r.sessionMode === "existing" || r.sessionMode === "new" ? r.sessionMode : "auto",
     tool: r.tool,
     goal: r.goal,
     status: r.status as TaskStatus,

@@ -19,7 +19,7 @@
  * Run: npm run integration-test
  */
 
-import { execFile as execFileCb } from "node:child_process";
+import { execFile as execFileCb, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -35,6 +35,7 @@ import {
 const TEST_DIR = "/tmp/aoaoe-itest";
 const SESSION_1_TITLE = "aoaoe-itest-basic";
 const SESSION_2_TITLE = "aoaoe-itest-prompt";
+const TASK_WORKSPACE = join(TEST_DIR, "task-workspace");
 
 // expected output files
 const S1_FILE = "hello.txt";
@@ -43,7 +44,7 @@ const S2_FILE = "subdir/prompt-test.txt";
 const S2_CONTENT = "Permission test passed";
 
 // timeouts
-const SHELL_PROMPT_TIMEOUT_MS = 30_000; // max wait for AoE shell prompt
+const SHELL_PROMPT_TIMEOUT_MS = 45_000; // max wait for AoE shell prompt
 const OPENCODE_LOAD_WAIT_MS = 15_000;   // wait for opencode TUI after typing "opencode"
 const TASK_TIMEOUT_MS = 180_000;         // 3 min max for both tasks to complete
 const POLL_MS = 3_000;                   // file-existence check interval (prompts handled by watcher)
@@ -60,9 +61,18 @@ interface ExecResult {
   exitCode: number;
 }
 
-function exec(cmd: string, args: string[], timeoutMs = 30_000): Promise<ExecResult> {
+interface ExecOpts {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+function exec(cmd: string, args: string[], timeoutMs = 30_000, opts?: ExecOpts): Promise<ExecResult> {
   return new Promise((resolve) => {
-    execFileCb(cmd, args, { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFileCb(
+      cmd,
+      args,
+      { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024, cwd: opts?.cwd, env: opts?.env },
+      (err, stdout, stderr) => {
       if (err) {
         const e = err as { code?: number | string };
         const exitCode = typeof e.code === "number" ? e.code : 1;
@@ -70,6 +80,34 @@ function exec(cmd: string, args: string[], timeoutMs = 30_000): Promise<ExecResu
         return;
       }
       resolve({ stdout: stdout ?? "", stderr: stderr ?? "", exitCode: 0 });
+      }
+    );
+  });
+}
+
+async function runDaemonBriefly(cwd: string, env: NodeJS.ProcessEnv, ms = 4_000): Promise<number> {
+  return new Promise((resolve) => {
+    const child = spawn("node", [join(process.cwd(), "dist/index.js"), "--observe", "--poll-interval", "2000"], {
+      cwd,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let exited = false;
+    const done = (code: number | null) => {
+      if (exited) return;
+      exited = true;
+      resolve(code ?? 1);
+    };
+    const timer = setTimeout(() => {
+      child.kill("SIGINT");
+    }, ms);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      done(code);
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      done(1);
     });
   });
 }
@@ -83,10 +121,10 @@ function pass(msg: string) {
   console.log(`  \u2705 ${msg}`);
 }
 
-// check if the last non-empty line is an AoE shell prompt (λ ... →)
+// check if AoE shell prompt (λ ... →) appears anywhere in the capture
 function hasShellPrompt(output: string): boolean {
-  const last = lastNonEmptyLine(output);
-  return last.includes(LAMBDA) && last.includes(ARROW);
+  const lines = output.split("\n").filter((l) => l.trim());
+  return lines.some((line) => line.includes(LAMBDA) && line.includes(ARROW));
 }
 
 async function captureTmux(tmuxName: string): Promise<string> {
@@ -242,6 +280,79 @@ async function cleanup(titles: string[], sessions: TestSession[]): Promise<void>
   pass("Cleanup complete");
 }
 
+async function verifyTaskImportAndSync(sessions: TestSession[]): Promise<void> {
+  log("Verifying task import/sync across daemon restarts...");
+  mkdirSync(TASK_WORKSPACE, { recursive: true });
+
+  const taskFile = join(TASK_WORKSPACE, "aoaoe.tasks.json");
+  writeFileSync(taskFile, "[]\n");
+  const homeDir = process.env.HOME || "";
+  const stateFile = homeDir ? join(homeDir, ".aoaoe", "task-state.json") : "";
+  const hadStateBackup = stateFile && existsSync(stateFile);
+  const stateBackup = hadStateBackup ? readFileSync(stateFile, "utf-8") : "";
+  const cliBase = [join(process.cwd(), "dist/index.js")];
+  try {
+    const newTask = await exec(
+      "node",
+      [...cliBase, "task", "new", "itest-existing", sessions[0].dir, "--mode", "existing"],
+      30_000,
+      { cwd: TASK_WORKSPACE }
+    );
+    if (newTask.exitCode !== 0) {
+      throw new Error(`task new failed in sync test: ${newTask.stderr || newTask.stdout}`);
+    }
+
+    const editTask = await exec(
+      "node",
+      [...cliBase, "task", "edit", "itest-existing", "Integration sync updated goal"],
+      30_000,
+      { cwd: TASK_WORKSPACE }
+    );
+    if (editTask.exitCode !== 0) {
+      throw new Error(`task edit failed in sync test: ${editTask.stderr || editTask.stdout}`);
+    }
+
+    const firstRunExit = await runDaemonBriefly(TASK_WORKSPACE, process.env, 4_500);
+    if (firstRunExit !== 0) {
+      throw new Error(`daemon first startup failed in sync test (exit ${firstRunExit})`);
+    }
+
+    const secondRunExit = await runDaemonBriefly(TASK_WORKSPACE, process.env, 3_500);
+    if (secondRunExit !== 0) {
+      throw new Error(`daemon second startup failed in sync test (exit ${secondRunExit})`);
+    }
+
+    const defs = JSON.parse(readFileSync(taskFile, "utf-8")) as Array<{
+      sessionTitle?: string;
+      sessionMode?: string;
+      goal?: string;
+    }>;
+
+    const hasUpdatedGoal = defs.some((d) => d.sessionTitle === "itest-existing" && d.goal === "Integration sync updated goal");
+    if (!hasUpdatedGoal) throw new Error("task sync test: edited goal not persisted to aoaoe.tasks.json");
+
+    const s1Count = defs.filter((d) => d.sessionTitle === SESSION_1_TITLE).length;
+    const s2Count = defs.filter((d) => d.sessionTitle === SESSION_2_TITLE).length;
+    if (s1Count !== 1 || s2Count !== 1) {
+      throw new Error(`task import test failed: expected one imported entry per session, got ${SESSION_1_TITLE}=${s1Count}, ${SESSION_2_TITLE}=${s2Count}`);
+    }
+
+    const importedModesOk = defs
+      .filter((d) => d.sessionTitle === SESSION_1_TITLE || d.sessionTitle === SESSION_2_TITLE)
+      .every((d) => d.sessionMode === "existing");
+    if (!importedModesOk) {
+      throw new Error("task import test failed: imported sessions should be sessionMode=existing");
+    }
+
+    pass("Task import/sync verified: updates persisted, sessions imported once, reload is stable");
+  } finally {
+    if (stateFile) {
+      if (hadStateBackup) writeFileSync(stateFile, stateBackup);
+      else rmSync(stateFile, { force: true });
+    }
+  }
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -255,6 +366,24 @@ async function main() {
   const sessionTitles = [SESSION_1_TITLE, SESSION_2_TITLE];
   let sessions: TestSession[] = [];
   let exitCode = 0;
+  let cleanedUp = false;
+
+  const runCleanup = async (reason?: string): Promise<void> => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (reason) {
+      log("");
+      log(`Received ${reason}; running emergency cleanup...`);
+    }
+    await cleanup(sessionTitles, sessions);
+  };
+
+  process.once("SIGINT", () => {
+    void runCleanup("SIGINT").finally(() => process.exit(130));
+  });
+  process.once("SIGTERM", () => {
+    void runCleanup("SIGTERM").finally(() => process.exit(143));
+  });
 
   try {
     // ── Phase 0: Prerequisites ────────────────────────────────────────────
@@ -292,7 +421,10 @@ async function main() {
     }
     pass(`Sessions created: ${s1.title} (${s1.id.slice(0, 8)}), ${s2.title} (${s2.id.slice(0, 8)})`);
 
-    // ── Phase 2: Start opencode in each pane ──────────────────────────────
+    // ── Phase 2: Task import/sync integration checks ──────────────────────
+    await verifyTaskImportAndSync(sessions);
+
+    // ── Phase 3: Start opencode in each pane ──────────────────────────────
     // AoE opens a shell (not the tool). We must wait for the shell prompt,
     // then type "opencode" to launch it. This takes ~11s for the shell to
     // initialize (SSH agent, banner) plus ~15s for opencode to load.
@@ -316,7 +448,7 @@ async function main() {
     log(`  ${s2.title}: opencode running`);
     pass("opencode running in both panes");
 
-    // ── Phase 3: Start prompt watchers + send tasks ───────────────────────
+    // ── Phase 4: Start prompt watchers + send tasks ───────────────────────
     // Attach pipe-pane watchers BEFORE sending tasks so they're ready to
     // catch the very first permission prompt.
     log("Starting pipe-pane prompt watchers...");
@@ -336,7 +468,7 @@ async function main() {
     log(`  -> ${s2.title}: "${task2}"`);
     if (!await sendKeys(s2.tmuxName, task2)) throw new Error(`send-keys failed for ${s2.title}`);
 
-    // ── Phase 4: Wait for task completion ─────────────────────────────────
+    // ── Phase 5: Wait for task completion ─────────────────────────────────
     // Prompt clearing is fully handled by the pipe-pane watchers.
     // This loop only checks for file creation (success) and crashes (early fail).
     log("");
@@ -392,7 +524,7 @@ async function main() {
       if (allDone) break;
     }
 
-    // ── Phase 5: Results ──────────────────────────────────────────────────
+    // ── Phase 6: Results ──────────────────────────────────────────────────
     log("");
     log("Results");
     log("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
@@ -441,8 +573,11 @@ async function main() {
     console.error(`\n  error: ${err}`);
     exitCode = 1;
   } finally {
-    log("");
-    await cleanup(sessionTitles, sessions);
+    if (!cleanedUp) {
+      log("");
+      await cleanup(sessionTitles, sessions);
+      cleanedUp = true;
+    }
   }
 
   const totalSec = ((Date.now() - startTime) / 1000).toFixed(1);

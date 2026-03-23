@@ -6,12 +6,20 @@ import { join, resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import { exec } from "./shell.js";
 import { toTaskState, toAoeSessionList } from "./types.js";
-import type { TaskDefinition, TaskState, TaskProgress, TaskStatus } from "./types.js";
+import type { TaskDefinition, TaskState, TaskProgress, TaskStatus, TaskSessionMode } from "./types.js";
 import { RESET, BOLD, DIM, GREEN, YELLOW, RED, CYAN } from "./colors.js";
 
 const AOAOE_DIR = join(homedir(), ".aoaoe");
 const STATE_FILE = join(AOAOE_DIR, "task-state.json");
 const TASK_FILE_NAMES = ["aoaoe.tasks.json", ".aoaoe.tasks.json"];
+
+function resolveTaskFilePath(basePath: string): string {
+  for (const name of TASK_FILE_NAMES) {
+    const p = resolve(basePath, name);
+    if (existsSync(p)) return p;
+  }
+  return resolve(basePath, TASK_FILE_NAMES[0]);
+}
 
 // ── Task definition loading ─────────────────────────────────────────────────
 
@@ -57,6 +65,79 @@ export function loadTaskDefinitions(basePath: string): TaskDefinition[] {
   return [];
 }
 
+export function saveTaskDefinitions(basePath: string, defs: TaskDefinition[]): void {
+  const taskFile = resolveTaskFilePath(basePath);
+  try {
+    writeFileSync(taskFile, JSON.stringify(defs, null, 2) + "\n");
+  } catch (e) {
+    console.error(`warning: failed to save task definitions to ${taskFile}: ${e}`);
+  }
+}
+
+function taskStateToDefinition(t: TaskState): TaskDefinition {
+  return {
+    repo: t.repo,
+    sessionTitle: t.sessionTitle,
+    sessionMode: t.sessionMode,
+    tool: t.tool,
+    goal: t.goal,
+  };
+}
+
+export function syncTaskDefinitionsFromState(basePath: string, states: Map<string, TaskState>): void {
+  const defs = [...states.values()].map(taskStateToDefinition);
+  saveTaskDefinitions(basePath, defs);
+}
+
+export async function importAoeSessionsToTasks(basePath: string): Promise<{ imported: string[] }> {
+  const imported: string[] = [];
+  const result = await exec("aoe", ["list", "--json"]);
+  if (result.exitCode !== 0) return { imported };
+
+  let sessions: Array<{ id: string; title: string; path: string; tool?: string; status?: string; created_at?: string }> = [];
+  try {
+    sessions = JSON.parse(result.stdout);
+  } catch {
+    return { imported };
+  }
+
+  const states = loadTaskState();
+  for (const s of sessions) {
+    const alreadyTracked = [...states.values()].some(
+      (t) => t.sessionTitle.toLowerCase() === s.title.toLowerCase()
+    );
+    if (alreadyTracked) continue;
+
+    const repoAbs = resolve(s.path || basePath);
+    const repo = repoAbs.startsWith(basePath) ? repoAbs.slice(basePath.length + 1) : repoAbs;
+    const status: TaskStatus = s.status === "stopped"
+      ? "paused"
+      : s.status === "error"
+        ? "failed"
+        : "active";
+
+    states.set(repo, {
+      repo,
+      sessionTitle: s.title,
+      sessionMode: "existing",
+      tool: s.tool || "opencode",
+      goal: "Continue the roadmap in claude.md",
+      status,
+      sessionId: s.id,
+      createdAt: s.created_at ? new Date(s.created_at).getTime() : Date.now(),
+      progress: [],
+    });
+    imported.push(s.title);
+  }
+
+  if (imported.length > 0) {
+    saveTaskState(states);
+    syncTaskDefinitionsFromState(basePath, states);
+  }
+
+  return { imported };
+}
+
 function validateDefinitions(raw: unknown[], basePath: string): TaskDefinition[] {
   const tasks: TaskDefinition[] = [];
   for (const item of raw) {
@@ -74,6 +155,8 @@ function validateDefinitions(raw: unknown[], basePath: string): TaskDefinition[]
     }
     tasks.push({
       repo: t.repo,
+      sessionTitle: typeof t.sessionTitle === "string" ? t.sessionTitle : undefined,
+      sessionMode: parseSessionMode(t.sessionMode),
       tool: typeof t.tool === "string" ? t.tool : "opencode",
       goal: typeof t.goal === "string" ? t.goal : undefined,
     });
@@ -137,7 +220,8 @@ export class TaskManager {
       if (!this.states.has(def.repo)) {
         this.states.set(def.repo, {
           repo: def.repo,
-          sessionTitle: deriveTitle(def.repo),
+          sessionTitle: def.sessionTitle || deriveTitle(def.repo),
+          sessionMode: def.sessionMode ?? "auto",
           tool: def.tool ?? "opencode",
           goal: def.goal ?? "Continue the roadmap in claude.md",
           status: "pending",
@@ -149,6 +233,8 @@ export class TaskManager {
         if (existing) {
           if (def.goal) existing.goal = def.goal;
           if (def.tool) existing.tool = def.tool;
+          if (def.sessionTitle) existing.sessionTitle = def.sessionTitle;
+          if (def.sessionMode) existing.sessionMode = def.sessionMode;
         }
       }
     }
@@ -206,7 +292,7 @@ export class TaskManager {
           if (task.status === "pending") task.status = "active";
           linked.push(task.sessionTitle);
         }
-      } else if (task.status === "pending" || task.status === "active" || task.status === "paused") {
+      } else if (task.sessionMode !== "existing" && (task.status === "pending" || task.status === "active" || task.status === "paused")) {
         // create new session
         const repoPath = resolve(this.basePath, task.repo);
         const result = await exec("aoe", [
@@ -234,6 +320,10 @@ export class TaskManager {
         } else {
           log(`failed to create session for ${task.repo}: ${result.stderr}`);
         }
+      } else if (task.sessionMode === "existing") {
+        task.sessionId = undefined;
+        if (task.status === "active") task.status = "pending";
+        log(`waiting for existing session '${task.sessionTitle}' to appear (mode=existing)`);
       }
     }
 
@@ -291,6 +381,14 @@ export function deriveTitle(repo: string): string {
   return basename(repo).toLowerCase().replace(/[^a-z0-9_-]/g, "-");
 }
 
+function parseSessionMode(raw: unknown): TaskSessionMode | undefined {
+  if (raw === "auto" || raw === "existing" || raw === "new") return raw;
+  if (raw !== undefined) {
+    console.error(`warning: invalid sessionMode '${String(raw)}' (use auto|existing|new), defaulting to auto`);
+  }
+  return undefined;
+}
+
 function log(msg: string): void {
   console.error(`[tasks] ${msg}`);
 }
@@ -308,12 +406,13 @@ export function formatTaskTable(states: Map<string, TaskState> | TaskState[]): s
     s === "active" ? GREEN : s === "completed" ? CYAN : s === "failed" ? RED : s === "paused" ? YELLOW : DIM;
 
   // header
-  lines.push(`  ${BOLD}${"REPO".padEnd(28)} ${"STATUS".padEnd(12)} ${"SESSION".padEnd(10)} PROGRESS${RESET}`);
-  lines.push(`  ${"-".repeat(78)}`);
+  lines.push(`  ${BOLD}${"REPO".padEnd(28)} ${"STATUS".padEnd(12)} ${"MODE".padEnd(10)} ${"SESSION".padEnd(10)} PROGRESS${RESET}`);
+  lines.push(`  ${"-".repeat(90)}`);
 
   for (const t of tasks) {
     const repo = t.repo.length > 27 ? t.repo.slice(-27) : t.repo.padEnd(28);
     const status = `${statusColor(t.status)}${t.status.padEnd(12)}${RESET}`;
+    const mode = (t.sessionMode ?? "auto").padEnd(10);
     const session = t.sessionId ? t.sessionId.slice(0, 8).padEnd(10) : `${DIM}-${RESET}`.padEnd(10 + 9); // +9 for ANSI codes
     const lastProgress = t.progress.length > 0 ? t.progress[t.progress.length - 1] : null;
     let progressStr = `${DIM}(not started)${RESET}`;
@@ -324,7 +423,8 @@ export function formatTaskTable(states: Map<string, TaskState> | TaskState[]): s
         : lastProgress.summary;
       progressStr = `${summary} ${DIM}(${ago})${RESET}`;
     }
-    lines.push(`  ${repo} ${status} ${session} ${progressStr}`);
+    lines.push(`  ${repo} ${status} ${mode} ${session} ${progressStr}`);
+    lines.push(`  ${DIM}  context: ${t.sessionTitle} @ ${t.repo}${RESET}`);
 
     // show goal on next line if active
     if (t.status === "active" || t.status === "pending") {
