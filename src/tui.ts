@@ -144,7 +144,7 @@ const PIN_ICON = "▲";
  * Each token: "{idx}{pin?}{mute?}{dot}{name}{health?}" — e.g. "1▲●Alpha" for pinned, "2◌●Bravo" for muted.
  * Returns array of formatted row strings (one per display row).
  */
-function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pinnedIds?: Set<string>, mutedIds?: Set<string>, noteIds?: Set<string>, healthScores?: Map<string, number>): string[] {
+function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pinnedIds?: Set<string>, mutedIds?: Set<string>, noteIds?: Set<string>, healthScores?: Map<string, number>, activityRates?: Map<string, number>): string[] {
   if (sessions.length === 0) return [`${DIM}no agents connected${RESET}`];
 
   const tokens: string[] = [];
@@ -166,8 +166,12 @@ function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pin
     const healthGlyph = (score !== undefined && score < HEALTH_GOOD)
       ? `${score < HEALTH_WARN ? ROSE : AMBER}${HEALTH_ICON}${RESET}` : "";
     const healthWidth = (score !== undefined && score < HEALTH_GOOD) ? 1 : 0;
-    tokens.push(`${SLATE}${idx}${RESET}${pin}${muteIcon}${noteIcon}${dot}${BOLD}${name}${RESET}${healthGlyph}`);
-    widths.push(idx.length + (pinned ? 1 : 0) + (muted ? 1 : 0) + (noted ? 1 : 0) + 1 + name.length + healthWidth);
+    // activity rate badge: "3/m" when rate > 0
+    const rate = activityRates?.get(s.id) ?? 0;
+    const rateBadge = formatActivityRateBadge(rate);
+    const rateVisible = rateBadge ? stripAnsiForLen(rateBadge) : 0;
+    tokens.push(`${SLATE}${idx}${RESET}${pin}${muteIcon}${noteIcon}${dot}${BOLD}${name}${RESET}${healthGlyph}${rateBadge}`);
+    widths.push(idx.length + (pinned ? 1 : 0) + (muted ? 1 : 0) + (noted ? 1 : 0) + 1 + name.length + healthWidth + rateVisible);
   }
 
   const rows: string[] = [];
@@ -192,6 +196,43 @@ function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pin
 /** Compute how many display rows compact mode needs (minimum 1). */
 function computeCompactRowCount(sessions: DaemonSessionState[], maxWidth: number): number {
   return Math.max(1, formatCompactRows(sessions, maxWidth).length);
+}
+
+// ── Activity rate helpers (pure, exported for testing) ───────────────────────
+
+/** Window for computing per-session activity rate (5 minutes). */
+export const ACTIVITY_RATE_WINDOW_MS = 5 * 60_000;
+
+/**
+ * Compute messages-per-minute for a session from the activity buffer.
+ * Only counts entries within the last ACTIVITY_RATE_WINDOW_MS.
+ * Returns 0 when no activity in window.
+ */
+export function computeSessionActivityRate(
+  buffer: readonly { sessionId?: string }[],
+  timestamps: readonly number[],
+  sessionId: string,
+  now?: number,
+  windowMs = ACTIVITY_RATE_WINDOW_MS,
+): number {
+  const nowMs = now ?? Date.now();
+  const cutoff = nowMs - windowMs;
+  let count = 0;
+  for (let i = 0; i < buffer.length; i++) {
+    if (buffer[i].sessionId === sessionId && (timestamps[i] ?? 0) >= cutoff) count++;
+  }
+  return count === 0 ? 0 : (count / windowMs) * 60_000;
+}
+
+/**
+ * Format activity rate as a compact badge for compact mode tokens.
+ * Returns empty string when rate is 0 (no clutter for quiet sessions).
+ * Format: "3/m" (rounded to nearest integer messages/min).
+ */
+export function formatActivityRateBadge(rate: number): string {
+  if (rate <= 0) return "";
+  const rounded = Math.max(1, Math.round(rate));
+  return `${DIM}${rounded}/m${RESET}`;
 }
 
 // ── Header status tag helpers (pure, exported for testing) ──────────────────
@@ -412,6 +453,15 @@ export function formatSessionStatsLines(entries: SessionStatEntry[]): string[] {
   });
 }
 
+/** Format session stats entries as a JSON object for export. */
+export function formatStatsJson(entries: SessionStatEntry[], version: string, now?: number): string {
+  return JSON.stringify({
+    version,
+    exportedAt: new Date(now ?? Date.now()).toISOString(),
+    sessions: entries,
+  }, null, 2) + "\n";
+}
+
 // ── Session rename ────────────────────────────────────────────────────────────
 
 /** Max visible length for a custom session display name. */
@@ -441,7 +491,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
-  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy", "/stats", "/recall",
+  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy", "/stats", "/recall", "/pin-all-errors", "/export-stats",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -895,6 +945,25 @@ export class TUI {
     return true;
   }
 
+  /**
+   * Pin all sessions currently in "error" status (or with any cumulative errors).
+   * Returns the count of newly pinned sessions.
+   */
+  pinAllErrors(): number {
+    let pinned = 0;
+    for (const s of this.sessions) {
+      if ((s.status === "error" || (this.sessionErrorCounts.get(s.id) ?? 0) > 0) && !this.pinnedIds.has(s.id)) {
+        this.pinnedIds.add(s.id);
+        pinned++;
+      }
+    }
+    if (pinned > 0) {
+      this.sessions = sortSessions(this.sessions, this.sortMode, this.lastChangeAt, this.pinnedIds);
+      if (this.active) this.paintSessions();
+    }
+    return pinned;
+  }
+
   /** Check if a session ID is pinned. */
   isPinned(id: string): boolean {
     return this.pinnedIds.has(id);
@@ -1078,6 +1147,11 @@ export class TUI {
   /** Return the activity buffer (for /clip export). */
   getActivityBuffer(): readonly ActivityEntry[] {
     return this.activityBuffer;
+  }
+
+  /** Return the activity timestamps (epoch ms per entry, parallel to activityBuffer). */
+  getActivityTimestamps(): readonly number[] {
+    return this.activityTimestamps;
   }
 
   /**
@@ -1869,7 +1943,13 @@ export class TUI {
           watchdogThresholdMs: this.watchdogThresholdMs,
         }));
       }
-      const compactRows = formatCompactRows(visibleSessions, innerWidth - 1, this.pinnedIds, this.mutedIds, noteIdSet, compactHealthScores);
+      const compactActivityRates = new Map<string, number>();
+      for (const s of visibleSessions) {
+        compactActivityRates.set(s.id, computeSessionActivityRate(
+          this.activityBuffer, this.activityTimestamps, s.id, nowMsCompact
+        ));
+      }
+      const compactRows = formatCompactRows(visibleSessions, innerWidth - 1, this.pinnedIds, this.mutedIds, noteIdSet, compactHealthScores, compactActivityRates);
       for (let r = 0; r < compactRows.length; r++) {
         const line = `${SLATE}${BOX.v}${RESET} ${compactRows[r]}`;
         const padded = padBoxLine(line, this.cols);

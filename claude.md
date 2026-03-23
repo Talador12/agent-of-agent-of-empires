@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.119.0
+## Version: v0.122.0
 
 ## Current Focus
 
-1789 tests across 35 files. v0.117–v0.119 shipped: `/stats` per-session summary, header watchdog/group-filter indicators, and `/recall` persistent history search.
+1815 tests across 35 files. v0.120–v0.122 shipped: `/pin-all-errors`, `/export-stats` to JSON, and activity rate badge `3/m` in compact tokens.
 
 ## Roadmap
 
@@ -32,6 +32,17 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Reasoner confidence badge** — if reasoner returns a confidence signal, show in header
 - **`/mute-errors`** — mute all "! action" entries across all sessions at once
 - **Quiet hours** — configurable time windows where watchdog alerts are suppressed
+
+### What shipped in v0.120.0–v0.122.0
+
+**v0.120.0 — /pin-all-errors**: `pinAllErrors()` on TUI pins every session in "error" status or with any cumulative error count. Returns count of newly pinned sessions. Skips already-pinned. Re-sorts and repaints. Wired as `/pin-all-errors` command.
+
+**v0.121.0 — /export-stats**: `formatStatsJson(entries, version)` produces indented JSON with version + exportedAt. `/export-stats` writes to `~/.aoaoe/stats-<ts>.json`. Wired in index.ts.
+
+**v0.122.0 — Activity Rate Badge**: `computeSessionActivityRate(buffer, timestamps, sessionId, now)` counts activity buffer entries for a session in the last 5 minutes, returns msgs/min. `formatActivityRateBadge(rate)` renders `3/m` DIM when rate > 0, empty when quiet. Shown in compact mode tokens alongside health glyph. `ACTIVITY_RATE_WINDOW_MS=5min`. `getActivityTimestamps()` public accessor on TUI. 26 new tests total.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +26, net 1815 tests across 35 files.
 
 ### What shipped in v0.117.0–v0.119.0
 

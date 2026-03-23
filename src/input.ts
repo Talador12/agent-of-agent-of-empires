@@ -50,6 +50,8 @@ export type RenameHandler = (target: string, name: string) => void; // rename a 
 export type CopySessionHandler = (target: string | null) => void; // copy session pane output (null = current drilldown)
 export type StatsHandler = () => void; // show per-session stats summary
 export type RecallHandler = (keyword: string, maxResults: number) => void; // search history
+export type PinAllErrorsHandler = () => void; // pin all sessions currently in error
+export type ExportStatsHandler = () => void; // export /stats to JSON file
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -126,6 +128,8 @@ export class InputReader {
   private copySessionHandler: CopySessionHandler | null = null;
   private statsHandler: StatsHandler | null = null;
   private recallHandler: RecallHandler | null = null;
+  private pinAllErrorsHandler: PinAllErrorsHandler | null = null;
+  private exportStatsHandler: ExportStatsHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -322,6 +326,16 @@ export class InputReader {
   // register a callback for /recall <keyword> [N] — search history
   onRecall(handler: RecallHandler): void {
     this.recallHandler = handler;
+  }
+
+  // register a callback for /pin-all-errors — pin all error sessions
+  onPinAllErrors(handler: PinAllErrorsHandler): void {
+    this.pinAllErrorsHandler = handler;
+  }
+
+  // register a callback for /export-stats — export stats to JSON file
+  onExportStats(handler: ExportStatsHandler): void {
+    this.exportStatsHandler = handler;
   }
 
   /** Set aliases from persisted prefs. */
@@ -581,6 +595,8 @@ ${BOLD}navigation:${RESET}
   /copy [N|name]     copy session's current pane output to clipboard (default: current drill-down)
   /stats             show per-session health, errors, burn rate, context %, uptime
   /recall <keyword>  search persisted activity history (last 7 days) for keyword
+  /pin-all-errors    pin every session currently in error status
+  /export-stats      export /stats output as JSON to ~/.aoaoe/stats-<ts>.json
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -966,6 +982,22 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/pin-all-errors":
+        if (this.pinAllErrorsHandler) {
+          this.pinAllErrorsHandler();
+        } else {
+          console.error(`${DIM}pin-all-errors not available (no TUI)${RESET}`);
+        }
+        break;
+
+      case "/export-stats":
+        if (this.exportStatsHandler) {
+          this.exportStatsHandler();
+        } else {
+          console.error(`${DIM}export-stats not available (no TUI)${RESET}`);
+        }
+        break;
 
       case "/recall": {
         const recallArgs = line.slice("/recall".length).trim().split(/\s+/);

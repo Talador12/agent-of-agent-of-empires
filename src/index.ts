@@ -17,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
@@ -723,6 +723,41 @@ async function main() {
         }
       }
       if (!any) tui!.log("system", `  threshold: ${CONTEXT_BURN_THRESHOLD.toLocaleString()} tokens/min`);
+    });
+    // wire /pin-all-errors
+    input.onPinAllErrors(() => {
+      const count = tui!.pinAllErrors();
+      if (count === 0) {
+        tui!.log("system", "pin-all-errors: no error sessions to pin");
+      } else {
+        tui!.log("system", `pin-all-errors: pinned ${count} session${count !== 1 ? "s" : ""}`);
+        persistPrefs();
+      }
+    });
+    // wire /export-stats
+    input.onExportStats(() => {
+      const sessions = tui!.getSessions();
+      const now = Date.now();
+      const entries = buildSessionStats(
+        sessions,
+        tui!.getSessionErrorCounts(),
+        tui!.getAllBurnRates(now),
+        tui!.getAllFirstSeen(),
+        tui!.getAllLastChangeAt(),
+        tui!.getAllHealthScores(now),
+        tui!.getAllSessionAliases(),
+        now,
+      );
+      const ts = new Date(now).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const dir = join(homedir(), ".aoaoe");
+      const path = join(dir, `stats-${ts}.json`);
+      try {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(path, formatStatsJson(entries, pkg ?? "dev", now), "utf-8");
+        tui!.log("system", `stats exported: ~/.aoaoe/stats-${ts}.json (${entries.length} sessions)`);
+      } catch (err) {
+        tui!.log("error", `export-stats failed: ${err}`);
+      }
     });
     // wire /recall — search persisted history
     input.onRecall((keyword, maxResults) => {

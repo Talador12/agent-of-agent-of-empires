@@ -4,8 +4,9 @@ import {
   buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown,
   formatBroadcastSummary,
   rankSessions, TOP_SORT_MODES,
-  buildSessionStats, formatSessionStatsLines,
+  buildSessionStats, formatSessionStatsLines, formatStatsJson,
   formatWatchdogTag, formatGroupFilterTag,
+  computeSessionActivityRate, formatActivityRateBadge, ACTIVITY_RATE_WINDOW_MS,
   formatIdleSince,
   WATCHDOG_DEFAULT_MINUTES, WATCHDOG_ALERT_COOLDOWN_MS,
   formatActivity, formatSessionCard, formatSessionSentence,
@@ -2888,6 +2889,168 @@ describe("formatSessionStatsLines", () => {
     const line = formatSessionStatsLines(entries)[0];
     assert.ok(line.includes("My Worker"));
     assert.ok(line.includes("alpha-session"));
+  });
+});
+
+// ── formatStatsJson ───────────────────────────────────────────────────────
+
+describe("formatStatsJson", () => {
+  it("returns valid JSON", () => {
+    const entries = [{ title: "Alpha", status: "working", health: 95, errors: 0, burnRatePerMin: null, contextPct: null, uptimeMs: null, idleSinceMs: null }];
+    assert.doesNotThrow(() => JSON.parse(formatStatsJson(entries, "1.0.0")));
+  });
+
+  it("includes version and exportedAt", () => {
+    const obj = JSON.parse(formatStatsJson([], "0.119.0"));
+    assert.equal(obj.version, "0.119.0");
+    assert.ok(typeof obj.exportedAt === "string");
+  });
+
+  it("includes sessions array", () => {
+    const entries = [{ title: "A", status: "idle", health: 100, errors: 0, burnRatePerMin: null, contextPct: null, uptimeMs: null, idleSinceMs: null }];
+    const obj = JSON.parse(formatStatsJson(entries, "1.0.0"));
+    assert.ok(Array.isArray(obj.sessions));
+    assert.equal(obj.sessions.length, 1);
+  });
+
+  it("ends with newline", () => {
+    assert.ok(formatStatsJson([], "1.0.0").endsWith("\n"));
+  });
+});
+
+// ── computeSessionActivityRate ────────────────────────────────────────────
+
+describe("computeSessionActivityRate", () => {
+  it("returns 0 for empty buffer", () => {
+    assert.equal(computeSessionActivityRate([], [], "s1"), 0);
+  });
+
+  it("returns 0 when no entries for session", () => {
+    const now = Date.now();
+    const buf = [{ sessionId: "s2", tag: "system", text: "hello", time: "12:00" }];
+    const ts = [now];
+    assert.equal(computeSessionActivityRate(buf, ts, "s1", now), 0);
+  });
+
+  it("returns 0 for entries outside window", () => {
+    const now = Date.now();
+    const old = now - ACTIVITY_RATE_WINDOW_MS - 5000;
+    const buf = [{ sessionId: "s1", tag: "system", text: "hello", time: "12:00" }];
+    const ts = [old];
+    assert.equal(computeSessionActivityRate(buf, ts, "s1", now), 0);
+  });
+
+  it("computes rate for recent entries", () => {
+    const now = Date.now();
+    // 3 entries in 5-minute window = 3/5 per minute = 0.6/min
+    const buf = [
+      { sessionId: "s1", tag: "system", text: "a", time: "12:00" },
+      { sessionId: "s1", tag: "system", text: "b", time: "12:01" },
+      { sessionId: "s1", tag: "system", text: "c", time: "12:02" },
+    ];
+    const ts = [now - 1000, now - 2000, now - 3000];
+    const rate = computeSessionActivityRate(buf, ts, "s1", now);
+    assert.ok(rate > 0);
+  });
+
+  it("only counts entries for specified session", () => {
+    const now = Date.now();
+    const buf = [
+      { sessionId: "s1", tag: "system", text: "a", time: "12:00" },
+      { sessionId: "s2", tag: "system", text: "b", time: "12:00" },
+    ];
+    const ts = [now, now];
+    const rateS1 = computeSessionActivityRate(buf, ts, "s1", now);
+    const rateS2 = computeSessionActivityRate(buf, ts, "s2", now);
+    assert.ok(rateS1 > 0);
+    assert.ok(rateS2 > 0);
+    // rates should be similar (1 entry each)
+    assert.ok(Math.abs(rateS1 - rateS2) < 0.1);
+  });
+});
+
+// ── formatActivityRateBadge ───────────────────────────────────────────────
+
+describe("formatActivityRateBadge", () => {
+  it("returns empty for rate 0", () => {
+    assert.equal(formatActivityRateBadge(0), "");
+  });
+
+  it("returns empty for negative rate", () => {
+    assert.equal(formatActivityRateBadge(-1), "");
+  });
+
+  it("returns badge for positive rate", () => {
+    const badge = stripAnsi(formatActivityRateBadge(3));
+    assert.ok(badge.includes("/m"));
+  });
+
+  it("rounds rate to nearest integer", () => {
+    const badge = stripAnsi(formatActivityRateBadge(2.7));
+    assert.ok(badge.includes("3"));
+  });
+
+  it("returns at least 1 when rate is positive but < 0.5", () => {
+    const badge = stripAnsi(formatActivityRateBadge(0.1));
+    assert.ok(badge.includes("1"));
+  });
+});
+
+// ── ACTIVITY_RATE_WINDOW_MS ───────────────────────────────────────────────
+
+describe("ACTIVITY_RATE_WINDOW_MS", () => {
+  it("is 5 minutes", () => {
+    assert.equal(ACTIVITY_RATE_WINDOW_MS, 5 * 60_000);
+  });
+});
+
+// ── TUI pinAllErrors ──────────────────────────────────────────────────────
+
+describe("TUI pinAllErrors", () => {
+  function makeErrorSessions(): DaemonSessionState[] {
+    return [
+      { id: "e1", title: "Alpha", status: "error", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+      { id: "e2", title: "Bravo", status: "working", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+      { id: "e3", title: "Charlie", status: "error", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    ];
+  }
+
+  it("pins all sessions in error status", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeErrorSessions() });
+    const count = tui.pinAllErrors();
+    assert.equal(count, 2); // Alpha and Charlie are errors
+    assert.equal(tui.isPinned("e1"), true);
+    assert.equal(tui.isPinned("e3"), true);
+  });
+
+  it("does not pin non-error sessions", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeErrorSessions() });
+    tui.pinAllErrors();
+    assert.equal(tui.isPinned("e2"), false);
+  });
+
+  it("does not double-pin already pinned error sessions", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeErrorSessions() });
+    tui.pinAllErrors();
+    const count2 = tui.pinAllErrors(); // second call
+    assert.equal(count2, 0); // already pinned
+  });
+
+  it("returns 0 when no error sessions", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "x", title: "X", status: "idle" as const, tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    assert.equal(tui.pinAllErrors(), 0);
+  });
+
+  it("also pins sessions with error counts > 0", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "x", title: "X", status: "idle" as const, tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    tui.log("error", "oops", "x"); // adds error count
+    const count = tui.pinAllErrors();
+    assert.equal(count, 1);
   });
 });
 

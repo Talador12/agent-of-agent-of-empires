@@ -1238,6 +1238,54 @@ describe("onBurnRate", () => {
   });
 });
 
+describe("onPinAllErrors", () => {
+  it("registers and calls pin-all-errors handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onPinAllErrors(() => { called = true; });
+    reader["pinAllErrorsHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["pinAllErrorsHandler"]?.(); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onPinAllErrors(() => { calls++; });
+    reader.onPinAllErrors(() => { calls += 10; });
+    reader["pinAllErrorsHandler"]!();
+    assert.equal(calls, 10);
+  });
+});
+
+describe("onExportStats", () => {
+  it("registers and calls export-stats handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onExportStats(() => { called = true; });
+    reader["exportStatsHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["exportStatsHandler"]?.(); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onExportStats(() => { calls++; });
+    reader.onExportStats(() => { calls += 10; });
+    reader["exportStatsHandler"]!();
+    assert.equal(calls, 10);
+  });
+});
+
 describe("onStats", () => {
   it("registers and calls stats handler", () => {
     const reader = new InputReader();
