@@ -446,6 +446,128 @@ export function filterSessionTimeline(
   return matching.slice(-count);
 }
 
+// ── Cost summary (pure, exported for testing) ────────────────────────────────
+
+/**
+ * Parse a cost string like "$3.42" → 3.42, or null if unparseable.
+ */
+export function parseCostValue(costStr: string | undefined): number | null {
+  if (!costStr) return null;
+  const m = costStr.match(/\$?([\d.]+)/);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  return isNaN(n) ? null : n;
+}
+
+export interface CostSummaryEntry {
+  sessionId: string;
+  title: string;
+  costStr: string;
+  costValue: number;
+}
+
+export interface CostSummary {
+  total: number;
+  totalStr: string;
+  entries: CostSummaryEntry[]; // sorted by cost desc
+  sessionCount: number;
+}
+
+/**
+ * Compute a cost summary across all sessions.
+ * Sessions without cost data are excluded.
+ */
+export function computeCostSummary(
+  sessions: readonly DaemonSessionState[],
+  costMap: ReadonlyMap<string, string>,
+): CostSummary {
+  const entries: CostSummaryEntry[] = [];
+  for (const s of sessions) {
+    const costStr = costMap.get(s.id);
+    if (!costStr) continue;
+    const costValue = parseCostValue(costStr);
+    if (costValue === null) continue;
+    entries.push({ sessionId: s.id, title: s.title, costStr, costValue });
+  }
+  entries.sort((a, b) => b.costValue - a.costValue);
+  const total = entries.reduce((sum, e) => sum + e.costValue, 0);
+  return {
+    total,
+    totalStr: `$${total.toFixed(2)}`,
+    entries,
+    sessionCount: entries.length,
+  };
+}
+
+// ── Session report (pure, exported for testing) ───────────────────────────────
+
+export interface SessionReportData {
+  title: string;
+  status: string;
+  tool: string;
+  group?: string;
+  color?: string;
+  tags: string[];
+  note?: string;
+  health: number;
+  errors: number;
+  errorTrend?: ErrorTrend;
+  costStr?: string;
+  contextTokens?: string;
+  uptimeMs?: number;
+  idleSinceMs?: number;
+  burnRatePerMin?: number | null;
+  goalHistory: string[];
+  recentTimeline: ActivityEntry[];
+  exportedAt: string;
+}
+
+/** Format a session report as a Markdown document. */
+export function formatSessionReport(data: SessionReportData): string {
+  const lines: string[] = [];
+  lines.push(`# Session Report: ${data.title}`);
+  lines.push(`_Generated: ${data.exportedAt}_`);
+  lines.push("");
+  lines.push("## Overview");
+  lines.push(`- **Status:** ${data.status}`);
+  lines.push(`- **Tool:** ${data.tool}`);
+  if (data.group) lines.push(`- **Group:** ${data.group}`);
+  if (data.tags.length > 0) lines.push(`- **Tags:** ${data.tags.join(", ")}`);
+  if (data.color) lines.push(`- **Color:** ${data.color}`);
+  if (data.note) lines.push(`- **Note:** ${data.note}`);
+  lines.push("");
+  lines.push("## Health");
+  const trendStr = data.errorTrend === "rising" ? " ↑" : data.errorTrend === "falling" ? " ↓" : "";
+  lines.push(`- **Score:** ${data.health}/100`);
+  lines.push(`- **Errors:** ${data.errors}${trendStr}`);
+  if (data.costStr) lines.push(`- **Cost:** ${data.costStr}`);
+  if (data.contextTokens) lines.push(`- **Context:** ${data.contextTokens}`);
+  if (data.uptimeMs !== undefined) lines.push(`- **Uptime:** ${formatUptime(data.uptimeMs)}`);
+  if (data.idleSinceMs !== undefined) {
+    const idleLabel = formatIdleSince(data.idleSinceMs);
+    if (idleLabel) lines.push(`- **Idle:** ${idleLabel}`);
+  }
+  if (data.burnRatePerMin !== null && data.burnRatePerMin !== undefined && data.burnRatePerMin > 0) {
+    lines.push(`- **Burn rate:** ~${Math.round(data.burnRatePerMin / 100) * 100} tokens/min`);
+  }
+  lines.push("");
+  if (data.goalHistory.length > 0) {
+    lines.push("## Goal History");
+    for (let i = data.goalHistory.length - 1; i >= 0; i--) {
+      lines.push(`- ${data.goalHistory[i]}`);
+    }
+    lines.push("");
+  }
+  if (data.recentTimeline.length > 0) {
+    lines.push("## Recent Activity");
+    for (const e of data.recentTimeline.slice(-20)) {
+      lines.push(`- \`${e.time}\` **${e.tag}** ${e.text}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
 // ── Duplicate session helpers (pure, exported for testing) ───────────────────
 
 /**
@@ -696,7 +818,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
   "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy", "/stats", "/recall", "/pin-all-errors", "/export-stats",
   "/mute-errors", "/prev-goal", "/tag", "/tags", "/tag-filter", "/find", "/reset-health", "/timeline", "/color", "/clear-history",
-  "/duplicate", "/color-all", "/quiet-hours", "/history-stats",
+  "/duplicate", "/color-all", "/quiet-hours", "/history-stats", "/cost-summary", "/session-report",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */

@@ -4,7 +4,7 @@
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml"><img src="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="https://www.npmjs.com/package/aoaoe"><img src="https://img.shields.io/npm/v/aoaoe" alt="npm version"></a>
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/releases"><img src="https://img.shields.io/github/v/release/Talador12/agent-of-agent-of-empires" alt="GitHub release"></a>
-    <img src="https://img.shields.io/badge/tests-1739-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/tests-2005-brightgreen" alt="tests">
     <img src="https://img.shields.io/badge/node-%3E%3D20-blue" alt="Node.js >= 20">
     <img src="https://img.shields.io/badge/runtime%20deps-0-brightgreen" alt="zero runtime dependencies">
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
@@ -267,7 +267,20 @@ The daemon runs an interactive TUI with a rich command set. These commands are a
 | `/group-filter [tag]` | Show only sessions in a group (no arg = clear) |
 | `/rename N\|name [display]` | Set custom TUI display name (no display = clear); persisted |
 | `/watchdog [N]` | Alert if session stalls N minutes (default 10); `/watchdog off` to disable |
+| `/quiet-hours [H-H]` | Suppress watchdog+burn alerts during hours (e.g. `22-06`); no arg = clear |
 | `/broadcast <msg>` | Send message to all sessions; `/broadcast group:<tag> <msg>` for group |
+| `/duplicate N [t]` | Clone a session (same tool/path) with optional new title |
+| `/tag N tag1,tag2` | Set freeform tags on a session (no tags = clear); `/tags` to list |
+| `/tag-filter [tag]` | Show only sessions with given freeform tag (no arg = clear) |
+| `/color N [c]` | Set accent dot color: `lime` `amber` `rose` `teal` `sky` `slate` (no color = clear) |
+| `/color-all [c]` | Set accent color for all sessions at once |
+| `/mute-errors` | Toggle suppression of `error`/`! action` entries in activity log |
+| `/pin-all-errors` | Pin every session currently in error state |
+| `/timeline N [n]` | Show last n activity entries for a session (default 30) |
+| `/find <text>` | Search all session pane outputs for text |
+| `/reset-health N` | Clear error counts + context history to reset a session's health score |
+| `/prev-goal N [n]` | Restore nth-most-recent goal for a session (default 1 = latest) |
+| g1-g99 | Quick-switch to session 10+ (e.g. `g12` jumps to session 12) |
 | `/clip [N]` | Copy last N activity entries to clipboard (default 20) |
 | `/diff N` | Show activity since bookmark N |
 | `/mark` | Bookmark current activity position |
@@ -293,7 +306,17 @@ The daemon runs an interactive TUI with a rich command set. These commands are a
 | `just type` (in drill-down) | Default behavior: update goal for the focused session |
 | `/burn-rate` | Show context token burn rates (tokens/min) for all sessions |
 | `/ceiling` | Show context token usage vs limit for all sessions |
+| `/stats` | Per-session health, errors (+trend), burn rate, context %, cost, uptime |
+| `/top [mode]` | Rank sessions by `errors` (default), `burn`, or `idle` |
+| `/who` | Fleet status: status, uptime, idle-since, cost, errors+trend, group, note |
 | `/snapshot [md]` | Export session state snapshot to `~/.aoaoe/snapshot-<ts>.json` (or `.md`) |
+| `/export-stats` | Export `/stats` output to `~/.aoaoe/stats-<ts>.json` |
+| `/session-report N` | Full markdown report for one session → `~/.aoaoe/report-<name>-<ts>.md` |
+| `/cost-summary` | Show total estimated spend across all sessions |
+| `/recall <kw> [N]` | Search 7-day persisted history for keyword |
+| `/history-stats` | Aggregate stats from history: entry counts, top tags, span |
+| `/clear-history` | Truncate `~/.aoaoe/tui-history.jsonl` |
+| `/copy [N]` | Copy session's current pane output to clipboard (default: current drill-down) |
 | `/alias /x /cmd` | Create command alias (`/x` expands to `/cmd`); no args = list |
 
 ### Other
@@ -307,24 +330,34 @@ The daemon runs an interactive TUI with a rich command set. These commands are a
 ### TUI Features
 
 - **Activity sparkline** -- 10-minute activity rate chart in the separator bar (Unicode blocks with color gradient)
-- **Session cards** -- per-session status with pin `▲`, mute `◌`, note `✎`, group `⊹tag`, and health score `⬡N` indicators
-- **Health score** -- composite 0–100 badge per session (errors, burn rate, context ceiling, stall time); LIME ≥80, AMBER ≥60, ROSE <60
+- **Activity sparkline** -- 10-minute activity rate chart in the separator bar (Unicode blocks with color gradient)
+- **Session cards** -- per-session status with pin `▲`, mute `◌`, note `✎`, group `⊹tag`, health `⬡N`, color `●`, tags `[tag1,tag2]`, and activity rate `3/m` indicators
+- **Health score** -- composite 0–100 badge (errors, burn rate, context ceiling, stall time); LIME ≥80, AMBER ≥60, ROSE <60; also in compact mode
 - **Error sparklines** -- ROSE 5-bucket mini-chart of recent error frequency in each card (last 5 min)
-- **Idle-since** -- time since last output change shown in idle/done card status and `/who` output
-- **Session grouping** -- `/group` assigns sessions to named groups; `/group-filter` narrows the panel view
-- **Session rename** -- `/rename` sets a custom TUI display name (bold with original dim alongside); persisted
-- **Watchdog** -- `/watchdog N` fires an alert if a session stalls for N minutes (rate-limited to once per 5 min)
-- **Burn-rate alerts** -- automatic "status" alert when context token usage exceeds 5k tokens/min; `/burn-rate` for on-demand view
-- **Context ceiling warning** -- automatic alert at 90% context usage when "X / Y tokens" format available; `/ceiling` for on-demand view
-- **Snapshot export** -- `/snapshot [md]` exports full session state (status, group, note, uptime, context, errors, burn rate) to `~/.aoaoe/`
-- **Broadcast** -- `/broadcast [group:<tag>] <message>` sends a message to all (or group-filtered) sessions via tmux
-- **Ranked view** -- `/top [errors|burn|idle]` ranks sessions by composite attention score or a single metric
-- **Sticky preferences** -- sort, compact, focus, bell, auto-pin, tag filter, aliases, groups, and renames persist across restarts
-- **Filter pipeline** -- mute, tag filter, and search compose: mute → tag → search
-- **Aliases** -- `/alias /x /cmd` creates command shortcuts; up to 50, persisted
+- **Error trend** -- ↑/→/↓ arrows in `/stats` and `/who` showing error direction
+- **Idle-since** -- time since last output change in idle/done cards and `/who` output
+- **Cost tracking** -- `$N.NN spent` parsed from pane output; shown in `/stats`, `/who`, `/cost-summary`
+- **Session grouping** -- `/group`/`/group-filter` for named group organization; `⊹tag` badge in cards
+- **Session tagging** -- `/tag` for multi-freeform-tag sets; `/tag-filter` panel filter; `[tag1,tag2]` badge
+- **Session rename** -- `/rename` custom TUI display name (bold + original dim); persisted
+- **Session color** -- `/color` accent `●` dot per card (8 colors); `/color-all` for bulk set; persisted
+- **Watchdog** -- `/watchdog N` fires on stall; suppressed during `/quiet-hours`; `⊛Nm` header badge
+- **Burn-rate alerts** -- auto "status" alert > 5k tokens/min; suppressed during quiet hours
+- **Context ceiling warning** -- auto alert at 90% context when "X / Y tokens" format available
+- **Quiet hours** -- `/quiet-hours HH-HH` suppresses watchdog + burn-rate alerts during set hours
+- **Session timeline** -- `/timeline N [n]` shows last n activity entries filtered by session
+- **Session report** -- `/session-report N` writes full markdown report to `~/.aoaoe/`
+- **Snapshot export** -- `/snapshot [md]` exports all session state to `~/.aoaoe/`
+- **History search** -- `/recall <kw>` searches 7-day persisted history; `/history-stats` shows aggregates
+- **Broadcast** -- `/broadcast [group:<tag>] <msg>` sends to all or group-filtered sessions via tmux
+- **Duplicate** -- `/duplicate N [title]` clones a session (same tool + path) with new title
+- **Ranked view** -- `/top [errors|burn|idle]` composite attention ranking; `/stats` full per-session table
+- **Sticky preferences** -- sort, compact, focus, bell, auto-pin, tag filter, aliases, groups, renames, colors, tags, quiet hours persist across restarts
+- **Filter pipeline** -- mute → suppress (`/mute-errors`) → tag → search all compose
+- **Aliases** -- `/alias /x /cmd` shortcuts; up to 50, persisted
 - **Activity heatmap** -- 24-hour colored block chart via `aoaoe stats`
-- **Bookmarks** -- mark positions in the activity stream, jump back to them, diff since a bookmark
-- **Clipboard export** -- `/clip` copies activity to system clipboard (macOS) or `~/.aoaoe/clip.txt`
+- **Bookmarks** -- mark positions, jump back, diff since a bookmark
+- **Clipboard export** -- `/clip` and `/copy` copy activity or session pane output to clipboard
 
 ## Chat UI Commands
 

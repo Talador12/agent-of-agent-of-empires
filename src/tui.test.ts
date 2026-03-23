@@ -29,6 +29,8 @@ import {
   computeErrorTrend, formatErrorTrend,
   buildDuplicateArgs,
   isQuietHour, parseQuietHoursRange,
+  parseCostValue, computeCostSummary,
+  formatSessionReport,
   truncateRename, MAX_RENAME_LEN,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
@@ -46,7 +48,7 @@ import {
   validateGroupName, formatGroupBadge, GROUP_ICON, MAX_GROUP_NAME_LEN,
   TUI,
 } from "./tui.js";
-import type { ActivityEntry, SortMode, TuiPrefs, SnapshotData, SnapshotSession, TopSortMode } from "./tui.js";
+import type { ActivityEntry, SortMode, TuiPrefs, SnapshotData, SnapshotSession, TopSortMode, SessionReportData } from "./tui.js";
 import type { DaemonSessionState } from "./types.js";
 
 function stripAnsi(s: string): string {
@@ -4274,6 +4276,132 @@ describe("TUI getSessionOutput", () => {
   it("getDrilldownId returns null before entering drilldown", () => {
     const tui = new TUI();
     assert.equal(tui.getDrilldownId(), null);
+  });
+});
+
+// ── parseCostValue ────────────────────────────────────────────────────────
+
+describe("parseCostValue", () => {
+  it("parses $N.NN string", () => {
+    assert.equal(parseCostValue("$3.42"), 3.42);
+  });
+  it("parses without $ sign", () => {
+    assert.equal(parseCostValue("1.50"), 1.50);
+  });
+  it("returns null for undefined", () => {
+    assert.equal(parseCostValue(undefined), null);
+  });
+  it("returns null for non-numeric", () => {
+    assert.equal(parseCostValue("no cost"), null);
+  });
+  it("parses zero", () => {
+    assert.equal(parseCostValue("$0.00"), 0);
+  });
+});
+
+// ── computeCostSummary ────────────────────────────────────────────────────
+
+describe("computeCostSummary", () => {
+  const sessions: DaemonSessionState[] = [
+    { id: "s1", title: "Alpha", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s2", title: "Bravo", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s3", title: "Charlie", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+  ];
+
+  it("returns zero total when no costs", () => {
+    const s = computeCostSummary(sessions, new Map());
+    assert.equal(s.total, 0);
+    assert.equal(s.sessionCount, 0);
+  });
+
+  it("sums costs correctly", () => {
+    const costs = new Map([["s1", "$3.00"], ["s2", "$1.50"]]);
+    const s = computeCostSummary(sessions, costs);
+    assert.equal(s.total, 4.50);
+    assert.equal(s.totalStr, "$4.50");
+  });
+
+  it("sorts entries by cost descending", () => {
+    const costs = new Map([["s1", "$1.00"], ["s2", "$5.00"]]);
+    const s = computeCostSummary(sessions, costs);
+    assert.equal(s.entries[0].title, "Bravo");
+  });
+
+  it("excludes sessions with no cost data", () => {
+    const costs = new Map([["s1", "$2.00"]]);
+    const s = computeCostSummary(sessions, costs);
+    assert.equal(s.sessionCount, 1);
+  });
+
+  it("handles empty sessions", () => {
+    const s = computeCostSummary([], new Map());
+    assert.equal(s.total, 0);
+    assert.equal(s.entries.length, 0);
+  });
+});
+
+// ── formatSessionReport ───────────────────────────────────────────────────
+
+describe("formatSessionReport", () => {
+  const baseData: SessionReportData = {
+    title: "Alpha",
+    status: "working",
+    tool: "opencode",
+    health: 85,
+    errors: 2,
+    errorTrend: "rising",
+    tags: [],
+    goalHistory: ["old goal", "current goal"],
+    recentTimeline: [{ time: "12:00", tag: "system", text: "tick", sessionId: "s1" }],
+    exportedAt: "2025-01-01T00:00:00.000Z",
+    burnRatePerMin: null,
+  };
+
+  it("starts with h1 heading", () => {
+    const md = formatSessionReport(baseData);
+    assert.ok(md.startsWith("# Session Report: Alpha"));
+  });
+
+  it("includes status and tool", () => {
+    const md = formatSessionReport(baseData);
+    assert.ok(md.includes("working"));
+    assert.ok(md.includes("opencode"));
+  });
+
+  it("includes health score", () => {
+    const md = formatSessionReport(baseData);
+    assert.ok(md.includes("85/100"));
+  });
+
+  it("includes error count with trend", () => {
+    const md = formatSessionReport(baseData);
+    assert.ok(md.includes("2") && md.includes("↑"));
+  });
+
+  it("includes goal history section", () => {
+    const md = formatSessionReport(baseData);
+    assert.ok(md.includes("Goal History"));
+    assert.ok(md.includes("current goal"));
+  });
+
+  it("includes recent activity section", () => {
+    const md = formatSessionReport(baseData);
+    assert.ok(md.includes("Recent Activity"));
+    assert.ok(md.includes("tick"));
+  });
+
+  it("includes optional fields when present", () => {
+    const d = { ...baseData, group: "frontend", tags: ["prod"], costStr: "$2.50", note: "important" };
+    const md = formatSessionReport(d);
+    assert.ok(md.includes("frontend"));
+    assert.ok(md.includes("prod"));
+    assert.ok(md.includes("$2.50"));
+    assert.ok(md.includes("important"));
+  });
+
+  it("omits goal history section when empty", () => {
+    const d = { ...baseData, goalHistory: [] };
+    assert.ok(!formatSessionReport(d).includes("Goal History"));
   });
 });
 

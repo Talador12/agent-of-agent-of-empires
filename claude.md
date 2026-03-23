@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.139.0
+## Version: v0.142.0
 
 ## Current Focus
 
-1983 tests across 35 files. v0.136–v0.139 shipped: `/duplicate` clone sessions, `/color-all` bulk accent, quiet hours alert suppression, `/history-stats` aggregate metrics.
+2005 tests across 35 files — crossed 2000! v0.140–v0.142 shipped: `/cost-summary`, `/session-report` full markdown output, README v2 overhaul covering all commands through v0.139.
 
 ## Roadmap
 
@@ -29,6 +29,17 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Session age badge** — show session creation time (from AoE) in `/who` and cards
 - **README v2 overhaul** — update to cover v0.113–v0.139 commands
 - **`/quiet-status`** — show whether quiet hours are currently active and when they end
+
+### What shipped in v0.140.0–v0.142.0
+
+**v0.140.0 — /cost-summary**: `parseCostValue(str)` parses `"$3.42"` → 3.42. `computeCostSummary(sessions, costMap)` aggregates all session costs, sorted by spend desc. `/cost-summary` shows total and per-session breakdown. `CostSummary` and `CostSummaryEntry` interfaces exported.
+
+**v0.141.0 — /session-report**: `SessionReportData` interface. `formatSessionReport(data)` pure fn produces a full markdown report: overview (status/tool/group/tags/color/note), health section (score/errors+trend/cost/context/uptime/burn), goal history, recent activity timeline. `/session-report <N|name>` writes to `~/.aoaoe/report-<title>-<ts>.md`. Wired in index.ts with all TUI state accessors.
+
+**v0.142.0 — README v2**: Updated test badge 1739→2005. Navigation table expanded with 15 new commands (v0.113–v0.139). Info table expanded with `/stats`, `/top`, `/session-report`, `/cost-summary`, `/recall`, `/history-stats`, `/clear-history`, `/copy`, `/export-stats`. TUI Features section rewritten to cover all capabilities including cost tracking, error trends, quiet hours, session report/timeline/duplicate/color/tags. 22 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `README.md`, `package.json`, `claude.md`
+Test changes: +22, net 2005 tests across 35 files.
 
 ### What shipped in v0.136.0–v0.139.0
 

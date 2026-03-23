@@ -1539,6 +1539,26 @@ describe("onHistoryStats", () => {
   it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["historyStatsHandler"]?.()); });
 });
 
+describe("onCostSummary", () => {
+  it("calls handler", () => {
+    const r = new InputReader(); let called = false;
+    r.onCostSummary(() => { called = true; });
+    r["costSummaryHandler"]!();
+    assert.equal(called, true);
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["costSummaryHandler"]?.()); });
+});
+
+describe("onSessionReport", () => {
+  it("calls handler with target", () => {
+    const r = new InputReader(); let tgt = "";
+    r.onSessionReport((t) => { tgt = t; });
+    r["sessionReportHandler"]!("alpha");
+    assert.equal(tgt, "alpha");
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["sessionReportHandler"]?.("x")); });
+});
+
 describe("onClearHistory", () => {
   it("registers and calls clear-history handler", () => {
     const reader = new InputReader();

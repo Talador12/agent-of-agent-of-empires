@@ -66,6 +66,8 @@ export type DuplicateHandler = (target: string, newTitle: string) => void; // cl
 export type ColorAllHandler = (colorName: string) => void; // set color for all sessions
 export type QuietHoursHandler = (specs: string[]) => void; // set quiet hours (empty = clear)
 export type HistoryStatsHandler = () => void; // show aggregate history stats
+export type CostSummaryHandler = () => void; // show cost summary across sessions
+export type SessionReportHandler = (target: string) => void; // generate session markdown report
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -158,6 +160,8 @@ export class InputReader {
   private colorAllHandler: ColorAllHandler | null = null;
   private quietHoursHandler: QuietHoursHandler | null = null;
   private historyStatsHandler: HistoryStatsHandler | null = null;
+  private costSummaryHandler: CostSummaryHandler | null = null;
+  private sessionReportHandler: SessionReportHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -420,6 +424,8 @@ export class InputReader {
   onColorAll(handler: ColorAllHandler): void { this.colorAllHandler = handler; }
   onQuietHours(handler: QuietHoursHandler): void { this.quietHoursHandler = handler; }
   onHistoryStats(handler: HistoryStatsHandler): void { this.historyStatsHandler = handler; }
+  onCostSummary(handler: CostSummaryHandler): void { this.costSummaryHandler = handler; }
+  onSessionReport(handler: SessionReportHandler): void { this.sessionReportHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -701,6 +707,8 @@ ${BOLD}navigation:${RESET}
   /color-all [c]     set accent color for all sessions (no color = clear all)
   /quiet-hours [H-H] suppress watchdog+burn alerts during hours (e.g. 22-06; no arg = clear)
   /history-stats     show aggregate statistics from persisted activity history
+  /cost-summary      show total estimated spend across all sessions
+  /session-report N  generate full markdown report for a session → ~/.aoaoe/report-<name>-<ts>.md
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -1247,6 +1255,19 @@ ${BOLD}other:${RESET}
           console.error(`${DIM}history-stats not available (no TUI)${RESET}`);
         }
         break;
+
+      case "/cost-summary":
+        if (this.costSummaryHandler) this.costSummaryHandler();
+        else console.error(`${DIM}cost-summary not available (no TUI)${RESET}`);
+        break;
+
+      case "/session-report": {
+        const srArg = line.slice("/session-report".length).trim();
+        if (!srArg) { console.error(`${DIM}usage: /session-report <N|name>${RESET}`); break; }
+        if (this.sessionReportHandler) this.sessionReportHandler(srArg);
+        else console.error(`${DIM}session-report not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear-history":
         if (this.clearHistoryHandler) {

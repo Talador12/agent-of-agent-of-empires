@@ -17,7 +17,8 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport } from "./tui.js";
+import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
@@ -964,6 +965,68 @@ async function main() {
       tui!.setQuietHours(ranges);
       tui!.log("system", `quiet hours: ${specs.join(", ")} — watchdog+burn alerts suppressed`);
       persistPrefs();
+    });
+    // wire /cost-summary
+    input.onCostSummary(() => {
+      const sessions = tui!.getSessions();
+      const summary = computeCostSummary(sessions, tui!.getAllSessionCosts());
+      if (summary.sessionCount === 0) {
+        tui!.log("system", "cost-summary: no cost data available (costs parsed from $N.NN pane output)");
+        return;
+      }
+      tui!.log("system", `cost-summary: ${summary.totalStr} total across ${summary.sessionCount} session${summary.sessionCount !== 1 ? "s" : ""}:`);
+      for (const e of summary.entries) {
+        tui!.log("system", `  ${e.title}: ${e.costStr}`);
+      }
+    });
+    // wire /session-report
+    input.onSessionReport((target) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const sessions = tui!.getSessions();
+      const session = num !== undefined
+        ? sessions[num - 1]
+        : sessions.find((s) => s.title.toLowerCase() === target.toLowerCase() || s.id.startsWith(target));
+      if (!session) { tui!.log("system", `session not found: ${target}`); return; }
+      const now = Date.now();
+      const id = session.id;
+      const firstSeen = tui!.getAllFirstSeen().get(id);
+      const lastChange = tui!.getAllLastChangeAt().get(id);
+      const burnRates = tui!.getAllBurnRates(now);
+      const errTs = tui!.getSessionErrorTimestamps(id);
+      const goalHist = tui!.getGoalHistory(id);
+      const timeline = tui!.getSessionTimeline(id, 20) ?? [];
+      const data: SessionReportData = {
+        title: session.title,
+        status: session.status,
+        tool: session.tool,
+        group: tui!.getGroup(id),
+        color: tui!.getSessionColor(id),
+        tags: [...tui!.getSessionTags(id)],
+        note: tui!.getAllNotes().get(id),
+        health: tui!.getAllHealthScores(now).get(id) ?? 100,
+        errors: tui!.getSessionErrorCounts().get(id) ?? 0,
+        errorTrend: errTs.length > 0 ? computeErrorTrend(errTs, now) : undefined,
+        costStr: tui!.getSessionCost(id),
+        contextTokens: session.contextTokens,
+        uptimeMs: firstSeen !== undefined ? now - firstSeen : undefined,
+        idleSinceMs: lastChange !== undefined ? now - lastChange : undefined,
+        burnRatePerMin: burnRates.get(id) ?? null,
+        goalHistory: [...goalHist],
+        recentTimeline: timeline,
+        exportedAt: new Date(now).toISOString(),
+      };
+      const md = formatSessionReport(data);
+      const safeTitle = session.title.replace(/[^a-z0-9_-]/gi, "-").toLowerCase().slice(0, 30);
+      const ts = new Date(now).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const dir = join(homedir(), ".aoaoe");
+      const path = join(dir, `report-${safeTitle}-${ts}.md`);
+      try {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(path, md, "utf-8");
+        tui!.log("system", `report saved: ~/.aoaoe/report-${safeTitle}-${ts}.md`);
+      } catch (err) {
+        tui!.log("error", `session-report failed: ${err}`);
+      }
     });
     // wire /history-stats
     input.onHistoryStats(() => {
