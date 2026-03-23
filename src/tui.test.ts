@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown,
   formatActivity, formatSessionCard, formatSessionSentence,
   truncateAnsi, truncatePlain,
   padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay,
@@ -28,7 +29,7 @@ import {
   validateGroupName, formatGroupBadge, GROUP_ICON, MAX_GROUP_NAME_LEN,
   TUI,
 } from "./tui.js";
-import type { ActivityEntry, SortMode, TuiPrefs } from "./tui.js";
+import type { ActivityEntry, SortMode, TuiPrefs, SnapshotData, SnapshotSession } from "./tui.js";
 import type { DaemonSessionState } from "./types.js";
 
 function stripAnsi(s: string): string {
@@ -2766,6 +2767,155 @@ describe("BUILTIN_COMMANDS", () => {
 
   it("has at least 30 commands", () => {
     assert.ok(BUILTIN_COMMANDS.size >= 30);
+  });
+});
+
+// ── buildSnapshotData ─────────────────────────────────────────────────────
+
+function makeSnapSessions(): DaemonSessionState[] {
+  return [
+    { id: "a1", title: "Alpha", status: "working", tool: "opencode", contextTokens: "10,000 tokens", lastActivity: "doing work", userActive: false, currentTask: "build the thing" },
+    { id: "b2", title: "Bravo", status: "idle", tool: "claude-code", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+  ];
+}
+
+describe("buildSnapshotData", () => {
+  it("includes all sessions", () => {
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    assert.equal(data.sessions.length, 2);
+  });
+
+  it("sets version and exportedAt", () => {
+    const now = 1700000000000;
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), new Map(), new Map(), "0.107.0", now);
+    assert.equal(data.version, "0.107.0");
+    assert.equal(data.exportedAtMs, now);
+    assert.ok(data.exportedAt.startsWith("2023"));
+  });
+
+  it("includes group when set", () => {
+    const groups = new Map([["a1", "frontend"]]);
+    const data = buildSnapshotData(makeSnapSessions(), groups, new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    assert.equal(data.sessions[0].group, "frontend");
+    assert.equal(data.sessions[1].group, undefined);
+  });
+
+  it("includes note when set", () => {
+    const notes = new Map([["a1", "needs attention"]]);
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), notes, new Map(), new Map(), new Map(), "1.0.0");
+    assert.equal(data.sessions[0].note, "needs attention");
+  });
+
+  it("includes uptimeMs from firstSeen", () => {
+    const now = Date.now();
+    const firstSeen = new Map([["a1", now - 5 * 60 * 1000]]); // 5 min ago
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), firstSeen, new Map(), new Map(), "1.0.0", now);
+    assert.ok(data.sessions[0].uptimeMs !== undefined);
+    assert.ok(data.sessions[0].uptimeMs! >= 5 * 60 * 1000 - 100);
+  });
+
+  it("includes contextTokens", () => {
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    assert.equal(data.sessions[0].contextTokens, "10,000 tokens");
+    assert.equal(data.sessions[1].contextTokens, undefined);
+  });
+
+  it("includes currentTask", () => {
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    assert.equal(data.sessions[0].currentTask, "build the thing");
+  });
+
+  it("includes error count when > 0", () => {
+    const errorCounts = new Map([["a1", 3]]);
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), errorCounts, new Map(), "1.0.0");
+    assert.equal(data.sessions[0].errorCount, 3);
+  });
+
+  it("omits error count when 0", () => {
+    const errorCounts = new Map([["a1", 0]]);
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), errorCounts, new Map(), "1.0.0");
+    assert.equal(data.sessions[0].errorCount, undefined);
+  });
+
+  it("handles empty sessions", () => {
+    const data = buildSnapshotData([], new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    assert.equal(data.sessions.length, 0);
+  });
+});
+
+// ── formatSnapshotJson ────────────────────────────────────────────────────
+
+describe("formatSnapshotJson", () => {
+  it("returns valid JSON string", () => {
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    const json = formatSnapshotJson(data);
+    assert.doesNotThrow(() => JSON.parse(json));
+  });
+
+  it("contains version field", () => {
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    const obj = JSON.parse(formatSnapshotJson(data));
+    assert.equal(obj.version, "1.0.0");
+  });
+
+  it("contains sessions array", () => {
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    const obj = JSON.parse(formatSnapshotJson(data));
+    assert.ok(Array.isArray(obj.sessions));
+    assert.equal(obj.sessions.length, 2);
+  });
+
+  it("ends with newline", () => {
+    const data = buildSnapshotData([], new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    assert.ok(formatSnapshotJson(data).endsWith("\n"));
+  });
+});
+
+// ── formatSnapshotMarkdown ────────────────────────────────────────────────
+
+describe("formatSnapshotMarkdown", () => {
+  it("contains h1 heading", () => {
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    const md = formatSnapshotMarkdown(data);
+    assert.ok(md.startsWith("# aoaoe Snapshot"));
+  });
+
+  it("contains session titles as h2", () => {
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    const md = formatSnapshotMarkdown(data);
+    assert.ok(md.includes("## Alpha"));
+    assert.ok(md.includes("## Bravo"));
+  });
+
+  it("includes status", () => {
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    const md = formatSnapshotMarkdown(data);
+    assert.ok(md.includes("working"));
+  });
+
+  it("includes group when set", () => {
+    const groups = new Map([["a1", "frontend"]]);
+    const data = buildSnapshotData(makeSnapSessions(), groups, new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    const md = formatSnapshotMarkdown(data);
+    assert.ok(md.includes("frontend"));
+  });
+
+  it("includes note when set", () => {
+    const notes = new Map([["a1", "critical session"]]);
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), notes, new Map(), new Map(), new Map(), "1.0.0");
+    const md = formatSnapshotMarkdown(data);
+    assert.ok(md.includes("critical session"));
+  });
+
+  it("shows no sessions message when empty", () => {
+    const data = buildSnapshotData([], new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    const md = formatSnapshotMarkdown(data);
+    assert.ok(md.includes("No active sessions"));
+  });
+
+  it("returns a string", () => {
+    const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
+    assert.equal(typeof formatSnapshotMarkdown(data), "string");
   });
 });
 

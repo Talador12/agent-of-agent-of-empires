@@ -327,7 +327,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
-  "/group", "/groups", "/group-filter", "/burn-rate",
+  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -367,6 +367,102 @@ export function validateGroupName(name: string): string | null {
 /** Format group badge for a session card — DIM colored with GROUP_ICON. */
 export function formatGroupBadge(group: string): string {
   return `${DIM}${GROUP_ICON}${group}${RESET}`;
+}
+
+// ── Snapshot export ──────────────────────────────────────────────────────────
+
+export interface SnapshotSession {
+  id: string;
+  title: string;
+  status: string;
+  tool: string;
+  group?: string;
+  note?: string;
+  uptimeMs?: number;
+  contextTokens?: string;
+  currentTask?: string;
+  errorCount?: number;
+  burnRatePerMin?: number | null;
+}
+
+export interface SnapshotData {
+  version: string;
+  exportedAt: string;       // ISO 8601
+  exportedAtMs: number;
+  sessions: SnapshotSession[];
+}
+
+/** Build a SnapshotData object from current TUI state. */
+export function buildSnapshotData(
+  sessions: readonly DaemonSessionState[],
+  groups: ReadonlyMap<string, string>,
+  notes: ReadonlyMap<string, string>,
+  firstSeen: ReadonlyMap<string, number>,
+  errorCounts: ReadonlyMap<string, number>,
+  burnRates: ReadonlyMap<string, number | null>,
+  version: string,
+  now?: number,
+): SnapshotData {
+  const nowMs = now ?? Date.now();
+  return {
+    version,
+    exportedAt: new Date(nowMs).toISOString(),
+    exportedAtMs: nowMs,
+    sessions: sessions.map((s) => {
+      const entry: SnapshotSession = {
+        id: s.id,
+        title: s.title,
+        status: s.status,
+        tool: s.tool,
+      };
+      const g = groups.get(s.id);
+      if (g) entry.group = g;
+      const n = notes.get(s.id);
+      if (n) entry.note = n;
+      const fs = firstSeen.get(s.id);
+      if (fs !== undefined) entry.uptimeMs = nowMs - fs;
+      if (s.contextTokens) entry.contextTokens = s.contextTokens;
+      if (s.currentTask) entry.currentTask = s.currentTask;
+      const ec = errorCounts.get(s.id);
+      if (ec !== undefined && ec > 0) entry.errorCount = ec;
+      const br = burnRates.get(s.id);
+      if (br !== undefined) entry.burnRatePerMin = br;
+      return entry;
+    }),
+  };
+}
+
+/** Format a SnapshotData as indented JSON. */
+export function formatSnapshotJson(data: SnapshotData): string {
+  return JSON.stringify(data, null, 2) + "\n";
+}
+
+/** Format a SnapshotData as a Markdown report. */
+export function formatSnapshotMarkdown(data: SnapshotData): string {
+  const lines: string[] = [];
+  lines.push(`# aoaoe Snapshot — ${data.exportedAt}`);
+  lines.push(`**aoaoe v${data.version}** · ${data.sessions.length} session${data.sessions.length !== 1 ? "s" : ""}`);
+  lines.push("");
+  if (data.sessions.length === 0) {
+    lines.push("_No active sessions._");
+  } else {
+    for (const s of data.sessions) {
+      lines.push(`## ${s.title}`);
+      lines.push(`- **Status:** ${s.status}`);
+      lines.push(`- **Tool:** ${s.tool}`);
+      if (s.group) lines.push(`- **Group:** ${s.group}`);
+      if (s.note) lines.push(`- **Note:** ${s.note}`);
+      if (s.uptimeMs !== undefined) lines.push(`- **Uptime:** ${formatUptime(s.uptimeMs)}`);
+      if (s.contextTokens) lines.push(`- **Context:** ${s.contextTokens}`);
+      if (s.currentTask) lines.push(`- **Current task:** ${s.currentTask}`);
+      if (s.errorCount) lines.push(`- **Errors:** ${s.errorCount}`);
+      if (s.burnRatePerMin !== undefined && s.burnRatePerMin !== null && s.burnRatePerMin > 0) {
+        lines.push(`- **Burn rate:** ~${Math.round(s.burnRatePerMin / 100) * 100} tokens/min`);
+      }
+      lines.push("");
+    }
+  }
+  return lines.join("\n");
 }
 
 // ── Sticky prefs ─────────────────────────────────────────────────────────────

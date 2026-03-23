@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.106.0
+## Version: v0.107.0
 
 ## Current Focus
 
-1603 tests across 35 files. v0.106.0 shipped: context burn-rate alerts — automatic nudge in the activity log when a session's context usage spikes above 5k tokens/min, plus `/burn-rate` command.
+1628 tests across 35 files. v0.107.0 shipped: `/snapshot` — exports all current session state to a timestamped JSON or Markdown file in `~/.aoaoe/`.
 
 ## Roadmap
 
@@ -29,6 +29,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Session snapshot export** — `/snapshot` command exports current session states to JSON/Markdown
 - **Group broadcast** — `/broadcast group:name message` sends a message to all sessions in a group
 - **Idle time per session** — show time since last activity change alongside uptime
+
+### What shipped in v0.107.0
+
+**Theme: "Session Snapshot Export"** — `/snapshot` writes current session state to `~/.aoaoe/snapshot-<timestamp>.json`. `/snapshot md` writes Markdown. `buildSnapshotData()` pure function captures: title, status, tool, group, note, uptime, context tokens, current task, error count, burn rate. `formatSnapshotJson()` and `formatSnapshotMarkdown()` pure formatters. `SnapshotData` / `SnapshotSession` interfaces exported. 25 new tests covering all fields, empty sessions, JSON validity, Markdown headings.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +25, net 1628 tests across 35 files.
 
 ### What shipped in v0.106.0
 

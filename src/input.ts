@@ -41,6 +41,7 @@ export type GroupHandler = (target: string, group: string) => void; // session +
 export type GroupsHandler = () => void; // list all groups
 export type GroupFilterHandler = (group: string | null) => void; // filter sessions to a group (null = clear)
 export type BurnRateHandler = () => void; // show current context burn rates
+export type SnapshotHandler = (format: "json" | "md") => void; // export snapshot
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -108,6 +109,7 @@ export class InputReader {
   private groupsHandler: GroupsHandler | null = null;
   private groupFilterHandler: GroupFilterHandler | null = null;
   private burnRateHandler: BurnRateHandler | null = null;
+  private snapshotHandler: SnapshotHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -259,6 +261,11 @@ export class InputReader {
   // register a callback for burn-rate reporting (/burn-rate)
   onBurnRate(handler: BurnRateHandler): void {
     this.burnRateHandler = handler;
+  }
+
+  // register a callback for snapshot export (/snapshot [md])
+  onSnapshot(handler: SnapshotHandler): void {
+    this.snapshotHandler = handler;
   }
 
   /** Set aliases from persisted prefs. */
@@ -509,6 +516,7 @@ ${BOLD}navigation:${RESET}
   /groups            list all groups and their sessions
   /group-filter tag  show only sessions in a group (no arg = clear)
   /burn-rate         show context token burn rates for all sessions
+  /snapshot [md]     export session state snapshot to JSON (or Markdown with md)
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -902,6 +910,17 @@ ${BOLD}other:${RESET}
           console.error(`${DIM}burn-rate not available (no TUI)${RESET}`);
         }
         break;
+
+      case "/snapshot": {
+        const snapArg = line.slice("/snapshot".length).trim().toLowerCase();
+        const fmt = snapArg === "md" || snapArg === "markdown" ? "md" : "json";
+        if (this.snapshotHandler) {
+          this.snapshotHandler(fmt);
+        } else {
+          console.error(`${DIM}snapshot not available (no TUI)${RESET}`);
+        }
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

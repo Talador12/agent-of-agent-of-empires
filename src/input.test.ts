@@ -1001,6 +1001,38 @@ describe("onGroupFilter", () => {
   });
 });
 
+describe("onSnapshot", () => {
+  it("registers and calls snapshot handler with json format", () => {
+    const reader = new InputReader();
+    let received: string = "";
+    reader.onSnapshot((fmt) => { received = fmt; });
+    reader["snapshotHandler"]!("json");
+    assert.equal(received, "json");
+  });
+
+  it("registers and calls snapshot handler with md format", () => {
+    const reader = new InputReader();
+    let received: string = "";
+    reader.onSnapshot((fmt) => { received = fmt; });
+    reader["snapshotHandler"]!("md");
+    assert.equal(received, "md");
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["snapshotHandler"]?.("json"); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onSnapshot(() => { calls++; });
+    reader.onSnapshot(() => { calls += 10; });
+    reader["snapshotHandler"]!("json");
+    assert.equal(calls, 10);
+  });
+});
+
 describe("onBurnRate", () => {
   it("registers and calls burn-rate handler", () => {
     const reader = new InputReader();

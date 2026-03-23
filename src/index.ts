@@ -17,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
@@ -709,6 +709,33 @@ async function main() {
         }
       }
       if (!any) tui!.log("system", `  threshold: ${CONTEXT_BURN_THRESHOLD.toLocaleString()} tokens/min`);
+    });
+    // wire /snapshot export
+    input.onSnapshot((fmt) => {
+      const sessions = tui!.getSessions();
+      const groups = tui!.getAllGroups();
+      const notes = tui!.getAllNotes();
+      const firstSeen = tui!.getAllFirstSeen();
+      const errorCounts = tui!.getSessionErrorCounts();
+      const burnRates = tui!.getAllBurnRates();
+      const version = pkg ?? "dev";
+      const data = buildSnapshotData(sessions, groups, notes, firstSeen, errorCounts, burnRates, version);
+      const ts = new Date(data.exportedAtMs).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const dir = join(homedir(), ".aoaoe");
+      try {
+        mkdirSync(dir, { recursive: true });
+        if (fmt === "md") {
+          const path = join(dir, `snapshot-${ts}.md`);
+          writeFileSync(path, formatSnapshotMarkdown(data), "utf-8");
+          tui!.log("system", `snapshot saved: ~/.aoaoe/snapshot-${ts}.md (${sessions.length} sessions)`);
+        } else {
+          const path = join(dir, `snapshot-${ts}.json`);
+          writeFileSync(path, formatSnapshotJson(data), "utf-8");
+          tui!.log("system", `snapshot saved: ~/.aoaoe/snapshot-${ts}.json (${sessions.length} sessions)`);
+        }
+      } catch (err) {
+        tui!.log("error", `snapshot failed: ${err}`);
+      }
     });
     // wire mouse move to hover highlight on session cards (disabled in compact)
     input.onMouseMove((row, _col) => {
