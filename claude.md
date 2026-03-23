@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.113.0
+## Version: v0.114.0
 
 ## Current Focus
 
-1739 tests across 35 files. v0.113.0 shipped: `/rename` — set a custom TUI display name for any session; persisted across restarts, shown bold in cards with original name dim alongside.
+1739 tests across 35 files. v0.114.0 shipped: README overhaul — all new commands from v0.104–v0.113 documented, test count badge updated to 1739, TUI features section expanded.
 
 ## Roadmap
 
@@ -32,6 +32,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Session health score** — composite 0-100 score from error rate, idle time, burn rate shown in card
 - **`/top` command** — show sessions ranked by burn rate, error count, or idle time
 - **Multi-key quick-switch** — extend quick-switch from 1-9 to 1-99 via two-digit prefix
+
+### What shipped in v0.114.0
+
+**Theme: "README Overhaul"** — comprehensive documentation update covering all features added from v0.96–v0.113. Navigation table expanded with `/group`, `/group-filter`, `/groups`, `/rename`, `/watchdog`, `/broadcast`, `/top`, `/who` (updated). Info table added `/burn-rate`, `/ceiling`, `/snapshot`, `/alias`. TUI Features section rewritten with all new capabilities: health score, error sparklines, idle-since, grouping, rename, watchdog, burn-rate alerts, ceiling warning, snapshot, broadcast, ranked view, aliases. Test count badge updated 1509→1739.
+
+Modified: `README.md`, `package.json`, `claude.md`
+Test changes: none, net 1739 tests across 35 files.
 
 ### What shipped in v0.113.0
 
