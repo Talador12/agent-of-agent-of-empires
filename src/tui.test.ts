@@ -18,6 +18,7 @@ import {
   parseContextTokenNumber, computeContextBurnRate, formatBurnRateAlert,
   CONTEXT_BURN_THRESHOLD, CONTEXT_BURN_WINDOW_MS, MAX_CONTEXT_HISTORY,
   parseContextCeiling, formatContextCeilingAlert, CONTEXT_CEILING_THRESHOLD,
+  computeHealthScore, formatHealthBadge, HEALTH_GOOD, HEALTH_WARN, HEALTH_ICON,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
   shouldBell, BELL_COOLDOWN_MS,
@@ -3221,6 +3222,103 @@ describe("formatSnapshotMarkdown", () => {
   it("returns a string", () => {
     const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
     assert.equal(typeof formatSnapshotMarkdown(data), "string");
+  });
+});
+
+// ── computeHealthScore ────────────────────────────────────────────────────
+
+describe("computeHealthScore", () => {
+  const clean = { errorCount: 0, burnRatePerMin: null, contextFraction: null, idleMs: null, watchdogThresholdMs: null };
+
+  it("returns 100 for perfect session", () => {
+    assert.equal(computeHealthScore(clean), 100);
+  });
+
+  it("deducts 10 per error", () => {
+    assert.equal(computeHealthScore({ ...clean, errorCount: 2 }), 80);
+  });
+
+  it("caps error deduction at 50", () => {
+    assert.equal(computeHealthScore({ ...clean, errorCount: 10 }), 50);
+  });
+
+  it("deducts 20 for high burn rate", () => {
+    assert.equal(computeHealthScore({ ...clean, burnRatePerMin: CONTEXT_BURN_THRESHOLD + 1 }), 80);
+  });
+
+  it("no deduction for burn rate at threshold", () => {
+    assert.equal(computeHealthScore({ ...clean, burnRatePerMin: CONTEXT_BURN_THRESHOLD }), 100);
+  });
+
+  it("deducts for context ceiling proximity above 70%", () => {
+    // 80% usage = 10% above 70% = -10
+    const score = computeHealthScore({ ...clean, contextFraction: 0.80 });
+    assert.equal(score, 90);
+  });
+
+  it("no deduction at 70% context or below", () => {
+    assert.equal(computeHealthScore({ ...clean, contextFraction: 0.70 }), 100);
+  });
+
+  it("deducts 15 for stalled session", () => {
+    assert.equal(computeHealthScore({ ...clean, idleMs: 10 * 60_000, watchdogThresholdMs: 5 * 60_000 }), 85);
+  });
+
+  it("no stall deduction when below watchdog threshold", () => {
+    assert.equal(computeHealthScore({ ...clean, idleMs: 3 * 60_000, watchdogThresholdMs: 5 * 60_000 }), 100);
+  });
+
+  it("no stall deduction when watchdog disabled", () => {
+    assert.equal(computeHealthScore({ ...clean, idleMs: 60 * 60_000, watchdogThresholdMs: null }), 100);
+  });
+
+  it("combines all deductions", () => {
+    const score = computeHealthScore({
+      errorCount: 1,        // -10
+      burnRatePerMin: CONTEXT_BURN_THRESHOLD + 1, // -20
+      contextFraction: 0.80, // -10 (10% above 70%)
+      idleMs: 10 * 60_000,  // -15
+      watchdogThresholdMs: 5 * 60_000,
+    });
+    assert.equal(score, 100 - 10 - 20 - 10 - 15);
+  });
+
+  it("clamps to 0 on extreme deductions", () => {
+    assert.ok(computeHealthScore({ errorCount: 100, burnRatePerMin: 99999, contextFraction: 1.0, idleMs: 999, watchdogThresholdMs: 1 }) >= 0);
+  });
+
+  it("clamps to 100 maximum", () => {
+    assert.ok(computeHealthScore(clean) <= 100);
+  });
+});
+
+// ── formatHealthBadge ─────────────────────────────────────────────────────
+
+describe("formatHealthBadge", () => {
+  it("returns empty string for score 100", () => {
+    assert.equal(formatHealthBadge(100), "");
+  });
+
+  it("includes HEALTH_ICON", () => {
+    const badge = stripAnsi(formatHealthBadge(85));
+    assert.ok(badge.includes(HEALTH_ICON));
+  });
+
+  it("includes score number", () => {
+    const badge = stripAnsi(formatHealthBadge(75));
+    assert.ok(badge.includes("75"));
+  });
+
+  it("is ANSI-colored (contains escape codes)", () => {
+    assert.ok(formatHealthBadge(50).includes("\x1b["));
+  });
+
+  it("score 80 is at good threshold", () => {
+    assert.equal(HEALTH_GOOD, 80);
+  });
+
+  it("score 60 is at warn threshold", () => {
+    assert.equal(HEALTH_WARN, 60);
   });
 });
 

@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.111.0
+## Version: v0.112.0
 
 ## Current Focus
 
-1699 tests across 35 files. v0.111.0 shipped: context ceiling warnings — auto-alert at 90% context usage, `/ceiling` command, `parseContext` extended to capture "X / Y tokens" format.
+1718 tests across 35 files. v0.112.0 shipped: session health score (0–100) shown as colored `⬡N` badge in every session card — composite of errors, burn rate, context ceiling proximity, and stall time.
 
 ## Roadmap
 
@@ -32,6 +32,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Session health score** — composite 0-100 score from error rate, idle time, burn rate shown in card
 - **`/top` command** — show sessions ranked by burn rate, error count, or idle time
 - **Multi-key quick-switch** — extend quick-switch from 1-9 to 1-99 via two-digit prefix
+
+### What shipped in v0.112.0
+
+**Theme: "Session Health Score"** — composite 0–100 health metric shown as `⬡N` badge in every normal session card. `computeHealthScore({errorCount, burnRatePerMin, contextFraction, idleMs, watchdogThresholdMs})` pure function: 100 − err×10(cap50) − 20(high burn) − 10/10%(context>70%) − 15(stalled). `formatHealthBadge(score)` renders LIME(≥80)/AMBER(≥60)/ROSE(<60) badge; returns empty string at 100 (no clutter on healthy sessions). Both `paintSessions()` and `repaintSessionCard()` compute and pass badge. `HEALTH_GOOD=80`, `HEALTH_WARN=60`, `HEALTH_ICON="⬡"`. 19 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `package.json`, `claude.md`
+Test changes: +19, net 1718 tests across 35 files.
 
 ### What shipped in v0.111.0
 

@@ -483,6 +483,63 @@ export function formatSnapshotMarkdown(data: SnapshotData): string {
   return lines.join("\n");
 }
 
+// ── Session health score ──────────────────────────────────────────────────────
+
+/** Health score color thresholds. */
+export const HEALTH_GOOD = 80;
+export const HEALTH_WARN = 60;
+
+/** Health score badge icon. */
+export const HEALTH_ICON = "⬡";
+
+/**
+ * Compute a composite health score (0–100) for a session.
+ * Higher = healthier. Deductions for: errors, high burn rate, context ceiling proximity, stall.
+ */
+export function computeHealthScore(opts: {
+  errorCount: number;
+  burnRatePerMin: number | null;
+  contextFraction: number | null; // current / max, or null if unknown
+  idleMs: number | null;
+  watchdogThresholdMs: number | null;
+}): number {
+  let score = 100;
+
+  // errors: -10 per error, cap deduction at 50
+  const errDeduction = Math.min(50, opts.errorCount * 10);
+  score -= errDeduction;
+
+  // burn rate: -20 when above CONTEXT_BURN_THRESHOLD
+  if (opts.burnRatePerMin !== null && opts.burnRatePerMin > CONTEXT_BURN_THRESHOLD) {
+    score -= 20;
+  }
+
+  // context ceiling: -10 per 10% above 70% (so 80%→-10, 90%→-20, 100%→-30)
+  if (opts.contextFraction !== null) {
+    const overPct = Math.max(0, opts.contextFraction - 0.70);
+    const tenPctSteps = Math.floor(overPct * 10); // number of 10% increments over 70%
+    const ceDeduction = Math.min(30, tenPctSteps * 10);
+    score -= ceDeduction;
+  }
+
+  // stall: -15 when idle longer than watchdog threshold
+  if (opts.idleMs !== null && opts.watchdogThresholdMs !== null && opts.idleMs >= opts.watchdogThresholdMs) {
+    score -= 15;
+  }
+
+  return Math.max(0, Math.min(100, score));
+}
+
+/**
+ * Format a health score as a colored badge string: "⬡83" in LIME/AMBER/ROSE.
+ * Returns empty string for score of exactly 100 (no badge clutter on healthy sessions).
+ */
+export function formatHealthBadge(score: number): string {
+  if (score >= 100) return "";
+  const color = score >= HEALTH_GOOD ? LIME : score >= HEALTH_WARN ? AMBER : ROSE;
+  return `${color}${HEALTH_ICON}${score}${RESET}`;
+}
+
 // ── /top ranking helpers ──────────────────────────────────────────────────────
 
 export type TopSortMode = "errors" | "burn" | "idle" | "default";
@@ -1623,6 +1680,19 @@ export class TUI {
         const errSparkline = errTs ? formatSessionErrorSparkline(errTs, nowMs) : "";
         const lastChange = this.lastChangeAt.get(s.id);
         const idleSinceMs = lastChange !== undefined ? nowMs - lastChange : undefined;
+        // compute health score
+        const ceiling = parseContextCeiling(s.contextTokens);
+        const contextFraction = ceiling ? ceiling.current / ceiling.max : null;
+        const burnHist = this.sessionContextHistory.get(s.id);
+        const burnRate = burnHist ? computeContextBurnRate(burnHist, nowMs) : null;
+        const healthScore = computeHealthScore({
+          errorCount: this.sessionErrorCounts.get(s.id) ?? 0,
+          burnRatePerMin: burnRate,
+          contextFraction,
+          idleMs: idleSinceMs ?? null,
+          watchdogThresholdMs: this.watchdogThresholdMs,
+        });
+        const healthBadge = formatHealthBadge(healthScore);
         const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
         const muteBadgeWidth = muted ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 2 : 0; // "(N)" visible chars, 0 when count is 0
         const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0 ? muteBadgeWidth + 1 : 0; // +1 for trailing space
@@ -1634,7 +1704,7 @@ export class TUI {
         const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
         const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth;
         const cardWidth = innerWidth - 1 - iconsWidth;
-        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs)}`;
+        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined)}`;
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
@@ -1676,6 +1746,18 @@ export class TUI {
     const errSparkline = errTs ? formatSessionErrorSparkline(errTs, nowMs2) : "";
     const lastChange = this.lastChangeAt.get(s.id);
     const idleSinceMs = lastChange !== undefined ? nowMs2 - lastChange : undefined;
+    const ceiling2 = parseContextCeiling(s.contextTokens);
+    const contextFraction2 = ceiling2 ? ceiling2.current / ceiling2.max : null;
+    const burnHist2 = this.sessionContextHistory.get(s.id);
+    const burnRate2 = burnHist2 ? computeContextBurnRate(burnHist2, nowMs2) : null;
+    const healthScore2 = computeHealthScore({
+      errorCount: this.sessionErrorCounts.get(s.id) ?? 0,
+      burnRatePerMin: burnRate2,
+      contextFraction: contextFraction2,
+      idleMs: idleSinceMs ?? null,
+      watchdogThresholdMs: this.watchdogThresholdMs,
+    });
+    const healthBadge2 = formatHealthBadge(healthScore2);
     const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
     const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0
       ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 3 : 0; // "(N) " visible chars
@@ -1687,7 +1769,7 @@ export class TUI {
     const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
     const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth;
     const cardWidth = innerWidth - 1 - iconsWidth;
-    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs)}`;
+    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge2 || undefined)}`;
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }
@@ -1818,13 +1900,16 @@ export class TUI {
 // format a session as a card-style line (inside the box)
 // errorSparkline: optional pre-formatted ROSE sparkline string (5 chars) for recent errors
 // idleSinceMs: optional ms since last activity change (shown when idle/stopped)
-function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkline?: string, idleSinceMs?: number): string {
+// healthBadge: optional pre-formatted health score badge ("⬡83" colored)
+function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkline?: string, idleSinceMs?: number, healthBadge?: string): string {
   const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
   const name = `${BOLD}${s.title}${RESET}`;
   const toolBadge = `${SLATE}${s.tool}${RESET}`;
   const contextBadge = s.contextTokens ? ` ${DIM}(${s.contextTokens})${RESET}` : "";
   const sparkSuffix = errorSparkline ? ` ${errorSparkline}` : "";
-  // sparkline takes fixed space so status desc gets less room
+  const healthPrefix = healthBadge ? `${healthBadge} ` : "";
+  const healthPrefixWidth = healthBadge ? stripAnsiForLen(healthBadge) + 1 : 0;
+  // sparkline + health badge take fixed space so status desc gets less room
   const sparkWidth = errorSparkline ? SESSION_SPARK_BUCKETS + 1 : 0;
 
   // idle-since label: show when session is idle/stopped and stale > 2min
@@ -1852,7 +1937,7 @@ function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkli
     desc = `${SLATE}${s.status}${RESET}`;
   }
 
-  return truncateAnsi(`${dot} ${name} ${toolBadge}${contextBadge} ${SLATE}${BOX.h}${RESET} ${desc}${sparkSuffix}`, maxWidth);
+  return truncateAnsi(`${dot} ${healthPrefix}${name} ${toolBadge}${contextBadge} ${SLATE}${BOX.h}${RESET} ${desc}${sparkSuffix}`, maxWidth);
 }
 
 // colorize an activity entry based on its tag
