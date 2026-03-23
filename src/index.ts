@@ -17,13 +17,13 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
 import { startHealthServer } from "./health.js";
-import { loadTuiHistory, searchHistory } from "./tui-history.js";
+import { loadTuiHistory, searchHistory, TUI_HISTORY_FILE } from "./tui-history.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState, ActionLogEntry } from "./types.js";
@@ -563,8 +563,11 @@ async function main() {
       for (const s of sorted) {
         const up = firstSeen.has(s.id) ? formatUptime(now - firstSeen.get(s.id)!) : "?";
         const errCount = errors.get(s.id) ?? 0;
-        const errStr = errCount > 0 ? ` ${errCount}err` : "";
+        const errTs = tui!.getSessionErrorTimestamps(s.id);
+        const errTrend = errTs.length > 0 ? (computeErrorTrend(errTs, now) === "rising" ? "↑" : computeErrorTrend(errTs, now) === "falling" ? "↓" : "") : "";
+        const errStr = errCount > 0 ? ` ${errCount}err${errTrend}` : "";
         const ctxStr = s.contextTokens ? ` ${s.contextTokens}` : "";
+        const costStr = tui!.getSessionCost(s.id) ? ` ${tui!.getSessionCost(s.id)}` : "";
         const note = notes.get(s.id);
         const noteStr = note ? ` "${note}"` : "";
         const group = groups.get(s.id);
@@ -573,7 +576,7 @@ async function main() {
         const lastChange = lastChangeAt.get(s.id);
         const idleStr = (lastChange && (s.status === "idle" || s.status === "stopped" || s.status === "done"))
           ? ` idle ${formatUptime(now - lastChange)}` : "";
-        tui!.log("system", `  ${s.title}${groupStr} — ${s.status} ${up}${ctxStr}${errStr}${idleStr}${noteStr}`);
+        tui!.log("system", `  ${s.title}${groupStr} — ${s.status} ${up}${ctxStr}${costStr}${errStr}${idleStr}${noteStr}`);
       }
     });
     // wire /uptime listing
@@ -895,6 +898,8 @@ async function main() {
         tui!.getAllHealthScores(now),
         tui!.getAllSessionAliases(),
         now,
+        new Map(sessions.map((s) => [s.id, tui!.getSessionErrorTimestamps(s.id)])),
+        tui!.getAllSessionCosts(),
       );
       const ts = new Date(now).toISOString().replace(/[:.]/g, "-").slice(0, 19);
       const dir = join(homedir(), ".aoaoe");
@@ -905,6 +910,15 @@ async function main() {
         tui!.log("system", `stats exported: ~/.aoaoe/stats-${ts}.json (${entries.length} sessions)`);
       } catch (err) {
         tui!.log("error", `export-stats failed: ${err}`);
+      }
+    });
+    // wire /clear-history
+    input.onClearHistory(() => {
+      try {
+        writeFileSync(TUI_HISTORY_FILE, "", "utf-8");
+        tui!.log("system", "history cleared — tui-history.jsonl truncated");
+      } catch (err) {
+        tui!.log("error", `clear-history failed: ${err}`);
       }
     });
     // wire /recall — search persisted history
@@ -936,6 +950,8 @@ async function main() {
         tui!.getAllHealthScores(now),
         tui!.getAllSessionAliases(),
         now,
+        new Map(sessions.map((s) => [s.id, tui!.getSessionErrorTimestamps(s.id)])),
+        tui!.getAllSessionCosts(),
       );
       tui!.log("system", `/stats — ${entries.length} session${entries.length !== 1 ? "s" : ""}:`);
       for (const line of formatSessionStatsLines(entries)) {

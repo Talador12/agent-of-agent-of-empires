@@ -1498,3 +1498,27 @@ describe("onColor", () => {
     assert.doesNotThrow(() => { reader["colorHandler"]?.("x", "lime"); });
   });
 });
+
+describe("onClearHistory", () => {
+  it("registers and calls clear-history handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onClearHistory(() => { called = true; });
+    reader["clearHistoryHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["clearHistoryHandler"]?.(); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onClearHistory(() => { calls++; });
+    reader.onClearHistory(() => { calls += 10; });
+    reader["clearHistoryHandler"]!();
+    assert.equal(calls, 10);
+  });
+});

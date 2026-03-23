@@ -26,6 +26,7 @@ import {
   MAX_GOAL_HISTORY, validateSessionTag, formatSessionTagsBadge, MAX_SESSION_TAGS, MAX_SESSION_TAG_LEN,
   filterSessionTimeline, TIMELINE_DEFAULT_COUNT,
   validateColorName, formatColorDot, SESSION_COLOR_NAMES,
+  computeErrorTrend, formatErrorTrend,
   truncateRename, MAX_RENAME_LEN,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
@@ -4271,6 +4272,102 @@ describe("TUI getSessionOutput", () => {
   it("getDrilldownId returns null before entering drilldown", () => {
     const tui = new TUI();
     assert.equal(tui.getDrilldownId(), null);
+  });
+});
+
+// ── computeErrorTrend ────────────────────────────────────────────────────
+
+describe("computeErrorTrend", () => {
+  it("returns stable for empty timestamps", () => {
+    assert.equal(computeErrorTrend([]), "stable");
+  });
+
+  it("returns rising when more errors in recent half", () => {
+    const now = Date.now();
+    const window = 10 * 60_000;
+    // 0 in older half, 3 in newer half
+    const ts = [now - 1000, now - 2000, now - 3000];
+    assert.equal(computeErrorTrend(ts, now, window), "rising");
+  });
+
+  it("returns falling when more errors in older half", () => {
+    const now = Date.now();
+    const window = 10 * 60_000;
+    // 3 in older half, 0 in newer half
+    const midpoint = now - window / 2;
+    const ts = [midpoint - 1000, midpoint - 2000, midpoint - 3000];
+    assert.equal(computeErrorTrend(ts, now, window), "falling");
+  });
+
+  it("returns stable when equal in both halves", () => {
+    const now = Date.now();
+    const window = 10 * 60_000;
+    const midpoint = now - window / 2;
+    const ts = [midpoint - 1000, now - 1000]; // 1 each
+    assert.equal(computeErrorTrend(ts, now, window), "stable");
+  });
+
+  it("ignores timestamps outside window", () => {
+    const now = Date.now();
+    const window = 10 * 60_000;
+    const veryOld = now - window - 5000;
+    assert.equal(computeErrorTrend([veryOld], now, window), "stable");
+  });
+});
+
+// ── formatErrorTrend ──────────────────────────────────────────────────────
+
+describe("formatErrorTrend", () => {
+  it("rising returns ↑ with ANSI", () => {
+    const s = formatErrorTrend("rising");
+    assert.ok(stripAnsi(s).includes("↑"));
+  });
+
+  it("falling returns ↓ with ANSI", () => {
+    const s = formatErrorTrend("falling");
+    assert.ok(stripAnsi(s).includes("↓"));
+  });
+
+  it("stable returns → with ANSI", () => {
+    const s = formatErrorTrend("stable");
+    assert.ok(stripAnsi(s).includes("→"));
+  });
+});
+
+// ── TUI getSessionCost / getAllSessionCosts ───────────────────────────────
+
+describe("TUI session cost tracking", () => {
+  it("starts with no costs", () => {
+    const tui = new TUI();
+    assert.equal(tui.getAllSessionCosts().size, 0);
+  });
+
+  it("tracks cost from updateState with costStr", () => {
+    const tui = new TUI();
+    const sess = { id: "c1", title: "Alpha", status: "working" as const, tool: "opencode",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined, costStr: "$3.42" };
+    tui.updateState({ sessions: [sess] });
+    assert.equal(tui.getSessionCost("c1"), "$3.42");
+  });
+
+  it("does not overwrite cost when costStr undefined", () => {
+    const tui = new TUI();
+    const withCost = { id: "c1", title: "Alpha", status: "working" as const, tool: "opencode",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined, costStr: "$3.42" };
+    tui.updateState({ sessions: [withCost] });
+    const noCost = { ...withCost, costStr: undefined };
+    tui.updateState({ sessions: [noCost] });
+    // cost should still be there (we only set, never clear on undefined)
+    assert.equal(tui.getSessionCost("c1"), "$3.42");
+  });
+
+  it("getAllSessionCosts returns all", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [
+      { id: "c1", title: "A", status: "idle" as const, tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined, costStr: "$1.00" },
+      { id: "c2", title: "B", status: "idle" as const, tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined, costStr: "$2.00" },
+    ] });
+    assert.equal(tui.getAllSessionCosts().size, 2);
   });
 });
 

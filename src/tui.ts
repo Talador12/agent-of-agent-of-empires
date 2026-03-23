@@ -388,6 +388,46 @@ export function formatIdleSince(ms: number, thresholdMs = 2 * 60_000): string {
   return `idle ${formatUptime(ms)}`;
 }
 
+// ── Error trend (pure, exported for testing) ──────────────────────────────────
+
+/** Error trend: compare recent half of window vs older half. */
+export type ErrorTrend = "rising" | "stable" | "falling";
+
+/**
+ * Compute error trend from a list of recent error timestamps.
+ * Splits the window in half; if recent half has significantly more → rising, fewer → falling.
+ * "Significant" = difference of at least 1 error.
+ */
+export function computeErrorTrend(
+  timestamps: readonly number[],
+  now?: number,
+  windowMs = 10 * 60_000,
+): ErrorTrend {
+  if (timestamps.length === 0) return "stable";
+  const nowMs = now ?? Date.now();
+  const cutoff = nowMs - windowMs;
+  const halfMs = windowMs / 2;
+  const midpoint = nowMs - halfMs;
+  let older = 0, newer = 0;
+  for (const ts of timestamps) {
+    if (ts < cutoff) continue;
+    if (ts < midpoint) older++;
+    else newer++;
+  }
+  if (newer > older) return "rising";
+  if (older > newer) return "falling";
+  return "stable";
+}
+
+/** Format error trend as a directional arrow. */
+export function formatErrorTrend(trend: ErrorTrend): string {
+  switch (trend) {
+    case "rising":  return `${ROSE}↑${RESET}`;
+    case "falling": return `${LIME}↓${RESET}`;
+    default:        return `${SLATE}→${RESET}`;
+  }
+}
+
 // ── Session timeline (pure, exported for testing) ────────────────────────────
 
 /** Default number of entries shown by /timeline. */
@@ -488,8 +528,10 @@ export interface SessionStatEntry {
   status: string;
   health: number;
   errors: number;
+  errorTrend?: ErrorTrend;
   burnRatePerMin: number | null;
   contextPct: number | null;    // 0–100 or null if no ceiling info
+  costStr?: string;             // "$N.NN" latest cost
   uptimeMs: number | null;
   idleSinceMs: number | null;
 }
@@ -506,6 +548,8 @@ export function buildSessionStats(
   healthScores: ReadonlyMap<string, number>,
   sessionAliases: ReadonlyMap<string, string>,
   now?: number,
+  errorTimestamps?: ReadonlyMap<string, readonly number[]>,
+  sessionCosts?: ReadonlyMap<string, string>,
 ): SessionStatEntry[] {
   const nowMs = now ?? Date.now();
   return sessions.map((s) => {
@@ -513,14 +557,18 @@ export function buildSessionStats(
     const ctxPct = ceiling ? Math.round((ceiling.current / ceiling.max) * 100) : null;
     const fs = firstSeen.get(s.id);
     const lc = lastChangeAt.get(s.id);
+    const errTs = errorTimestamps?.get(s.id);
+    const errTrend = errTs ? computeErrorTrend(errTs, nowMs) : undefined;
     return {
       title: s.title,
       displayName: sessionAliases.get(s.id),
       status: s.status,
       health: healthScores.get(s.id) ?? 100,
       errors: errorCounts.get(s.id) ?? 0,
+      errorTrend: errTrend,
       burnRatePerMin: burnRates.get(s.id) ?? null,
       contextPct: ctxPct,
+      costStr: sessionCosts?.get(s.id),
       uptimeMs: fs !== undefined ? nowMs - fs : null,
       idleSinceMs: lc !== undefined ? nowMs - lc : null,
     };
@@ -536,13 +584,15 @@ export function formatSessionStatsLines(entries: SessionStatEntry[]): string[] {
   return entries.map((e) => {
     const label = e.displayName ? `${e.displayName} (${e.title})` : e.title;
     const healthStr = `⬡${e.health}`;
-    const errStr = e.errors > 0 ? ` ${e.errors}err` : "";
+    const trendStr = e.errorTrend ? ` ${e.errorTrend === "rising" ? "↑" : e.errorTrend === "falling" ? "↓" : "→"}` : "";
+    const errStr = e.errors > 0 ? ` ${e.errors}err${trendStr}` : "";
     const burnStr = e.burnRatePerMin !== null && e.burnRatePerMin > 0
       ? ` ${Math.round(e.burnRatePerMin / 100) * 100}tok/min` : "";
     const ctxStr = e.contextPct !== null ? ` ctx:${e.contextPct}%` : "";
+    const costStr = e.costStr ? ` ${e.costStr}` : "";
     const upStr = e.uptimeMs !== null ? ` up:${formatUptime(e.uptimeMs)}` : "";
     const idleStr = e.idleSinceMs !== null ? ` ${formatIdleSince(e.idleSinceMs)}` : "";
-    return `  ${label} [${e.status}] ${healthStr}${errStr}${burnStr}${ctxStr}${upStr}${idleStr}`;
+    return `  ${label} [${e.status}] ${healthStr}${errStr}${burnStr}${ctxStr}${costStr}${upStr}${idleStr}`;
   });
 }
 
@@ -585,7 +635,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
   "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy", "/stats", "/recall", "/pin-all-errors", "/export-stats",
-  "/mute-errors", "/prev-goal", "/tag", "/tags", "/tag-filter", "/find", "/reset-health", "/timeline", "/color",
+  "/mute-errors", "/prev-goal", "/tag", "/tags", "/tag-filter", "/find", "/reset-health", "/timeline", "/color", "/clear-history",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -927,6 +977,7 @@ export class TUI {
   private sessionTags = new Map<string, Set<string>>(); // session ID → freeform tag set
   private tagFilter2: string | null = null; // active freeform tag filter on session panel
   private sessionColors = new Map<string, string>(); // session ID → accent color name
+  private sessionCosts = new Map<string, string>(); // session ID → latest cost string ("$N.NN")
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -1393,6 +1444,16 @@ export class TUI {
 
   // ── Session timeline ─────────────────────────────────────────────────────
 
+  /** Get the latest cost string for a session (or undefined). */
+  getSessionCost(id: string): string | undefined {
+    return this.sessionCosts.get(id);
+  }
+
+  /** Return all session costs (for /stats). */
+  getAllSessionCosts(): ReadonlyMap<string, string> {
+    return this.sessionCosts;
+  }
+
   getSessionTimeline(sessionIdOrIndex: string | number, count = TIMELINE_DEFAULT_COUNT): ActivityEntry[] | null {
     let sessionId: string | undefined;
     if (typeof sessionIdOrIndex === "number") {
@@ -1726,6 +1787,8 @@ export class TUI {
           this.lastChangeAt.set(s.id, now);
         }
         if (s.lastActivity !== undefined) this.prevLastActivity.set(s.id, s.lastActivity);
+        // track cost string
+        if (s.costStr) this.sessionCosts.set(s.id, s.costStr);
         // track context token history for burn-rate alerts
         const tokens = parseContextTokenNumber(s.contextTokens);
         if (tokens !== null) {

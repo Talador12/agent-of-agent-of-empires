@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { toDaemonState } from "./types.js";
 import type { DaemonState, DaemonPhase, DaemonSessionState, Observation } from "./types.js";
-import { parseTasks, formatTaskList, parseContext } from "./task-parser.js";
+import { parseTasks, formatTaskList, parseContext, parseCost } from "./task-parser.js";
 
 // default state directory — overridable via setStateDir() for test isolation
 let AOAOE_DIR = join(homedir(), ".aoaoe");
@@ -59,6 +59,7 @@ const sessionTasks = new Map<string, string>();
 const todoCache = new Map<string, string | undefined>();
 // cache parsed context token usage for unchanged sessions
 const contextCache = new Map<string, string | undefined>();
+const costCache = new Map<string, string | undefined>();
 
 export function setSessionTask(sessionId: string, task: string): void {
   // keep task text short for display
@@ -121,6 +122,9 @@ export function buildSessionStates(obs: Observation): DaemonSessionState[] {
   for (const id of contextCache.keys()) {
     if (!currentIds.has(id)) contextCache.delete(id);
   }
+  for (const id of costCache.keys()) {
+    if (!currentIds.has(id)) costCache.delete(id);
+  }
 
   // only re-parse TODO items for sessions that have new output
   const changedIds = new Set(obs.changes.map((c) => c.sessionId));
@@ -140,11 +144,15 @@ export function buildSessionStates(obs: Observation): DaemonSessionState[] {
       todoSummary = todoCache.get(s.id);
     }
     let contextTokens: string | undefined;
+    let costStr: string | undefined;
     if (changedIds.has(s.id)) {
       contextTokens = parseContext(snap.output);
       contextCache.set(s.id, contextTokens);
+      costStr = parseCost(snap.output);
+      costCache.set(s.id, costStr);
     } else {
       contextTokens = contextCache.get(s.id);
+      costStr = costCache.get(s.id);
     }
     return {
       id: s.id,
@@ -158,6 +166,7 @@ export function buildSessionStates(obs: Observation): DaemonSessionState[] {
       contextTokens,
       todoSummary,
       userActive: snap.userActive ?? false,
+      costStr,
     };
   });
 }

@@ -61,6 +61,7 @@ export type FindHandler = (text: string) => void; // search session outputs
 export type ResetHealthHandler = (target: string) => void; // reset a session's health state
 export type TimelineHandler = (target: string, count: number) => void; // show session activity timeline
 export type ColorHandler = (target: string, colorName: string) => void; // set session accent color
+export type ClearHistoryHandler = () => void; // truncate tui-history.jsonl
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -148,6 +149,7 @@ export class InputReader {
   private resetHealthHandler: ResetHealthHandler | null = null;
   private timelineHandler: TimelineHandler | null = null;
   private colorHandler: ColorHandler | null = null;
+  private clearHistoryHandler: ClearHistoryHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -399,6 +401,11 @@ export class InputReader {
   // register a callback for /color <N|name> [colorname]
   onColor(handler: ColorHandler): void {
     this.colorHandler = handler;
+  }
+
+  // register a callback for /clear-history
+  onClearHistory(handler: ClearHistoryHandler): void {
+    this.clearHistoryHandler = handler;
   }
 
   /** Set aliases from persisted prefs. */
@@ -676,6 +683,7 @@ ${BOLD}navigation:${RESET}
   /reset-health N    clear error counts + context history for a session
   /timeline N [n]    show last n activity entries for session N (default 30)
   /color N [color]   set accent color for session (lime/amber/rose/teal/sky/slate; no color = clear)
+  /clear-history     truncate persisted activity history (tui-history.jsonl)
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -1176,6 +1184,14 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/clear-history":
+        if (this.clearHistoryHandler) {
+          this.clearHistoryHandler();
+        } else {
+          console.error(`${DIM}clear-history not available (no TUI)${RESET}`);
+        }
+        break;
 
       case "/reset-health": {
         const rhArg = line.slice("/reset-health".length).trim();

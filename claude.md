@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.132.0
+## Version: v0.135.0
 
 ## Current Focus
 
-1922 tests across 35 files. v0.130–v0.132 shipped: `/timeline` per-session activity log view, `/color` per-session accent dot in cards, and config hot-diff with styled `⚙ config` tag.
+1937 tests across 35 files. v0.133–v0.135 shipped: error trend arrows (↑/→/↓) in `/stats`+`/who`, per-session cost tracking from `$N.NN spent` pane output, and `/clear-history` command.
 
 ## Roadmap
 
@@ -30,6 +30,17 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Error trend** — show whether error count is rising/stable/falling via ↑/→/↓ in `/stats` output
 - **`/color-all <color>`** — set same accent color for all sessions at once
 - **Per-session cost tracking** — parse `$N.NN spent` from pane output and show in `/stats`
+
+### What shipped in v0.133.0–v0.135.0
+
+**v0.133.0 — Error Trend**: `computeErrorTrend(timestamps, now, windowMs)` splits the time window in half and compares error counts: newer > older = `"rising"` (↑ ROSE), older > newer = `"falling"` (↓ LIME), equal = `"stable"` (→ SLATE). `formatErrorTrend()` renders arrows. Shown in `/stats` after error count and in `/who` output.
+
+**v0.134.0 — Cost Tracking**: `DaemonSessionState` gains `costStr?: string`. `parseCost()` now wired in `buildSessionStates()` with a `costCache`. TUI tracks `sessionCosts` map, updated in `updateState()`. `getSessionCost(id)` and `getAllSessionCosts()` accessors. Shown in `/stats` and `/who` output.
+
+**v0.135.0 — /clear-history**: `/clear-history` truncates `~/.aoaoe/tui-history.jsonl` to empty. `TUI_HISTORY_FILE` exported from `tui-history.ts`. Wired in index.ts with error handling. 15 new tests total.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/types.ts`, `src/daemon-state.ts`, `src/input.ts`, `src/input.test.ts`, `src/tui-history.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +15, net 1937 tests across 35 files.
 
 ### What shipped in v0.130.0–v0.132.0
 
