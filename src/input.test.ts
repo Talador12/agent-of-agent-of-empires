@@ -1001,6 +1001,30 @@ describe("onGroupFilter", () => {
   });
 });
 
+describe("onTop", () => {
+  it("registers and calls top handler with mode", () => {
+    const reader = new InputReader();
+    let received = "";
+    reader.onTop((m) => { received = m; });
+    reader["topHandler"]!("errors");
+    assert.equal(received, "errors");
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["topHandler"]?.("default"); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onTop(() => { calls++; });
+    reader.onTop(() => { calls += 10; });
+    reader["topHandler"]!("burn");
+    assert.equal(calls, 10);
+  });
+});
+
 describe("onWatchdog", () => {
   it("registers and calls watchdog handler with minutes", () => {
     const reader = new InputReader();

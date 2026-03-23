@@ -17,7 +17,8 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince } from "./tui.js";
+import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
@@ -718,6 +719,34 @@ async function main() {
         }
       }
       if (!any) tui!.log("system", `  threshold: ${CONTEXT_BURN_THRESHOLD.toLocaleString()} tokens/min`);
+    });
+    // wire /top ranked session view
+    input.onTop((modeArg) => {
+      const mode: TopSortMode = (TOP_SORT_MODES as readonly string[]).includes(modeArg)
+        ? modeArg as TopSortMode : "default";
+      const sessions = tui!.getSessions();
+      if (sessions.length === 0) {
+        tui!.log("system", "no sessions");
+        return;
+      }
+      const now = Date.now();
+      const entries = rankSessions(
+        sessions,
+        tui!.getSessionErrorCounts(),
+        tui!.getAllBurnRates(now),
+        tui!.getAllLastChangeAt(),
+        mode,
+        now,
+      );
+      const modeLabel = mode === "default" ? "composite" : mode;
+      tui!.log("system", `/top (${modeLabel}) — ${entries.length} sessions:`);
+      for (const e of entries) {
+        const errStr = e.errors > 0 ? ` ${e.errors}err` : "";
+        const burnStr = e.burnRatePerMin !== null && e.burnRatePerMin > 0
+          ? ` ~${Math.round(e.burnRatePerMin / 100) * 100}tok/min` : "";
+        const idleStr = e.idleMs !== null ? ` ${formatIdleSince(e.idleMs) || "active"}` : "";
+        tui!.log("system", `  #${e.rank} ${e.title} [${e.status}]${errStr}${burnStr}${idleStr}`);
+      }
     });
     // wire /watchdog stall detection
     input.onWatchdog((thresholdMinutes) => {

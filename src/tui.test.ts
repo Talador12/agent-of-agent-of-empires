@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown,
   formatBroadcastSummary,
+  rankSessions, TOP_SORT_MODES,
   formatIdleSince,
   WATCHDOG_DEFAULT_MINUTES, WATCHDOG_ALERT_COOLDOWN_MS,
   formatActivity, formatSessionCard, formatSessionSentence,
@@ -32,7 +33,7 @@ import {
   validateGroupName, formatGroupBadge, GROUP_ICON, MAX_GROUP_NAME_LEN,
   TUI,
 } from "./tui.js";
-import type { ActivityEntry, SortMode, TuiPrefs, SnapshotData, SnapshotSession } from "./tui.js";
+import type { ActivityEntry, SortMode, TuiPrefs, SnapshotData, SnapshotSession, TopSortMode } from "./tui.js";
 import type { DaemonSessionState } from "./types.js";
 
 function stripAnsi(s: string): string {
@@ -2738,6 +2739,91 @@ describe("validateAliasName", () => {
 describe("MAX_ALIASES", () => {
   it("is 50", () => {
     assert.equal(MAX_ALIASES, 50);
+  });
+});
+
+// ── rankSessions ─────────────────────────────────────────────────────────
+
+function makeRankSessions(): DaemonSessionState[] {
+  return [
+    { id: "s1", title: "Alpha", status: "error", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s2", title: "Bravo", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s3", title: "Charlie", status: "working", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+  ];
+}
+
+describe("rankSessions", () => {
+  it("returns one entry per session", () => {
+    const sessions = makeRankSessions();
+    const result = rankSessions(sessions, new Map(), new Map(), new Map(), "default");
+    assert.equal(result.length, 3);
+  });
+
+  it("assigns sequential ranks starting at 1", () => {
+    const result = rankSessions(makeRankSessions(), new Map(), new Map(), new Map(), "default");
+    const ranks = result.map((e) => e.rank).sort((a, b) => a - b);
+    assert.deepEqual(ranks, [1, 2, 3]);
+  });
+
+  it("errors mode: most errors first", () => {
+    const errors = new Map([["s2", 5], ["s1", 2], ["s3", 0]]);
+    const result = rankSessions(makeRankSessions(), errors, new Map(), new Map(), "errors");
+    assert.equal(result[0].title, "Bravo");
+    assert.equal(result[1].title, "Alpha");
+  });
+
+  it("burn mode: highest burn first", () => {
+    const burns = new Map<string, number | null>([["s1", 8000], ["s2", 3000], ["s3", null]]);
+    const result = rankSessions(makeRankSessions(), new Map(), burns, new Map(), "burn");
+    assert.equal(result[0].title, "Alpha");
+  });
+
+  it("idle mode: most idle first", () => {
+    const now = Date.now();
+    const lastChange = new Map([["s1", now - 1000], ["s2", now - 60_000], ["s3", now - 5000]]);
+    const result = rankSessions(makeRankSessions(), new Map(), new Map(), lastChange, "idle", now);
+    assert.equal(result[0].title, "Bravo"); // idle longest
+  });
+
+  it("default mode: errors heavily weighted", () => {
+    const errors = new Map([["s2", 10]]);
+    const result = rankSessions(makeRankSessions(), errors, new Map(), new Map(), "default");
+    assert.equal(result[0].title, "Bravo");
+  });
+
+  it("empty sessions returns empty array", () => {
+    assert.deepEqual(rankSessions([], new Map(), new Map(), new Map(), "default"), []);
+  });
+
+  it("includes burnRatePerMin in entries", () => {
+    const burns = new Map<string, number | null>([["s1", 1234]]);
+    const result = rankSessions(makeRankSessions(), new Map(), burns, new Map(), "default");
+    const alpha = result.find((e) => e.title === "Alpha")!;
+    assert.equal(alpha.burnRatePerMin, 1234);
+  });
+
+  it("includes idleMs in entries when lastChangeAt present", () => {
+    const now = Date.now();
+    const lastChange = new Map([["s1", now - 5000]]);
+    const result = rankSessions(makeRankSessions(), new Map(), new Map(), lastChange, "default", now);
+    const alpha = result.find((e) => e.title === "Alpha")!;
+    assert.ok(alpha.idleMs !== null && alpha.idleMs >= 5000 - 10);
+  });
+
+  it("idleMs is null when lastChangeAt not tracked", () => {
+    const result = rankSessions(makeRankSessions(), new Map(), new Map(), new Map(), "default");
+    for (const e of result) assert.equal(e.idleMs, null);
+  });
+});
+
+// ── TOP_SORT_MODES ────────────────────────────────────────────────────────
+
+describe("TOP_SORT_MODES", () => {
+  it("contains all four modes", () => {
+    assert.ok(TOP_SORT_MODES.includes("default"));
+    assert.ok(TOP_SORT_MODES.includes("errors"));
+    assert.ok(TOP_SORT_MODES.includes("burn"));
+    assert.ok(TOP_SORT_MODES.includes("idle"));
   });
 });
 

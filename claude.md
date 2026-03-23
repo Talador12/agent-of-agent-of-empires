@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.109.0
+## Version: v0.110.0
 
 ## Current Focus
 
-1663 tests across 35 files. v0.109.0 shipped: idle-since in session cards + `/who`, and watchdog mode (`/watchdog [N]`) to alert when a session stalls.
+1677 tests across 35 files. v0.110.0 shipped: `/top [errors|burn|idle]` ranked session view — composite score by default, sort by any single metric.
 
 ## Roadmap
 
@@ -32,6 +32,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Session health score** — composite 0-100 score from error rate, idle time, burn rate shown in card
 - **`/top` command** — show sessions ranked by burn rate, error count, or idle time
 - **Multi-key quick-switch** — extend quick-switch from 1-9 to 1-99 via two-digit prefix
+
+### What shipped in v0.110.0
+
+**Theme: "/top Ranked View"** — `/top [errors|burn|idle]` shows sessions ranked by attention priority. `rankSessions()` pure function: composite default (errors × 10000 + burn + idle), or single-metric sort. `TopEntry` interface with rank, errors, burnRatePerMin, idleMs. `TOP_SORT_MODES` constant. `/top` wired in index.ts — logs ranked list with per-session stats inline. 14 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +14, net 1677 tests across 35 files.
 
 ### What shipped in v0.109.0
 

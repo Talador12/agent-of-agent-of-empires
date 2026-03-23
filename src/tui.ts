@@ -345,7 +345,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
-  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog",
+  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -481,6 +481,66 @@ export function formatSnapshotMarkdown(data: SnapshotData): string {
     }
   }
   return lines.join("\n");
+}
+
+// ── /top ranking helpers ──────────────────────────────────────────────────────
+
+export type TopSortMode = "errors" | "burn" | "idle" | "default";
+export const TOP_SORT_MODES: TopSortMode[] = ["default", "errors", "burn", "idle"];
+
+export interface TopEntry {
+  title: string;
+  status: string;
+  rank: number; // 1-indexed, lower = more attention needed
+  errors: number;
+  burnRatePerMin: number | null;
+  idleMs: number | null;
+}
+
+/**
+ * Rank sessions for /top output. Returns entries sorted by the given mode.
+ * "default" = composite: errors first, then burn rate, then idle.
+ */
+export function rankSessions(
+  sessions: readonly DaemonSessionState[],
+  errorCounts: ReadonlyMap<string, number>,
+  burnRates: ReadonlyMap<string, number | null>,
+  lastChangeAt: ReadonlyMap<string, number>,
+  mode: TopSortMode,
+  now?: number,
+): TopEntry[] {
+  const nowMs = now ?? Date.now();
+  const entries: TopEntry[] = sessions.map((s) => ({
+    title: s.title,
+    status: s.status,
+    rank: 0,
+    errors: errorCounts.get(s.id) ?? 0,
+    burnRatePerMin: burnRates.get(s.id) ?? null,
+    idleMs: lastChangeAt.has(s.id) ? nowMs - lastChangeAt.get(s.id)! : null,
+  }));
+
+  switch (mode) {
+    case "errors":
+      entries.sort((a, b) => b.errors - a.errors);
+      break;
+    case "burn":
+      entries.sort((a, b) => (b.burnRatePerMin ?? 0) - (a.burnRatePerMin ?? 0));
+      break;
+    case "idle":
+      entries.sort((a, b) => (b.idleMs ?? 0) - (a.idleMs ?? 0));
+      break;
+    default: {
+      // composite: weight errors heavily, then burn rate, then idle
+      const score = (e: TopEntry) =>
+        e.errors * 10000 +
+        (e.burnRatePerMin ?? 0) * 0.01 +
+        (e.idleMs ?? 0) * 0.0001;
+      entries.sort((a, b) => score(b) - score(a));
+    }
+  }
+
+  entries.forEach((e, i) => { e.rank = i + 1; });
+  return entries;
 }
 
 // ── Broadcast helpers ────────────────────────────────────────────────────────

@@ -44,6 +44,7 @@ export type BurnRateHandler = () => void; // show current context burn rates
 export type SnapshotHandler = (format: "json" | "md") => void; // export snapshot
 export type BroadcastHandler = (message: string, group: string | null) => void; // broadcast to sessions
 export type WatchdogHandler = (thresholdMinutes: number | null) => void; // set watchdog (null = off)
+export type TopHandler = (mode: string) => void; // show ranked session view
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -114,6 +115,7 @@ export class InputReader {
   private snapshotHandler: SnapshotHandler | null = null;
   private broadcastHandler: BroadcastHandler | null = null;
   private watchdogHandler: WatchdogHandler | null = null;
+  private topHandler: TopHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -280,6 +282,11 @@ export class InputReader {
   // register a callback for watchdog (/watchdog [N] | /watchdog off)
   onWatchdog(handler: WatchdogHandler): void {
     this.watchdogHandler = handler;
+  }
+
+  // register a callback for /top [mode]
+  onTop(handler: TopHandler): void {
+    this.topHandler = handler;
   }
 
   /** Set aliases from persisted prefs. */
@@ -533,6 +540,7 @@ ${BOLD}navigation:${RESET}
   /snapshot [md]     export session state snapshot to JSON (or Markdown with md)
   /broadcast <msg>   send message to all sessions; /broadcast group:<tag> <msg> for group
   /watchdog [N]      alert if session stalls N minutes (default 10); /watchdog off to disable
+  /top [mode]        rank sessions by errors (default), burn, or idle
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -915,6 +923,16 @@ ${BOLD}other:${RESET}
           this.groupFilterHandler(gfArg || null);
         } else {
           console.error(`${DIM}group filter not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/top": {
+        const topArg = line.slice("/top".length).trim().toLowerCase() || "default";
+        if (this.topHandler) {
+          this.topHandler(topArg);
+        } else {
+          console.error(`${DIM}top not available (no TUI)${RESET}`);
         }
         break;
       }
