@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.153.0
+## Version: v0.156.0
 
 ## Current Focus
 
-2097 tests across 35 files. v0.150–v0.153 shipped: `/health-trend` ASCII chart, `/alert-mute` pattern suppression, `/budgets`+`/budget-status`, and session flap detection.
+2114 tests across 35 files. v0.154–v0.156 shipped: `/flap-log`, session drain mode (`/drain`/`/undrain`/`⇣` icon in cards), and `/export-all` bulk export.
 
 ## Roadmap
 
@@ -31,6 +31,17 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **`/export-all`** — bulk export snapshot + stats + report for all sessions at once
 - **Compact mode health glyph color-coding** — use accent color from `/color` in compact tokens
 - **`/label <N> <text>`** — freeform one-line label shown below session title in normal cards
+
+### What shipped in v0.154.0–v0.156.0
+
+**v0.154.0 — /flap-log**: `flapLog` ring buffer (max 50) records flap events `{sessionId, title, ts, count}`. `getFlapLog()` accessor. `/flap-log` shows last 20 events with timestamps.
+
+**v0.155.0 — Session Drain Mode**: `drainingIds: Set<string>`. `drainSession()`, `undrainSession()`, `isDraining()`, `getDrainingIds()` on TUI. `DRAIN_ICON = "⇣"` shown DIM in normal cards (both paintSessions and repaintSessionCard). `/drain <N|name>` and `/undrain <N|name>` commands.
+
+**v0.156.0 — /export-all**: Bulk exports snapshot JSON + stats JSON for all sessions in a single command. Reuses `buildSnapshotData`, `buildSessionStats`, `formatSnapshotJson`, `formatStatsJson`. Files written to `~/.aoaoe/snapshot-<ts>.json` and `stats-<ts>.json`. 17 new tests total.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +17, net 2114 tests across 35 files.
 
 ### What shipped in v0.150.0–v0.153.0
 

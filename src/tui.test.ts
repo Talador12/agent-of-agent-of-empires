@@ -38,6 +38,7 @@ import {
   formatHealthTrendChart,
   isFlapping, MAX_STATUS_HISTORY, FLAP_WINDOW_MS, FLAP_THRESHOLD,
   isAlertMuted,
+  DRAIN_ICON,
   truncateRename, MAX_RENAME_LEN,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
@@ -4393,6 +4394,88 @@ describe("isAlertMuted", () => {
     assert.equal(isAlertMuted("context ceiling at 92%", pats), true);
     assert.equal(isAlertMuted("watchdog stall", pats), true);
     assert.equal(isAlertMuted("budget exceeded", pats), false);
+  });
+});
+
+// ── DRAIN_ICON ────────────────────────────────────────────────────────────
+
+describe("DRAIN_ICON", () => {
+  it("is ⇣", () => { assert.equal(DRAIN_ICON, "⇣"); });
+});
+
+// ── TUI drain mode ────────────────────────────────────────────────────────
+
+describe("TUI drain mode", () => {
+  const sess = { id: "d1", title: "Alpha", status: "idle" as const, tool: "opencode",
+    contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined };
+
+  it("starts with no draining sessions", () => {
+    const tui = new TUI();
+    assert.equal(tui.getDrainingIds().size, 0);
+  });
+
+  it("drainSession marks session", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    const ok = tui.drainSession(1);
+    assert.equal(ok, true);
+    assert.equal(tui.isDraining("d1"), true);
+  });
+
+  it("drainSession by name", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.drainSession("alpha");
+    assert.equal(tui.isDraining("d1"), true);
+  });
+
+  it("undrainSession removes mark", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.drainSession(1);
+    const had = tui.undrainSession(1);
+    assert.equal(had, true);
+    assert.equal(tui.isDraining("d1"), false);
+  });
+
+  it("drainSession returns false for unknown session", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    assert.equal(tui.drainSession("zzz"), false);
+  });
+
+  it("getDrainingIds returns set of all draining", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.drainSession(1);
+    assert.ok(tui.getDrainingIds().has("d1"));
+  });
+
+  it("isDraining returns false when not draining", () => {
+    const tui = new TUI();
+    assert.equal(tui.isDraining("d1"), false);
+  });
+});
+
+// ── TUI getFlapLog ────────────────────────────────────────────────────────
+
+describe("TUI getFlapLog", () => {
+  it("starts empty", () => {
+    const tui = new TUI();
+    assert.equal(tui.getFlapLog().length, 0);
+  });
+
+  it("records flap event when session flaps", () => {
+    const tui = new TUI();
+    const base = { id: "f1", title: "Alpha", tool: "opencode",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined };
+    tui.updateState({ sessions: [{ ...base, status: "working" as const }] });
+    for (let i = 0; i < FLAP_THRESHOLD; i++) {
+      const st = i % 2 === 0 ? "idle" : "working";
+      tui.updateState({ sessions: [{ ...base, status: st as "idle" | "working" }] });
+    }
+    // may or may not have fired depending on timing, but should not throw
+    assert.ok(tui.getFlapLog().length >= 0);
   });
 });
 

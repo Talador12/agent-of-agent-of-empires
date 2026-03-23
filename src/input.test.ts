@@ -1539,6 +1539,42 @@ describe("onHistoryStats", () => {
   it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["historyStatsHandler"]?.()); });
 });
 
+describe("onFlapLog", () => {
+  it("calls handler", () => {
+    const r = new InputReader(); let called = false;
+    r.onFlapLog(() => { called = true; });
+    r["flapLogHandler"]!();
+    assert.equal(called, true);
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["flapLogHandler"]?.()); });
+});
+
+describe("onDrain", () => {
+  it("calls handler with target and drain=true", () => {
+    const r = new InputReader(); let tgt = "", drain = false;
+    r.onDrain((t, d) => { tgt = t; drain = d; });
+    r["drainHandler"]!("alpha", true);
+    assert.equal(tgt, "alpha"); assert.equal(drain, true);
+  });
+  it("calls handler with drain=false for undrain", () => {
+    const r = new InputReader(); let drain = true;
+    r.onDrain((_t, d) => { drain = d; });
+    r["drainHandler"]!("alpha", false);
+    assert.equal(drain, false);
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["drainHandler"]?.("x", true)); });
+});
+
+describe("onExportAll", () => {
+  it("calls handler", () => {
+    const r = new InputReader(); let called = false;
+    r.onExportAll(() => { called = true; });
+    r["exportAllHandler"]!();
+    assert.equal(called, true);
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["exportAllHandler"]?.()); });
+});
+
 describe("onHealthTrend", () => {
   it("calls handler with target and height", () => {
     const r = new InputReader(); let tgt = "", ht = 0;

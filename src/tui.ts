@@ -603,6 +603,11 @@ export function isFlapping(
   return recent.length >= threshold;
 }
 
+// ── Session drain mode helpers ────────────────────────────────────────────────
+
+/** Drain icon shown in session cards for draining sessions. */
+export const DRAIN_ICON = "⇣";
+
 // ── Alert mute patterns (pure, exported for testing) ──────────────────────────
 
 /**
@@ -1012,7 +1017,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/mute-errors", "/prev-goal", "/tag", "/tags", "/tag-filter", "/find", "/reset-health", "/timeline", "/color", "/clear-history",
   "/duplicate", "/color-all", "/quiet-hours", "/quiet-status", "/history-stats", "/cost-summary", "/session-report", "/alert-log",
   "/budget", "/budgets", "/budget-status", "/pause-all", "/resume-all",
-  "/health-trend", "/alert-mute",
+  "/health-trend", "/alert-mute", "/flap-log", "/drain", "/undrain", "/export-all",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -1366,6 +1371,8 @@ export class TUI {
   private prevSessionStatus = new Map<string, string>(); // session ID → last known status (for change detection)
   private flapAlerted = new Map<string, number>(); // session ID → epoch ms of last flap alert
   private alertMutePatterns = new Set<string>(); // substrings to hide from /alert-log display
+  private drainingIds = new Set<string>(); // session IDs marked as draining (skip by reasoner)
+  private flapLog: { sessionId: string; title: string; ts: number; count: number }[] = []; // recent flap events
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -1916,6 +1923,61 @@ export class TUI {
     return this.sessionHealthHistory.get(id) ?? [];
   }
 
+  // ── Session drain mode ───────────────────────────────────────────────────
+
+  /** Mark a session as draining (by index, ID, or title). Returns true if found. */
+  drainSession(sessionIdOrIndex: string | number): boolean {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return false;
+    this.drainingIds.add(sessionId);
+    if (this.active) this.paintSessions();
+    return true;
+  }
+
+  /** Remove drain mark from a session. Returns true if it was draining. */
+  undrainSession(sessionIdOrIndex: string | number): boolean {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return false;
+    const had = this.drainingIds.delete(sessionId);
+    if (had && this.active) this.paintSessions();
+    return had;
+  }
+
+  /** Check if a session is draining. */
+  isDraining(id: string): boolean {
+    return this.drainingIds.has(id);
+  }
+
+  /** Return all draining session IDs (for reasoner prompt and display). */
+  getDrainingIds(): ReadonlySet<string> {
+    return this.drainingIds;
+  }
+
+  // ── Flap log ─────────────────────────────────────────────────────────────
+
+  /** Return recent flap events (newest last). */
+  getFlapLog(): readonly { sessionId: string; title: string; ts: number; count: number }[] {
+    return this.flapLog;
+  }
+
   /** Return all alert log entries (last 100 "status" tag entries), filtered by mute patterns. */
   getAlertLog(includeAll = false): readonly ActivityEntry[] {
     if (includeAll || this.alertMutePatterns.size === 0) return this.alertLog;
@@ -2306,7 +2368,10 @@ export class TUI {
             const lastFlapAlert = this.flapAlerted.get(s.id) ?? 0;
             if (now - lastFlapAlert >= 5 * 60_000) {
               this.flapAlerted.set(s.id, now);
-              this.log("status", `flap: ${s.title} is oscillating rapidly (${statusHist.filter((c) => c.ts >= now - FLAP_WINDOW_MS).length} status changes in ${Math.round(FLAP_WINDOW_MS / 60_000)}m)`, s.id);
+              const flapCount = statusHist.filter((c) => c.ts >= now - FLAP_WINDOW_MS).length;
+              this.flapLog.push({ sessionId: s.id, title: s.title, ts: now, count: flapCount });
+              if (this.flapLog.length > 50) this.flapLog.shift();
+              this.log("status", `flap: ${s.title} is oscillating rapidly (${flapCount} status changes in ${Math.round(FLAP_WINDOW_MS / 60_000)}m)`, s.id);
             }
           }
         }
@@ -2913,22 +2978,24 @@ export class TUI {
         const sTags = this.sessionTags.get(s.id);
         const tagsBadge = sTags && sTags.size > 0 ? `${formatSessionTagsBadge(sTags)} ` : "";
         const tagsBadgeWidth = sTags && sTags.size > 0 ? stripAnsiForLen(formatSessionTagsBadge(sTags)) + 1 : 0;
-        const colorName = this.sessionColors.get(s.id);
-        const colorDot = colorName ? formatColorDot(colorName) : "";
-        const colorDotWidth = colorName ? 2 : 0; // dot + space
-        const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
-        const muteBadgeWidth = muted ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 2 : 0; // "(N)" visible chars, 0 when count is 0
-        const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0 ? muteBadgeWidth + 1 : 0; // +1 for trailing space
-        const groupBadgeWidth = group ? group.length + 1 + 1 : 0; // icon + name + space
-        const pin = pinned ? `${AMBER}${PIN_ICON}${RESET} ` : "";
-        const mute = muted ? `${DIM}${MUTE_ICON}${RESET} ` : "";
-        const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
-        const groupBadge = group ? `${formatGroupBadge(group)} ` : "";
+         const colorName = this.sessionColors.get(s.id);
+         const colorDot = colorName ? formatColorDot(colorName) : "";
+         const colorDotWidth = colorName ? 2 : 0; // dot + space
+         const draining = this.drainingIds.has(s.id);
+         const drainIcon = draining ? `${DIM}${DRAIN_ICON}${RESET} ` : "";
+         const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
+         const muteBadgeWidth = muted ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 2 : 0; // "(N)" visible chars, 0 when count is 0
+         const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0 ? muteBadgeWidth + 1 : 0; // +1 for trailing space
+         const groupBadgeWidth = group ? group.length + 1 + 1 : 0; // icon + name + space
+         const pin = pinned ? `${AMBER}${PIN_ICON}${RESET} ` : "";
+         const mute = muted ? `${DIM}${MUTE_ICON}${RESET} ` : "";
+         const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
+         const groupBadge = group ? `${formatGroupBadge(group)} ` : "";
         const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
-        const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth + colorDotWidth;
-        const cardWidth = innerWidth - 1 - iconsWidth;
-        const cardAge = s.createdAt ? formatSessionAge(s.createdAt, nowMs) : undefined;
-        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge}${colorDot}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined, displayName, cardAge || undefined)}`;
+         const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth + colorDotWidth + (draining ? 2 : 0);
+         const cardWidth = innerWidth - 1 - iconsWidth;
+         const cardAge = s.createdAt ? formatSessionAge(s.createdAt, nowMs) : undefined;
+         const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge}${colorDot}${drainIcon}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined, displayName, cardAge || undefined)}`;
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
@@ -2998,10 +3065,12 @@ export class TUI {
     const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
     const groupBadge = group ? `${formatGroupBadge(group)} ` : "";
     const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
-    const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth2 + colorDotWidth2;
-    const cardWidth = innerWidth - 1 - iconsWidth;
-    const cardAge2 = s.createdAt ? formatSessionAge(s.createdAt, nowMs2) : undefined;
-    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge2}${colorDot2}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge2 || undefined, displayName2, cardAge2 || undefined)}`;
+     const draining2 = this.drainingIds.has(s.id);
+     const drainIcon2 = draining2 ? `${DIM}${DRAIN_ICON}${RESET} ` : "";
+     const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth2 + colorDotWidth2 + (draining2 ? 2 : 0);
+     const cardWidth = innerWidth - 1 - iconsWidth;
+     const cardAge2 = s.createdAt ? formatSessionAge(s.createdAt, nowMs2) : undefined;
+     const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge2}${colorDot2}${drainIcon2}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge2 || undefined, displayName2, cardAge2 || undefined)}`;
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }

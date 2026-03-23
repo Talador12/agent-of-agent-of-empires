@@ -17,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
@@ -968,6 +968,52 @@ async function main() {
       tui!.setQuietHours(ranges);
       tui!.log("system", `quiet hours: ${specs.join(", ")} — watchdog+burn alerts suppressed`);
       persistPrefs();
+    });
+    // wire /flap-log
+    input.onFlapLog(() => {
+      const log = tui!.getFlapLog();
+      if (log.length === 0) { tui!.log("system", "flap-log: no flap events recorded"); return; }
+      tui!.log("system", `flap-log: ${log.length} event${log.length !== 1 ? "s" : ""}:`);
+      for (const e of log.slice(-20)) {
+        const time = new Date(e.ts).toLocaleTimeString();
+        tui!.log("system", `  ${time}  ${e.title}: ${e.count} changes in window`);
+      }
+    });
+    // wire /drain and /undrain
+    input.onDrain((target, drain) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const ok = drain ? tui!.drainSession(num ?? target) : tui!.undrainSession(num ?? target);
+      if (ok) {
+        tui!.log("system", `${drain ? "drain" : "undrain"}: ${target} ${drain ? `marked draining (${DRAIN_ICON})` : "restored"}`);
+      } else {
+        tui!.log("system", `session not found: ${target}`);
+      }
+    });
+    // wire /export-all bulk export
+    input.onExportAll(() => {
+      const sessions = tui!.getSessions();
+      if (sessions.length === 0) { tui!.log("system", "export-all: no sessions"); return; }
+      const now = Date.now();
+      const ts = new Date(now).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const dir = join(homedir(), ".aoaoe");
+      try {
+        mkdirSync(dir, { recursive: true });
+        // snapshot JSON
+        const snapData = buildSnapshotData(sessions, tui!.getAllGroups(), tui!.getAllNotes(),
+          tui!.getAllFirstSeen(), tui!.getSessionErrorCounts(), tui!.getAllBurnRates(now), pkg ?? "dev", now);
+        writeFileSync(join(dir, `snapshot-${ts}.json`), formatSnapshotJson(snapData), "utf-8");
+        // stats JSON
+        const statEntries = buildSessionStats(sessions, tui!.getSessionErrorCounts(), tui!.getAllBurnRates(now),
+          tui!.getAllFirstSeen(), tui!.getAllLastChangeAt(), tui!.getAllHealthScores(now),
+          tui!.getAllSessionAliases(), now,
+          new Map(sessions.map((s) => [s.id, tui!.getSessionErrorTimestamps(s.id)])),
+          tui!.getAllSessionCosts(),
+          new Map(sessions.map((s) => [s.id, tui!.getSessionHealthHistory(s.id)])));
+        writeFileSync(join(dir, `stats-${ts}.json`), formatStatsJson(statEntries, pkg ?? "dev", now), "utf-8");
+        tui!.log("system", `export-all: snapshot + stats saved to ~/.aoaoe/ (${sessions.length} sessions)`);
+      } catch (err) {
+        tui!.log("error", `export-all failed: ${err}`);
+      }
     });
     // wire /budget cost alerts
     input.onBudget((target, budgetUSD) => {

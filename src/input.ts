@@ -76,6 +76,9 @@ export type HealthTrendHandler = (target: string, height: number) => void; // sh
 export type AlertMuteHandler = (pattern: string | null) => void; // add/clear alert mute pattern
 export type BudgetsListHandler = () => void; // list all active budgets
 export type BudgetStatusHandler = () => void; // show which sessions are over/under budget
+export type FlapLogHandler = () => void; // show recent flap events
+export type DrainHandler = (target: string, drain: boolean) => void; // drain/undrain a session
+export type ExportAllHandler = () => void; // bulk export snapshot+stats for all sessions
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -178,6 +181,9 @@ export class InputReader {
   private alertMuteHandler: AlertMuteHandler | null = null;
   private budgetsListHandler: BudgetsListHandler | null = null;
   private budgetStatusHandler: BudgetStatusHandler | null = null;
+  private flapLogHandler: FlapLogHandler | null = null;
+  private drainHandler: DrainHandler | null = null;
+  private exportAllHandler: ExportAllHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -450,6 +456,9 @@ export class InputReader {
   onAlertMute(handler: AlertMuteHandler): void { this.alertMuteHandler = handler; }
   onBudgetsList(handler: BudgetsListHandler): void { this.budgetsListHandler = handler; }
   onBudgetStatus(handler: BudgetStatusHandler): void { this.budgetStatusHandler = handler; }
+  onFlapLog(handler: FlapLogHandler): void { this.flapLogHandler = handler; }
+  onDrain(handler: DrainHandler): void { this.drainHandler = handler; }
+  onExportAll(handler: ExportAllHandler): void { this.exportAllHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -739,6 +748,10 @@ ${BOLD}navigation:${RESET}
    /health-trend N    show ASCII health score chart for session N [height]
    /budgets           list all active cost budgets
    /budget-status     show which sessions are over or under budget
+   /flap-log          show sessions recently flagged as flapping
+   /drain N           mark session N as draining (supervisor will skip it)
+   /undrain N         remove drain mark from session N
+   /export-all        bulk export snapshot + stats JSON for all sessions
    /history-stats     show aggregate statistics from persisted activity history
   /cost-summary      show total estimated spend across all sessions
   /session-report N  generate full markdown report for a session → ~/.aoaoe/report-<name>-<ts>.md
@@ -1345,6 +1358,32 @@ ${BOLD}other:${RESET}
       case "/budgets":
         if (this.budgetsListHandler) this.budgetsListHandler();
         else console.error(`${DIM}budgets not available${RESET}`);
+        break;
+
+      case "/flap-log":
+        if (this.flapLogHandler) this.flapLogHandler();
+        else console.error(`${DIM}flap-log not available${RESET}`);
+        break;
+
+      case "/drain": {
+        const drainArg = line.slice("/drain".length).trim();
+        if (!drainArg) { console.error(`${DIM}usage: /drain <N|name>${RESET}`); break; }
+        if (this.drainHandler) this.drainHandler(drainArg, true);
+        else console.error(`${DIM}drain not available${RESET}`);
+        break;
+      }
+
+      case "/undrain": {
+        const undrainArg = line.slice("/undrain".length).trim();
+        if (!undrainArg) { console.error(`${DIM}usage: /undrain <N|name>${RESET}`); break; }
+        if (this.drainHandler) this.drainHandler(undrainArg, false);
+        else console.error(`${DIM}undrain not available${RESET}`);
+        break;
+      }
+
+      case "/export-all":
+        if (this.exportAllHandler) this.exportAllHandler();
+        else console.error(`${DIM}export-all not available${RESET}`);
         break;
 
       case "/budget-status":
