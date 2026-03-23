@@ -1539,6 +1539,42 @@ describe("onHistoryStats", () => {
   it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["historyStatsHandler"]?.()); });
 });
 
+describe("onNoteHistory", () => {
+  it("calls handler with target", () => {
+    const r = new InputReader(); let tgt = "";
+    r.onNoteHistory((t) => { tgt = t; });
+    r["noteHistoryHandler"]!("alpha");
+    assert.equal(tgt, "alpha");
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["noteHistoryHandler"]?.("x")); });
+});
+
+describe("onLabel", () => {
+  it("calls handler with target and label text", () => {
+    const r = new InputReader(); let tgt = "", lbl = "";
+    r.onLabel((t, l) => { tgt = t; lbl = l; });
+    r["labelHandler"]!("alpha", "my worker");
+    assert.equal(tgt, "alpha"); assert.equal(lbl, "my worker");
+  });
+  it("passes empty string to clear label", () => {
+    const r = new InputReader(); let lbl = "x";
+    r.onLabel((_t, l) => { lbl = l; });
+    r["labelHandler"]!("alpha", "");
+    assert.equal(lbl, "");
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["labelHandler"]?.("x", "")); });
+});
+
+describe("onSessionsTable", () => {
+  it("calls handler", () => {
+    const r = new InputReader(); let called = false;
+    r.onSessionsTable(() => { called = true; });
+    r["sessionsTableHandler"]!();
+    assert.equal(called, true);
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["sessionsTableHandler"]?.()); });
+});
+
 describe("onFlapLog", () => {
   it("calls handler", () => {
     const r = new InputReader(); let called = false;

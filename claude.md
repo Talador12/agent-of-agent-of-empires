@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.156.0
+## Version: v0.160.0
 
 ## Current Focus
 
-2114 tests across 35 files. v0.154–v0.156 shipped: `/flap-log`, session drain mode (`/drain`/`/undrain`/`⇣` icon in cards), and `/export-all` bulk export.
+2146 tests across 35 files. v0.157–v0.160 shipped: note history tracking, `/label` cards, draining sessions in reasoner prompt, `/sessions` rich table.
 
 ## Roadmap
 
@@ -25,12 +25,25 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
 - **Reasoner confidence badge** — if reasoner returns a confidence signal, show in header
 - **Parallel `/stats` refresh** — auto-refresh `/stats` output every N seconds in TUI drill-down
-- **`/note-history`** — show previous notes on a session (track last N before clear)
-- **`/flap-log`** — show sessions that have been flagged as flapping recently
-- **Session drain mode** — mark a session as "draining" so reasoner skips it (won't assign new tasks)
-- **`/export-all`** — bulk export snapshot + stats + report for all sessions at once
 - **Compact mode health glyph color-coding** — use accent color from `/color` in compact tokens
-- **`/label <N> <text>`** — freeform one-line label shown below session title in normal cards
+- **`/labels`** — list all active session labels
+- **`/sort-by-health`** — sort mode: sessions sorted by health score ascending
+- **`/pin-draining`** — pin all draining sessions to top for easy monitoring
+- **Session emoji icons** — `/icon <N> <emoji>` set a single emoji shown in the session card
+- **`/diff-sessions <A> <B>`** — compare two sessions' latest pane output line-by-line
+
+### What shipped in v0.157.0–v0.160.0
+
+**v0.157.0 — Note History**: When a note is cleared (`/note N ""`), the previous note is pushed into `sessionNoteHistory` ring buffer (max 5). `getNoteHistory(id)` accessor. `/note-history <N|name>` shows previous notes.
+
+**v0.158.0 — /label**: `sessionLabels: Map<string, string>`. `truncateLabel()` (max 40 chars). `setLabel()`, `getLabel()`, `getAllLabels()` on TUI. Label shown DIM as `· text` suffix in session cards (`formatSessionCard` gains optional `label` param). `/label <N> [text]` to set/clear.
+
+**v0.159.0 — Draining in Reasoner**: `Observation.drainingSessionIds?: string[]`. `tick()` in loop.ts gains `drainingSessionIds` opt. Injected from `tui.getDrainingIds()` in `daemonTick`. `formatObservation` shows `[DRAINING — skip]` tag per session and adds `DRAINING:` warning block. Reasoner now respects drain state.
+
+**v0.160.0 — /sessions Table**: `formatSessionsTable()` pure fn — structured table with index, title, status, health, group, cost, uptime, flags (D=drain, T=tag, N=note, L=label). `/sessions` command wired. 32 new tests total.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/types.ts`, `src/loop.ts`, `src/reasoner/prompt.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +32, net 2146 tests across 35 files.
 
 ### What shipped in v0.154.0–v0.156.0
 

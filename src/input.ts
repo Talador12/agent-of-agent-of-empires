@@ -79,6 +79,9 @@ export type BudgetStatusHandler = () => void; // show which sessions are over/un
 export type FlapLogHandler = () => void; // show recent flap events
 export type DrainHandler = (target: string, drain: boolean) => void; // drain/undrain a session
 export type ExportAllHandler = () => void; // bulk export snapshot+stats for all sessions
+export type NoteHistoryHandler = (target: string) => void; // show note history for a session
+export type LabelHandler = (target: string, label: string) => void; // set/clear session label
+export type SessionsTableHandler = () => void; // show rich sessions table
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -184,6 +187,9 @@ export class InputReader {
   private flapLogHandler: FlapLogHandler | null = null;
   private drainHandler: DrainHandler | null = null;
   private exportAllHandler: ExportAllHandler | null = null;
+  private noteHistoryHandler: NoteHistoryHandler | null = null;
+  private labelHandler: LabelHandler | null = null;
+  private sessionsTableHandler: SessionsTableHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -459,6 +465,9 @@ export class InputReader {
   onFlapLog(handler: FlapLogHandler): void { this.flapLogHandler = handler; }
   onDrain(handler: DrainHandler): void { this.drainHandler = handler; }
   onExportAll(handler: ExportAllHandler): void { this.exportAllHandler = handler; }
+  onNoteHistory(handler: NoteHistoryHandler): void { this.noteHistoryHandler = handler; }
+  onLabel(handler: LabelHandler): void { this.labelHandler = handler; }
+  onSessionsTable(handler: SessionsTableHandler): void { this.sessionsTableHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -752,6 +761,9 @@ ${BOLD}navigation:${RESET}
    /drain N           mark session N as draining (supervisor will skip it)
    /undrain N         remove drain mark from session N
    /export-all        bulk export snapshot + stats JSON for all sessions
+   /note-history N    show previous notes for a session (before they were cleared)
+   /label N [text]    set a freeform label shown in the session card (no text = clear)
+   /sessions          show rich session table (status, health, group, cost, flags)
    /history-stats     show aggregate statistics from persisted activity history
   /cost-summary      show total estimated spend across all sessions
   /session-report N  generate full markdown report for a session → ~/.aoaoe/report-<name>-<ts>.md
@@ -1380,6 +1392,33 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}undrain not available${RESET}`);
         break;
       }
+
+      case "/note-history": {
+        const nhArg = line.slice("/note-history".length).trim();
+        if (!nhArg) { console.error(`${DIM}usage: /note-history <N|name>${RESET}`); break; }
+        if (this.noteHistoryHandler) this.noteHistoryHandler(nhArg);
+        else console.error(`${DIM}note-history not available${RESET}`);
+        break;
+      }
+
+      case "/label": {
+        const lblArgs = line.slice("/label".length).trim();
+        if (!lblArgs) { console.error(`${DIM}usage: /label <N|name> [text]${RESET}`); break; }
+        if (this.labelHandler) {
+          const spaceIdx = lblArgs.indexOf(" ");
+          if (spaceIdx > 0) {
+            this.labelHandler(lblArgs.slice(0, spaceIdx), lblArgs.slice(spaceIdx + 1).trim());
+          } else {
+            this.labelHandler(lblArgs, ""); // clear
+          }
+        } else console.error(`${DIM}label not available${RESET}`);
+        break;
+      }
+
+      case "/sessions":
+        if (this.sessionsTableHandler) this.sessionsTableHandler();
+        else console.error(`${DIM}sessions not available${RESET}`);
+        break;
 
       case "/export-all":
         if (this.exportAllHandler) this.exportAllHandler();

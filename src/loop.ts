@@ -42,8 +42,9 @@ export async function tick(opts: {
   userMessage?: string;
   taskContext?: TaskState[];
   beforeExecute?: (action: Action) => Promise<boolean>; // confirm hook: return false to skip action
+  drainingSessionIds?: string[]; // session IDs marked as draining — injected into observation
 }): Promise<TickResult> {
-  const { config, poller, reasoner, executor, policyStates, pollCount, userMessage, taskContext, beforeExecute } = opts;
+  const { config, poller, reasoner, executor, policyStates, pollCount, userMessage, taskContext, beforeExecute, drainingSessionIds } = opts;
 
   // 1. poll
   const observation = await poller.poll();
@@ -109,6 +110,10 @@ export async function tick(opts: {
   // attach protected sessions list for the prompt formatter
   if (config.protectedSessions && config.protectedSessions.length > 0) {
     observation.protectedSessions = config.protectedSessions;
+  }
+  // attach draining session IDs for the prompt formatter
+  if (drainingSessionIds && drainingSessionIds.length > 0) {
+    observation.drainingSessionIds = drainingSessionIds;
   }
 
   // 2. reason

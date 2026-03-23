@@ -37,6 +37,7 @@ export interface Observation {
   userMessage?: string; // optional human operator message injected via stdin
   taskContext?: TaskState[]; // active tasks with goals + progress (for reasoner)
   protectedSessions?: string[]; // session titles that are observe-only
+  drainingSessionIds?: string[]; // session IDs marked as draining — reasoner should skip them
   // policy enforcement context (attached by main loop, consumed by formatObservation)
   policyContext?: {
     policies: AoaoeConfig["policies"];

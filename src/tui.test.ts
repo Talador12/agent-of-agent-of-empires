@@ -39,6 +39,9 @@ import {
   isFlapping, MAX_STATUS_HISTORY, FLAP_WINDOW_MS, FLAP_THRESHOLD,
   isAlertMuted,
   DRAIN_ICON,
+  MAX_NOTE_HISTORY,
+  truncateLabel, MAX_LABEL_LEN,
+  formatSessionsTable,
   truncateRename, MAX_RENAME_LEN,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
@@ -4394,6 +4397,206 @@ describe("isAlertMuted", () => {
     assert.equal(isAlertMuted("context ceiling at 92%", pats), true);
     assert.equal(isAlertMuted("watchdog stall", pats), true);
     assert.equal(isAlertMuted("budget exceeded", pats), false);
+  });
+});
+
+// ── MAX_NOTE_HISTORY ──────────────────────────────────────────────────────
+
+describe("MAX_NOTE_HISTORY", () => {
+  it("is 5", () => { assert.equal(MAX_NOTE_HISTORY, 5); });
+});
+
+// ── TUI note history ──────────────────────────────────────────────────────
+
+describe("TUI note history", () => {
+  const sess = { id: "n1", title: "Alpha", status: "idle" as const, tool: "opencode",
+    contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined };
+
+  it("starts with no history", () => {
+    const tui = new TUI();
+    assert.equal(tui.getNoteHistory("n1").length, 0);
+  });
+
+  it("records note in history when cleared", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.setNote(1, "first note");
+    tui.setNote(1, ""); // clear
+    assert.equal(tui.getNoteHistory("n1").length, 1);
+    assert.equal(tui.getNoteHistory("n1")[0], "first note");
+  });
+
+  it("accumulates multiple notes in history", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.setNote(1, "note A");
+    tui.setNote(1, ""); // clear → pushes A
+    tui.setNote(1, "note B");
+    tui.setNote(1, ""); // clear → pushes B
+    const hist = tui.getNoteHistory("n1");
+    assert.equal(hist.length, 2);
+    assert.equal(hist[0], "note A");
+    assert.equal(hist[1], "note B");
+  });
+
+  it("caps at MAX_NOTE_HISTORY", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    for (let i = 0; i < MAX_NOTE_HISTORY + 3; i++) {
+      tui.setNote(1, `note ${i}`);
+      tui.setNote(1, ""); // clear
+    }
+    assert.ok(tui.getNoteHistory("n1").length <= MAX_NOTE_HISTORY);
+  });
+
+  it("does not push empty note to history", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.setNote(1, ""); // no note to push
+    assert.equal(tui.getNoteHistory("n1").length, 0);
+  });
+});
+
+// ── truncateLabel ─────────────────────────────────────────────────────────
+
+describe("truncateLabel", () => {
+  it("returns label unchanged when under limit", () => {
+    assert.equal(truncateLabel("short label"), "short label");
+  });
+  it("truncates with .. when over max length", () => {
+    const long = "x".repeat(MAX_LABEL_LEN + 5);
+    const result = truncateLabel(long);
+    assert.ok(result.length <= MAX_LABEL_LEN);
+    assert.ok(result.endsWith(".."));
+  });
+  it("handles exact max length without truncation", () => {
+    const exact = "x".repeat(MAX_LABEL_LEN);
+    assert.equal(truncateLabel(exact), exact);
+  });
+});
+
+// ── MAX_LABEL_LEN ─────────────────────────────────────────────────────────
+
+describe("MAX_LABEL_LEN", () => {
+  it("is 40", () => { assert.equal(MAX_LABEL_LEN, 40); });
+});
+
+// ── TUI setLabel / getLabel ───────────────────────────────────────────────
+
+describe("TUI setLabel / getLabel", () => {
+  const sess = { id: "l1", title: "Alpha", status: "idle" as const, tool: "opencode",
+    contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined };
+
+  it("starts with no labels", () => {
+    const tui = new TUI();
+    assert.equal(tui.getLabel("l1"), undefined);
+    assert.equal(tui.getAllLabels().size, 0);
+  });
+
+  it("setLabel by index sets label", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    const ok = tui.setLabel(1, "my worker");
+    assert.equal(ok, true);
+    assert.equal(tui.getLabel("l1"), "my worker");
+  });
+
+  it("setLabel by name", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.setLabel("alpha", "doing stuff");
+    assert.equal(tui.getLabel("l1"), "doing stuff");
+  });
+
+  it("setLabel empty clears label", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.setLabel(1, "x");
+    tui.setLabel(1, "");
+    assert.equal(tui.getLabel("l1"), undefined);
+  });
+
+  it("setLabel null clears label", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.setLabel(1, "x");
+    tui.setLabel(1, null);
+    assert.equal(tui.getLabel("l1"), undefined);
+  });
+
+  it("setLabel returns false for unknown session", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    assert.equal(tui.setLabel("zzz", "x"), false);
+  });
+
+  it("truncates long labels", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [sess] });
+    tui.setLabel(1, "x".repeat(MAX_LABEL_LEN + 10));
+    const lbl = tui.getLabel("l1");
+    assert.ok(lbl !== undefined && lbl.length <= MAX_LABEL_LEN);
+  });
+});
+
+// ── formatSessionCard with label ──────────────────────────────────────────
+
+describe("formatSessionCard with label", () => {
+  const s: DaemonSessionState = { id: "s1", title: "Alpha", status: "idle", tool: "opencode",
+    contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined };
+
+  it("does not include label when not provided", () => {
+    const result = stripAnsi(formatSessionCard(s, 80));
+    assert.ok(!result.includes("·"));
+  });
+
+  it("includes label when provided", () => {
+    const result = stripAnsi(formatSessionCard(s, 80, undefined, undefined, undefined, undefined, undefined, "my label"));
+    assert.ok(result.includes("my label"));
+  });
+});
+
+// ── formatSessionsTable ───────────────────────────────────────────────────
+
+describe("formatSessionsTable", () => {
+  const sessions: DaemonSessionState[] = [
+    { id: "s1", title: "Alpha", status: "working", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s2", title: "Bravo", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+  ];
+  const opts = { groups: new Map(), tags: new Map(), colors: new Map(), notes: new Map(), labels: new Map(), aliases: new Map(), drainingIds: new Set<string>(), healthScores: new Map(), costs: new Map(), firstSeen: new Map() };
+
+  it("returns 'no sessions' for empty", () => {
+    const lines = formatSessionsTable([], opts);
+    assert.ok(lines[0].includes("no sessions"));
+  });
+
+  it("returns header + separator + rows", () => {
+    const lines = formatSessionsTable(sessions, opts);
+    assert.ok(lines.length >= 4); // header + sep + 2 rows
+  });
+
+  it("includes session titles", () => {
+    const lines = formatSessionsTable(sessions, opts).join("\n");
+    assert.ok(lines.includes("Alpha"));
+    assert.ok(lines.includes("Bravo"));
+  });
+
+  it("shows drain flag D when draining", () => {
+    const optsD = { ...opts, drainingIds: new Set(["s1"]) };
+    const lines = formatSessionsTable(sessions, optsD).join("\n");
+    assert.ok(lines.includes("D"));
+  });
+
+  it("shows N flag when note set", () => {
+    const optsN = { ...opts, notes: new Map([["s1", "some note"]]) };
+    const lines = formatSessionsTable(sessions, optsN).join("\n");
+    assert.ok(lines.includes("N"));
+  });
+
+  it("shows cost when available", () => {
+    const optsC = { ...opts, costs: new Map([["s1", "$3.42"]]) };
+    const lines = formatSessionsTable(sessions, optsC).join("\n");
+    assert.ok(lines.includes("$3.42"));
   });
 });
 

@@ -603,6 +603,73 @@ export function isFlapping(
   return recent.length >= threshold;
 }
 
+// ── Sessions table (pure, exported for testing) ────────────────────────────────
+
+/**
+ * Format sessions as a rich table for /sessions command output.
+ * Returns array of lines (one per session + header).
+ */
+export function formatSessionsTable(
+  sessions: readonly DaemonSessionState[],
+  opts: {
+    groups: ReadonlyMap<string, string>;
+    tags: ReadonlyMap<string, ReadonlySet<string>>;
+    colors: ReadonlyMap<string, string>;
+    notes: ReadonlyMap<string, string>;
+    labels: ReadonlyMap<string, string>;
+    aliases: ReadonlyMap<string, string>;
+    drainingIds: ReadonlySet<string>;
+    healthScores: ReadonlyMap<string, number>;
+    costs: ReadonlyMap<string, string>;
+    firstSeen: ReadonlyMap<string, number>;
+  },
+  now?: number,
+): string[] {
+  if (sessions.length === 0) return ["  no sessions"];
+  const nowMs = now ?? Date.now();
+  const lines: string[] = [];
+  lines.push(`  ${"#".padEnd(3)} ${"title".padEnd(20)} ${"status".padEnd(9)} ${"hlth".padEnd(5)} ${"group".padEnd(10)} ${"cost".padEnd(7)} ${"uptime".padEnd(8)} flags`);
+  lines.push(`  ${"-".repeat(3)} ${"-".repeat(20)} ${"-".repeat(9)} ${"-".repeat(5)} ${"-".repeat(10)} ${"-".repeat(7)} ${"-".repeat(8)} -----`);
+  for (let i = 0; i < sessions.length; i++) {
+    const s = sessions[i];
+    const alias = opts.aliases.get(s.id);
+    const titleStr = (alias || s.title).slice(0, 20).padEnd(20);
+    const statusStr = s.status.slice(0, 9).padEnd(9);
+    const health = opts.healthScores.get(s.id) ?? 100;
+    const healthStr = String(health).padEnd(5);
+    const group = opts.groups.get(s.id) ?? "";
+    const groupStr = group.slice(0, 10).padEnd(10);
+    const cost = opts.costs.get(s.id) ?? "";
+    const costStr = cost.slice(0, 7).padEnd(7);
+    const fs = opts.firstSeen.get(s.id);
+    const uptimeStr = fs !== undefined ? formatUptime(nowMs - fs).padEnd(8) : "?".padEnd(8);
+    // flags: D=drain, ⊹=tag, ✎=note, ·=label
+    const flags = [
+      opts.drainingIds.has(s.id) ? "D" : "",
+      (opts.tags.get(s.id)?.size ?? 0) > 0 ? "T" : "",
+      opts.notes.has(s.id) ? "N" : "",
+      opts.labels.has(s.id) ? "L" : "",
+    ].filter(Boolean).join("") || "-";
+    lines.push(`  ${String(i + 1).padEnd(3)} ${titleStr} ${statusStr} ${healthStr} ${groupStr} ${costStr} ${uptimeStr} ${flags}`);
+  }
+  return lines;
+}
+
+// ── Session note history ─────────────────────────────────────────────────────
+
+/** Max notes stored per session (in history before clear). */
+export const MAX_NOTE_HISTORY = 5;
+
+// ── Session label ────────────────────────────────────────────────────────────
+
+/** Max length of a session label (displayed below title in cards). */
+export const MAX_LABEL_LEN = 40;
+
+/** Truncate a label to the max length. */
+export function truncateLabel(label: string): string {
+  return label.length > MAX_LABEL_LEN ? label.slice(0, MAX_LABEL_LEN - 2) + ".." : label;
+}
+
 // ── Session drain mode helpers ────────────────────────────────────────────────
 
 /** Drain icon shown in session cards for draining sessions. */
@@ -1018,6 +1085,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/duplicate", "/color-all", "/quiet-hours", "/quiet-status", "/history-stats", "/cost-summary", "/session-report", "/alert-log",
   "/budget", "/budgets", "/budget-status", "/pause-all", "/resume-all",
   "/health-trend", "/alert-mute", "/flap-log", "/drain", "/undrain", "/export-all",
+  "/note-history", "/label", "/sessions",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -1364,6 +1432,8 @@ export class TUI {
   private quietHoursRanges: Array<[number, number]> = []; // quiet-hour start/end pairs
   private sessionHealthHistory = new Map<string, HealthSnapshot[]>(); // session ID → health snapshots
   private alertLog: ActivityEntry[] = []; // recent auto-generated status alerts (ring buffer, max 100)
+  private sessionNoteHistory = new Map<string, string[]>(); // session ID → last N notes before clear
+  private sessionLabels = new Map<string, string>(); // session ID → freeform display label
   private sessionBudgets = new Map<string, number>(); // session ID → USD budget
   private globalBudget: number | null = null;          // global fallback budget in USD
   private budgetAlerted = new Map<string, number>();   // session ID → epoch ms of last budget alert
@@ -1650,6 +1720,14 @@ export class TUI {
     }
     if (!sessionId) return false;
     if (text.trim() === "") {
+      // push current note into history before clearing
+      const current = this.sessionNotes.get(sessionId);
+      if (current) {
+        const hist = this.sessionNoteHistory.get(sessionId) ?? [];
+        hist.push(current);
+        if (hist.length > MAX_NOTE_HISTORY) hist.shift();
+        this.sessionNoteHistory.set(sessionId, hist);
+      }
       this.sessionNotes.delete(sessionId);
     } else {
       this.sessionNotes.set(sessionId, truncateNote(text.trim()));
@@ -1676,6 +1754,49 @@ export class TUI {
   /** Return all session notes (for /notes listing). */
   getAllNotes(): ReadonlyMap<string, string> {
     return this.sessionNotes;
+  }
+
+  /** Return note history for a session (oldest first). */
+  getNoteHistory(id: string): readonly string[] {
+    return this.sessionNoteHistory.get(id) ?? [];
+  }
+
+  // ── Session labels ───────────────────────────────────────────────────────
+
+  /**
+   * Set or clear a label for a session (by 1-indexed number, ID, or title).
+   * Label is displayed below the session title in normal cards.
+   * Returns true if session found.
+   */
+  setLabel(sessionIdOrIndex: string | number, label: string | null): boolean {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return false;
+    if (!label || label.trim() === "") {
+      this.sessionLabels.delete(sessionId);
+    } else {
+      this.sessionLabels.set(sessionId, truncateLabel(label.trim()));
+    }
+    if (this.active) this.paintSessions();
+    return true;
+  }
+
+  /** Get the label for a session ID (or undefined). */
+  getLabel(id: string): string | undefined {
+    return this.sessionLabels.get(id);
+  }
+
+  /** Return all session labels. */
+  getAllLabels(): ReadonlyMap<string, string> {
+    return this.sessionLabels;
   }
 
   /** Return the current sessions (read-only, for resolving IDs to titles in the UI). */
@@ -2995,7 +3116,8 @@ export class TUI {
          const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth + colorDotWidth + (draining ? 2 : 0);
          const cardWidth = innerWidth - 1 - iconsWidth;
          const cardAge = s.createdAt ? formatSessionAge(s.createdAt, nowMs) : undefined;
-         const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge}${colorDot}${drainIcon}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined, displayName, cardAge || undefined)}`;
+         const sessionLabel = this.sessionLabels.get(s.id);
+         const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge}${colorDot}${drainIcon}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined, displayName, cardAge || undefined, sessionLabel)}`;
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
@@ -3070,7 +3192,8 @@ export class TUI {
      const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth2 + colorDotWidth2 + (draining2 ? 2 : 0);
      const cardWidth = innerWidth - 1 - iconsWidth;
      const cardAge2 = s.createdAt ? formatSessionAge(s.createdAt, nowMs2) : undefined;
-     const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge2}${colorDot2}${drainIcon2}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge2 || undefined, displayName2, cardAge2 || undefined)}`;
+     const sessionLabel2 = this.sessionLabels.get(s.id);
+     const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge2}${colorDot2}${drainIcon2}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge2 || undefined, displayName2, cardAge2 || undefined, sessionLabel2)}`;
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }
@@ -3199,7 +3322,8 @@ export class TUI {
 // healthBadge: optional pre-formatted health score badge ("⬡83" colored)
 // displayName: optional custom name override (from /rename)
 // ageStr: optional session age string (from createdAt)
-function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkline?: string, idleSinceMs?: number, healthBadge?: string, displayName?: string, ageStr?: string): string {
+// label: optional freeform label shown as DIM subtitle
+function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkline?: string, idleSinceMs?: number, healthBadge?: string, displayName?: string, ageStr?: string, label?: string): string {
   const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
   const title = displayName ?? s.title;
   const name = displayName ? `${BOLD}${displayName}${DIM} (${s.title})${RESET}` : `${BOLD}${s.title}${RESET}`;
@@ -3237,7 +3361,8 @@ function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkli
   }
 
   const ageSuffix = ageStr ? ` ${DIM}age:${ageStr}${RESET}` : "";
-  return truncateAnsi(`${dot} ${healthPrefix}${name} ${toolBadge}${contextBadge} ${SLATE}${BOX.h}${RESET} ${desc}${ageSuffix}${sparkSuffix}`, maxWidth);
+  const labelSuffix = label ? ` ${DIM}· ${label}${RESET}` : "";
+  return truncateAnsi(`${dot} ${healthPrefix}${name} ${toolBadge}${contextBadge} ${SLATE}${BOX.h}${RESET} ${desc}${ageSuffix}${labelSuffix}${sparkSuffix}`, maxWidth);
 }
 
 // colorize an activity entry based on its tag

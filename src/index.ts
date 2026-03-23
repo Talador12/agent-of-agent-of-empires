@@ -17,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
@@ -968,6 +968,50 @@ async function main() {
       tui!.setQuietHours(ranges);
       tui!.log("system", `quiet hours: ${specs.join(", ")} — watchdog+burn alerts suppressed`);
       persistPrefs();
+    });
+    // wire /note-history
+    input.onNoteHistory((target) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const sessions = tui!.getSessions();
+      const session = num !== undefined
+        ? sessions[num - 1]
+        : sessions.find((s) => s.title.toLowerCase() === target.toLowerCase() || s.id.startsWith(target));
+      if (!session) { tui!.log("system", `session not found: ${target}`); return; }
+      const hist = tui!.getNoteHistory(session.id);
+      if (hist.length === 0) {
+        tui!.log("system", `note-history: no previous notes for ${session.title}`);
+      } else {
+        tui!.log("system", `note-history for ${session.title} (${hist.length}):`);
+        for (const n of hist) tui!.log("system", `  "${n}"`);
+      }
+    });
+    // wire /label
+    input.onLabel((target, label) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const ok = tui!.setLabel(num ?? target, label || null);
+      if (ok) {
+        tui!.log("system", label ? `label set for ${target}: "${label}"` : `label cleared for ${target}`);
+      } else {
+        tui!.log("system", `session not found: ${target}`);
+      }
+    });
+    // wire /sessions enhanced table
+    input.onSessionsTable(() => {
+      const sessions = tui!.getSessions();
+      const now = Date.now();
+      const lines = formatSessionsTable(sessions, {
+        groups: tui!.getAllGroups(),
+        tags: tui!.getAllSessionTags(),
+        colors: tui!.getAllSessionColors(),
+        notes: tui!.getAllNotes(),
+        labels: tui!.getAllLabels(),
+        aliases: tui!.getAllSessionAliases(),
+        drainingIds: tui!.getDrainingIds(),
+        healthScores: tui!.getAllHealthScores(now),
+        costs: tui!.getAllSessionCosts(),
+        firstSeen: tui!.getAllFirstSeen(),
+      }, now);
+      for (const l of lines) tui!.log("system", l);
     });
     // wire /flap-log
     input.onFlapLog(() => {
@@ -1970,9 +2014,10 @@ async function daemonTick(
   // run core tick logic (same code path the tests exercise)
   let tickResult: import("./loop.js").TickResult;
   try {
-    tickResult = await loopTick({
-      config, poller, reasoner: wrappedReasoner, executor, policyStates, pollCount, userMessage, taskContext, beforeExecute,
-    });
+     tickResult = await loopTick({
+       config, poller, reasoner: wrappedReasoner, executor, policyStates, pollCount, userMessage, taskContext, beforeExecute,
+       drainingSessionIds: tui ? [...tui.getDrainingIds()] : undefined,
+     });
   } catch (err) {
     if (err instanceof InterruptError) return {
       interrupted: true,

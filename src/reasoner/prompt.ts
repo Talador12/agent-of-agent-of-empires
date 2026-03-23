@@ -140,23 +140,34 @@ export function formatObservation(obs: Observation): string {
   parts.push("");
 
   // resolve protected sessions list from config (attached by loop.ts)
-  const protectedList = obs.protectedSessions ?? [];
+   const protectedList = obs.protectedSessions ?? [];
+   const drainingList = new Set(obs.drainingSessionIds ?? []);
 
-  // session summary table
-  parts.push("Sessions:");
-  const activeSessions: string[] = [];
-  for (const snap of obs.sessions) {
-    const s = snap.session;
-    const activeTag = snap.userActive ? " [USER ACTIVE]" : "";
-    const protectedTag = protectedList.some((p) => p.toLowerCase() === s.title.toLowerCase()) ? " [PROTECTED]" : "";
-    parts.push(`  [${s.id.slice(0, 8)}] "${s.title}" tool=${s.tool} status=${s.status} path=${s.path}${activeTag}${protectedTag}`);
+   // session summary table
+   parts.push("Sessions:");
+   const activeSessions: string[] = [];
+   for (const snap of obs.sessions) {
+     const s = snap.session;
+     const activeTag = snap.userActive ? " [USER ACTIVE]" : "";
+     const protectedTag = protectedList.some((p) => p.toLowerCase() === s.title.toLowerCase()) ? " [PROTECTED]" : "";
+     const drainingTag = drainingList.has(s.id) ? " [DRAINING — skip, do not send input]" : "";
+     parts.push(`  [${s.id.slice(0, 8)}] "${s.title}" tool=${s.tool} status=${s.status} path=${s.path}${activeTag}${protectedTag}${drainingTag}`);
     if (snap.userActive) activeSessions.push(s.title);
   }
-  if (activeSessions.length > 0) {
-    parts.push("");
-    parts.push(`WARNING: A human user is currently interacting with: ${activeSessions.join(", ")}.`);
-    parts.push("Do NOT send input to these sessions. The user is actively working and your input would interfere.");
-  }
+   if (activeSessions.length > 0) {
+     parts.push("");
+     parts.push(`WARNING: A human user is currently interacting with: ${activeSessions.join(", ")}.`);
+     parts.push("Do NOT send input to these sessions. The user is actively working and your input would interfere.");
+   }
+   if (drainingList.size > 0) {
+     const drainingTitles = obs.sessions
+       .filter((s) => drainingList.has(s.session.id))
+       .map((s) => `"${s.session.title}"`);
+     if (drainingTitles.length > 0) {
+       parts.push("");
+       parts.push(`DRAINING: ${drainingTitles.join(", ")} — do NOT assign new tasks or send_input to these sessions.`);
+     }
+   }
   parts.push("");
 
   // task context (goals, progress) — injected if tasks are defined
