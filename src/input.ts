@@ -68,6 +68,8 @@ export type QuietHoursHandler = (specs: string[]) => void; // set quiet hours (e
 export type HistoryStatsHandler = () => void; // show aggregate history stats
 export type CostSummaryHandler = () => void; // show cost summary across sessions
 export type SessionReportHandler = (target: string) => void; // generate session markdown report
+export type QuietStatusHandler = () => void; // show quiet hours status
+export type AlertLogHandler = (count: number) => void; // show recent auto-generated alerts
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -162,6 +164,8 @@ export class InputReader {
   private historyStatsHandler: HistoryStatsHandler | null = null;
   private costSummaryHandler: CostSummaryHandler | null = null;
   private sessionReportHandler: SessionReportHandler | null = null;
+  private quietStatusHandler: QuietStatusHandler | null = null;
+  private alertLogHandler: AlertLogHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -426,6 +430,8 @@ export class InputReader {
   onHistoryStats(handler: HistoryStatsHandler): void { this.historyStatsHandler = handler; }
   onCostSummary(handler: CostSummaryHandler): void { this.costSummaryHandler = handler; }
   onSessionReport(handler: SessionReportHandler): void { this.sessionReportHandler = handler; }
+  onQuietStatus(handler: QuietStatusHandler): void { this.quietStatusHandler = handler; }
+  onAlertLog(handler: AlertLogHandler): void { this.alertLogHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -706,6 +712,8 @@ ${BOLD}navigation:${RESET}
   /duplicate N [t]   spawn a new session cloned from session N (same tool/path)
   /color-all [c]     set accent color for all sessions (no color = clear all)
   /quiet-hours [H-H] suppress watchdog+burn alerts during hours (e.g. 22-06; no arg = clear)
+  /quiet-status      show whether quiet hours are currently active
+  /alert-log [N]     show last N auto-generated alerts (burn-rate/watchdog/ceiling; default 20)
   /history-stats     show aggregate statistics from persisted activity history
   /cost-summary      show total estimated spend across all sessions
   /session-report N  generate full markdown report for a session → ~/.aoaoe/report-<name>-<ts>.md
@@ -1255,6 +1263,19 @@ ${BOLD}other:${RESET}
           console.error(`${DIM}history-stats not available (no TUI)${RESET}`);
         }
         break;
+
+      case "/quiet-status":
+        if (this.quietStatusHandler) this.quietStatusHandler();
+        else console.error(`${DIM}quiet-status not available (no TUI)${RESET}`);
+        break;
+
+      case "/alert-log": {
+        const alN = parseInt(line.slice("/alert-log".length).trim() || "20", 10);
+        const alCount = isNaN(alN) || alN < 1 ? 20 : Math.min(alN, 200);
+        if (this.alertLogHandler) this.alertLogHandler(alCount);
+        else console.error(`${DIM}alert-log not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/cost-summary":
         if (this.costSummaryHandler) this.costSummaryHandler();

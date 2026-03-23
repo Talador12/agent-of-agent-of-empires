@@ -446,6 +446,85 @@ export function filterSessionTimeline(
   return matching.slice(-count);
 }
 
+// ── Quiet status (pure, exported for testing) ────────────────────────────────
+
+/**
+ * Given quiet-hours ranges and current hour, return a human-readable status string.
+ * Returns { active, message } where message explains current state.
+ */
+export function formatQuietStatus(
+  ranges: ReadonlyArray<[number, number]>,
+  now?: Date,
+): { active: boolean; message: string } {
+  if (ranges.length === 0) return { active: false, message: "quiet hours not configured" };
+  const d = now ?? new Date();
+  const hour = d.getHours();
+  const active = isQuietHour(hour, ranges);
+  const rangeStrs = ranges.map(([s, e]) => `${String(s).padStart(2, "0")}:00–${String(e).padStart(2, "0")}:00`);
+  if (active) {
+    return { active: true, message: `quiet hours ACTIVE — alerts suppressed (${rangeStrs.join(", ")})` };
+  }
+  return { active: false, message: `quiet hours inactive — configured: ${rangeStrs.join(", ")}` };
+}
+
+// ── Session age (pure, exported for testing) ──────────────────────────────────
+
+/**
+ * Parse a session creation time from an ISO 8601 string.
+ * Returns null if unparseable.
+ */
+export function parseSessionAge(createdAt: string | undefined, now?: number): number | null {
+  if (!createdAt) return null;
+  const ts = Date.parse(createdAt);
+  if (isNaN(ts)) return null;
+  return (now ?? Date.now()) - ts;
+}
+
+/** Format session age as compact string: "3d", "2h", "45m", "< 1m". */
+export function formatSessionAge(createdAt: string | undefined, now?: number): string {
+  const ms = parseSessionAge(createdAt, now);
+  if (ms === null) return "";
+  return formatUptime(ms);
+}
+
+// ── Health history (pure, exported for testing) ───────────────────────────────
+
+/** Max health score snapshots stored per session. */
+export const MAX_HEALTH_HISTORY = 20;
+
+export interface HealthSnapshot {
+  score: number;
+  ts: number; // epoch ms
+}
+
+/**
+ * Format health history as a compact 5-bucket sparkline.
+ * Each bucket covers 1/5 of the history window. Color: LIME/AMBER/ROSE by value.
+ */
+export function formatHealthSparkline(history: readonly HealthSnapshot[], now?: number): string {
+  if (history.length === 0) return "";
+  const BUCKETS = 5;
+  const WINDOW_MS = 30 * 60_000; // last 30 minutes
+  const nowMs = now ?? Date.now();
+  const cutoff = nowMs - WINDOW_MS;
+  const recent = history.filter((h) => h.ts >= cutoff);
+  if (recent.length === 0) return "";
+  const bucketMs = WINDOW_MS / BUCKETS;
+  const buckets: number[] = Array(BUCKETS).fill(-1); // -1 = no data
+  for (const h of recent) {
+    const idx = Math.min(BUCKETS - 1, Math.floor((h.ts - cutoff) / bucketMs));
+    // take the most recent reading per bucket
+    if (buckets[idx] === -1 || h.ts > (recent.find((r) => r.ts >= cutoff + idx * bucketMs)?.ts ?? 0)) {
+      buckets[idx] = h.score;
+    }
+  }
+  return buckets.map((score) => {
+    if (score === -1) return `${DIM}·${RESET}`;
+    const color = score >= HEALTH_GOOD ? LIME : score >= HEALTH_WARN ? AMBER : ROSE;
+    return `${color}${SPARK_BLOCKS[Math.min(SPARK_BLOCKS.length - 1, Math.floor(score / 100 * (SPARK_BLOCKS.length - 1)))]}${RESET}`;
+  }).join("");
+}
+
 // ── Cost summary (pure, exported for testing) ────────────────────────────────
 
 /**
@@ -714,6 +793,7 @@ export interface SessionStatEntry {
   burnRatePerMin: number | null;
   contextPct: number | null;    // 0–100 or null if no ceiling info
   costStr?: string;             // "$N.NN" latest cost
+  healthSparkline?: string;     // pre-rendered health history sparkline
   uptimeMs: number | null;
   idleSinceMs: number | null;
 }
@@ -732,6 +812,7 @@ export function buildSessionStats(
   now?: number,
   errorTimestamps?: ReadonlyMap<string, readonly number[]>,
   sessionCosts?: ReadonlyMap<string, string>,
+  healthHistories?: ReadonlyMap<string, readonly HealthSnapshot[]>,
 ): SessionStatEntry[] {
   const nowMs = now ?? Date.now();
   return sessions.map((s) => {
@@ -741,6 +822,8 @@ export function buildSessionStats(
     const lc = lastChangeAt.get(s.id);
     const errTs = errorTimestamps?.get(s.id);
     const errTrend = errTs ? computeErrorTrend(errTs, nowMs) : undefined;
+    const healthHist = healthHistories?.get(s.id);
+    const healthSparkline = healthHist ? formatHealthSparkline(healthHist, nowMs) : undefined;
     return {
       title: s.title,
       displayName: sessionAliases.get(s.id),
@@ -751,6 +834,7 @@ export function buildSessionStats(
       burnRatePerMin: burnRates.get(s.id) ?? null,
       contextPct: ctxPct,
       costStr: sessionCosts?.get(s.id),
+      healthSparkline: healthSparkline || undefined,
       uptimeMs: fs !== undefined ? nowMs - fs : null,
       idleSinceMs: lc !== undefined ? nowMs - lc : null,
     };
@@ -772,9 +856,10 @@ export function formatSessionStatsLines(entries: SessionStatEntry[]): string[] {
       ? ` ${Math.round(e.burnRatePerMin / 100) * 100}tok/min` : "";
     const ctxStr = e.contextPct !== null ? ` ctx:${e.contextPct}%` : "";
     const costStr = e.costStr ? ` ${e.costStr}` : "";
+    const sparkStr = e.healthSparkline ? ` ${e.healthSparkline}` : "";
     const upStr = e.uptimeMs !== null ? ` up:${formatUptime(e.uptimeMs)}` : "";
     const idleStr = e.idleSinceMs !== null ? ` ${formatIdleSince(e.idleSinceMs)}` : "";
-    return `  ${label} [${e.status}] ${healthStr}${errStr}${burnStr}${ctxStr}${costStr}${upStr}${idleStr}`;
+    return `  ${label} [${e.status}] ${healthStr}${sparkStr}${errStr}${burnStr}${ctxStr}${costStr}${upStr}${idleStr}`;
   });
 }
 
@@ -818,7 +903,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
   "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy", "/stats", "/recall", "/pin-all-errors", "/export-stats",
   "/mute-errors", "/prev-goal", "/tag", "/tags", "/tag-filter", "/find", "/reset-health", "/timeline", "/color", "/clear-history",
-  "/duplicate", "/color-all", "/quiet-hours", "/history-stats", "/cost-summary", "/session-report",
+  "/duplicate", "/color-all", "/quiet-hours", "/quiet-status", "/history-stats", "/cost-summary", "/session-report", "/alert-log",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -1163,6 +1248,8 @@ export class TUI {
   private sessionColors = new Map<string, string>(); // session ID → accent color name
   private sessionCosts = new Map<string, string>(); // session ID → latest cost string ("$N.NN")
   private quietHoursRanges: Array<[number, number]> = []; // quiet-hour start/end pairs
+  private sessionHealthHistory = new Map<string, HealthSnapshot[]>(); // session ID → health snapshots
+  private alertLog: ActivityEntry[] = []; // recent auto-generated status alerts (ring buffer, max 100)
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -1668,6 +1755,16 @@ export class TUI {
 
   // ── Session timeline ─────────────────────────────────────────────────────
 
+  /** Return health history for a session (for sparkline). */
+  getSessionHealthHistory(id: string): readonly HealthSnapshot[] {
+    return this.sessionHealthHistory.get(id) ?? [];
+  }
+
+  /** Return all alert log entries (last 100 "status" tag entries). */
+  getAlertLog(): readonly ActivityEntry[] {
+    return this.alertLog;
+  }
+
   /** Get the latest cost string for a session (or undefined). */
   getSessionCost(id: string): string | undefined {
     return this.sessionCosts.get(id);
@@ -2057,12 +2154,32 @@ export class TUI {
           }
         }
       }
-      // prune context history for sessions that no longer exist
-      const currentIds = new Set(opts.sessions.map((s) => s.id));
-      for (const id of this.sessionContextHistory.keys()) {
-        if (!currentIds.has(id)) this.sessionContextHistory.delete(id);
-      }
-      const sorted = sortSessions(opts.sessions, this.sortMode, this.lastChangeAt, this.pinnedIds);
+       // prune context history for sessions that no longer exist
+       const currentIds = new Set(opts.sessions.map((s) => s.id));
+       for (const id of this.sessionContextHistory.keys()) {
+         if (!currentIds.has(id)) this.sessionContextHistory.delete(id);
+       }
+       // record health snapshots
+       for (const s of opts.sessions) {
+         const ceiling2 = parseContextCeiling(s.contextTokens);
+         const cf2 = ceiling2 ? ceiling2.current / ceiling2.max : null;
+         const bh2 = this.sessionContextHistory.get(s.id);
+         const br2 = bh2 ? computeContextBurnRate(bh2, now) : null;
+         const lc2 = this.lastChangeAt.get(s.id);
+         const idle2 = lc2 !== undefined ? now - lc2 : null;
+         const hs = computeHealthScore({
+           errorCount: this.sessionErrorCounts.get(s.id) ?? 0,
+           burnRatePerMin: br2,
+           contextFraction: cf2,
+           idleMs: idle2,
+           watchdogThresholdMs: this.watchdogThresholdMs,
+         });
+         const hist = this.sessionHealthHistory.get(s.id) ?? [];
+         hist.push({ score: hs, ts: now });
+         if (hist.length > MAX_HEALTH_HISTORY) hist.shift();
+         this.sessionHealthHistory.set(s.id, hist);
+       }
+       const sorted = sortSessions(opts.sessions, this.sortMode, this.lastChangeAt, this.pinnedIds);
       const prevVisibleCount = this.getVisibleCount();
       this.sessions = sorted;
       const newVisibleCount = this.getVisibleCount();
@@ -2101,6 +2218,11 @@ export class TUI {
         this.lastBellAt = nowMs;
         process.stderr.write("\x07");
       }
+    }
+    // collect "status" alerts into alert log (for /alert-log)
+    if (tag === "status") {
+      this.alertLog.push(entry);
+      if (this.alertLog.length > 100) this.alertLog.shift();
     }
     // track per-session error counts + timestamps (for sparklines)
     if (sessionId && shouldAutoPin(tag)) {

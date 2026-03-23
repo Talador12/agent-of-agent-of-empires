@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.142.0
+## Version: v0.146.0
 
 ## Current Focus
 
-2005 tests across 35 files — crossed 2000! v0.140–v0.142 shipped: `/cost-summary`, `/session-report` full markdown output, README v2 overhaul covering all commands through v0.139.
+2035 tests across 35 files. v0.143–v0.146 shipped: `/quiet-status`, session age from `created_at`, health history sparklines in `/stats`, and `/alert-log`.
 
 ## Roadmap
 
@@ -24,11 +24,25 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Natural language task intent** — infer task updates from plain lines like "task for adventure: ..."
 - **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
 - **Reasoner confidence badge** — if reasoner returns a confidence signal, show in header
-- **`/cost-summary`** — show total estimated spend across all sessions
-- **`/session-report <N>`** — full markdown report for one session: health, timeline, costs, errors
-- **Session age badge** — show session creation time (from AoE) in `/who` and cards
-- **README v2 overhaul** — update to cover v0.113–v0.139 commands
-- **`/quiet-status`** — show whether quiet hours are currently active and when they end
+- **`/health-trend`** — show health score over time per session as ASCII chart
+- **Session age in cards** — show `age:Nh` badge in normal session cards alongside other indicators
+- **`/alert-mute <pattern>`** — suppress specific alert patterns from the alert log
+- **`/budget <N>`** — set a cost budget per session; alert when exceeded
+- **`/pause-all`/`/resume-all`** — bulk pause/resume all sessions via tmux send-keys
+- **Parallel `/stats` refresh** — auto-refresh `/stats` output every N seconds in TUI drill-down
+
+### What shipped in v0.143.0–v0.146.0
+
+**v0.143.0 — /quiet-status**: `formatQuietStatus(ranges, now)` pure fn — returns `{active, message}` with formatted range strings. `/quiet-status` logs current state and whether alerts are suppressed.
+
+**v0.144.0 — Session Age**: `DaemonSessionState.createdAt` field populated from `snap.session.created_at`. `parseSessionAge(createdAt, now)` and `formatSessionAge()` pure fns. `/who` output now shows `age:Nh` per session.
+
+**v0.145.0 — Health History Sparkline**: `HealthSnapshot {score, ts}` interface. `MAX_HEALTH_HISTORY=20`. `formatHealthSparkline(history, now)` renders 5-bucket LIME/AMBER/ROSE sparkline over last 30 min. TUI records health snapshots in `updateState()`. `getSessionHealthHistory(id)` accessor. Sparkline shown in `/stats` output. `buildSessionStats` gains optional `healthHistories` param.
+
+**v0.146.0 — /alert-log**: TUI collects all `"status"` tag entries into `alertLog` ring buffer (max 100). `getAlertLog()` accessor. `/alert-log [N]` shows last N entries. Burns, ceiling, watchdog alerts all flow through the "status" tag already. 30 new tests total.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/types.ts`, `src/daemon-state.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +30, net 2035 tests across 35 files.
 
 ### What shipped in v0.140.0–v0.142.0
 

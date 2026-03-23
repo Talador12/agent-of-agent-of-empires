@@ -165,8 +165,9 @@ export interface DaemonSessionState {
   contextTokens?: string; // latest parsed context usage (e.g. "137,918 tokens")
   todoSummary?: string; // formatted OpenCode-style TODO list parsed from pane output
   userActive?: boolean; // true if a human user is interacting with this tmux pane
-  costStr?: string; // latest parsed cost (e.g. "$3.42")
-  path?: string;    // project directory path (from AoeSession)
+  costStr?: string;      // latest parsed cost (e.g. "$3.42")
+  path?: string;         // project directory path (from AoeSession)
+  createdAt?: string;    // ISO 8601 creation time from AoE
 }
 
 export interface DaemonState {

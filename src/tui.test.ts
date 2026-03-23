@@ -31,6 +31,9 @@ import {
   isQuietHour, parseQuietHoursRange,
   parseCostValue, computeCostSummary,
   formatSessionReport,
+  formatQuietStatus,
+  parseSessionAge, formatSessionAge,
+  formatHealthSparkline, MAX_HEALTH_HISTORY,
   truncateRename, MAX_RENAME_LEN,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
@@ -4276,6 +4279,201 @@ describe("TUI getSessionOutput", () => {
   it("getDrilldownId returns null before entering drilldown", () => {
     const tui = new TUI();
     assert.equal(tui.getDrilldownId(), null);
+  });
+});
+
+// ── formatQuietStatus ─────────────────────────────────────────────────────
+
+describe("formatQuietStatus", () => {
+  it("returns not configured when no ranges", () => {
+    const r = formatQuietStatus([]);
+    assert.equal(r.active, false);
+    assert.ok(r.message.includes("not configured"));
+  });
+
+  it("returns active=true when current hour is in range", () => {
+    const d = new Date(); d.setHours(10);
+    const r = formatQuietStatus([[0, 23]], d);
+    assert.equal(r.active, true);
+    assert.ok(r.message.includes("ACTIVE"));
+  });
+
+  it("returns active=false when outside range", () => {
+    const d = new Date(); d.setHours(15);
+    const r = formatQuietStatus([[22, 6]], d);
+    assert.equal(r.active, false);
+    assert.ok(!r.message.includes("ACTIVE"));
+  });
+
+  it("includes configured ranges in message", () => {
+    const r = formatQuietStatus([[22, 6]]);
+    assert.ok(r.message.includes("22:00"));
+    assert.ok(r.message.includes("06:00"));
+  });
+});
+
+// ── parseSessionAge ───────────────────────────────────────────────────────
+
+describe("parseSessionAge", () => {
+  it("returns null for undefined createdAt", () => {
+    assert.equal(parseSessionAge(undefined), null);
+  });
+
+  it("returns null for invalid ISO string", () => {
+    assert.equal(parseSessionAge("not-a-date"), null);
+  });
+
+  it("returns ms since createdAt", () => {
+    const now = Date.now();
+    const oneHourAgo = new Date(now - 3600000).toISOString();
+    const age = parseSessionAge(oneHourAgo, now);
+    assert.ok(age !== null && age >= 3600000 - 100 && age <= 3600000 + 100);
+  });
+});
+
+// ── formatSessionAge ──────────────────────────────────────────────────────
+
+describe("formatSessionAge", () => {
+  it("returns empty string for undefined", () => {
+    assert.equal(formatSessionAge(undefined), "");
+  });
+
+  it("returns uptime string for valid ISO date", () => {
+    const now = Date.now();
+    const twoHoursAgo = new Date(now - 7200000).toISOString();
+    const result = formatSessionAge(twoHoursAgo, now);
+    assert.ok(result.includes("2h") || result.includes("h"));
+  });
+});
+
+// ── formatHealthSparkline ─────────────────────────────────────────────────
+
+describe("formatHealthSparkline", () => {
+  it("returns empty for no history", () => {
+    assert.equal(formatHealthSparkline([]), "");
+  });
+
+  it("returns empty when all snapshots outside window", () => {
+    const old = Date.now() - 35 * 60_000; // older than 30 min window
+    assert.equal(formatHealthSparkline([{ score: 80, ts: old }], Date.now()), "");
+  });
+
+  it("returns non-empty for recent snapshots", () => {
+    const now = Date.now();
+    const result = formatHealthSparkline([{ score: 90, ts: now }], now);
+    assert.ok(result.length > 0);
+  });
+
+  it("returns 5 visible chars (with ANSI)", () => {
+    const now = Date.now();
+    const hist = Array.from({ length: 5 }, (_, i) => ({ score: 80, ts: now - i * 100 }));
+    const result = stripAnsi(formatHealthSparkline(hist, now));
+    assert.ok(result.length <= 5); // at most 5 blocks
+  });
+
+  it("contains ANSI codes", () => {
+    const now = Date.now();
+    const result = formatHealthSparkline([{ score: 50, ts: now }], now);
+    assert.ok(result.includes("\x1b["));
+  });
+});
+
+// ── MAX_HEALTH_HISTORY ────────────────────────────────────────────────────
+
+describe("MAX_HEALTH_HISTORY", () => {
+  it("is 20", () => {
+    assert.equal(MAX_HEALTH_HISTORY, 20);
+  });
+});
+
+// ── TUI health history tracking ───────────────────────────────────────────
+
+describe("TUI health history tracking", () => {
+  it("starts empty", () => {
+    const tui = new TUI();
+    assert.equal(tui.getSessionHealthHistory("s1").length, 0);
+  });
+
+  it("records snapshot on updateState", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "s1", title: "A", status: "idle" as const, tool: "opencode",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    assert.ok(tui.getSessionHealthHistory("s1").length >= 1);
+  });
+
+  it("accumulates snapshots", () => {
+    const tui = new TUI();
+    const base = { id: "s1", title: "A", status: "idle" as const, tool: "opencode",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined };
+    tui.updateState({ sessions: [base] });
+    tui.updateState({ sessions: [base] });
+    assert.ok(tui.getSessionHealthHistory("s1").length >= 2);
+  });
+
+  it("caps at MAX_HEALTH_HISTORY", () => {
+    const tui = new TUI();
+    const base = { id: "s1", title: "A", status: "idle" as const, tool: "opencode",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined };
+    for (let i = 0; i <= MAX_HEALTH_HISTORY + 5; i++) tui.updateState({ sessions: [base] });
+    assert.ok(tui.getSessionHealthHistory("s1").length <= MAX_HEALTH_HISTORY);
+  });
+});
+
+// ── TUI alert log ─────────────────────────────────────────────────────────
+
+describe("TUI alert log", () => {
+  it("starts empty", () => {
+    const tui = new TUI();
+    assert.equal(tui.getAlertLog().length, 0);
+  });
+
+  it("collects status-tagged entries", () => {
+    const tui = new TUI();
+    tui.log("status", "watchdog: session stalled");
+    assert.equal(tui.getAlertLog().length, 1);
+  });
+
+  it("does not collect non-status entries", () => {
+    const tui = new TUI();
+    tui.log("system", "tick");
+    tui.log("error", "oops");
+    tui.log("+ action", "sent");
+    assert.equal(tui.getAlertLog().length, 0);
+  });
+
+  it("collects multiple alerts", () => {
+    const tui = new TUI();
+    tui.log("status", "alert 1");
+    tui.log("status", "alert 2");
+    tui.log("status", "alert 3");
+    assert.equal(tui.getAlertLog().length, 3);
+  });
+
+  it("caps at 100", () => {
+    const tui = new TUI();
+    for (let i = 0; i < 110; i++) tui.log("status", `alert ${i}`);
+    assert.ok(tui.getAlertLog().length <= 100);
+  });
+});
+
+// ── TUI session age (createdAt) ───────────────────────────────────────────
+
+describe("TUI session with createdAt", () => {
+  it("DaemonSessionState createdAt is optional", () => {
+    const sess: DaemonSessionState = {
+      id: "s1", title: "A", status: "idle", tool: "opencode",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined,
+    };
+    assert.equal(sess.createdAt, undefined);
+  });
+
+  it("DaemonSessionState with createdAt set", () => {
+    const sess: DaemonSessionState = {
+      id: "s1", title: "A", status: "idle", tool: "opencode",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined,
+      createdAt: "2025-01-01T00:00:00.000Z",
+    };
+    assert.ok(parseSessionAge(sess.createdAt) !== null);
   });
 });
 

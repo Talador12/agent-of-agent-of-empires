@@ -17,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
@@ -582,7 +582,9 @@ async function main() {
         const lastChange = lastChangeAt.get(s.id);
         const idleStr = (lastChange && (s.status === "idle" || s.status === "stopped" || s.status === "done"))
           ? ` idle ${formatUptime(now - lastChange)}` : "";
-        tui!.log("system", `  ${s.title}${groupStr} — ${s.status} ${up}${ctxStr}${costStr}${errStr}${idleStr}${noteStr}`);
+        // session age from AoE created_at
+        const ageStr = s.createdAt ? ` age:${formatSessionAge(s.createdAt, now)}` : "";
+        tui!.log("system", `  ${s.title}${groupStr} — ${s.status} ${up}${ctxStr}${costStr}${errStr}${idleStr}${ageStr}${noteStr}`);
       }
     });
     // wire /uptime listing
@@ -895,19 +897,20 @@ async function main() {
     input.onExportStats(() => {
       const sessions = tui!.getSessions();
       const now = Date.now();
-      const entries = buildSessionStats(
-        sessions,
-        tui!.getSessionErrorCounts(),
-        tui!.getAllBurnRates(now),
-        tui!.getAllFirstSeen(),
-        tui!.getAllLastChangeAt(),
-        tui!.getAllHealthScores(now),
-        tui!.getAllSessionAliases(),
-        now,
-        new Map(sessions.map((s) => [s.id, tui!.getSessionErrorTimestamps(s.id)])),
-        tui!.getAllSessionCosts(),
-      );
-      const ts = new Date(now).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+       const entries = buildSessionStats(
+         sessions,
+         tui!.getSessionErrorCounts(),
+         tui!.getAllBurnRates(now),
+         tui!.getAllFirstSeen(),
+         tui!.getAllLastChangeAt(),
+         tui!.getAllHealthScores(now),
+         tui!.getAllSessionAliases(),
+         now,
+         new Map(sessions.map((s) => [s.id, tui!.getSessionErrorTimestamps(s.id)])),
+         tui!.getAllSessionCosts(),
+         new Map(sessions.map((s) => [s.id, tui!.getSessionHealthHistory(s.id)])),
+       );
+       const ts = new Date(now).toISOString().replace(/[:.]/g, "-").slice(0, 19);
       const dir = join(homedir(), ".aoaoe");
       const path = join(dir, `stats-${ts}.json`);
       try {
@@ -965,6 +968,25 @@ async function main() {
       tui!.setQuietHours(ranges);
       tui!.log("system", `quiet hours: ${specs.join(", ")} — watchdog+burn alerts suppressed`);
       persistPrefs();
+    });
+    // wire /quiet-status
+    input.onQuietStatus(() => {
+      const { active, message } = formatQuietStatus(tui!.getQuietHours());
+      tui!.log("system", `quiet-status: ${message}`);
+      if (active) tui!.log("system", "  watchdog, burn-rate, and ceiling alerts are suppressed");
+    });
+    // wire /alert-log
+    input.onAlertLog((count) => {
+      const alerts = tui!.getAlertLog();
+      const recent = alerts.slice(-count);
+      if (recent.length === 0) {
+        tui!.log("system", "alert-log: no auto-generated alerts yet");
+        return;
+      }
+      tui!.log("system", `alert-log: last ${recent.length} alert${recent.length !== 1 ? "s" : ""}:`);
+      for (const e of recent) {
+        tui!.log("system", `  ${e.time}  ${e.text}`);
+      }
     });
     // wire /cost-summary
     input.onCostSummary(() => {
@@ -1073,19 +1095,20 @@ async function main() {
         return;
       }
       const now = Date.now();
-      const entries = buildSessionStats(
-        sessions,
-        tui!.getSessionErrorCounts(),
-        tui!.getAllBurnRates(now),
-        tui!.getAllFirstSeen(),
-        tui!.getAllLastChangeAt(),
-        tui!.getAllHealthScores(now),
-        tui!.getAllSessionAliases(),
-        now,
-        new Map(sessions.map((s) => [s.id, tui!.getSessionErrorTimestamps(s.id)])),
-        tui!.getAllSessionCosts(),
-      );
-      tui!.log("system", `/stats — ${entries.length} session${entries.length !== 1 ? "s" : ""}:`);
+       const entries = buildSessionStats(
+         sessions,
+         tui!.getSessionErrorCounts(),
+         tui!.getAllBurnRates(now),
+         tui!.getAllFirstSeen(),
+         tui!.getAllLastChangeAt(),
+         tui!.getAllHealthScores(now),
+         tui!.getAllSessionAliases(),
+         now,
+         new Map(sessions.map((s) => [s.id, tui!.getSessionErrorTimestamps(s.id)])),
+         tui!.getAllSessionCosts(),
+         new Map(sessions.map((s) => [s.id, tui!.getSessionHealthHistory(s.id)])),
+       );
+       tui!.log("system", `/stats — ${entries.length} session${entries.length !== 1 ? "s" : ""}:`);
       for (const line of formatSessionStatsLines(entries)) {
         tui!.log("system", line);
       }

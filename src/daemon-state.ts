@@ -160,6 +160,7 @@ export function buildSessionStates(obs: Observation): DaemonSessionState[] {
        tool: s.tool,
        status: s.status,
        path: snap.session.path,
+       createdAt: snap.session.created_at,
        currentTask: sessionTasks.get(s.id),
        lastActivity: lastActivity && lastActivity.length > 100
          ? lastActivity.slice(0, 97) + "..."
