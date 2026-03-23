@@ -521,9 +521,12 @@ describe("formatTaskContext", () => {
     assert.ok(result.includes("github/adventure"));
   });
 
-  it("includes goal line", () => {
+  it("includes goal as bulleted list", () => {
     const result = formatTaskContext([makeTask({ goal: "implement auth" })]);
-    assert.ok(result.includes("Goal: implement auth"));
+    assert.ok(result.includes("Goal:"));
+    assert.ok(result.includes("- implement auth"));
+    // must not show flat single-line "Goal: implement auth"
+    assert.ok(!result.includes("Goal: implement auth"));
   });
 
   it("shows ACTIVE status tag for active tasks", () => {

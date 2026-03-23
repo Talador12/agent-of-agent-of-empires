@@ -115,12 +115,8 @@ export function formatTaskContext(tasks: TaskState[]): string {
     const statusTag = t.status === "completed" ? "COMPLETED" : t.status.toUpperCase();
     parts.push(`  [${statusTag}] "${t.sessionTitle}" (${t.repo})`);
     const goalItems = goalToList(t.goal);
-    if (goalItems.length === 1) {
-      parts.push(`    Goal: ${goalItems[0]}`);
-    } else {
-      parts.push(`    Goal:`);
-      for (const item of goalItems) parts.push(`      - ${item}`);
-    }
+    parts.push(`    Goal:`);
+    for (const item of goalItems) parts.push(`      - ${item}`);
     if (t.progress.length > 0) {
       const recent = t.progress.slice(-3);
       parts.push(`    Recent progress:`);

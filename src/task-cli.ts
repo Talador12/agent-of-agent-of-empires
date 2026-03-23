@@ -4,7 +4,7 @@ import { exec } from "./shell.js";
 import { existsSync } from "node:fs";
 import { resolve, basename } from "node:path";
 import { loadTaskState, saveTaskState, formatTaskTable, syncTaskDefinitionsFromState } from "./task-manager.js";
-import { toAoeSessionList } from "./types.js";
+import { toAoeSessionList, goalToList } from "./types.js";
 import type { TaskState, TaskSessionMode } from "./types.js";
 
 import { BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET } from "./colors.js";
@@ -108,8 +108,10 @@ export function taskEdit(ref: string, newGoal: string): boolean {
   saveTaskState(states);
   syncTaskDefinitionsFromState(process.cwd(), states);
   console.log(`${GREEN}updated${RESET} ${task.sessionTitle}`);
-  console.log(`  ${DIM}was: ${oldGoal}${RESET}`);
-  console.log(`  ${BOLD}now: ${newGoal}${RESET}`);
+  console.log(`  ${DIM}was:${RESET}`);
+  for (const item of goalToList(oldGoal)) console.log(`  ${DIM}    - ${item}${RESET}`);
+  console.log(`  ${BOLD}now:${RESET}`);
+  for (const item of goalToList(newGoal)) console.log(`  ${BOLD}    - ${item}${RESET}`);
   return true;
 }
 

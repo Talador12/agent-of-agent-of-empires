@@ -304,12 +304,8 @@ async function main() {
     for (const t of taskManager.tasks) {
       const icon = t.status === "active" ? "~" : t.status === "completed" ? "+" : ".";
       const goalItems = goalToList(t.goal);
-      if (goalItems.length === 1) {
-        console.error(`    [${icon}] ${t.repo} — ${goalItems[0]}`);
-      } else {
-        console.error(`    [${icon}] ${t.repo}:`);
-        for (const item of goalItems) console.error(`          - ${item}`);
-      }
+      console.error(`    [${icon}] ${t.repo}:`);
+      for (const item of goalItems) console.error(`          - ${item}`);
     }
     console.error("");
 

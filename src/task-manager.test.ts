@@ -131,9 +131,10 @@ describe("formatTaskTable", () => {
     assert.ok(result.includes("..."));
   });
 
-  it("shows goal line for active and pending tasks", () => {
+  it("shows goal as bulleted list for active and pending tasks", () => {
     const result = formatTaskTable([makeTask({ status: "active", goal: "Build the thing" })]);
-    assert.ok(result.includes("goal: Build the thing"));
+    assert.ok(result.includes("goal:"));
+    assert.ok(result.includes("- Build the thing"));
   });
 
   it("accepts a Map as input", () => {
@@ -157,9 +158,12 @@ describe("formatTaskTable", () => {
     assert.ok(result.includes("context: adventure @ github/adventure"));
   });
 
-  it("shows single-item goal on one line", () => {
+  it("shows single-item goal as a bullet", () => {
     const result = formatTaskTable([makeTask({ goal: "do the thing" })]);
-    assert.ok(result.includes("goal: do the thing"));
+    assert.ok(result.includes("goal:"));
+    assert.ok(result.includes("- do the thing"));
+    // must NOT show flat "goal: do the thing" (no colon-on-same-line)
+    assert.ok(!result.includes("goal: do the thing"));
   });
 
   it("shows multi-item goal as bullet list", () => {

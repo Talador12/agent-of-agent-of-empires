@@ -429,18 +429,13 @@ export function formatTaskTable(states: Map<string, TaskState> | TaskState[]): s
     lines.push(`  ${repo} ${status} ${mode} ${session} ${progressStr}`);
     lines.push(`  ${DIM}  context: ${t.sessionTitle} @ ${t.repo}${RESET}`);
 
-    // show goal as bulleted list if active or pending
+    // always show goal as bulleted list
     if (t.status === "active" || t.status === "pending") {
       const items = goalToList(t.goal);
-      if (items.length === 1) {
-        const goal = items[0].length > 72 ? items[0].slice(0, 69) + "..." : items[0];
-        lines.push(`  ${DIM}  goal: ${goal}${RESET}`);
-      } else {
-        lines.push(`  ${DIM}  goal:${RESET}`);
-        for (const item of items) {
-          const trimmed = item.length > 70 ? item.slice(0, 67) + "..." : item;
-          lines.push(`  ${DIM}    - ${trimmed}${RESET}`);
-        }
+      lines.push(`  ${DIM}  goal:${RESET}`);
+      for (const item of items) {
+        const trimmed = item.length > 70 ? item.slice(0, 67) + "..." : item;
+        lines.push(`  ${DIM}    - ${trimmed}${RESET}`);
       }
     }
   }
