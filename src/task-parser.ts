@@ -59,9 +59,11 @@ export function parseModel(output: string): string | undefined {
 
 // extract context info from OpenCode pane output
 export function parseContext(output: string): string | undefined {
-  // matches "137,918 tokens" or "111,881 tokens"
-  const match = output.match(/([\d,]+)\s+tokens/);
-  return match?.[1] ? `${match[1]} tokens` : undefined;
+  // matches "137,918 / 200,000 tokens" or plain "137,918 tokens"
+  const full = output.match(/([\d,]+)\s*\/\s*([\d,]+)\s+tokens/);
+  if (full?.[1] && full[2]) return `${full[1]} / ${full[2]} tokens`;
+  const simple = output.match(/([\d,]+)\s+tokens/);
+  return simple?.[1] ? `${simple[1]} tokens` : undefined;
 }
 
 // extract cost from OpenCode pane output

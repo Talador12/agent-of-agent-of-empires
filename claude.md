@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.110.0
+## Version: v0.111.0
 
 ## Current Focus
 
-1677 tests across 35 files. v0.110.0 shipped: `/top [errors|burn|idle]` ranked session view — composite score by default, sort by any single metric.
+1699 tests across 35 files. v0.111.0 shipped: context ceiling warnings — auto-alert at 90% context usage, `/ceiling` command, `parseContext` extended to capture "X / Y tokens" format.
 
 ## Roadmap
 
@@ -32,6 +32,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Session health score** — composite 0-100 score from error rate, idle time, burn rate shown in card
 - **`/top` command** — show sessions ranked by burn rate, error count, or idle time
 - **Multi-key quick-switch** — extend quick-switch from 1-9 to 1-99 via two-digit prefix
+
+### What shipped in v0.111.0
+
+**Theme: "Context Ceiling Warning"** — automatic alert when a session's context usage exceeds 90% of its limit. `parseContextCeiling(contextTokens)` parses "137,918 / 200,000 tokens" → `{current, max}`. `formatContextCeilingAlert()` formats the warning. `parseContext()` in `task-parser.ts` extended to capture the "X / Y tokens" ceiling format (so it now surfaces in session cards). TUI fires a "status" log alert per session, rate-limited to once per 5 minutes. `getAllContextCeilings()` accessor. `/ceiling` command shows current usage vs limit for all sessions. `CONTEXT_CEILING_THRESHOLD = 0.90`. 22 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `src/task-parser.ts`, `src/task-parser.test.ts`, `package.json`, `claude.md`
+Test changes: +22, net 1699 tests across 35 files.
 
 ### What shipped in v0.110.0
 

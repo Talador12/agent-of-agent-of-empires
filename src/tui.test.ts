@@ -17,6 +17,7 @@ import {
   formatSessionErrorSparkline, SESSION_SPARK_BUCKETS, SESSION_SPARK_WINDOW_MS, MAX_ERROR_TIMESTAMPS,
   parseContextTokenNumber, computeContextBurnRate, formatBurnRateAlert,
   CONTEXT_BURN_THRESHOLD, CONTEXT_BURN_WINDOW_MS, MAX_CONTEXT_HISTORY,
+  parseContextCeiling, formatContextCeilingAlert, CONTEXT_CEILING_THRESHOLD,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
   shouldBell, BELL_COOLDOWN_MS,
@@ -3220,6 +3221,140 @@ describe("formatSnapshotMarkdown", () => {
   it("returns a string", () => {
     const data = buildSnapshotData(makeSnapSessions(), new Map(), new Map(), new Map(), new Map(), new Map(), "1.0.0");
     assert.equal(typeof formatSnapshotMarkdown(data), "string");
+  });
+});
+
+// ── parseContextCeiling ───────────────────────────────────────────────────
+
+describe("parseContextCeiling", () => {
+  it("parses 'X / Y tokens' format", () => {
+    const result = parseContextCeiling("137,918 / 200,000 tokens");
+    assert.ok(result !== null);
+    assert.equal(result!.current, 137918);
+    assert.equal(result!.max, 200000);
+  });
+
+  it("parses without commas", () => {
+    const result = parseContextCeiling("50000 / 100000 tokens");
+    assert.ok(result !== null);
+    assert.equal(result!.current, 50000);
+    assert.equal(result!.max, 100000);
+  });
+
+  it("returns null for plain token string (no ceiling)", () => {
+    assert.equal(parseContextCeiling("137,918 tokens"), null);
+  });
+
+  it("returns null for undefined", () => {
+    assert.equal(parseContextCeiling(undefined), null);
+  });
+
+  it("returns null for empty string", () => {
+    assert.equal(parseContextCeiling(""), null);
+  });
+
+  it("returns null when max is zero", () => {
+    assert.equal(parseContextCeiling("0 / 0 tokens"), null);
+  });
+
+  it("handles spaces around slash", () => {
+    const result = parseContextCeiling("10000/200000 tokens");
+    assert.ok(result !== null);
+    assert.equal(result!.current, 10000);
+    assert.equal(result!.max, 200000);
+  });
+});
+
+// ── formatContextCeilingAlert ─────────────────────────────────────────────
+
+describe("formatContextCeilingAlert", () => {
+  it("includes session title", () => {
+    assert.ok(formatContextCeilingAlert("Alpha", 180000, 200000).includes("Alpha"));
+  });
+
+  it("includes percentage", () => {
+    const msg = formatContextCeilingAlert("Alpha", 180000, 200000);
+    assert.ok(msg.includes("90%"));
+  });
+
+  it("includes current and max tokens", () => {
+    const msg = formatContextCeilingAlert("Alpha", 180000, 200000);
+    assert.ok(msg.includes("180,000"));
+    assert.ok(msg.includes("200,000"));
+  });
+
+  it("includes 'approaching limit'", () => {
+    assert.ok(formatContextCeilingAlert("Alpha", 190000, 200000).includes("approaching"));
+  });
+});
+
+// ── CONTEXT_CEILING_THRESHOLD ─────────────────────────────────────────────
+
+describe("CONTEXT_CEILING_THRESHOLD", () => {
+  it("is 0.90", () => {
+    assert.equal(CONTEXT_CEILING_THRESHOLD, 0.90);
+  });
+});
+
+// ── TUI context ceiling alerting ──────────────────────────────────────────
+
+describe("TUI context ceiling alerting", () => {
+  it("fires ceiling alert when above threshold", () => {
+    const tui = new TUI();
+    let alertFired = false;
+    const origLog = (tui as unknown as { log: (tag: string, text: string) => void }).log;
+    (tui as unknown as { log: (tag: string, text: string) => void }).log = (tag, text) => {
+      if (tag === "status" && text.includes("approaching limit")) alertFired = true;
+      origLog.call(tui, tag, text);
+    };
+    // 95% usage — above 90% threshold
+    tui.updateState({ sessions: [{ id: "s1", title: "Alpha", status: "working" as const, tool: "opencode",
+      contextTokens: "190,000 / 200,000 tokens", lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    assert.equal(alertFired, true);
+  });
+
+  it("does not fire alert below threshold", () => {
+    const tui = new TUI();
+    let alertFired = false;
+    const origLog = (tui as unknown as { log: (tag: string, text: string) => void }).log;
+    (tui as unknown as { log: (tag: string, text: string) => void }).log = (tag, text) => {
+      if (tag === "status" && text.includes("approaching limit")) alertFired = true;
+      origLog.call(tui, tag, text);
+    };
+    // 50% usage — below threshold
+    tui.updateState({ sessions: [{ id: "s1", title: "Alpha", status: "working" as const, tool: "opencode",
+      contextTokens: "100,000 / 200,000 tokens", lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    assert.equal(alertFired, false);
+  });
+
+  it("does not fire when no ceiling data available", () => {
+    const tui = new TUI();
+    let alertFired = false;
+    const origLog = (tui as unknown as { log: (tag: string, text: string) => void }).log;
+    (tui as unknown as { log: (tag: string, text: string) => void }).log = (tag, text) => {
+      if (tag === "status" && text.includes("approaching limit")) alertFired = true;
+      origLog.call(tui, tag, text);
+    };
+    tui.updateState({ sessions: [{ id: "s1", title: "Alpha", status: "working" as const, tool: "opencode",
+      contextTokens: "100,000 tokens", lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    assert.equal(alertFired, false);
+  });
+
+  it("getAllContextCeilings returns null for sessions without ceiling", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "s1", title: "Alpha", status: "idle" as const, tool: "opencode",
+      contextTokens: "100 tokens", lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    assert.equal(tui.getAllContextCeilings().get("s1"), null);
+  });
+
+  it("getAllContextCeilings returns ceiling for sessions with ceiling", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "s1", title: "Alpha", status: "working" as const, tool: "opencode",
+      contextTokens: "50,000 / 200,000 tokens", lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    const c = tui.getAllContextCeilings().get("s1");
+    assert.ok(c !== null && c !== undefined);
+    assert.equal(c!.current, 50000);
+    assert.equal(c!.max, 200000);
   });
 });
 

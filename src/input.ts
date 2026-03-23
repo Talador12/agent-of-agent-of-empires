@@ -45,6 +45,7 @@ export type SnapshotHandler = (format: "json" | "md") => void; // export snapsho
 export type BroadcastHandler = (message: string, group: string | null) => void; // broadcast to sessions
 export type WatchdogHandler = (thresholdMinutes: number | null) => void; // set watchdog (null = off)
 export type TopHandler = (mode: string) => void; // show ranked session view
+export type CeilingHandler = () => void; // show context ceiling for all sessions
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -116,6 +117,7 @@ export class InputReader {
   private broadcastHandler: BroadcastHandler | null = null;
   private watchdogHandler: WatchdogHandler | null = null;
   private topHandler: TopHandler | null = null;
+  private ceilingHandler: CeilingHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -287,6 +289,11 @@ export class InputReader {
   // register a callback for /top [mode]
   onTop(handler: TopHandler): void {
     this.topHandler = handler;
+  }
+
+  // register a callback for /ceiling
+  onCeiling(handler: CeilingHandler): void {
+    this.ceilingHandler = handler;
   }
 
   /** Set aliases from persisted prefs. */
@@ -541,6 +548,7 @@ ${BOLD}navigation:${RESET}
   /broadcast <msg>   send message to all sessions; /broadcast group:<tag> <msg> for group
   /watchdog [N]      alert if session stalls N minutes (default 10); /watchdog off to disable
   /top [mode]        rank sessions by errors (default), burn, or idle
+  /ceiling           show context token usage vs limit for all sessions
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -926,6 +934,14 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/ceiling":
+        if (this.ceilingHandler) {
+          this.ceilingHandler();
+        } else {
+          console.error(`${DIM}ceiling not available (no TUI)${RESET}`);
+        }
+        break;
 
       case "/top": {
         const topArg = line.slice("/top".length).trim().toLowerCase() || "default";

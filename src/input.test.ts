@@ -1001,6 +1001,30 @@ describe("onGroupFilter", () => {
   });
 });
 
+describe("onCeiling", () => {
+  it("registers and calls ceiling handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onCeiling(() => { called = true; });
+    reader["ceilingHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["ceilingHandler"]?.(); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onCeiling(() => { calls++; });
+    reader.onCeiling(() => { calls += 10; });
+    reader["ceilingHandler"]!();
+    assert.equal(calls, 10);
+  });
+});
+
 describe("onTop", () => {
   it("registers and calls top handler with mode", () => {
     const reader = new InputReader();

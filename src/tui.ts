@@ -345,7 +345,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
-  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top",
+  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -616,6 +616,7 @@ export class TUI {
   private sessionErrorTimestamps = new Map<string, number[]>(); // session ID → recent error epoch ms (last 100)
   private sessionContextHistory = new Map<string, ContextHistoryEntry[]>(); // session ID → context token history
   private burnRateAlerted = new Map<string, number>(); // session ID → epoch ms of last burn-rate alert (cooldown)
+  private ceilingAlerted = new Map<string, number>(); // session ID → epoch ms of last ceiling alert (cooldown)
   private sessionGroups = new Map<string, string>(); // session ID → group tag
   private groupFilter: string | null = null; // active group filter (null = show all)
   private watchdogThresholdMs: number | null = null; // null = disabled; ms of inactivity before alert
@@ -939,6 +940,15 @@ export class TUI {
     return this.sessionContextHistory.get(id) ?? [];
   }
 
+  /** Return parsed context ceiling for all sessions ({current, max} or null). */
+  getAllContextCeilings(): Map<string, { current: number; max: number } | null> {
+    const result = new Map<string, { current: number; max: number } | null>();
+    for (const s of this.sessions) {
+      result.set(s.id, parseContextCeiling(s.contextTokens));
+    }
+    return result;
+  }
+
   /** Return all sessions with their current burn rates (tokens/min, null if insufficient data). */
   getAllBurnRates(now?: number): Map<string, number | null> {
     const result = new Map<string, number | null>();
@@ -1118,6 +1128,15 @@ export class TUI {
               this.burnRateAlerted.set(s.id, now);
               this.log("status", formatBurnRateAlert(s.title, burnRate), s.id);
             }
+          }
+        }
+        // check context ceiling and emit alert if above threshold (with cooldown)
+        const ceiling = parseContextCeiling(s.contextTokens);
+        if (ceiling !== null && ceiling.current / ceiling.max >= CONTEXT_CEILING_THRESHOLD) {
+          const lastCeiling = this.ceilingAlerted.get(s.id) ?? 0;
+          if (now - lastCeiling >= BURN_ALERT_COOLDOWN_MS) {
+            this.ceilingAlerted.set(s.id, now);
+            this.log("status", formatContextCeilingAlert(s.title, ceiling.current, ceiling.max), s.id);
           }
         }
       }
@@ -2029,6 +2048,32 @@ function formatSparkline(counts: number[]): string {
     return `${color}${SPARK_BLOCKS[level]}${RESET}`;
   });
   return blocks.join("");
+}
+
+// ── Context ceiling warning (pure, exported for testing) ─────────────────────
+
+/**
+ * Parse a context token string that may include a ceiling: "137,918 / 200,000 tokens".
+ * Returns { current, max } if both values are present, null otherwise.
+ */
+export function parseContextCeiling(contextTokens: string | undefined): { current: number; max: number } | null {
+  if (!contextTokens) return null;
+  const stripped = contextTokens.replace(/,/g, "");
+  const match = stripped.match(/(\d+)\s*\/\s*(\d+)/);
+  if (!match) return null;
+  const current = parseInt(match[1], 10);
+  const max = parseInt(match[2], 10);
+  if (isNaN(current) || isNaN(max) || max <= 0) return null;
+  return { current, max };
+}
+
+/** Alert threshold: fire ceiling warning when context usage exceeds this fraction. */
+export const CONTEXT_CEILING_THRESHOLD = 0.90;
+
+/** Format a context ceiling alert for the activity log. */
+export function formatContextCeilingAlert(title: string, current: number, max: number): string {
+  const pct = Math.round((current / max) * 100);
+  return `${title}: context at ${pct}% (${current.toLocaleString()} / ${max.toLocaleString()} tokens) — approaching limit`;
 }
 
 // ── Context burn-rate tracking (pure, exported for testing) ─────────────────

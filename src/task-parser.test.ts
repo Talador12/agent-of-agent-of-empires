@@ -98,6 +98,15 @@ describe("parseContext", () => {
     assert.equal(parseContext("500 tokens"), "500 tokens");
   });
 
+  it("extracts X / Y tokens format (with ceiling)", () => {
+    assert.equal(parseContext("137,918 / 200,000 tokens"), "137,918 / 200,000 tokens");
+  });
+
+  it("prefers ceiling format over plain when both patterns present", () => {
+    const result = parseContext("137,918 / 200,000 tokens");
+    assert.ok(result?.includes("/"));
+  });
+
   it("returns undefined when no tokens found", () => {
     assert.equal(parseContext("no token info here"), undefined);
   });

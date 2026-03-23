@@ -17,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
@@ -719,6 +719,28 @@ async function main() {
         }
       }
       if (!any) tui!.log("system", `  threshold: ${CONTEXT_BURN_THRESHOLD.toLocaleString()} tokens/min`);
+    });
+    // wire /ceiling context usage view
+    input.onCeiling(() => {
+      const sessions = tui!.getSessions();
+      if (sessions.length === 0) {
+        tui!.log("system", "no sessions — context data not available");
+        return;
+      }
+      const ceilings = tui!.getAllContextCeilings();
+      let any = false;
+      for (const s of sessions) {
+        const c = ceilings.get(s.id);
+        if (!c) {
+          tui!.log("system", `  ${s.title}: no ceiling data (${s.contextTokens ?? "no tokens"})`);
+        } else {
+          const pct = Math.round((c.current / c.max) * 100);
+          const warn = pct >= CONTEXT_CEILING_THRESHOLD * 100 ? " ⚠" : "";
+          tui!.log("system", `  ${s.title}: ${pct}% — ${c.current.toLocaleString()} / ${c.max.toLocaleString()} tokens${warn}`);
+          any = true;
+        }
+      }
+      if (!any) tui!.log("system", `  tip: context ceiling requires "X / Y tokens" format in session output`);
     });
     // wire /top ranked session view
     input.onTop((modeArg) => {
