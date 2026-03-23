@@ -1396,3 +1396,56 @@ describe("onTagsList", () => {
     assert.doesNotThrow(() => { reader["tagsListHandler"]?.(); });
   });
 });
+
+describe("onTagFilter2", () => {
+  it("registers and calls handler with tag", () => {
+    const reader = new InputReader();
+    let received: string | null = "unset";
+    reader.onTagFilter2((t) => { received = t; });
+    reader["tagFilter2Handler"]!("backend");
+    assert.equal(received, "backend");
+  });
+
+  it("passes null for clear", () => {
+    const reader = new InputReader();
+    let received: string | null = "unset";
+    reader.onTagFilter2((t) => { received = t; });
+    reader["tagFilter2Handler"]!(null);
+    assert.equal(received, null);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["tagFilter2Handler"]?.(null); });
+  });
+});
+
+describe("onFind", () => {
+  it("registers and calls find handler", () => {
+    const reader = new InputReader();
+    let text = "";
+    reader.onFind((t) => { text = t; });
+    reader["findHandler"]!("timeout");
+    assert.equal(text, "timeout");
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["findHandler"]?.("x"); });
+  });
+});
+
+describe("onResetHealth", () => {
+  it("registers and calls reset-health handler", () => {
+    const reader = new InputReader();
+    let target = "";
+    reader.onResetHealth((t) => { target = t; });
+    reader["resetHealthHandler"]!("alpha");
+    assert.equal(target, "alpha");
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["resetHealthHandler"]?.("x"); });
+  });
+});

@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.126.0
+## Version: v0.129.0
 
 ## Current Focus
 
-1868 tests across 35 files. v0.123–v0.126 shipped: `/mute-errors` toggle, per-session goal history + `/prev-goal`, `g1-g99` multi-key quick-switch, and `/tag`+`/tags` freeform session tagging.
+1887 tests across 35 files. v0.127–v0.129 shipped: `/tag-filter` session panel filter by freeform tag, `/find` searches session pane outputs, `/reset-health` clears error counts + context history.
 
 ## Roadmap
 
@@ -31,6 +31,17 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **`/reset-health`** — clear error counts + context history to reset a session's health score
 - **Config hot-diff** — show what changed when config reloads (already detects, add TUI display)
 - **`/color <N> <color>`** — set a custom accent color for a session's card border
+
+### What shipped in v0.127.0–v0.129.0
+
+**v0.127.0 — /tag-filter**: `setTagFilter2(tag)` filters the session panel to only sessions with the given freeform tag. `getTagFilter2()` accessor. Shown as `tag:foo` in agents border label. Empty-state message when no sessions match. Works alongside group filter and focus mode.
+
+**v0.128.0 — /find**: `/find <text>` searches all stored session pane outputs (case-insensitive). Reports match counts per session and shows up to 3 matching lines. Wired via `getSessionOutput()` accessor.
+
+**v0.129.0 — /reset-health**: `resetSessionHealth(sessionIdOrIndex)` clears errorCounts, errorTimestamps, contextHistory, burnRateAlerted, ceilingAlerted, watchdogAlerted for a session — resets the composite health score to 100. Useful after fixing an issue. 19 new tests total.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +19, net 1887 tests across 35 files.
 
 ### What shipped in v0.123.0–v0.126.0
 

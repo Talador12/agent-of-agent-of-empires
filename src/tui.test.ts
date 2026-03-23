@@ -4495,6 +4495,97 @@ describe("formatSessionTagsBadge", () => {
   });
 });
 
+// ── TUI setTagFilter2 / getTagFilter2 ────────────────────────────────────
+
+describe("TUI setTagFilter2 / getTagFilter2", () => {
+  it("starts with null tag filter", () => {
+    const tui = new TUI();
+    assert.equal(tui.getTagFilter2(), null);
+  });
+
+  it("setTagFilter2 sets filter", () => {
+    const tui = new TUI();
+    tui.setTagFilter2("frontend");
+    assert.equal(tui.getTagFilter2(), "frontend");
+  });
+
+  it("normalizes to lowercase", () => {
+    const tui = new TUI();
+    tui.setTagFilter2("Frontend");
+    assert.equal(tui.getTagFilter2(), "frontend");
+  });
+
+  it("setTagFilter2 null clears", () => {
+    const tui = new TUI();
+    tui.setTagFilter2("x");
+    tui.setTagFilter2(null);
+    assert.equal(tui.getTagFilter2(), null);
+  });
+
+  it("empty string clears", () => {
+    const tui = new TUI();
+    tui.setTagFilter2("x");
+    tui.setTagFilter2("");
+    assert.equal(tui.getTagFilter2(), null);
+  });
+
+  it("is safe when TUI not active", () => {
+    const tui = new TUI();
+    assert.doesNotThrow(() => { tui.setTagFilter2("x"); tui.setTagFilter2(null); });
+  });
+});
+
+// ── TUI resetSessionHealth ────────────────────────────────────────────────
+
+describe("TUI resetSessionHealth", () => {
+  const base = { id: "r1", title: "Alpha", status: "error" as const, tool: "opencode",
+    contextTokens: "50,000 / 200,000 tokens", lastActivity: undefined, userActive: false, currentTask: undefined };
+
+  it("returns false for unknown session", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [base] });
+    assert.equal(tui.resetSessionHealth("zzz"), false);
+  });
+
+  it("returns true for known session", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [base] });
+    assert.equal(tui.resetSessionHealth(1), true);
+  });
+
+  it("clears error counts", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [base] });
+    tui.log("error", "oops", "r1");
+    assert.ok((tui.getSessionErrorCounts().get("r1") ?? 0) > 0);
+    tui.resetSessionHealth(1);
+    assert.equal(tui.getSessionErrorCounts().get("r1"), undefined);
+  });
+
+  it("clears error timestamps", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [base] });
+    tui.log("error", "oops", "r1");
+    assert.ok(tui.getSessionErrorTimestamps("r1").length > 0);
+    tui.resetSessionHealth("alpha");
+    assert.equal(tui.getSessionErrorTimestamps("r1").length, 0);
+  });
+
+  it("clears context history", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [base] });
+    assert.ok(tui.getSessionContextHistory("r1").length > 0);
+    tui.resetSessionHealth(1);
+    assert.equal(tui.getSessionContextHistory("r1").length, 0);
+  });
+
+  it("is safe when TUI not active", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [base] });
+    assert.doesNotThrow(() => tui.resetSessionHealth(1));
+  });
+});
+
 // ── TUI session multi-tags ────────────────────────────────────────────────
 
 describe("TUI session multi-tags", () => {

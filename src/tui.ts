@@ -536,7 +536,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
   "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy", "/stats", "/recall", "/pin-all-errors", "/export-stats",
-  "/mute-errors", "/prev-goal", "/tag", "/tags",
+  "/mute-errors", "/prev-goal", "/tag", "/tags", "/tag-filter", "/find", "/reset-health",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -875,6 +875,7 @@ export class TUI {
   private suppressedTags = new Set<string>();        // activity tags excluded from display (/mute-errors)
   private sessionGoalHistory = new Map<string, string[]>(); // session ID → last N goals (newest last)
   private sessionTags = new Map<string, Set<string>>(); // session ID → freeform tag set
+  private tagFilter2: string | null = null; // active freeform tag filter on session panel
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -1043,11 +1044,15 @@ export class TUI {
     return this.getVisibleSessions().length;
   }
 
-  /** Return visible sessions array (focus mode + group filter applied). */
+  /** Return visible sessions array (focus mode + group filter + tag filter applied). */
   private getVisibleSessions(): DaemonSessionState[] {
     let sessions = this.sessions;
     if (this.focusMode) sessions = sessions.filter((s) => this.pinnedIds.has(s.id));
     if (this.groupFilter) sessions = sessions.filter((s) => this.sessionGroups.get(s.id) === this.groupFilter);
+    if (this.tagFilter2) {
+      const tf = this.tagFilter2;
+      sessions = sessions.filter((s) => this.sessionTags.get(s.id)?.has(tf) ?? false);
+    }
     return sessions;
   }
 
@@ -1297,6 +1302,44 @@ export class TUI {
     for (const [id, arr] of Object.entries(tags)) {
       if (arr.length > 0) this.sessionTags.set(id, new Set(arr));
     }
+  }
+
+  /** Set or clear the freeform tag filter (filters session panel). */
+  setTagFilter2(tag: string | null): void {
+    this.tagFilter2 = tag && tag.trim().length > 0 ? tag.trim().toLowerCase() : null;
+    if (this.active) this.paintSessions();
+  }
+
+  /** Get the current freeform tag filter (or null if none). */
+  getTagFilter2(): string | null {
+    return this.tagFilter2;
+  }
+
+  /**
+   * Reset health state for a session (by 1-indexed number, ID, or title).
+   * Clears: error counts, error timestamps, context history, burn-rate alert timer, ceiling alert timer.
+   * Returns true if session found.
+   */
+  resetSessionHealth(sessionIdOrIndex: string | number): boolean {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return false;
+    this.sessionErrorCounts.delete(sessionId);
+    this.sessionErrorTimestamps.delete(sessionId);
+    this.sessionContextHistory.delete(sessionId);
+    this.burnRateAlerted.delete(sessionId);
+    this.ceilingAlerted.delete(sessionId);
+    this.watchdogAlerted.delete(sessionId);
+    if (this.active) this.paintSessions();
+    return true;
   }
 
   /** Return the activity timestamps (epoch ms per entry, parallel to activityBuffer). */
@@ -2054,7 +2097,8 @@ export class TUI {
     const sortTag = this.sortMode !== "default" ? this.sortMode : "";
     const compactTag = this.compactMode ? "compact" : "";
     const groupTag = this.groupFilter ? `group:${this.groupFilter}` : "";
-    const tags = [focusTag, compactTag, sortTag, groupTag].filter(Boolean).join(", ");
+    const tagTag = this.tagFilter2 ? `tag:${this.tagFilter2}` : "";
+    const tags = [focusTag, compactTag, sortTag, groupTag, tagTag].filter(Boolean).join(", ");
     const label = tags ? ` agents (${tags}) ` : " agents ";
     const borderAfterLabel = Math.max(0, innerWidth - label.length);
     const topBorder = `${SLATE}${BOX.rtl}${BOX.h}${RESET}${SLATE}${label}${RESET}${SLATE}${BOX.h.repeat(borderAfterLabel)}${BOX.rtr}${RESET}`;
@@ -2063,7 +2107,9 @@ export class TUI {
     if (visibleSessions.length === 0) {
       // empty state — distinguish between filter states
       let msg: string;
-      if (this.groupFilter && this.sessions.length > 0) {
+      if (this.tagFilter2 && this.sessions.length > 0) {
+        msg = `${DIM}no agents with tag "${this.tagFilter2}" — /tag <N> <tag> to assign, /tag-filter to exit${RESET}`;
+      } else if (this.groupFilter && this.sessions.length > 0) {
         msg = `${DIM}no agents in group "${this.groupFilter}" — /group <N> <tag> to assign, /group-filter to exit${RESET}`;
       } else if (this.focusMode && this.sessions.length > 0) {
         msg = `${DIM}no pinned agents — /pin to add, /focus to exit${RESET}`;

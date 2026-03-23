@@ -56,6 +56,9 @@ export type MuteErrorsHandler = () => void; // toggle suppression of error-tagge
 export type PrevGoalHandler = (target: string, nBack: number) => void; // restore previous goal
 export type TagHandler = (target: string, tags: string[]) => void; // set session tags (empty = clear)
 export type TagsListHandler = () => void; // list all session tags
+export type TagFilterHandler2 = (tag: string | null) => void; // filter sessions by freeform tag (null = clear)
+export type FindHandler = (text: string) => void; // search session outputs
+export type ResetHealthHandler = (target: string) => void; // reset a session's health state
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -138,6 +141,9 @@ export class InputReader {
   private prevGoalHandler: PrevGoalHandler | null = null;
   private tagHandler: TagHandler | null = null;
   private tagsListHandler: TagsListHandler | null = null;
+  private tagFilter2Handler: TagFilterHandler2 | null = null;
+  private findHandler: FindHandler | null = null;
+  private resetHealthHandler: ResetHealthHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -364,6 +370,21 @@ export class InputReader {
   // register a callback for /tags — list all session tags
   onTagsList(handler: TagsListHandler): void {
     this.tagsListHandler = handler;
+  }
+
+  // register a callback for /tag-filter <tag> — filter session panel by freeform tag
+  onTagFilter2(handler: TagFilterHandler2): void {
+    this.tagFilter2Handler = handler;
+  }
+
+  // register a callback for /find <text> — search session outputs
+  onFind(handler: FindHandler): void {
+    this.findHandler = handler;
+  }
+
+  // register a callback for /reset-health <N|name> — clear session health state
+  onResetHealth(handler: ResetHealthHandler): void {
+    this.resetHealthHandler = handler;
   }
 
   /** Set aliases from persisted prefs. */
@@ -636,6 +657,9 @@ ${BOLD}navigation:${RESET}
   /prev-goal N [n]   restore Nth session's goal from history (n=1 most recent)
   /tag N tag1,tag2   set freeform tags on a session (no tags = clear)
   /tags              list all session tags
+  /tag-filter [tag]  show only sessions with given freeform tag (no arg = clear)
+  /find <text>       search session pane outputs for text
+  /reset-health N    clear error counts + context history for a session
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -1076,6 +1100,44 @@ ${BOLD}other:${RESET}
           console.error(`${DIM}tags not available (no TUI)${RESET}`);
         }
         break;
+
+      case "/tag-filter": {
+        const tf2Arg = line.slice("/tag-filter".length).trim() || null;
+        if (this.tagFilter2Handler) {
+          this.tagFilter2Handler(tf2Arg);
+        } else {
+          console.error(`${DIM}tag-filter not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/find": {
+        const findArg = line.slice("/find".length).trim();
+        if (!findArg) {
+          console.error(`${DIM}usage: /find <text> — search session pane outputs${RESET}`);
+          break;
+        }
+        if (this.findHandler) {
+          this.findHandler(findArg);
+        } else {
+          console.error(`${DIM}find not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/reset-health": {
+        const rhArg = line.slice("/reset-health".length).trim();
+        if (!rhArg) {
+          console.error(`${DIM}usage: /reset-health <N|name> — clear error counts + context history${RESET}`);
+          break;
+        }
+        if (this.resetHealthHandler) {
+          this.resetHealthHandler(rhArg);
+        } else {
+          console.error(`${DIM}reset-health not available (no TUI)${RESET}`);
+        }
+        break;
+      }
 
       case "/pin-all-errors":
         if (this.pinAllErrorsHandler) {

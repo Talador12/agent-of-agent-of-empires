@@ -786,6 +786,53 @@ async function main() {
         tui!.log("system", `  ${label}: ${[...tset].sort().join(", ")}`);
       }
     });
+    // wire /tag-filter session panel filter
+    input.onTagFilter2((tag) => {
+      tui!.setTagFilter2(tag);
+      if (tag) {
+        tui!.log("system", `tag filter: ${tag} (showing sessions tagged "${tag}")`);
+      } else {
+        tui!.log("system", "tag filter cleared");
+      }
+    });
+    // wire /find — search session pane outputs
+    input.onFind((text) => {
+      const sessions = tui!.getSessions();
+      if (sessions.length === 0) {
+        tui!.log("system", "no sessions to search");
+        return;
+      }
+      const lower = text.toLowerCase();
+      let found = 0;
+      for (const s of sessions) {
+        const lines = tui!.getSessionOutput(s.id);
+        if (!lines) continue;
+        const matches = lines.filter((l) => l.toLowerCase().includes(lower));
+        if (matches.length > 0) {
+          tui!.log("system", `  ${s.title}: ${matches.length} line${matches.length !== 1 ? "s" : ""} match`);
+          // show up to 3 matching lines
+          for (const m of matches.slice(-3)) {
+            tui!.log("system", `    ${m.slice(0, 120)}`);
+          }
+          found++;
+        }
+      }
+      if (found === 0) {
+        tui!.log("system", `find: no matches for "${text}" in any session output`);
+      } else {
+        tui!.log("system", `find: "${text}" found in ${found} session${found !== 1 ? "s" : ""}`);
+      }
+    });
+    // wire /reset-health
+    input.onResetHealth((target) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const ok = tui!.resetSessionHealth(num ?? target);
+      if (ok) {
+        tui!.log("system", `health reset for ${target} — error counts + context history cleared`);
+      } else {
+        tui!.log("system", `session not found: ${target}`);
+      }
+    });
     // wire /pin-all-errors
     input.onPinAllErrors(() => {
       const count = tui!.pinAllErrors();
