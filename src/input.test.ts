@@ -1499,6 +1499,46 @@ describe("onColor", () => {
   });
 });
 
+describe("onDuplicate", () => {
+  it("calls handler with target and newTitle", () => {
+    const r = new InputReader(); let tgt = "", nt = "";
+    r.onDuplicate((t, n) => { tgt = t; nt = n; });
+    r["duplicateHandler"]!("alpha", "my-copy");
+    assert.equal(tgt, "alpha"); assert.equal(nt, "my-copy");
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["duplicateHandler"]?.("x", "")); });
+});
+
+describe("onColorAll", () => {
+  it("calls handler with color name", () => {
+    const r = new InputReader(); let c = "";
+    r.onColorAll((n) => { c = n; });
+    r["colorAllHandler"]!("lime");
+    assert.equal(c, "lime");
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["colorAllHandler"]?.("")); });
+});
+
+describe("onQuietHours", () => {
+  it("calls handler with specs array", () => {
+    const r = new InputReader(); let specs: string[] = [];
+    r.onQuietHours((s) => { specs = s; });
+    r["quietHoursHandler"]!(["22-06"]);
+    assert.deepEqual(specs, ["22-06"]);
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["quietHoursHandler"]?.([])); });
+});
+
+describe("onHistoryStats", () => {
+  it("calls handler", () => {
+    const r = new InputReader(); let called = false;
+    r.onHistoryStats(() => { called = true; });
+    r["historyStatsHandler"]!();
+    assert.equal(called, true);
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["historyStatsHandler"]?.()); });
+});
+
 describe("onClearHistory", () => {
   it("registers and calls clear-history handler", () => {
     const reader = new InputReader();

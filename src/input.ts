@@ -62,6 +62,10 @@ export type ResetHealthHandler = (target: string) => void; // reset a session's 
 export type TimelineHandler = (target: string, count: number) => void; // show session activity timeline
 export type ColorHandler = (target: string, colorName: string) => void; // set session accent color
 export type ClearHistoryHandler = () => void; // truncate tui-history.jsonl
+export type DuplicateHandler = (target: string, newTitle: string) => void; // clone a session
+export type ColorAllHandler = (colorName: string) => void; // set color for all sessions
+export type QuietHoursHandler = (specs: string[]) => void; // set quiet hours (empty = clear)
+export type HistoryStatsHandler = () => void; // show aggregate history stats
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -150,6 +154,10 @@ export class InputReader {
   private timelineHandler: TimelineHandler | null = null;
   private colorHandler: ColorHandler | null = null;
   private clearHistoryHandler: ClearHistoryHandler | null = null;
+  private duplicateHandler: DuplicateHandler | null = null;
+  private colorAllHandler: ColorAllHandler | null = null;
+  private quietHoursHandler: QuietHoursHandler | null = null;
+  private historyStatsHandler: HistoryStatsHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -407,6 +415,11 @@ export class InputReader {
   onClearHistory(handler: ClearHistoryHandler): void {
     this.clearHistoryHandler = handler;
   }
+
+  onDuplicate(handler: DuplicateHandler): void { this.duplicateHandler = handler; }
+  onColorAll(handler: ColorAllHandler): void { this.colorAllHandler = handler; }
+  onQuietHours(handler: QuietHoursHandler): void { this.quietHoursHandler = handler; }
+  onHistoryStats(handler: HistoryStatsHandler): void { this.historyStatsHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -684,6 +697,10 @@ ${BOLD}navigation:${RESET}
   /timeline N [n]    show last n activity entries for session N (default 30)
   /color N [color]   set accent color for session (lime/amber/rose/teal/sky/slate; no color = clear)
   /clear-history     truncate persisted activity history (tui-history.jsonl)
+  /duplicate N [t]   spawn a new session cloned from session N (same tool/path)
+  /color-all [c]     set accent color for all sessions (no color = clear all)
+  /quiet-hours [H-H] suppress watchdog+burn alerts during hours (e.g. 22-06; no arg = clear)
+  /history-stats     show aggregate statistics from persisted activity history
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -1184,6 +1201,52 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/duplicate": {
+        const dupArg = line.slice("/duplicate".length).trim();
+        if (!dupArg) {
+          console.error(`${DIM}usage: /duplicate <N|name> [new-title]${RESET}`);
+          break;
+        }
+        if (this.duplicateHandler) {
+          const spaceIdx = dupArg.indexOf(" ");
+          const target = spaceIdx > 0 ? dupArg.slice(0, spaceIdx) : dupArg;
+          const newTitle = spaceIdx > 0 ? dupArg.slice(spaceIdx + 1).trim() : "";
+          this.duplicateHandler(target, newTitle);
+        } else {
+          console.error(`${DIM}duplicate not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/color-all": {
+        const caArg = line.slice("/color-all".length).trim().toLowerCase() || "";
+        if (this.colorAllHandler) {
+          this.colorAllHandler(caArg);
+        } else {
+          console.error(`${DIM}color-all not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/quiet-hours": {
+        const qhArg = line.slice("/quiet-hours".length).trim();
+        if (this.quietHoursHandler) {
+          const specs = qhArg ? qhArg.split(/[\s,]+/).filter(Boolean) : [];
+          this.quietHoursHandler(specs);
+        } else {
+          console.error(`${DIM}quiet-hours not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/history-stats":
+        if (this.historyStatsHandler) {
+          this.historyStatsHandler();
+        } else {
+          console.error(`${DIM}history-stats not available (no TUI)${RESET}`);
+        }
+        break;
 
       case "/clear-history":
         if (this.clearHistoryHandler) {

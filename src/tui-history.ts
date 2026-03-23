@@ -107,6 +107,54 @@ function isValidEntry(val: unknown): val is HistoryEntry {
 /** Default history file path (for wiring in index.ts) */
 export const TUI_HISTORY_FILE = HISTORY_FILE;
 
+export interface HistoryStats {
+  totalEntries: number;
+  uniqueTags: string[];
+  tagCounts: Record<string, number>;   // tag → count, sorted desc
+  entriesPerDay: Record<string, number>; // "YYYY-MM-DD" → count
+  oldestTs: number | null;
+  newestTs: number | null;
+  spanDays: number;
+}
+
+/**
+ * Compute aggregate statistics from a list of history entries.
+ * Pure function — no file I/O.
+ */
+export function computeHistoryStats(entries: readonly HistoryEntry[]): HistoryStats {
+  if (entries.length === 0) {
+    return { totalEntries: 0, uniqueTags: [], tagCounts: {}, entriesPerDay: {}, oldestTs: null, newestTs: null, spanDays: 0 };
+  }
+
+  const tagCounts: Record<string, number> = {};
+  const dayMap: Record<string, number> = {};
+  let oldest = Infinity, newest = -Infinity;
+
+  for (const e of entries) {
+    tagCounts[e.tag] = (tagCounts[e.tag] ?? 0) + 1;
+    const day = new Date(e.ts).toISOString().slice(0, 10);
+    dayMap[day] = (dayMap[day] ?? 0) + 1;
+    if (e.ts < oldest) oldest = e.ts;
+    if (e.ts > newest) newest = e.ts;
+  }
+
+  // sort tagCounts by count desc
+  const sortedTagCounts: Record<string, number> = Object.fromEntries(
+    Object.entries(tagCounts).sort(([, a], [, b]) => b - a)
+  );
+  const spanDays = oldest === Infinity ? 0 : Math.max(1, Math.round((newest - oldest) / 86400000));
+
+  return {
+    totalEntries: entries.length,
+    uniqueTags: Object.keys(sortedTagCounts),
+    tagCounts: sortedTagCounts,
+    entriesPerDay: dayMap,
+    oldestTs: oldest === Infinity ? null : oldest,
+    newestTs: newest === -Infinity ? null : newest,
+    spanDays,
+  };
+}
+
 /**
  * Search history entries by keyword (case-insensitive substring match on text and tag).
  * Returns up to `maxResults` most recent matching entries (newest last).

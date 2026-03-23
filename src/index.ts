@@ -17,13 +17,13 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
 import { startHealthServer } from "./health.js";
-import { loadTuiHistory, searchHistory, TUI_HISTORY_FILE } from "./tui-history.js";
+import { loadTuiHistory, searchHistory, TUI_HISTORY_FILE, computeHistoryStats } from "./tui-history.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState, ActionLogEntry } from "./types.js";
@@ -210,6 +210,10 @@ async function main() {
     if (prefs.sessionAliases) tui.restoreSessionAliases(prefs.sessionAliases);
     if (prefs.sessionTags) tui.restoreSessionTags(prefs.sessionTags);
     if (prefs.sessionColors) tui.restoreSessionColors(prefs.sessionColors);
+    if (prefs.quietHours && prefs.quietHours.length > 0) {
+      const ranges = prefs.quietHours.map(parseQuietHoursRange).filter(Boolean) as Array<[number, number]>;
+      if (ranges.length > 0) tui.setQuietHours(ranges);
+    }
   }
   const persistPrefs = () => {
     if (!tui) return;
@@ -234,6 +238,7 @@ async function main() {
       sessionAliases: aliasesObj,
       sessionTags: sTagsObj,
       sessionColors: sColorsObj,
+      quietHours: tui.getQuietHours().map(([s, e]) => `${s}-${e}`),
     });
   };
 
@@ -910,6 +915,70 @@ async function main() {
         tui!.log("system", `stats exported: ~/.aoaoe/stats-${ts}.json (${entries.length} sessions)`);
       } catch (err) {
         tui!.log("error", `export-stats failed: ${err}`);
+      }
+    });
+    // wire /duplicate — clone a session
+    input.onDuplicate((target, newTitle) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const args = tui!.getDuplicateArgs(num ?? target, newTitle || undefined);
+      if (!args) {
+        tui!.log("system", `duplicate failed: session "${target}" not found or has no path/tool`);
+        return;
+      }
+      if (executor) {
+        executor.execute([{ action: "create_agent", path: args.path, title: args.title, tool: args.tool }], [])
+          .then(() => tui!.log("+ action", `duplicate: spawned "${args.title}" (${args.tool}) at ${args.path}`))
+          .catch((err: unknown) => tui!.log("! action", `duplicate failed: ${err}`));
+      } else {
+        tui!.log("system", `[dry-run] duplicate: would spawn "${args.title}" (${args.tool}) at ${args.path}`);
+      }
+    });
+    // wire /color-all
+    input.onColorAll((colorName) => {
+      if (!colorName) {
+        const count = tui!.setColorAll(null);
+        tui!.log("system", `color-all: cleared accent color for ${count} sessions`);
+        persistPrefs();
+        return;
+      }
+      const err = validateColorName(colorName);
+      if (err) { tui!.log("system", err); return; }
+      const count = tui!.setColorAll(colorName);
+      tui!.log("system", `color-all: set ${colorName} for ${count} sessions`);
+      persistPrefs();
+    });
+    // wire /quiet-hours
+    input.onQuietHours((specs) => {
+      if (specs.length === 0) {
+        tui!.setQuietHours([]);
+        tui!.log("system", "quiet hours: cleared — alerts active at all hours");
+        persistPrefs();
+        return;
+      }
+      const ranges: Array<[number, number]> = [];
+      for (const spec of specs) {
+        const r = parseQuietHoursRange(spec);
+        if (!r) { tui!.log("system", `quiet hours: invalid range "${spec}" — use HH-HH (e.g. 22-06)`); return; }
+        ranges.push(r);
+      }
+      tui!.setQuietHours(ranges);
+      tui!.log("system", `quiet hours: ${specs.join(", ")} — watchdog+burn alerts suppressed`);
+      persistPrefs();
+    });
+    // wire /history-stats
+    input.onHistoryStats(() => {
+      const all = loadTuiHistory(100_000);
+      if (all.length === 0) {
+        tui!.log("system", "history-stats: no history entries found");
+        return;
+      }
+      const stats = computeHistoryStats(all);
+      const oldest = stats.oldestTs ? new Date(stats.oldestTs).toLocaleDateString() : "?";
+      const newest = stats.newestTs ? new Date(stats.newestTs).toLocaleDateString() : "?";
+      tui!.log("system", `history-stats: ${stats.totalEntries} entries over ${stats.spanDays} day(s) (${oldest} → ${newest})`);
+      const topTags = Object.entries(stats.tagCounts).slice(0, 5);
+      for (const [tag, count] of topTags) {
+        tui!.log("system", `  ${tag}: ${count}`);
       }
     });
     // wire /clear-history

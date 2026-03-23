@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { appendHistoryEntry, loadTuiHistory, rotateTuiHistory, searchHistory } from "./tui-history.js";
+import { appendHistoryEntry, loadTuiHistory, rotateTuiHistory, searchHistory, computeHistoryStats } from "./tui-history.js";
 import type { HistoryEntry } from "./tui-history.js";
 
 function makeTmpDir(): string {
@@ -384,5 +384,75 @@ describe("TUI.replayHistory", () => {
     // log another entry to verify buffer has replayed + new
     tui.log("system", "new entry");
     // not crashed = success (buffer is private, but we verify via no-throw)
+  });
+});
+
+// ── computeHistoryStats ───────────────────────────────────────────────────────
+
+describe("computeHistoryStats", () => {
+  const ts = Date.now();
+  const entries: HistoryEntry[] = [
+    { ts: ts - 3 * 86400000, time: "10:00:00", tag: "system", text: "a" },
+    { ts: ts - 2 * 86400000, time: "11:00:00", tag: "error", text: "b" },
+    { ts: ts - 2 * 86400000, time: "11:01:00", tag: "system", text: "c" },
+    { ts: ts - 1 * 86400000, time: "12:00:00", tag: "reasoner", text: "d" },
+    { ts: ts,                time: "13:00:00", tag: "system", text: "e" },
+  ];
+
+  it("returns zeros for empty entries", () => {
+    const s = computeHistoryStats([]);
+    assert.equal(s.totalEntries, 0);
+    assert.equal(s.uniqueTags.length, 0);
+    assert.equal(s.oldestTs, null);
+    assert.equal(s.newestTs, null);
+    assert.equal(s.spanDays, 0);
+  });
+
+  it("counts total entries", () => {
+    const s = computeHistoryStats(entries);
+    assert.equal(s.totalEntries, 5);
+  });
+
+  it("counts unique tags", () => {
+    const s = computeHistoryStats(entries);
+    assert.ok(s.uniqueTags.includes("system"));
+    assert.ok(s.uniqueTags.includes("error"));
+    assert.ok(s.uniqueTags.includes("reasoner"));
+  });
+
+  it("sorts tagCounts by count desc", () => {
+    const s = computeHistoryStats(entries);
+    const counts = Object.values(s.tagCounts);
+    for (let i = 0; i < counts.length - 1; i++) {
+      assert.ok(counts[i] >= counts[i + 1], "tagCounts should be sorted descending");
+    }
+  });
+
+  it("system tag has count 3", () => {
+    const s = computeHistoryStats(entries);
+    assert.equal(s.tagCounts["system"], 3);
+  });
+
+  it("records oldest and newest ts", () => {
+    const s = computeHistoryStats(entries);
+    assert.ok(s.oldestTs !== null && s.oldestTs <= ts - 3 * 86400000 + 100);
+    assert.ok(s.newestTs !== null && s.newestTs >= ts - 100);
+  });
+
+  it("computes span in days", () => {
+    const s = computeHistoryStats(entries);
+    assert.ok(s.spanDays >= 3);
+  });
+
+  it("groups entries per day", () => {
+    const s = computeHistoryStats(entries);
+    const days = Object.keys(s.entriesPerDay);
+    assert.ok(days.length >= 3); // at least 3 distinct days
+  });
+
+  it("handles single entry", () => {
+    const s = computeHistoryStats([{ ts, time: "12:00:00", tag: "system", text: "x" }]);
+    assert.equal(s.totalEntries, 1);
+    assert.equal(s.spanDays, 1);
   });
 });

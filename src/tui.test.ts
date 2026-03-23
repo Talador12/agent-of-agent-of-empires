@@ -27,6 +27,8 @@ import {
   filterSessionTimeline, TIMELINE_DEFAULT_COUNT,
   validateColorName, formatColorDot, SESSION_COLOR_NAMES,
   computeErrorTrend, formatErrorTrend,
+  buildDuplicateArgs,
+  isQuietHour, parseQuietHoursRange,
   truncateRename, MAX_RENAME_LEN,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
@@ -4272,6 +4274,208 @@ describe("TUI getSessionOutput", () => {
   it("getDrilldownId returns null before entering drilldown", () => {
     const tui = new TUI();
     assert.equal(tui.getDrilldownId(), null);
+  });
+});
+
+// ── buildDuplicateArgs ────────────────────────────────────────────────────
+
+describe("buildDuplicateArgs", () => {
+  const sessions: DaemonSessionState[] = [
+    { id: "s1", title: "Alpha", status: "working", tool: "opencode", path: "/projects/alpha",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s2", title: "Bravo", status: "idle", tool: "claude-code", path: "/projects/bravo",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+  ];
+
+  it("finds session by 1-indexed number", () => {
+    const r = buildDuplicateArgs(sessions, 1);
+    assert.ok(r !== null);
+    assert.equal(r!.path, "/projects/alpha");
+    assert.equal(r!.tool, "opencode");
+    assert.equal(r!.title, "Alpha-copy");
+  });
+
+  it("finds session by title (case insensitive)", () => {
+    const r = buildDuplicateArgs(sessions, "bravo");
+    assert.ok(r !== null);
+    assert.equal(r!.path, "/projects/bravo");
+  });
+
+  it("uses provided new title", () => {
+    const r = buildDuplicateArgs(sessions, 1, "My New Session");
+    assert.equal(r!.title, "My New Session");
+  });
+
+  it("returns null for unknown session", () => {
+    assert.equal(buildDuplicateArgs(sessions, "zzz"), null);
+  });
+
+  it("returns null for session with no path", () => {
+    const nopathSessions: DaemonSessionState[] = [
+      { id: "x", title: "X", status: "idle", tool: "opencode",
+        contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    ];
+    assert.equal(buildDuplicateArgs(nopathSessions, 1), null);
+  });
+
+  it("returns null for empty sessions array", () => {
+    assert.equal(buildDuplicateArgs([], 1), null);
+  });
+
+  it("trims new title", () => {
+    const r = buildDuplicateArgs(sessions, 1, "  trimmed  ");
+    assert.equal(r!.title, "trimmed");
+  });
+});
+
+// ── isQuietHour ───────────────────────────────────────────────────────────
+
+describe("isQuietHour", () => {
+  it("returns false when no ranges", () => {
+    assert.equal(isQuietHour(22, []), false);
+  });
+
+  it("matches hour within simple range", () => {
+    assert.equal(isQuietHour(10, [[9, 17]]), true);
+  });
+
+  it("misses hour outside simple range", () => {
+    assert.equal(isQuietHour(8, [[9, 17]]), false);
+  });
+
+  it("handles wraparound range (22-06)", () => {
+    assert.equal(isQuietHour(23, [[22, 6]]), true);
+    assert.equal(isQuietHour(3, [[22, 6]]), true);
+    assert.equal(isQuietHour(10, [[22, 6]]), false);
+  });
+
+  it("matches boundary hours", () => {
+    assert.equal(isQuietHour(9, [[9, 17]]), true);
+    assert.equal(isQuietHour(17, [[9, 17]]), true);
+  });
+
+  it("matches any of multiple ranges", () => {
+    assert.equal(isQuietHour(13, [[9, 11], [12, 14]]), true);
+    assert.equal(isQuietHour(15, [[9, 11], [12, 14]]), false);
+  });
+});
+
+// ── parseQuietHoursRange ──────────────────────────────────────────────────
+
+describe("parseQuietHoursRange", () => {
+  it("parses valid simple range", () => {
+    const r = parseQuietHoursRange("09-17");
+    assert.deepEqual(r, [9, 17]);
+  });
+
+  it("parses wraparound range", () => {
+    const r = parseQuietHoursRange("22-06");
+    assert.deepEqual(r, [22, 6]);
+  });
+
+  it("parses single-digit hours", () => {
+    const r = parseQuietHoursRange("9-5");
+    assert.deepEqual(r, [9, 5]);
+  });
+
+  it("returns null for invalid format", () => {
+    assert.equal(parseQuietHoursRange("abc"), null);
+    assert.equal(parseQuietHoursRange("9"), null);
+    assert.equal(parseQuietHoursRange("9-30"), null); // 30 > 23
+  });
+
+  it("returns null for out-of-range hours", () => {
+    assert.equal(parseQuietHoursRange("25-06"), null);
+  });
+});
+
+// ── TUI quiet hours ───────────────────────────────────────────────────────
+
+describe("TUI quiet hours", () => {
+  it("starts with no quiet hours", () => {
+    const tui = new TUI();
+    assert.equal(tui.getQuietHours().length, 0);
+  });
+
+  it("setQuietHours stores ranges", () => {
+    const tui = new TUI();
+    tui.setQuietHours([[22, 6], [13, 14]]);
+    assert.equal(tui.getQuietHours().length, 2);
+  });
+
+  it("setQuietHours empty clears", () => {
+    const tui = new TUI();
+    tui.setQuietHours([[22, 6]]);
+    tui.setQuietHours([]);
+    assert.equal(tui.getQuietHours().length, 0);
+  });
+
+  it("isCurrentlyQuiet returns false when no ranges", () => {
+    const tui = new TUI();
+    assert.equal(tui.isCurrentlyQuiet(), false);
+  });
+
+  it("isCurrentlyQuiet returns true when in range", () => {
+    const tui = new TUI();
+    tui.setQuietHours([[0, 23]]); // all day
+    assert.equal(tui.isCurrentlyQuiet(), true);
+  });
+
+  it("isCurrentlyQuiet returns false when outside range", () => {
+    const tui = new TUI();
+    tui.setQuietHours([[25, 26] as unknown as [number, number]]); // impossible range
+    assert.equal(tui.isCurrentlyQuiet(), false);
+  });
+
+  it("isCurrentlyQuiet respects provided Date", () => {
+    const tui = new TUI();
+    tui.setQuietHours([[10, 12]]);
+    const inRange = new Date(); inRange.setHours(11);
+    const outRange = new Date(); outRange.setHours(15);
+    assert.equal(tui.isCurrentlyQuiet(inRange), true);
+    assert.equal(tui.isCurrentlyQuiet(outRange), false);
+  });
+});
+
+// ── TUI setColorAll ───────────────────────────────────────────────────────
+
+describe("TUI setColorAll", () => {
+  function makeSessions3(): DaemonSessionState[] {
+    return [
+      { id: "a", title: "A", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+      { id: "b", title: "B", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+      { id: "c", title: "C", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    ];
+  }
+
+  it("sets color on all sessions", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessions3() });
+    const count = tui.setColorAll("lime");
+    assert.equal(count, 3);
+    assert.equal(tui.getSessionColor("a"), "lime");
+    assert.equal(tui.getSessionColor("b"), "lime");
+    assert.equal(tui.getSessionColor("c"), "lime");
+  });
+
+  it("clears color from all sessions", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessions3() });
+    tui.setColorAll("rose");
+    tui.setColorAll(null);
+    assert.equal(tui.getSessionColor("a"), undefined);
+    assert.equal(tui.getSessionColor("b"), undefined);
+  });
+
+  it("returns count of sessions affected", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessions3() });
+    assert.equal(tui.setColorAll("teal"), 3);
+  });
+
+  it("returns 0 with no sessions", () => {
+    const tui = new TUI();
+    assert.equal(tui.setColorAll("teal"), 0);
   });
 });
 

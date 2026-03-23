@@ -446,6 +446,66 @@ export function filterSessionTimeline(
   return matching.slice(-count);
 }
 
+// ── Duplicate session helpers (pure, exported for testing) ───────────────────
+
+/**
+ * Build args for duplicating a session: given a source session, return
+ * { path, tool, title } for use in a create_agent action.
+ * Returns null if source session not found or path/tool missing.
+ */
+export function buildDuplicateArgs(
+  sessions: readonly DaemonSessionState[],
+  sessionIdOrIndex: string | number,
+  newTitle?: string,
+): { path: string; tool: string; title: string } | null {
+  let s: DaemonSessionState | undefined;
+  if (typeof sessionIdOrIndex === "number") {
+    s = sessions[sessionIdOrIndex - 1];
+  } else {
+    const needle = sessionIdOrIndex.toLowerCase();
+    s = sessions.find(
+      (x) => x.id === sessionIdOrIndex || x.id.startsWith(needle) || x.title.toLowerCase() === needle,
+    );
+  }
+  if (!s || !s.path || !s.tool) return null;
+  return {
+    path: s.path,
+    tool: s.tool,
+    title: newTitle?.trim() || `${s.title}-copy`,
+  };
+}
+
+// ── Quiet hours (pure, exported for testing) ──────────────────────────────────
+
+/**
+ * Check whether a given hour (0-23) falls within any quiet-hour range.
+ * Ranges are inclusive, e.g. "22-06" wraps midnight.
+ */
+export function isQuietHour(hour: number, ranges: ReadonlyArray<[number, number]>): boolean {
+  for (const [start, end] of ranges) {
+    if (start <= end) {
+      if (hour >= start && hour <= end) return true;
+    } else {
+      // wraps midnight
+      if (hour >= start || hour <= end) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Parse a quiet-hours string like "22-06" or "09-17" into a [start, end] tuple.
+ * Returns null if invalid.
+ */
+export function parseQuietHoursRange(spec: string): [number, number] | null {
+  const m = spec.trim().match(/^(\d{1,2})-(\d{1,2})$/);
+  if (!m) return null;
+  const start = parseInt(m[1], 10);
+  const end = parseInt(m[2], 10);
+  if (start < 0 || start > 23 || end < 0 || end > 23) return null;
+  return [start, end];
+}
+
 // ── Session accent colors (pure, exported for testing) ────────────────────────
 
 /** Supported accent color names for /color command. */
@@ -636,6 +696,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
   "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy", "/stats", "/recall", "/pin-all-errors", "/export-stats",
   "/mute-errors", "/prev-goal", "/tag", "/tags", "/tag-filter", "/find", "/reset-health", "/timeline", "/color", "/clear-history",
+  "/duplicate", "/color-all", "/quiet-hours", "/history-stats",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -913,6 +974,7 @@ export interface TuiPrefs {
   sessionAliases?: Record<string, string>;
   sessionTags?: Record<string, string[]>;
   sessionColors?: Record<string, string>;
+  quietHours?: string[]; // persisted quiet-hours specs, e.g. ["22-06"]
 }
 
 const PREFS_PATH = join(homedir(), ".aoaoe", "tui-prefs.json");
@@ -978,6 +1040,7 @@ export class TUI {
   private tagFilter2: string | null = null; // active freeform tag filter on session panel
   private sessionColors = new Map<string, string>(); // session ID → accent color name
   private sessionCosts = new Map<string, string>(); // session ID → latest cost string ("$N.NN")
+  private quietHoursRanges: Array<[number, number]> = []; // quiet-hour start/end pairs
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -1442,6 +1505,45 @@ export class TUI {
     for (const [id, c] of Object.entries(colors)) this.sessionColors.set(id, c);
   }
 
+  /** Set the same accent color on all currently visible sessions (or clear all). */
+  setColorAll(colorName: string | null): number {
+    let count = 0;
+    for (const s of this.sessions) {
+      if (!colorName) {
+        this.sessionColors.delete(s.id);
+      } else {
+        this.sessionColors.set(s.id, colorName);
+      }
+      count++;
+    }
+    if (count > 0 && this.active) this.paintSessions();
+    return count;
+  }
+
+  // ── Quiet hours ──────────────────────────────────────────────────────────
+
+  /** Set quiet-hours ranges (suppresses watchdog/burn-rate alerts). */
+  setQuietHours(ranges: Array<[number, number]>): void {
+    this.quietHoursRanges = ranges;
+  }
+
+  /** Get current quiet-hours ranges. */
+  getQuietHours(): ReadonlyArray<[number, number]> {
+    return this.quietHoursRanges;
+  }
+
+  /** Check if current time is in a quiet-hours window. */
+  isCurrentlyQuiet(now?: Date): boolean {
+    if (this.quietHoursRanges.length === 0) return false;
+    const hour = (now ?? new Date()).getHours();
+    return isQuietHour(hour, this.quietHoursRanges);
+  }
+
+  /** Return the duplicate args for a session (for /duplicate wiring). */
+  getDuplicateArgs(sessionIdOrIndex: string | number, newTitle?: string): { path: string; tool: string; title: string } | null {
+    return buildDuplicateArgs(this.sessions, sessionIdOrIndex, newTitle);
+  }
+
   // ── Session timeline ─────────────────────────────────────────────────────
 
   /** Get the latest cost string for a session (or undefined). */
@@ -1779,8 +1881,9 @@ export class TUI {
     if (opts.sessions !== undefined) {
       // track activity changes for sort-by-activity + first-seen for uptime
       const now = Date.now();
-      const BURN_ALERT_COOLDOWN_MS = 5 * 60 * 1000; // max one alert per session per 5 minutes
-      for (const s of opts.sessions) {
+       const BURN_ALERT_COOLDOWN_MS = 5 * 60 * 1000; // max one alert per session per 5 minutes
+       const quietNow = this.isCurrentlyQuiet(new Date(now));
+       for (const s of opts.sessions) {
         if (!this.sessionFirstSeen.has(s.id)) this.sessionFirstSeen.set(s.id, now);
         const prev = this.prevLastActivity.get(s.id);
         if (s.lastActivity !== undefined && s.lastActivity !== prev) {
@@ -1798,7 +1901,7 @@ export class TUI {
           this.sessionContextHistory.set(s.id, hist);
           // check burn rate and emit alert if above threshold (with cooldown)
           const burnRate = computeContextBurnRate(hist, now);
-          if (burnRate !== null && burnRate > CONTEXT_BURN_THRESHOLD) {
+          if (burnRate !== null && burnRate > CONTEXT_BURN_THRESHOLD && !quietNow) {
             const lastAlert = this.burnRateAlerted.get(s.id) ?? 0;
             if (now - lastAlert >= BURN_ALERT_COOLDOWN_MS) {
               this.burnRateAlerted.set(s.id, now);
@@ -1808,7 +1911,7 @@ export class TUI {
         }
         // check context ceiling and emit alert if above threshold (with cooldown)
         const ceiling = parseContextCeiling(s.contextTokens);
-        if (ceiling !== null && ceiling.current / ceiling.max >= CONTEXT_CEILING_THRESHOLD) {
+        if (ceiling !== null && ceiling.current / ceiling.max >= CONTEXT_CEILING_THRESHOLD && !quietNow) {
           const lastCeiling = this.ceilingAlerted.get(s.id) ?? 0;
           if (now - lastCeiling >= BURN_ALERT_COOLDOWN_MS) {
             this.ceilingAlerted.set(s.id, now);
@@ -1816,8 +1919,8 @@ export class TUI {
           }
         }
       }
-      // watchdog: alert if session has been idle longer than threshold
-      if (this.watchdogThresholdMs !== null) {
+      // watchdog: alert if session has been idle longer than threshold (skip during quiet hours)
+      if (this.watchdogThresholdMs !== null && !quietNow) {
         for (const s of opts.sessions) {
           const lastChange = this.lastChangeAt.get(s.id);
           if (lastChange === undefined) continue; // not yet tracked

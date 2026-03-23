@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.135.0
+## Version: v0.139.0
 
 ## Current Focus
 
-1937 tests across 35 files. v0.133–v0.135 shipped: error trend arrows (↑/→/↓) in `/stats`+`/who`, per-session cost tracking from `$N.NN spent` pane output, and `/clear-history` command.
+1983 tests across 35 files. v0.136–v0.139 shipped: `/duplicate` clone sessions, `/color-all` bulk accent, quiet hours alert suppression, `/history-stats` aggregate metrics.
 
 ## Roadmap
 
@@ -24,12 +24,24 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Natural language task intent** — infer task updates from plain lines like "task for adventure: ..."
 - **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
 - **Reasoner confidence badge** — if reasoner returns a confidence signal, show in header
-- **Quiet hours** — configurable time windows where watchdog alerts are suppressed
-- **`/clear-history`** — clear (or truncate) the persisted tui-history.jsonl file from TUI
-- **`/duplicate <N> <title>`** — spawn a new AoE session with the same tool/path as an existing one
-- **Error trend** — show whether error count is rising/stable/falling via ↑/→/↓ in `/stats` output
-- **`/color-all <color>`** — set same accent color for all sessions at once
-- **Per-session cost tracking** — parse `$N.NN spent` from pane output and show in `/stats`
+- **`/cost-summary`** — show total estimated spend across all sessions
+- **`/session-report <N>`** — full markdown report for one session: health, timeline, costs, errors
+- **Session age badge** — show session creation time (from AoE) in `/who` and cards
+- **README v2 overhaul** — update to cover v0.113–v0.139 commands
+- **`/quiet-status`** — show whether quiet hours are currently active and when they end
+
+### What shipped in v0.136.0–v0.139.0
+
+**v0.136.0 — /duplicate**: `buildDuplicateArgs(sessions, sessionIdOrIndex, newTitle)` pure fn extracts path/tool from a session for `create_agent`. `getDuplicateArgs()` on TUI. `/duplicate <N|name> [title]` spawns a new AoE session. `DaemonSessionState` gains `path?` field, populated from `snap.session.path` in `buildSessionStates`.
+
+**v0.137.0 — /color-all**: `setColorAll(colorName|null)` sets or clears accent color on every session at once. Returns count affected. `/color-all [color]` — no arg clears all.
+
+**v0.138.0 — Quiet Hours**: `isQuietHour(hour, ranges)` pure fn handles normal and wraparound ranges (e.g. `22-06`). `parseQuietHoursRange(spec)` parses `"HH-HH"`. TUI stores `quietHoursRanges`, `isCurrentlyQuiet()` checks current hour. Burn-rate, ceiling, and watchdog alerts are suppressed during quiet hours. `/quiet-hours [spec...]` to set, no-arg to clear. Persisted in prefs as `quietHours`.
+
+**v0.139.0 — /history-stats**: `computeHistoryStats(entries)` pure fn aggregates total entries, unique tags, tagCounts (sorted desc), entriesPerDay, oldest/newest timestamps, span days. `/history-stats` loads full history file and prints top-5 tags. `computeHistoryStats` exported from `tui-history.ts`. 46 new tests total.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/tui-history.ts`, `src/tui-history.test.ts`, `src/types.ts`, `src/daemon-state.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +46, net 1983 tests across 35 files.
 
 ### What shipped in v0.133.0–v0.135.0
 

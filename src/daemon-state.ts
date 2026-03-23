@@ -154,20 +154,21 @@ export function buildSessionStates(obs: Observation): DaemonSessionState[] {
       contextTokens = contextCache.get(s.id);
       costStr = costCache.get(s.id);
     }
-    return {
-      id: s.id,
-      title: s.title,
-      tool: s.tool,
-      status: s.status,
-      currentTask: sessionTasks.get(s.id),
-      lastActivity: lastActivity && lastActivity.length > 100
-        ? lastActivity.slice(0, 97) + "..."
-        : lastActivity,
-      contextTokens,
-      todoSummary,
-      userActive: snap.userActive ?? false,
-      costStr,
-    };
+     return {
+       id: s.id,
+       title: s.title,
+       tool: s.tool,
+       status: s.status,
+       path: snap.session.path,
+       currentTask: sessionTasks.get(s.id),
+       lastActivity: lastActivity && lastActivity.length > 100
+         ? lastActivity.slice(0, 97) + "..."
+         : lastActivity,
+       contextTokens,
+       todoSummary,
+       userActive: snap.userActive ?? false,
+       costStr,
+     };
   });
 }
 
