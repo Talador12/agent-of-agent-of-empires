@@ -724,6 +724,43 @@ async function main() {
       }
       if (!any) tui!.log("system", `  threshold: ${CONTEXT_BURN_THRESHOLD.toLocaleString()} tokens/min`);
     });
+    // wire /copy session pane output to clipboard
+    input.onCopySession((target) => {
+      // resolve target: null = current drill-down session
+      let lines: string[] | null = null;
+      let label = "current session";
+      if (target === null) {
+        const ddId = tui!.getDrilldownId();
+        if (!ddId) {
+          tui!.log("system", "no session in view — use /copy N or drill into a session first");
+          return;
+        }
+        lines = tui!.getSessionOutput(ddId);
+        const s = tui!.getSessions().find((s) => s.id === ddId);
+        label = s?.title ?? ddId.slice(0, 8);
+      } else {
+        const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+        lines = tui!.getSessionOutput(num ?? target);
+        label = target;
+      }
+      if (!lines || lines.length === 0) {
+        tui!.log("system", `no output stored for ${label} — session may not have been polled yet`);
+        return;
+      }
+      const text = lines.join("\n") + "\n";
+      try {
+        execSync("pbcopy", { input: text, timeout: 5000 });
+        tui!.log("system", `copied ${lines.length} lines from ${label} to clipboard`);
+      } catch {
+        try {
+          const copyPath = join(homedir(), ".aoaoe", "copy.txt");
+          writeFileSync(copyPath, text, "utf-8");
+          tui!.log("system", `saved ${lines.length} lines from ${label} to ~/.aoaoe/copy.txt`);
+        } catch (writeErr) {
+          tui!.log("error", `copy failed: ${writeErr}`);
+        }
+      }
+    });
     // wire /rename custom display name
     input.onRename((target, displayName) => {
       const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;

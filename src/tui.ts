@@ -355,7 +355,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
-  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename",
+  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -992,6 +992,30 @@ export class TUI {
   /** Return the activity buffer (for /clip export). */
   getActivityBuffer(): readonly ActivityEntry[] {
     return this.activityBuffer;
+  }
+
+  /**
+   * Return the stored pane output lines for a session (by 1-indexed number, ID, prefix, or title).
+   * Returns null if session not found or no output stored.
+   */
+  getSessionOutput(sessionIdOrIndex: string | number): string[] | null {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return null;
+    return this.sessionOutputs.get(sessionId) ?? null;
+  }
+
+  /** Return the current drill-down session ID (for /copy default target). */
+  getDrilldownId(): string | null {
+    return this.drilldownSessionId;
   }
 
   /** Return per-session error counts (for /who). */

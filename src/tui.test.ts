@@ -3884,6 +3884,41 @@ describe("formatGroupBadge", () => {
   });
 });
 
+// ── TUI getSessionOutput ──────────────────────────────────────────────────
+
+describe("TUI getSessionOutput", () => {
+  it("returns null for unknown session by index", () => {
+    const tui = new TUI();
+    assert.equal(tui.getSessionOutput(99), null);
+  });
+
+  it("returns null for unknown session by name", () => {
+    const tui = new TUI();
+    assert.equal(tui.getSessionOutput("zzz"), null);
+  });
+
+  it("returns null when session exists but no output stored", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "s1", title: "Alpha", status: "idle" as const, tool: "opencode",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    assert.equal(tui.getSessionOutput(1), null);
+  });
+
+  it("returns stored output lines after setSessionOutputs", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "s1", title: "Alpha", status: "working" as const, tool: "opencode",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    tui.setSessionOutputs(new Map([["s1", "line1\nline2\nline3"]]));
+    const lines = tui.getSessionOutput("alpha");
+    assert.ok(lines !== null && lines.length >= 2);
+  });
+
+  it("getDrilldownId returns null before entering drilldown", () => {
+    const tui = new TUI();
+    assert.equal(tui.getDrilldownId(), null);
+  });
+});
+
 // ── truncateRename ────────────────────────────────────────────────────────
 
 describe("truncateRename", () => {

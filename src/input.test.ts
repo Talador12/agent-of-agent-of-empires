@@ -1001,6 +1001,38 @@ describe("onGroupFilter", () => {
   });
 });
 
+describe("onCopySession", () => {
+  it("registers and calls handler with null (current session)", () => {
+    const reader = new InputReader();
+    let received: string | null = "unset";
+    reader.onCopySession((t) => { received = t; });
+    reader["copySessionHandler"]!(null);
+    assert.equal(received, null);
+  });
+
+  it("registers and calls handler with target", () => {
+    const reader = new InputReader();
+    let received: string | null = "unset";
+    reader.onCopySession((t) => { received = t; });
+    reader["copySessionHandler"]!("alpha");
+    assert.equal(received, "alpha");
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["copySessionHandler"]?.(null); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onCopySession(() => { calls++; });
+    reader.onCopySession(() => { calls += 10; });
+    reader["copySessionHandler"]!(null);
+    assert.equal(calls, 10);
+  });
+});
+
 describe("onRename", () => {
   it("registers and calls rename handler with target and name", () => {
     const reader = new InputReader();

@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.114.0
+## Version: v0.115.0
 
 ## Current Focus
 
-1739 tests across 35 files. v0.114.0 shipped: README overhaul — all new commands from v0.104–v0.113 documented, test count badge updated to 1739, TUI features section expanded.
+1748 tests across 35 files. v0.115.0 shipped: `/copy [N|name]` — copies session pane output to clipboard; falls back to `~/.aoaoe/copy.txt`. Default target is current drill-down session.
 
 ## Roadmap
 
@@ -32,6 +32,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Session health score** — composite 0-100 score from error rate, idle time, burn rate shown in card
 - **`/top` command** — show sessions ranked by burn rate, error count, or idle time
 - **Multi-key quick-switch** — extend quick-switch from 1-9 to 1-99 via two-digit prefix
+
+### What shipped in v0.115.0
+
+**Theme: "/copy Session Output"** — `/copy [N|name]` copies the stored pane output of a session to clipboard (via `pbcopy`) or `~/.aoaoe/copy.txt` fallback. No argument defaults to the currently viewed session in drill-down. `getSessionOutput(sessionIdOrIndex)` resolver on TUI. `getDrilldownId()` public accessor. 9 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +9, net 1748 tests across 35 files.
 
 ### What shipped in v0.114.0
 

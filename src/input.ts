@@ -47,6 +47,7 @@ export type WatchdogHandler = (thresholdMinutes: number | null) => void; // set 
 export type TopHandler = (mode: string) => void; // show ranked session view
 export type CeilingHandler = () => void; // show context ceiling for all sessions
 export type RenameHandler = (target: string, name: string) => void; // rename a session display name
+export type CopySessionHandler = (target: string | null) => void; // copy session pane output (null = current drilldown)
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -120,6 +121,7 @@ export class InputReader {
   private topHandler: TopHandler | null = null;
   private ceilingHandler: CeilingHandler | null = null;
   private renameHandler: RenameHandler | null = null;
+  private copySessionHandler: CopySessionHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -301,6 +303,11 @@ export class InputReader {
   // register a callback for /rename <N|name> [display name]
   onRename(handler: RenameHandler): void {
     this.renameHandler = handler;
+  }
+
+  // register a callback for /copy [N|name] — copy session pane output
+  onCopySession(handler: CopySessionHandler): void {
+    this.copySessionHandler = handler;
   }
 
   /** Set aliases from persisted prefs. */
@@ -557,6 +564,7 @@ ${BOLD}navigation:${RESET}
   /top [mode]        rank sessions by errors (default), burn, or idle
   /ceiling           show context token usage vs limit for all sessions
   /rename N|name [display] set custom display name in TUI (no display = clear)
+  /copy [N|name]     copy session's current pane output to clipboard (default: current drill-down)
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -939,6 +947,16 @@ ${BOLD}other:${RESET}
           this.groupFilterHandler(gfArg || null);
         } else {
           console.error(`${DIM}group filter not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/copy": {
+        const copyArg = line.slice("/copy".length).trim() || null;
+        if (this.copySessionHandler) {
+          this.copySessionHandler(copyArg);
+        } else {
+          console.error(`${DIM}copy not available (no TUI)${RESET}`);
         }
         break;
       }
