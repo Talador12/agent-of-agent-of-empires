@@ -430,6 +430,7 @@ export class TUI {
   private sessionFirstSeen = new Map<string, number>(); // session ID → epoch ms when first observed
   private autoPinOnError = false; // auto-pin sessions that emit errors
   private sessionErrorCounts = new Map<string, number>(); // session ID → cumulative error count
+  private sessionErrorTimestamps = new Map<string, number[]>(); // session ID → recent error epoch ms (last 100)
   private sessionGroups = new Map<string, string>(); // session ID → group tag
   private groupFilter: string | null = null; // active group filter (null = show all)
 
@@ -741,6 +742,11 @@ export class TUI {
     return this.sessionErrorCounts;
   }
 
+  /** Return recent error timestamps for a session (for sparkline rendering). */
+  getSessionErrorTimestamps(id: string): readonly number[] {
+    return this.sessionErrorTimestamps.get(id) ?? [];
+  }
+
   /**
    * Set or clear a group on a session (by 1-indexed number, ID, ID prefix, or title).
    * Returns true if session found. Pass empty/null group to clear.
@@ -914,9 +920,13 @@ export class TUI {
         process.stderr.write("\x07");
       }
     }
-    // track per-session error counts
+    // track per-session error counts + timestamps (for sparklines)
     if (sessionId && shouldAutoPin(tag)) {
       this.sessionErrorCounts.set(sessionId, (this.sessionErrorCounts.get(sessionId) ?? 0) + 1);
+      const errTs = this.sessionErrorTimestamps.get(sessionId) ?? [];
+      errTs.push(now.getTime());
+      if (errTs.length > MAX_ERROR_TIMESTAMPS) errTs.splice(0, errTs.length - MAX_ERROR_TIMESTAMPS);
+      this.sessionErrorTimestamps.set(sessionId, errTs);
     }
     // auto-pin sessions that emit errors (when enabled)
     if (this.autoPinOnError && sessionId && shouldAutoPin(tag) && !this.pinnedIds.has(sessionId)) {
@@ -1319,6 +1329,7 @@ export class TUI {
         process.stderr.write(moveTo(startRow + 1 + r, 1) + CLEAR_LINE + padded);
       }
     } else {
+      const nowMs = Date.now();
       for (let i = 0; i < visibleSessions.length; i++) {
         const s = visibleSessions[i];
         const isHovered = this.hoverSessionIdx === i + 1; // 1-indexed
@@ -1327,6 +1338,8 @@ export class TUI {
         const muted = this.mutedIds.has(s.id);
         const noted = this.sessionNotes.has(s.id);
         const group = this.sessionGroups.get(s.id);
+        const errTs = this.sessionErrorTimestamps.get(s.id);
+        const errSparkline = errTs ? formatSessionErrorSparkline(errTs, nowMs) : "";
         const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
         const muteBadgeWidth = muted ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 2 : 0; // "(N)" visible chars, 0 when count is 0
         const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0 ? muteBadgeWidth + 1 : 0; // +1 for trailing space
@@ -1338,7 +1351,7 @@ export class TUI {
         const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
         const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth;
         const cardWidth = innerWidth - 1 - iconsWidth;
-        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth)}`;
+        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined)}`;
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
@@ -1375,6 +1388,8 @@ export class TUI {
     const muted = this.mutedIds.has(s.id);
     const noted = this.sessionNotes.has(s.id);
     const group = this.sessionGroups.get(s.id);
+    const errTs = this.sessionErrorTimestamps.get(s.id);
+    const errSparkline = errTs ? formatSessionErrorSparkline(errTs, Date.now()) : "";
     const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
     const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0
       ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 3 : 0; // "(N) " visible chars
@@ -1386,7 +1401,7 @@ export class TUI {
     const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
     const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth;
     const cardWidth = innerWidth - 1 - iconsWidth;
-    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth)}`;
+    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined)}`;
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }
@@ -1515,11 +1530,15 @@ export class TUI {
 // ── Formatting helpers ──────────────────────────────────────────────────────
 
 // format a session as a card-style line (inside the box)
-function formatSessionCard(s: DaemonSessionState, maxWidth: number): string {
+// errorSparkline: optional pre-formatted ROSE sparkline string (5 chars) for recent errors
+function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkline?: string): string {
   const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
   const name = `${BOLD}${s.title}${RESET}`;
   const toolBadge = `${SLATE}${s.tool}${RESET}`;
   const contextBadge = s.contextTokens ? ` ${DIM}(${s.contextTokens})${RESET}` : "";
+  const sparkSuffix = errorSparkline ? ` ${errorSparkline}` : "";
+  // sparkline takes fixed space so status desc gets less room
+  const sparkWidth = errorSparkline ? SESSION_SPARK_BUCKETS + 1 : 0;
 
   // status description
   let desc: string;
@@ -1527,7 +1546,7 @@ function formatSessionCard(s: DaemonSessionState, maxWidth: number): string {
     desc = `${AMBER}you're active${RESET}`;
   } else if (s.status === "working" || s.status === "running") {
     desc = s.currentTask
-      ? truncatePlain(s.currentTask, Math.max(20, maxWidth - s.title.length - s.tool.length - 16))
+      ? truncatePlain(s.currentTask, Math.max(20, maxWidth - s.title.length - s.tool.length - 16 - sparkWidth))
       : `${LIME}working${RESET}`;
   } else if (s.status === "idle" || s.status === "stopped") {
     desc = `${SLATE}idle${RESET}`;
@@ -1541,7 +1560,7 @@ function formatSessionCard(s: DaemonSessionState, maxWidth: number): string {
     desc = `${SLATE}${s.status}${RESET}`;
   }
 
-  return truncateAnsi(`${dot} ${name} ${toolBadge}${contextBadge} ${SLATE}${BOX.h}${RESET} ${desc}`, maxWidth);
+  return truncateAnsi(`${dot} ${name} ${toolBadge}${contextBadge} ${SLATE}${BOX.h}${RESET} ${desc}${sparkSuffix}`, maxWidth);
 }
 
 // colorize an activity entry based on its tag
@@ -1737,6 +1756,31 @@ function formatSparkline(counts: number[]): string {
     return `${color}${SPARK_BLOCKS[level]}${RESET}`;
   });
   return blocks.join("");
+}
+
+// ── Session error sparkline (pure, exported for testing) ────────────────────
+
+/** Number of buckets in a per-session error sparkline (compact: 5 chars wide). */
+export const SESSION_SPARK_BUCKETS = 5;
+/** Time window for per-session error sparkline (last 5 minutes). */
+export const SESSION_SPARK_WINDOW_MS = 5 * 60 * 1000;
+/** Max error timestamps stored per session (keeps memory bounded). */
+export const MAX_ERROR_TIMESTAMPS = 100;
+
+/**
+ * Format a per-session error sparkline from recent error timestamps.
+ * Returns a 5-char ROSE-colored block string, or empty string if no recent errors.
+ */
+export function formatSessionErrorSparkline(timestamps: readonly number[], now?: number): string {
+  if (timestamps.length === 0) return "";
+  const counts = computeSparkline([...timestamps], now, SESSION_SPARK_BUCKETS, SESSION_SPARK_WINDOW_MS);
+  const max = Math.max(...counts);
+  if (max === 0) return "";
+  return counts.map((c) => {
+    if (c === 0) return `${DIM} ${RESET}`;
+    const level = Math.min(SPARK_BLOCKS.length - 1, Math.floor((c / max) * (SPARK_BLOCKS.length - 1)));
+    return `${ROSE}${SPARK_BLOCKS[level]}${RESET}`;
+  }).join("");
 }
 
 // ── Search helpers (pure, exported for testing) ─────────────────────────────

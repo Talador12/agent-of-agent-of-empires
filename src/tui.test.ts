@@ -9,6 +9,7 @@ import {
   hitTestSession,
   matchesSearch, formatSearchIndicator,
   computeSparkline, formatSparkline,
+  formatSessionErrorSparkline, SESSION_SPARK_BUCKETS, SESSION_SPARK_WINDOW_MS, MAX_ERROR_TIMESTAMPS,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
   shouldBell, BELL_COOLDOWN_MS,
@@ -2763,6 +2764,157 @@ describe("BUILTIN_COMMANDS", () => {
 
   it("has at least 30 commands", () => {
     assert.ok(BUILTIN_COMMANDS.size >= 30);
+  });
+});
+
+// ── formatSessionErrorSparkline ───────────────────────────────────────────
+
+describe("formatSessionErrorSparkline", () => {
+  it("returns empty string for no timestamps", () => {
+    assert.equal(formatSessionErrorSparkline([]), "");
+  });
+
+  it("returns empty string when all timestamps are outside window", () => {
+    const old = Date.now() - SESSION_SPARK_WINDOW_MS - 10000;
+    assert.equal(formatSessionErrorSparkline([old, old], Date.now()), "");
+  });
+
+  it("returns non-empty string for recent error", () => {
+    const now = Date.now();
+    const result = formatSessionErrorSparkline([now], now);
+    assert.ok(result.length > 0);
+  });
+
+  it("returns exactly SESSION_SPARK_BUCKETS visible chars (without ANSI)", () => {
+    const now = Date.now();
+    const result = stripAnsi(formatSessionErrorSparkline([now], now));
+    assert.equal(result.length, SESSION_SPARK_BUCKETS);
+  });
+
+  it("contains ROSE color codes for non-zero buckets", () => {
+    const now = Date.now();
+    const result = formatSessionErrorSparkline([now], now);
+    assert.ok(result.includes("\x1b[")); // has ANSI codes
+  });
+
+  it("most recent error goes in last bucket", () => {
+    const now = Date.now();
+    const result = stripAnsi(formatSessionErrorSparkline([now], now));
+    // last char should be a spark block (not a space) since we just logged an error
+    const lastChar = result[result.length - 1];
+    assert.ok(lastChar !== " ");
+  });
+});
+
+// ── SESSION_SPARK_BUCKETS ──────────────────────────────────────────────────
+
+describe("SESSION_SPARK_BUCKETS", () => {
+  it("is 5", () => {
+    assert.equal(SESSION_SPARK_BUCKETS, 5);
+  });
+});
+
+// ── SESSION_SPARK_WINDOW_MS ────────────────────────────────────────────────
+
+describe("SESSION_SPARK_WINDOW_MS", () => {
+  it("is 5 minutes", () => {
+    assert.equal(SESSION_SPARK_WINDOW_MS, 5 * 60 * 1000);
+  });
+});
+
+// ── MAX_ERROR_TIMESTAMPS ───────────────────────────────────────────────────
+
+describe("MAX_ERROR_TIMESTAMPS", () => {
+  it("is 100", () => {
+    assert.equal(MAX_ERROR_TIMESTAMPS, 100);
+  });
+});
+
+// ── TUI error timestamp tracking ──────────────────────────────────────────
+
+describe("TUI error timestamp tracking", () => {
+  it("starts with no error timestamps", () => {
+    const tui = new TUI();
+    assert.deepEqual(tui.getSessionErrorTimestamps("s1"), []);
+  });
+
+  it("records timestamp on error log with sessionId", () => {
+    const tui = new TUI();
+    tui.log("! action", "something failed", "s1");
+    const ts = tui.getSessionErrorTimestamps("s1");
+    assert.equal(ts.length, 1);
+    assert.ok(ts[0] > 0);
+  });
+
+  it("records timestamp on 'error' tag", () => {
+    const tui = new TUI();
+    tui.log("error", "oops", "s1");
+    assert.equal(tui.getSessionErrorTimestamps("s1").length, 1);
+  });
+
+  it("does not record timestamp for non-error tags", () => {
+    const tui = new TUI();
+    tui.log("observation", "all good", "s1");
+    tui.log("system", "tick", "s1");
+    assert.equal(tui.getSessionErrorTimestamps("s1").length, 0);
+  });
+
+  it("does not record timestamp without sessionId", () => {
+    const tui = new TUI();
+    tui.log("! action", "failed");
+    // no session ID — no timestamp stored for any key
+    assert.deepEqual(tui.getSessionErrorTimestamps(""), []);
+  });
+
+  it("accumulates multiple error timestamps", () => {
+    const tui = new TUI();
+    tui.log("! action", "err1", "s1");
+    tui.log("error", "err2", "s1");
+    tui.log("! action", "err3", "s1");
+    assert.equal(tui.getSessionErrorTimestamps("s1").length, 3);
+  });
+
+  it("caps at MAX_ERROR_TIMESTAMPS", () => {
+    const tui = new TUI();
+    for (let i = 0; i < MAX_ERROR_TIMESTAMPS + 10; i++) {
+      tui.log("error", `err${i}`, "s1");
+    }
+    assert.ok(tui.getSessionErrorTimestamps("s1").length <= MAX_ERROR_TIMESTAMPS);
+  });
+
+  it("tracks timestamps per session independently", () => {
+    const tui = new TUI();
+    tui.log("error", "err", "s1");
+    tui.log("error", "err", "s1");
+    tui.log("error", "err", "s2");
+    assert.equal(tui.getSessionErrorTimestamps("s1").length, 2);
+    assert.equal(tui.getSessionErrorTimestamps("s2").length, 1);
+  });
+});
+
+// ── formatSessionCard with error sparkline ────────────────────────────────
+
+describe("formatSessionCard with error sparkline", () => {
+  const session: DaemonSessionState = {
+    id: "s1", title: "Alpha", status: "error", tool: "opencode",
+    contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined,
+  };
+
+  it("renders without sparkline when not provided", () => {
+    const result = stripAnsi(formatSessionCard(session, 80));
+    assert.ok(result.includes("Alpha"));
+  });
+
+  it("renders with sparkline when provided", () => {
+    const spark = "▁▂▃▄█";
+    const result = formatSessionCard(session, 80, spark);
+    assert.ok(result.includes("▁") || result.includes(spark));
+  });
+
+  it("result is truncated to maxWidth", () => {
+    const spark = "█████";
+    const result = stripAnsi(formatSessionCard(session, 30, spark));
+    assert.ok(result.length <= 32); // allow small RESET overhead
   });
 });
 

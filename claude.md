@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.104.0
+## Version: v0.105.0
 
 ## Current Focus
 
-1553 tests across 35 files. v0.104.0 shipped: session grouping — tag sessions by project/team, filter the session panel by group, badges in cards, persisted across restarts.
+1573 tests across 35 files. v0.105.0 shipped: per-session error sparklines in session cards — ROSE-colored 5-bucket mini-chart in the last 5 minutes of error activity, rendered live in each card.
 
 ## Roadmap
 
@@ -29,6 +29,13 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Session snapshot export** — `/snapshot` command exports current session states to JSON/Markdown
 - **Group broadcast** — `/broadcast group:name message` sends a message to all sessions in a group
 - **Idle time per session** — show time since last activity change alongside uptime
+
+### What shipped in v0.105.0
+
+**Theme: "Error Rate Sparklines"** — per-session ROSE mini-sparkline in every normal session card showing error frequency over the last 5 minutes. 5 buckets × 1 min each. Error timestamps tracked in `sessionErrorTimestamps` map (capped at 100 per session). `formatSessionErrorSparkline()` pure function reuses existing `computeSparkline()` with a narrower 5-min/5-bucket config. `formatSessionCard()` gains optional `errorSparkline` param — sparkline rendered right of the status desc when present. `getSessionErrorTimestamps(id)` accessor for external use. Both `paintSessions()` and `repaintSessionCard()` compute and pass the sparkline. 20 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `package.json`, `claude.md`
+Test changes: +20, net 1573 tests across 35 files.
 
 ### What shipped in v0.104.0
 
