@@ -1001,6 +1001,38 @@ describe("onGroupFilter", () => {
   });
 });
 
+describe("onWatchdog", () => {
+  it("registers and calls watchdog handler with minutes", () => {
+    const reader = new InputReader();
+    let received: number | null = -1;
+    reader.onWatchdog((m) => { received = m; });
+    reader["watchdogHandler"]!(10);
+    assert.equal(received, 10);
+  });
+
+  it("registers and calls watchdog handler with null (off)", () => {
+    const reader = new InputReader();
+    let received: number | null = -1;
+    reader.onWatchdog((m) => { received = m; });
+    reader["watchdogHandler"]!(null);
+    assert.equal(received, null);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["watchdogHandler"]?.(5); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onWatchdog(() => { calls++; });
+    reader.onWatchdog(() => { calls += 10; });
+    reader["watchdogHandler"]!(10);
+    assert.equal(calls, 10);
+  });
+});
+
 describe("onBroadcast", () => {
   it("registers and calls broadcast handler with message and no group", () => {
     const reader = new InputReader();

@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.108.0
+## Version: v0.109.0
 
 ## Current Focus
 
-1638 tests across 35 files. v0.108.0 shipped: `/broadcast` — send a message to all sessions or all sessions in a group via tmux.
+1663 tests across 35 files. v0.109.0 shipped: idle-since in session cards + `/who`, and watchdog mode (`/watchdog [N]`) to alert when a session stalls.
 
 ## Roadmap
 
@@ -24,11 +24,21 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Task intake UX** — guided `/task new` flow in TUI (prompt for repo/mode/goal)
 - **Natural language task intent** — infer task updates from plain lines like "task for adventure: ..."
 - **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
-- **Idle-since indicator** — show time since last activity change per session in `/who` and cards
 - **Session tagging** — arbitrary freeform tags (multi-tag, vs single group per session)
-- **Watchdog mode** — alert if a session hasn't changed output in N minutes
 - **Context ceiling warning** — warn when a session is within 10% of its context limit
 - **Activity rate badge** — show messages/min rolling rate in compact mode tokens
+- **`/rename` command** — rename a session title in TUI metadata (not in AoE)
+- **`/copy` command** — copy a session's current output to clipboard
+- **Session health score** — composite 0-100 score from error rate, idle time, burn rate shown in card
+- **`/top` command** — show sessions ranked by burn rate, error count, or idle time
+- **Multi-key quick-switch** — extend quick-switch from 1-9 to 1-99 via two-digit prefix
+
+### What shipped in v0.109.0
+
+**Theme: "Idle-Since + Watchdog"** — two complementary stall-detection features. `formatIdleSince(ms, thresholdMs)` pure function: returns empty when under 2-minute threshold, otherwise `"idle Nh Nm"`. Session cards now show idle-since in the status description for idle/stopped/done sessions (uses `lastChangeAt` already tracked). `/who` output includes idle time and group tag per session. `/watchdog [N]` arms a per-session stall watchdog (default 10 min) — fires a "status" log entry when a session's output has not changed in N minutes, rate-limited to once per 5 minutes per session. `/watchdog off` disables. `setWatchdog()`, `getWatchdogThreshold()`, `getWatchdogAlertedAt()` on TUI. `getAllLastChangeAt()` public accessor. `WATCHDOG_DEFAULT_MINUTES=10`, `WATCHDOG_ALERT_COOLDOWN_MS=5min`. 25 new tests.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +25, net 1663 tests across 35 files.
 
 ### What shipped in v0.108.0
 

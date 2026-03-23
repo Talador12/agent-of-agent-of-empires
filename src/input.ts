@@ -43,6 +43,7 @@ export type GroupFilterHandler = (group: string | null) => void; // filter sessi
 export type BurnRateHandler = () => void; // show current context burn rates
 export type SnapshotHandler = (format: "json" | "md") => void; // export snapshot
 export type BroadcastHandler = (message: string, group: string | null) => void; // broadcast to sessions
+export type WatchdogHandler = (thresholdMinutes: number | null) => void; // set watchdog (null = off)
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -112,6 +113,7 @@ export class InputReader {
   private burnRateHandler: BurnRateHandler | null = null;
   private snapshotHandler: SnapshotHandler | null = null;
   private broadcastHandler: BroadcastHandler | null = null;
+  private watchdogHandler: WatchdogHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -273,6 +275,11 @@ export class InputReader {
   // register a callback for broadcast (/broadcast [group:<tag>] <message>)
   onBroadcast(handler: BroadcastHandler): void {
     this.broadcastHandler = handler;
+  }
+
+  // register a callback for watchdog (/watchdog [N] | /watchdog off)
+  onWatchdog(handler: WatchdogHandler): void {
+    this.watchdogHandler = handler;
   }
 
   /** Set aliases from persisted prefs. */
@@ -525,6 +532,7 @@ ${BOLD}navigation:${RESET}
   /burn-rate         show context token burn rates for all sessions
   /snapshot [md]     export session state snapshot to JSON (or Markdown with md)
   /broadcast <msg>   send message to all sessions; /broadcast group:<tag> <msg> for group
+  /watchdog [N]      alert if session stalls N minutes (default 10); /watchdog off to disable
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -907,6 +915,27 @@ ${BOLD}other:${RESET}
           this.groupFilterHandler(gfArg || null);
         } else {
           console.error(`${DIM}group filter not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/watchdog": {
+        const wdArg = line.slice("/watchdog".length).trim().toLowerCase();
+        if (this.watchdogHandler) {
+          if (!wdArg || wdArg === "on") {
+            this.watchdogHandler(10); // default 10 min
+          } else if (wdArg === "off") {
+            this.watchdogHandler(null);
+          } else {
+            const mins = parseInt(wdArg, 10);
+            if (!isNaN(mins) && mins > 0) {
+              this.watchdogHandler(mins);
+            } else {
+              console.error(`${DIM}usage: /watchdog [N]  set N-minute stall alert (default 10), or /watchdog off${RESET}`);
+            }
+          }
+        } else {
+          console.error(`${DIM}watchdog not available (no TUI)${RESET}`);
         }
         break;
       }

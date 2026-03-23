@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown,
   formatBroadcastSummary,
+  formatIdleSince,
+  WATCHDOG_DEFAULT_MINUTES, WATCHDOG_ALERT_COOLDOWN_MS,
   formatActivity, formatSessionCard, formatSessionSentence,
   truncateAnsi, truncatePlain,
   padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay,
@@ -2736,6 +2738,184 @@ describe("validateAliasName", () => {
 describe("MAX_ALIASES", () => {
   it("is 50", () => {
     assert.equal(MAX_ALIASES, 50);
+  });
+});
+
+// ── formatIdleSince ───────────────────────────────────────────────────────
+
+describe("formatIdleSince", () => {
+  it("returns empty for ms under threshold", () => {
+    assert.equal(formatIdleSince(60_000), ""); // 1 min < 2 min default
+  });
+
+  it("returns idle string for ms over threshold", () => {
+    const result = formatIdleSince(5 * 60_000); // 5 min
+    assert.ok(result.includes("idle"));
+    assert.ok(result.includes("5m"));
+  });
+
+  it("returns empty for negative ms", () => {
+    assert.equal(formatIdleSince(-1), "");
+  });
+
+  it("respects custom threshold", () => {
+    assert.equal(formatIdleSince(30_000, 60_000), ""); // 30s < 60s threshold
+    assert.ok(formatIdleSince(90_000, 60_000).includes("idle")); // 90s > 60s threshold
+  });
+
+  it("includes formatted uptime in output", () => {
+    const result = formatIdleSince(70 * 60_000); // 70 min = 1h 10m
+    assert.ok(result.includes("1h") || result.includes("70m") || result.includes("idle"));
+  });
+});
+
+// ── WATCHDOG_DEFAULT_MINUTES ──────────────────────────────────────────────
+
+describe("WATCHDOG_DEFAULT_MINUTES", () => {
+  it("is 10", () => {
+    assert.equal(WATCHDOG_DEFAULT_MINUTES, 10);
+  });
+});
+
+// ── WATCHDOG_ALERT_COOLDOWN_MS ────────────────────────────────────────────
+
+describe("WATCHDOG_ALERT_COOLDOWN_MS", () => {
+  it("is 5 minutes", () => {
+    assert.equal(WATCHDOG_ALERT_COOLDOWN_MS, 5 * 60_000);
+  });
+});
+
+// ── TUI watchdog state ────────────────────────────────────────────────────
+
+describe("TUI watchdog state", () => {
+  it("starts with watchdog disabled (null)", () => {
+    const tui = new TUI();
+    assert.equal(tui.getWatchdogThreshold(), null);
+  });
+
+  it("setWatchdog sets threshold", () => {
+    const tui = new TUI();
+    tui.setWatchdog(10 * 60_000);
+    assert.equal(tui.getWatchdogThreshold(), 10 * 60_000);
+  });
+
+  it("setWatchdog null disables watchdog", () => {
+    const tui = new TUI();
+    tui.setWatchdog(5 * 60_000);
+    tui.setWatchdog(null);
+    assert.equal(tui.getWatchdogThreshold(), null);
+  });
+
+  it("getWatchdogAlertedAt returns 0 for unalerted session", () => {
+    const tui = new TUI();
+    assert.equal(tui.getWatchdogAlertedAt("s1"), 0);
+  });
+
+  it("watchdog fires alert when session idle past threshold", () => {
+    const tui = new TUI();
+    tui.setWatchdog(1 * 60_000); // 1 minute threshold
+    const baseSession = { id: "s1", title: "Alpha", status: "idle" as const, tool: "opencode",
+      contextTokens: undefined, lastActivity: "old", userActive: false, currentTask: undefined };
+    // first update to record activity
+    tui.updateState({ sessions: [baseSession] });
+    // advance time by manually setting lastChangeAt via another update with same activity
+    // simulate idle: don't change lastActivity
+    const logs: string[] = [];
+    const origLog = tui.log.bind(tui);
+    // track logged status messages
+    let alertFired = false;
+    const origLogFn = (tui as unknown as { log: (tag: string, text: string) => void }).log;
+    (tui as unknown as { log: (tag: string, text: string) => void }).log = (tag, text) => {
+      if (tag === "status" && text.includes("watchdog")) alertFired = true;
+      origLogFn.call(tui, tag, text);
+    };
+    // force lastChangeAt to be old enough
+    (tui as unknown as { lastChangeAt: Map<string, number> }).lastChangeAt.set("s1", Date.now() - 2 * 60_000);
+    tui.updateState({ sessions: [baseSession] });
+    assert.equal(alertFired, true);
+  });
+
+  it("watchdog does not fire when disabled", () => {
+    const tui = new TUI();
+    // watchdog is null (disabled)
+    const baseSession = { id: "s1", title: "Alpha", status: "idle" as const, tool: "opencode",
+      contextTokens: undefined, lastActivity: "old", userActive: false, currentTask: undefined };
+    tui.updateState({ sessions: [baseSession] });
+    let alertFired = false;
+    const origLogFn = (tui as unknown as { log: (tag: string, text: string) => void }).log;
+    (tui as unknown as { log: (tag: string, text: string) => void }).log = (tag, text) => {
+      if (tag === "status" && text.includes("watchdog")) alertFired = true;
+      origLogFn.call(tui, tag, text);
+    };
+    (tui as unknown as { lastChangeAt: Map<string, number> }).lastChangeAt.set("s1", Date.now() - 20 * 60_000);
+    tui.updateState({ sessions: [baseSession] });
+    assert.equal(alertFired, false);
+  });
+
+  it("is safe when TUI is not active", () => {
+    const tui = new TUI();
+    assert.doesNotThrow(() => {
+      tui.setWatchdog(5 * 60_000);
+      tui.setWatchdog(null);
+    });
+  });
+});
+
+// ── TUI getAllLastChangeAt ─────────────────────────────────────────────────
+
+describe("TUI getAllLastChangeAt", () => {
+  it("returns empty map initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.getAllLastChangeAt().size, 0);
+  });
+
+  it("records change when lastActivity changes", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "s1", title: "A", status: "working" as const, tool: "opencode",
+      contextTokens: undefined, lastActivity: "step 1", userActive: false, currentTask: undefined }] });
+    assert.ok(tui.getAllLastChangeAt().has("s1"));
+  });
+
+  it("does not record change when lastActivity is undefined", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "s1", title: "A", status: "idle" as const, tool: "opencode",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    assert.equal(tui.getAllLastChangeAt().has("s1"), false);
+  });
+});
+
+// ── formatSessionCard with idleSinceMs ────────────────────────────────────
+
+describe("formatSessionCard with idleSinceMs", () => {
+  const idleSession: DaemonSessionState = {
+    id: "s1", title: "Alpha", status: "idle", tool: "opencode",
+    contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined,
+  };
+  const doneSession: DaemonSessionState = {
+    id: "s1", title: "Alpha", status: "done", tool: "opencode",
+    contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined,
+  };
+
+  it("shows idle label when idle and stale > 2min", () => {
+    const result = stripAnsi(formatSessionCard(idleSession, 80, undefined, 10 * 60_000));
+    assert.ok(result.includes("idle"));
+  });
+
+  it("does not show idle label when stale < 2min", () => {
+    const result = stripAnsi(formatSessionCard(idleSession, 80, undefined, 60_000));
+    // "idle 1m" should not appear — under threshold
+    assert.ok(!result.includes("idle 1m"));
+  });
+
+  it("shows done with idle-since for done session", () => {
+    const result = stripAnsi(formatSessionCard(doneSession, 80, undefined, 10 * 60_000));
+    assert.ok(result.includes("done"));
+    assert.ok(result.includes("idle"));
+  });
+
+  it("without idleSinceMs, idle sessions show plain idle", () => {
+    const result = stripAnsi(formatSessionCard(idleSession, 80));
+    assert.ok(result.includes("idle"));
   });
 });
 

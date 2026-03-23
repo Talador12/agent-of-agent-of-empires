@@ -17,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
@@ -532,9 +532,12 @@ async function main() {
         tui!.log("system", "no sessions");
         return;
       }
+      const now = Date.now();
       const firstSeen = tui!.getAllFirstSeen();
+      const lastChangeAt = tui!.getAllLastChangeAt();
       const errors = tui!.getSessionErrorCounts();
       const notes = tui!.getAllNotes();
+      const groups = tui!.getAllGroups();
       // sort: errors first, then status priority, then alphabetical
       const statusPriority: Record<string, number> = { error: 0, waiting: 1, working: 2, running: 2, idle: 3, stopped: 4, done: 5 };
       const sorted = [...sessions].sort((a, b) => {
@@ -545,13 +548,19 @@ async function main() {
         return a.title.localeCompare(b.title);
       });
       for (const s of sorted) {
-        const up = firstSeen.has(s.id) ? formatUptime(Date.now() - firstSeen.get(s.id)!) : "?";
+        const up = firstSeen.has(s.id) ? formatUptime(now - firstSeen.get(s.id)!) : "?";
         const errCount = errors.get(s.id) ?? 0;
         const errStr = errCount > 0 ? ` ${errCount}err` : "";
         const ctxStr = s.contextTokens ? ` ${s.contextTokens}` : "";
         const note = notes.get(s.id);
         const noteStr = note ? ` "${note}"` : "";
-        tui!.log("system", `  ${s.title} — ${s.status} ${up}${ctxStr}${errStr}${noteStr}`);
+        const group = groups.get(s.id);
+        const groupStr = group ? ` [${group}]` : "";
+        // idle-since: show for non-active sessions with stale activity
+        const lastChange = lastChangeAt.get(s.id);
+        const idleStr = (lastChange && (s.status === "idle" || s.status === "stopped" || s.status === "done"))
+          ? ` idle ${formatUptime(now - lastChange)}` : "";
+        tui!.log("system", `  ${s.title}${groupStr} — ${s.status} ${up}${ctxStr}${errStr}${idleStr}${noteStr}`);
       }
     });
     // wire /uptime listing
@@ -709,6 +718,16 @@ async function main() {
         }
       }
       if (!any) tui!.log("system", `  threshold: ${CONTEXT_BURN_THRESHOLD.toLocaleString()} tokens/min`);
+    });
+    // wire /watchdog stall detection
+    input.onWatchdog((thresholdMinutes) => {
+      if (thresholdMinutes === null) {
+        tui!.setWatchdog(null);
+        tui!.log("system", "watchdog: disabled");
+      } else {
+        tui!.setWatchdog(thresholdMinutes * 60_000);
+        tui!.log("system", `watchdog: alert if session stalls >${thresholdMinutes}m`);
+      }
     });
     // wire /snapshot export
     input.onSnapshot((fmt) => {

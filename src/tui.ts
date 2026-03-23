@@ -315,6 +315,24 @@ export function formatUptime(ms: number): string {
   return `${minutes}m`;
 }
 
+// ── Idle-since formatting ─────────────────────────────────────────────────────
+
+/**
+ * Format milliseconds since last activity as a human-readable "idle N" string.
+ * Returns empty string if under threshold (< thresholdMs, default 2 min — not worth showing).
+ */
+export function formatIdleSince(ms: number, thresholdMs = 2 * 60_000): string {
+  if (ms < 0 || ms < thresholdMs) return "";
+  return `idle ${formatUptime(ms)}`;
+}
+
+// ── Watchdog ──────────────────────────────────────────────────────────────────
+
+/** Default watchdog threshold: 10 minutes of no output change triggers alert. */
+export const WATCHDOG_DEFAULT_MINUTES = 10;
+/** Cooldown between watchdog alerts for the same session (5 minutes). */
+export const WATCHDOG_ALERT_COOLDOWN_MS = 5 * 60_000;
+
 // ── Aliases ──────────────────────────────────────────────────────────────────
 
 /** Maximum number of user-defined aliases. */
@@ -327,7 +345,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
-  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast",
+  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -540,6 +558,8 @@ export class TUI {
   private burnRateAlerted = new Map<string, number>(); // session ID → epoch ms of last burn-rate alert (cooldown)
   private sessionGroups = new Map<string, string>(); // session ID → group tag
   private groupFilter: string | null = null; // active group filter (null = show all)
+  private watchdogThresholdMs: number | null = null; // null = disabled; ms of inactivity before alert
+  private watchdogAlerted = new Map<string, number>(); // session ID → epoch ms of last watchdog alert
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -904,6 +924,27 @@ export class TUI {
     return this.sessionGroups;
   }
 
+  /** Return all lastChangeAt timestamps (for idle-since reporting). */
+  getAllLastChangeAt(): ReadonlyMap<string, number> {
+    return this.lastChangeAt;
+  }
+
+  /** Set the watchdog threshold in ms (null = disabled). */
+  setWatchdog(thresholdMs: number | null): void {
+    this.watchdogThresholdMs = thresholdMs;
+    if (thresholdMs === null) this.watchdogAlerted.clear();
+  }
+
+  /** Return the current watchdog threshold in ms (null = disabled). */
+  getWatchdogThreshold(): number | null {
+    return this.watchdogThresholdMs;
+  }
+
+  /** Return last watchdog alert time for a session (0 if never alerted). */
+  getWatchdogAlertedAt(id: string): number {
+    return this.watchdogAlerted.get(id) ?? 0;
+  }
+
   /** Return count of sessions with a group assigned. */
   getGroupCount(): number {
     return this.sessionGroups.size;
@@ -1016,6 +1057,22 @@ export class TUI {
             if (now - lastAlert >= BURN_ALERT_COOLDOWN_MS) {
               this.burnRateAlerted.set(s.id, now);
               this.log("status", formatBurnRateAlert(s.title, burnRate), s.id);
+            }
+          }
+        }
+      }
+      // watchdog: alert if session has been idle longer than threshold
+      if (this.watchdogThresholdMs !== null) {
+        for (const s of opts.sessions) {
+          const lastChange = this.lastChangeAt.get(s.id);
+          if (lastChange === undefined) continue; // not yet tracked
+          const idleMs = now - lastChange;
+          if (idleMs >= this.watchdogThresholdMs) {
+            const lastAlert = this.watchdogAlerted.get(s.id) ?? 0;
+            if (now - lastAlert >= WATCHDOG_ALERT_COOLDOWN_MS) {
+              this.watchdogAlerted.set(s.id, now);
+              const idleStr = formatUptime(idleMs);
+              this.log("status", `watchdog: ${s.title} has had no output change for ${idleStr}`, s.id);
             }
           }
         }
@@ -1485,6 +1542,8 @@ export class TUI {
         const group = this.sessionGroups.get(s.id);
         const errTs = this.sessionErrorTimestamps.get(s.id);
         const errSparkline = errTs ? formatSessionErrorSparkline(errTs, nowMs) : "";
+        const lastChange = this.lastChangeAt.get(s.id);
+        const idleSinceMs = lastChange !== undefined ? nowMs - lastChange : undefined;
         const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
         const muteBadgeWidth = muted ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 2 : 0; // "(N)" visible chars, 0 when count is 0
         const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0 ? muteBadgeWidth + 1 : 0; // +1 for trailing space
@@ -1496,7 +1555,7 @@ export class TUI {
         const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
         const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth;
         const cardWidth = innerWidth - 1 - iconsWidth;
-        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined)}`;
+        const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs)}`;
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
       }
@@ -1533,8 +1592,11 @@ export class TUI {
     const muted = this.mutedIds.has(s.id);
     const noted = this.sessionNotes.has(s.id);
     const group = this.sessionGroups.get(s.id);
+    const nowMs2 = Date.now();
     const errTs = this.sessionErrorTimestamps.get(s.id);
-    const errSparkline = errTs ? formatSessionErrorSparkline(errTs, Date.now()) : "";
+    const errSparkline = errTs ? formatSessionErrorSparkline(errTs, nowMs2) : "";
+    const lastChange = this.lastChangeAt.get(s.id);
+    const idleSinceMs = lastChange !== undefined ? nowMs2 - lastChange : undefined;
     const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
     const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0
       ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 3 : 0; // "(N) " visible chars
@@ -1546,7 +1608,7 @@ export class TUI {
     const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
     const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth;
     const cardWidth = innerWidth - 1 - iconsWidth;
-    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined)}`;
+    const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs)}`;
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }
@@ -1676,7 +1738,8 @@ export class TUI {
 
 // format a session as a card-style line (inside the box)
 // errorSparkline: optional pre-formatted ROSE sparkline string (5 chars) for recent errors
-function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkline?: string): string {
+// idleSinceMs: optional ms since last activity change (shown when idle/stopped)
+function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkline?: string, idleSinceMs?: number): string {
   const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
   const name = `${BOLD}${s.title}${RESET}`;
   const toolBadge = `${SLATE}${s.tool}${RESET}`;
@@ -1684,6 +1747,11 @@ function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkli
   const sparkSuffix = errorSparkline ? ` ${errorSparkline}` : "";
   // sparkline takes fixed space so status desc gets less room
   const sparkWidth = errorSparkline ? SESSION_SPARK_BUCKETS + 1 : 0;
+
+  // idle-since label: show when session is idle/stopped and stale > 2min
+  const idleLabel = (idleSinceMs !== undefined && (s.status === "idle" || s.status === "stopped" || s.status === "done"))
+    ? formatIdleSince(idleSinceMs)
+    : "";
 
   // status description
   let desc: string;
@@ -1694,11 +1762,11 @@ function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkli
       ? truncatePlain(s.currentTask, Math.max(20, maxWidth - s.title.length - s.tool.length - 16 - sparkWidth))
       : `${LIME}working${RESET}`;
   } else if (s.status === "idle" || s.status === "stopped") {
-    desc = `${SLATE}idle${RESET}`;
+    desc = idleLabel ? `${SLATE}${idleLabel}${RESET}` : `${SLATE}idle${RESET}`;
   } else if (s.status === "error") {
     desc = `${ROSE}error${RESET}`;
   } else if (s.status === "done") {
-    desc = `${GREEN}done${RESET}`;
+    desc = idleLabel ? `${GREEN}done ${DIM}${idleLabel}${RESET}` : `${GREEN}done${RESET}`;
   } else if (s.status === "waiting") {
     desc = `${AMBER}waiting${RESET}`;
   } else {
