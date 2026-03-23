@@ -49,8 +49,8 @@ const resetScrollRegion = () => `${CSI}r`;
 
 // ── Sort modes ──────────────────────────────────────────────────────────────
 
-export type SortMode = "default" | "status" | "name" | "activity";
-const SORT_MODES: SortMode[] = ["default", "status", "name", "activity"];
+export type SortMode = "default" | "status" | "name" | "activity" | "health";
+const SORT_MODES: SortMode[] = ["default", "status", "name", "activity", "health"];
 
 const STATUS_PRIORITY: Record<string, number> = {
   error: 0, waiting: 1, working: 2, running: 2,

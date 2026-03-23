@@ -1,4 +1,5 @@
 import type { Observation, AoaoeConfig, TaskState, SessionSnapshot } from "../types.js";
+import { goalToList } from "../types.js";
 
 // base system prompt -- global context appended at runtime via buildSystemPrompt()
 const BASE_SYSTEM_PROMPT = `You are a supervisor managing multiple AI coding agents in an agent-of-empires (AoE) tmux session.
@@ -113,7 +114,13 @@ export function formatTaskContext(tasks: TaskState[]): string {
   for (const t of tasks) {
     const statusTag = t.status === "completed" ? "COMPLETED" : t.status.toUpperCase();
     parts.push(`  [${statusTag}] "${t.sessionTitle}" (${t.repo})`);
-    parts.push(`    Goal: ${t.goal}`);
+    const goalItems = goalToList(t.goal);
+    if (goalItems.length === 1) {
+      parts.push(`    Goal: ${goalItems[0]}`);
+    } else {
+      parts.push(`    Goal:`);
+      for (const item of goalItems) parts.push(`      - ${item}`);
+    }
     if (t.progress.length > 0) {
       const recent = t.progress.slice(-3);
       parts.push(`    Recent progress:`);

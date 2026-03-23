@@ -5,13 +5,16 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "
 import { join, resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import { exec } from "./shell.js";
-import { toTaskState, toAoeSessionList } from "./types.js";
+import { toTaskState, toAoeSessionList, normalizeGoal, goalToList } from "./types.js";
 import type { TaskDefinition, TaskState, TaskProgress, TaskStatus, TaskSessionMode } from "./types.js";
 import { RESET, BOLD, DIM, GREEN, YELLOW, RED, CYAN } from "./colors.js";
 
 const AOAOE_DIR = join(homedir(), ".aoaoe");
 const STATE_FILE = join(AOAOE_DIR, "task-state.json");
 const TASK_FILE_NAMES = ["aoaoe.tasks.json", ".aoaoe.tasks.json"];
+
+// normalizeGoal and goalToList are exported from types.ts and re-exported here for convenience
+export { normalizeGoal, goalToList } from "./types.js";
 
 function resolveTaskFilePath(basePath: string): string {
   for (const name of TASK_FILE_NAMES) {
@@ -158,7 +161,7 @@ function validateDefinitions(raw: unknown[], basePath: string): TaskDefinition[]
       sessionTitle: typeof t.sessionTitle === "string" ? t.sessionTitle : undefined,
       sessionMode: parseSessionMode(t.sessionMode),
       tool: typeof t.tool === "string" ? t.tool : "opencode",
-      goal: typeof t.goal === "string" ? t.goal : undefined,
+      goal: (typeof t.goal === "string" || Array.isArray(t.goal)) ? t.goal : undefined,
     });
   }
   return tasks;
@@ -223,7 +226,7 @@ export class TaskManager {
           sessionTitle: def.sessionTitle || deriveTitle(def.repo),
           sessionMode: def.sessionMode ?? "auto",
           tool: def.tool ?? "opencode",
-          goal: def.goal ?? "Continue the roadmap in claude.md",
+          goal: normalizeGoal(def.goal),
           status: "pending",
           progress: [],
         });
@@ -231,7 +234,7 @@ export class TaskManager {
         // update goal/tool if definition changed (don't reset progress)
         const existing = this.states.get(def.repo);
         if (existing) {
-          if (def.goal) existing.goal = def.goal;
+          if (def.goal) existing.goal = normalizeGoal(def.goal);
           if (def.tool) existing.tool = def.tool;
           if (def.sessionTitle) existing.sessionTitle = def.sessionTitle;
           if (def.sessionMode) existing.sessionMode = def.sessionMode;
@@ -426,10 +429,19 @@ export function formatTaskTable(states: Map<string, TaskState> | TaskState[]): s
     lines.push(`  ${repo} ${status} ${mode} ${session} ${progressStr}`);
     lines.push(`  ${DIM}  context: ${t.sessionTitle} @ ${t.repo}${RESET}`);
 
-    // show goal on next line if active
+    // show goal as bulleted list if active or pending
     if (t.status === "active" || t.status === "pending") {
-      const goal = t.goal.length > 72 ? t.goal.slice(0, 69) + "..." : t.goal;
-      lines.push(`  ${DIM}  goal: ${goal}${RESET}`);
+      const items = goalToList(t.goal);
+      if (items.length === 1) {
+        const goal = items[0].length > 72 ? items[0].slice(0, 69) + "..." : items[0];
+        lines.push(`  ${DIM}  goal: ${goal}${RESET}`);
+      } else {
+        lines.push(`  ${DIM}  goal:${RESET}`);
+        for (const item of items) {
+          const trimmed = item.length > 70 ? item.slice(0, 67) + "..." : item;
+          lines.push(`  ${DIM}    - ${trimmed}${RESET}`);
+        }
+      }
     }
   }
 

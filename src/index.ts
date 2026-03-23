@@ -16,6 +16,7 @@ import { exec as shellExec } from "./shell.js";
 import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
+import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
 import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
@@ -302,7 +303,13 @@ async function main() {
     console.error(`  tasks: ${taskDefs.length} defined`);
     for (const t of taskManager.tasks) {
       const icon = t.status === "active" ? "~" : t.status === "completed" ? "+" : ".";
-      console.error(`    [${icon}] ${t.repo} — ${t.goal}`);
+      const goalItems = goalToList(t.goal);
+      if (goalItems.length === 1) {
+        console.error(`    [${icon}] ${t.repo} — ${goalItems[0]}`);
+      } else {
+        console.error(`    [${icon}] ${t.repo}:`);
+        for (const item of goalItems) console.error(`          - ${item}`);
+      }
     }
     console.error("");
 

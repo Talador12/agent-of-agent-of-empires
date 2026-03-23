@@ -195,7 +195,33 @@ export interface TaskDefinition {
   sessionTitle?: string; // optional AoE session title to target (default: derive from repo)
   sessionMode?: TaskSessionMode; // auto=link-or-create, existing=link-only, new=create-only
   tool?: string;         // AoE tool name (default: "opencode")
-  goal?: string;         // what to accomplish (default: read from claude.md roadmap)
+  goal?: string | string[]; // what to accomplish — string or list of directives (joined with newlines)
+}
+
+/**
+ * Normalize a goal value from TaskDefinition — always produces a single string.
+ * Arrays are joined as a bulleted list. Single strings are returned as-is.
+ * Falls back to `fallback` when undefined or empty.
+ */
+export function normalizeGoal(goal: string | string[] | undefined, fallback = "Continue the roadmap in claude.md"): string {
+  if (!goal) return fallback;
+  if (Array.isArray(goal)) {
+    const items = goal.map((s) => s.trim()).filter(Boolean);
+    if (items.length === 0) return fallback;
+    if (items.length === 1) return items[0];
+    return items.map((s) => `- ${s}`).join("\n");
+  }
+  return goal.trim() || fallback;
+}
+
+/**
+ * Expand a normalized goal string back to an array for display.
+ * If the string contains newline-separated bullets, splits them.
+ * Otherwise wraps the string in a 1-element array.
+ */
+export function goalToList(goal: string): string[] {
+  const lines = goal.split("\n").map((l) => l.replace(/^-\s*/, "").trim()).filter(Boolean);
+  return lines.length > 0 ? lines : [goal];
 }
 
 // a single progress entry (persists even after session cleanup)

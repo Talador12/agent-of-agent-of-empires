@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { deriveTitle, formatAgo, formatTaskTable } from "./task-manager.js";
+import { normalizeGoal, goalToList } from "./types.js";
 import type { TaskState } from "./types.js";
 
 // ── deriveTitle ─────────────────────────────────────────────────────────────
@@ -154,5 +155,109 @@ describe("formatTaskTable", () => {
   it("shows context line with session title and repo", () => {
     const result = formatTaskTable([makeTask({ sessionTitle: "adventure", repo: "github/adventure" })]);
     assert.ok(result.includes("context: adventure @ github/adventure"));
+  });
+
+  it("shows single-item goal on one line", () => {
+    const result = formatTaskTable([makeTask({ goal: "do the thing" })]);
+    assert.ok(result.includes("goal: do the thing"));
+  });
+
+  it("shows multi-item goal as bullet list", () => {
+    const goal = "- item one\n- item two\n- item three";
+    const result = formatTaskTable([makeTask({ goal })]);
+    assert.ok(result.includes("goal:"));
+    assert.ok(result.includes("item one"));
+    assert.ok(result.includes("item two"));
+    assert.ok(result.includes("item three"));
+  });
+});
+
+// ── normalizeGoal ────────────────────────────────────────────────────────────
+
+describe("normalizeGoal", () => {
+  it("returns fallback for undefined", () => {
+    assert.equal(normalizeGoal(undefined), "Continue the roadmap in claude.md");
+  });
+
+  it("returns custom fallback for undefined", () => {
+    assert.equal(normalizeGoal(undefined, "custom fallback"), "custom fallback");
+  });
+
+  it("returns string as-is", () => {
+    assert.equal(normalizeGoal("do the thing"), "do the thing");
+  });
+
+  it("trims whitespace from string", () => {
+    assert.equal(normalizeGoal("  trim me  "), "trim me");
+  });
+
+  it("returns fallback for empty string", () => {
+    assert.equal(normalizeGoal(""), "Continue the roadmap in claude.md");
+  });
+
+  it("returns fallback for whitespace-only string", () => {
+    assert.equal(normalizeGoal("   "), "Continue the roadmap in claude.md");
+  });
+
+  it("single-item array returns item without bullet", () => {
+    assert.equal(normalizeGoal(["do the thing"]), "do the thing");
+  });
+
+  it("multi-item array joins with bullet prefix", () => {
+    const result = normalizeGoal(["first", "second", "third"]);
+    assert.equal(result, "- first\n- second\n- third");
+  });
+
+  it("trims items and filters empty strings in array", () => {
+    const result = normalizeGoal(["  first  ", "", "  third  "]);
+    assert.equal(result, "- first\n- third");
+  });
+
+  it("returns fallback for empty array", () => {
+    assert.equal(normalizeGoal([]), "Continue the roadmap in claude.md");
+  });
+
+  it("returns fallback for array of only empty strings", () => {
+    assert.equal(normalizeGoal(["", "  "]), "Continue the roadmap in claude.md");
+  });
+});
+
+// ── goalToList ───────────────────────────────────────────────────────────────
+
+describe("goalToList", () => {
+  it("wraps plain string in 1-element array", () => {
+    assert.deepEqual(goalToList("do the thing"), ["do the thing"]);
+  });
+
+  it("splits bullet lines into array", () => {
+    const goal = "- first\n- second\n- third";
+    assert.deepEqual(goalToList(goal), ["first", "second", "third"]);
+  });
+
+  it("strips leading dash and whitespace", () => {
+    assert.deepEqual(goalToList("- item one"), ["item one"]);
+  });
+
+  it("handles mixed lines (some with dash, some without)", () => {
+    const goal = "- first\nsecond (no dash)";
+    assert.deepEqual(goalToList(goal), ["first", "second (no dash)"]);
+  });
+
+  it("filters empty lines", () => {
+    const goal = "- first\n\n- third";
+    assert.deepEqual(goalToList(goal), ["first", "third"]);
+  });
+
+  it("round-trips through normalizeGoal for multi-item", () => {
+    const original = ["step one", "step two", "step three"];
+    const normalized = normalizeGoal(original);
+    const restored = goalToList(normalized);
+    assert.deepEqual(restored, original);
+  });
+
+  it("round-trips through normalizeGoal for single item", () => {
+    const normalized = normalizeGoal(["only step"]);
+    const restored = goalToList(normalized);
+    assert.deepEqual(restored, ["only step"]);
   });
 });

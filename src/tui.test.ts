@@ -1244,8 +1244,12 @@ describe("nextSortMode", () => {
     assert.equal(nextSortMode("name"), "activity");
   });
 
-  it("cycles activity → default", () => {
-    assert.equal(nextSortMode("activity"), "default");
+  it("cycles activity → health", () => {
+    assert.equal(nextSortMode("activity"), "health");
+  });
+
+  it("cycles health → default", () => {
+    assert.equal(nextSortMode("health"), "default");
   });
 });
 
@@ -1253,7 +1257,7 @@ describe("nextSortMode", () => {
 
 describe("SORT_MODES", () => {
   it("contains all four modes", () => {
-    assert.deepStrictEqual(SORT_MODES, ["default", "status", "name", "activity"]);
+    assert.deepStrictEqual(SORT_MODES, ["default", "status", "name", "activity", "health"]);
   });
 });
 
