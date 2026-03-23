@@ -106,3 +106,51 @@ function isValidEntry(val: unknown): val is HistoryEntry {
 
 /** Default history file path (for wiring in index.ts) */
 export const TUI_HISTORY_FILE = HISTORY_FILE;
+
+/**
+ * Search history entries by keyword (case-insensitive substring match on text and tag).
+ * Returns up to `maxResults` most recent matching entries (newest last).
+ * Searches both the current and .old history file.
+ */
+export function searchHistory(
+  keyword: string,
+  maxResults = 50,
+  filePath: string = HISTORY_FILE,
+  maxAgeMs: number = 7 * 24 * 60 * 60 * 1000,
+): HistoryEntry[] {
+  const lower = keyword.toLowerCase();
+  const results: HistoryEntry[] = [];
+
+  // helper: collect matches from one file
+  const collectFrom = (fp: string) => {
+    try {
+      if (!existsSync(fp)) return;
+      const content = readFileSync(fp, "utf-8");
+      const cutoff = Date.now() - maxAgeMs;
+      for (const line of content.split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const e = JSON.parse(line);
+          if (!isValidEntry(e) || e.ts < cutoff) continue;
+          if (e.text.toLowerCase().includes(lower) || e.tag.toLowerCase().includes(lower)) {
+            results.push(e);
+          }
+        } catch { /* skip malformed */ }
+      }
+    } catch { /* ignore unreadable file */ }
+  };
+
+  // search .old first (older), then current (newer)
+  collectFrom(filePath + ".old");
+  collectFrom(filePath);
+
+  // deduplicate by ts+text, sort newest last, cap to maxResults
+  const seen = new Set<string>();
+  const deduped: HistoryEntry[] = [];
+  for (const e of results) {
+    const key = `${e.ts}:${e.text}`;
+    if (!seen.has(key)) { seen.add(key); deduped.push(e); }
+  }
+  deduped.sort((a, b) => a.ts - b.ts);
+  return deduped.slice(-maxResults);
+}

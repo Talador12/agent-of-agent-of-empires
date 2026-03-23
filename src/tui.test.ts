@@ -4,6 +4,8 @@ import {
   buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown,
   formatBroadcastSummary,
   rankSessions, TOP_SORT_MODES,
+  buildSessionStats, formatSessionStatsLines,
+  formatWatchdogTag, formatGroupFilterTag,
   formatIdleSince,
   WATCHDOG_DEFAULT_MINUTES, WATCHDOG_ALERT_COOLDOWN_MS,
   formatActivity, formatSessionCard, formatSessionSentence,
@@ -2776,6 +2778,153 @@ describe("validateAliasName", () => {
 describe("MAX_ALIASES", () => {
   it("is 50", () => {
     assert.equal(MAX_ALIASES, 50);
+  });
+});
+
+// ── buildSessionStats ─────────────────────────────────────────────────────
+
+describe("buildSessionStats", () => {
+  const sessions: DaemonSessionState[] = [
+    { id: "s1", title: "Alpha", status: "working", tool: "opencode", contextTokens: "50,000 / 200,000 tokens", lastActivity: "step 1", userActive: false, currentTask: "build" },
+    { id: "s2", title: "Bravo", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+  ];
+
+  it("returns one entry per session", () => {
+    const result = buildSessionStats(sessions, new Map(), new Map(), new Map(), new Map(), new Map(), new Map());
+    assert.equal(result.length, 2);
+  });
+
+  it("includes title and status", () => {
+    const result = buildSessionStats(sessions, new Map(), new Map(), new Map(), new Map(), new Map(), new Map());
+    assert.equal(result[0].title, "Alpha");
+    assert.equal(result[0].status, "working");
+  });
+
+  it("includes error count", () => {
+    const errors = new Map([["s1", 3]]);
+    const result = buildSessionStats(sessions, errors, new Map(), new Map(), new Map(), new Map(), new Map());
+    assert.equal(result[0].errors, 3);
+  });
+
+  it("includes context percentage when ceiling available", () => {
+    const result = buildSessionStats(sessions, new Map(), new Map(), new Map(), new Map(), new Map(), new Map());
+    assert.equal(result[0].contextPct, 25); // 50k/200k = 25%
+    assert.equal(result[1].contextPct, null);
+  });
+
+  it("includes uptime when firstSeen set", () => {
+    const now = Date.now();
+    const firstSeen = new Map([["s1", now - 5 * 60_000]]);
+    const result = buildSessionStats(sessions, new Map(), new Map(), firstSeen, new Map(), new Map(), new Map(), now);
+    assert.ok(result[0].uptimeMs !== null && result[0].uptimeMs >= 5 * 60_000 - 100);
+    assert.equal(result[1].uptimeMs, null);
+  });
+
+  it("includes idleSinceMs when lastChangeAt set", () => {
+    const now = Date.now();
+    const lastChange = new Map([["s1", now - 3 * 60_000]]);
+    const result = buildSessionStats(sessions, new Map(), new Map(), new Map(), lastChange, new Map(), new Map(), now);
+    assert.ok(result[0].idleSinceMs !== null && result[0].idleSinceMs >= 3 * 60_000 - 100);
+  });
+
+  it("includes displayName from sessionAliases", () => {
+    const aliases = new Map([["s1", "My Alpha"]]);
+    const result = buildSessionStats(sessions, new Map(), new Map(), new Map(), new Map(), new Map(), aliases);
+    assert.equal(result[0].displayName, "My Alpha");
+    assert.equal(result[1].displayName, undefined);
+  });
+
+  it("includes health score from healthScores map", () => {
+    const health = new Map([["s1", 75], ["s2", 100]]);
+    const result = buildSessionStats(sessions, new Map(), new Map(), new Map(), new Map(), health, new Map());
+    assert.equal(result[0].health, 75);
+    assert.equal(result[1].health, 100);
+  });
+
+  it("defaults health to 100 when not in map", () => {
+    const result = buildSessionStats(sessions, new Map(), new Map(), new Map(), new Map(), new Map(), new Map());
+    assert.equal(result[0].health, 100);
+  });
+});
+
+// ── formatSessionStatsLines ───────────────────────────────────────────────
+
+describe("formatSessionStatsLines", () => {
+  it("returns 'no sessions' for empty array", () => {
+    const lines = formatSessionStatsLines([]);
+    assert.ok(lines[0].includes("no sessions"));
+  });
+
+  it("returns one line per entry", () => {
+    const entries = [
+      { title: "Alpha", status: "working", health: 100, errors: 0, burnRatePerMin: null, contextPct: null, uptimeMs: null, idleSinceMs: null },
+      { title: "Bravo", status: "idle", health: 80, errors: 0, burnRatePerMin: null, contextPct: null, uptimeMs: null, idleSinceMs: null },
+    ];
+    assert.equal(formatSessionStatsLines(entries).length, 2);
+  });
+
+  it("includes session title", () => {
+    const entries = [{ title: "Alpha", status: "working", health: 95, errors: 0, burnRatePerMin: null, contextPct: null, uptimeMs: null, idleSinceMs: null }];
+    assert.ok(formatSessionStatsLines(entries)[0].includes("Alpha"));
+  });
+
+  it("includes health score glyph", () => {
+    const entries = [{ title: "A", status: "idle", health: 75, errors: 0, burnRatePerMin: null, contextPct: null, uptimeMs: null, idleSinceMs: null }];
+    assert.ok(formatSessionStatsLines(entries)[0].includes("⬡75"));
+  });
+
+  it("includes error count when > 0", () => {
+    const entries = [{ title: "A", status: "error", health: 50, errors: 3, burnRatePerMin: null, contextPct: null, uptimeMs: null, idleSinceMs: null }];
+    assert.ok(formatSessionStatsLines(entries)[0].includes("3err"));
+  });
+
+  it("includes context pct when set", () => {
+    const entries = [{ title: "A", status: "working", health: 90, errors: 0, burnRatePerMin: null, contextPct: 85, uptimeMs: null, idleSinceMs: null }];
+    assert.ok(formatSessionStatsLines(entries)[0].includes("ctx:85%"));
+  });
+
+  it("includes displayName when set", () => {
+    const entries = [{ title: "alpha-session", displayName: "My Worker", status: "idle", health: 100, errors: 0, burnRatePerMin: null, contextPct: null, uptimeMs: null, idleSinceMs: null }];
+    const line = formatSessionStatsLines(entries)[0];
+    assert.ok(line.includes("My Worker"));
+    assert.ok(line.includes("alpha-session"));
+  });
+});
+
+// ── formatWatchdogTag ─────────────────────────────────────────────────────
+
+describe("formatWatchdogTag", () => {
+  it("returns empty string when disabled", () => {
+    assert.equal(formatWatchdogTag(null), "");
+  });
+
+  it("returns formatted tag with minutes", () => {
+    const tag = formatWatchdogTag(10 * 60_000);
+    assert.ok(tag.includes("10m"));
+    assert.ok(tag.includes("⊛"));
+  });
+
+  it("rounds to nearest minute", () => {
+    const tag = formatWatchdogTag(5 * 60_000);
+    assert.ok(tag.includes("5m"));
+  });
+});
+
+// ── formatGroupFilterTag ──────────────────────────────────────────────────
+
+describe("formatGroupFilterTag", () => {
+  it("returns empty string when no filter", () => {
+    assert.equal(formatGroupFilterTag(null), "");
+  });
+
+  it("includes group name", () => {
+    const tag = formatGroupFilterTag("frontend");
+    assert.ok(tag.includes("frontend"));
+  });
+
+  it("includes GROUP_ICON", () => {
+    const tag = formatGroupFilterTag("backend");
+    assert.ok(tag.includes(GROUP_ICON));
   });
 });
 

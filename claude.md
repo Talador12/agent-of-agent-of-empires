@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.116.0
+## Version: v0.119.0
 
 ## Current Focus
 
-1752 tests across 35 files. v0.116.0 shipped: health score glyph `⬡` in compact mode tokens — AMBER when score 60–79, ROSE when <60, invisible at 100 (no clutter for healthy sessions).
+1789 tests across 35 files. v0.117–v0.119 shipped: `/stats` per-session summary, header watchdog/group-filter indicators, and `/recall` persistent history search.
 
 ## Roadmap
 
@@ -17,7 +17,6 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Smart session context budget** — dynamic context allocation based on session activity
-- **Session health pulse** — tiny per-session sparklines in the compact view
 - **Trust ladder mode** — auto-escalate observe -> dry-run -> confirm -> autopilot from stable behavior
 - **Decision confidence hint** — show low/medium/high confidence with each planned action bundle
 - **Task fan-out templates** — generate a starter task list from currently active/inactive AoE sessions
@@ -25,13 +24,25 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Natural language task intent** — infer task updates from plain lines like "task for adventure: ..."
 - **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
 - **Session tagging** — arbitrary freeform tags (multi-tag, vs single group per session)
-- **Context ceiling warning** — warn when a session is within 10% of its context limit
 - **Activity rate badge** — show messages/min rolling rate in compact mode tokens
-- **`/rename` command** — rename a session title in TUI metadata (not in AoE)
-- **`/copy` command** — copy a session's current output to clipboard
-- **Session health score** — composite 0-100 score from error rate, idle time, burn rate shown in card
-- **`/top` command** — show sessions ranked by burn rate, error count, or idle time
 - **Multi-key quick-switch** — extend quick-switch from 1-9 to 1-99 via two-digit prefix
+- **`/pin-all-errors`** — pin every session currently in error state at once
+- **Per-session goal history** — track previous goals and allow `/prev-goal` to restore
+- **`/export-stats`** — write `/stats` output as JSON to `~/.aoaoe/stats-<ts>.json`
+- **Reasoner confidence badge** — if reasoner returns a confidence signal, show in header
+- **`/mute-errors`** — mute all "! action" entries across all sessions at once
+- **Quiet hours** — configurable time windows where watchdog alerts are suppressed
+
+### What shipped in v0.117.0–v0.119.0
+
+**v0.117.0 — /stats**: `buildSessionStats()` pure function collects health, errors, burn rate, context %, uptime, idle-since for all sessions. `formatSessionStatsLines()` renders one line per session. `/stats` command wired. `getAllHealthScores()` added to TUI. `SessionStatEntry` interface exported.
+
+**v0.118.0 — Header Indicators**: Header bar now shows `⊛Nm` watchdog tag (AMBER) and `⊹group` filter tag (TEAL) when either is active. `formatWatchdogTag()` and `formatGroupFilterTag()` pure helpers exported for testing.
+
+**v0.119.0 — /recall**: `searchHistory(keyword, maxResults)` searches `~/.aoaoe/tui-history.jsonl` (and `.old`) case-insensitively across text and tag fields. Deduplicates by ts+text, sorts oldest-first, filters by age. `/recall <keyword> [N]` command wired. 37 new tests total.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/tui-history.ts`, `src/tui-history.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +37, net 1789 tests across 35 files.
 
 ### What shipped in v0.116.0
 

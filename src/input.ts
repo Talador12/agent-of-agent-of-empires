@@ -48,6 +48,8 @@ export type TopHandler = (mode: string) => void; // show ranked session view
 export type CeilingHandler = () => void; // show context ceiling for all sessions
 export type RenameHandler = (target: string, name: string) => void; // rename a session display name
 export type CopySessionHandler = (target: string | null) => void; // copy session pane output (null = current drilldown)
+export type StatsHandler = () => void; // show per-session stats summary
+export type RecallHandler = (keyword: string, maxResults: number) => void; // search history
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -122,6 +124,8 @@ export class InputReader {
   private ceilingHandler: CeilingHandler | null = null;
   private renameHandler: RenameHandler | null = null;
   private copySessionHandler: CopySessionHandler | null = null;
+  private statsHandler: StatsHandler | null = null;
+  private recallHandler: RecallHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -308,6 +312,16 @@ export class InputReader {
   // register a callback for /copy [N|name] — copy session pane output
   onCopySession(handler: CopySessionHandler): void {
     this.copySessionHandler = handler;
+  }
+
+  // register a callback for /stats — per-session stats summary
+  onStats(handler: StatsHandler): void {
+    this.statsHandler = handler;
+  }
+
+  // register a callback for /recall <keyword> [N] — search history
+  onRecall(handler: RecallHandler): void {
+    this.recallHandler = handler;
   }
 
   /** Set aliases from persisted prefs. */
@@ -565,6 +579,8 @@ ${BOLD}navigation:${RESET}
   /ceiling           show context token usage vs limit for all sessions
   /rename N|name [display] set custom display name in TUI (no display = clear)
   /copy [N|name]     copy session's current pane output to clipboard (default: current drill-down)
+  /stats             show per-session health, errors, burn rate, context %, uptime
+  /recall <keyword>  search persisted activity history (last 7 days) for keyword
   /clip [N]          copy last N activity entries to clipboard (default 20)
   /diff N            show activity since bookmark N
   /mark              bookmark current activity position
@@ -950,6 +966,31 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/recall": {
+        const recallArgs = line.slice("/recall".length).trim().split(/\s+/);
+        const keyword = recallArgs[0] ?? "";
+        if (!keyword) {
+          console.error(`${DIM}usage: /recall <keyword> [N] — search activity history (default: last 50 matches)${RESET}`);
+          break;
+        }
+        const maxN = recallArgs[1] ? parseInt(recallArgs[1], 10) : 50;
+        const limit = isNaN(maxN) || maxN < 1 ? 50 : Math.min(maxN, 500);
+        if (this.recallHandler) {
+          this.recallHandler(keyword, limit);
+        } else {
+          console.error(`${DIM}recall not available (no TUI)${RESET}`);
+        }
+        break;
+      }
+
+      case "/stats":
+        if (this.statsHandler) {
+          this.statsHandler();
+        } else {
+          console.error(`${DIM}stats not available (no TUI)${RESET}`);
+        }
+        break;
 
       case "/copy": {
         const copyArg = line.slice("/copy".length).trim() || null;

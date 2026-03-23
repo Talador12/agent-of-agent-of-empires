@@ -17,13 +17,13 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification } from "./notify.js";
 import { startHealthServer } from "./health.js";
-import { loadTuiHistory } from "./tui-history.js";
+import { loadTuiHistory, searchHistory } from "./tui-history.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState, ActionLogEntry } from "./types.js";
@@ -723,6 +723,41 @@ async function main() {
         }
       }
       if (!any) tui!.log("system", `  threshold: ${CONTEXT_BURN_THRESHOLD.toLocaleString()} tokens/min`);
+    });
+    // wire /recall — search persisted history
+    input.onRecall((keyword, maxResults) => {
+      const matches = searchHistory(keyword, maxResults);
+      if (matches.length === 0) {
+        tui!.log("system", `recall: no matches for "${keyword}" in history`);
+        return;
+      }
+      tui!.log("system", `recall: ${matches.length} match${matches.length !== 1 ? "es" : ""} for "${keyword}":`);
+      for (const e of matches) {
+        tui!.log("system", `  ${e.time}  ${e.tag}  ${e.text}`);
+      }
+    });
+    // wire /stats per-session summary
+    input.onStats(() => {
+      const sessions = tui!.getSessions();
+      if (sessions.length === 0) {
+        tui!.log("system", "no sessions — no stats available");
+        return;
+      }
+      const now = Date.now();
+      const entries = buildSessionStats(
+        sessions,
+        tui!.getSessionErrorCounts(),
+        tui!.getAllBurnRates(now),
+        tui!.getAllFirstSeen(),
+        tui!.getAllLastChangeAt(),
+        tui!.getAllHealthScores(now),
+        tui!.getAllSessionAliases(),
+        now,
+      );
+      tui!.log("system", `/stats — ${entries.length} session${entries.length !== 1 ? "s" : ""}:`);
+      for (const line of formatSessionStatsLines(entries)) {
+        tui!.log("system", line);
+      }
     });
     // wire /copy session pane output to clipboard
     input.onCopySession((target) => {

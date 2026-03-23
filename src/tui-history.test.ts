@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { appendHistoryEntry, loadTuiHistory, rotateTuiHistory } from "./tui-history.js";
+import { appendHistoryEntry, loadTuiHistory, rotateTuiHistory, searchHistory } from "./tui-history.js";
 import type { HistoryEntry } from "./tui-history.js";
 
 function makeTmpDir(): string {
@@ -261,6 +261,111 @@ describe("rotateTuiHistory", () => {
     rotateTuiHistory(filePath, 100);
     // .old should now be the current content, not the previous
     assert.equal(readFileSync(filePath + ".old", "utf-8"), "x".repeat(500));
+  });
+});
+
+// ── searchHistory ────────────────────────────────────────────────────────────
+
+describe("searchHistory", () => {
+  let tmpDir: string;
+  let histFile: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "aoaoe-search-test-"));
+    histFile = join(tmpDir, "history.jsonl");
+  });
+  afterEach(() => { rmSync(tmpDir, { recursive: true, force: true }); });
+
+  const writeEntries = (file: string, entries: HistoryEntry[]) => {
+    writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf-8");
+  };
+
+  it("returns empty array when file does not exist", () => {
+    const result = searchHistory("hello", 50, histFile);
+    assert.deepEqual(result, []);
+  });
+
+  it("finds matching entries by text", () => {
+    const now = Date.now();
+    writeEntries(histFile, [
+      { ts: now, time: "12:00:00", tag: "system", text: "hello world" },
+      { ts: now + 1, time: "12:00:01", tag: "system", text: "goodbye world" },
+    ]);
+    const result = searchHistory("hello", 50, histFile);
+    assert.equal(result.length, 1);
+    assert.ok(result[0].text.includes("hello"));
+  });
+
+  it("is case-insensitive", () => {
+    const now = Date.now();
+    writeEntries(histFile, [
+      { ts: now, time: "12:00:00", tag: "system", text: "ERROR occurred" },
+    ]);
+    const result = searchHistory("error", 50, histFile);
+    assert.equal(result.length, 1);
+  });
+
+  it("searches tag field as well", () => {
+    const now = Date.now();
+    writeEntries(histFile, [
+      { ts: now, time: "12:00:00", tag: "! action", text: "something happened" },
+    ]);
+    const result = searchHistory("action", 50, histFile);
+    assert.equal(result.length, 1);
+  });
+
+  it("caps results to maxResults", () => {
+    const now = Date.now();
+    const entries = Array.from({ length: 20 }, (_, i) => ({
+      ts: now + i, time: "12:00:00", tag: "system", text: `match entry ${i}`,
+    }));
+    writeEntries(histFile, entries);
+    const result = searchHistory("match", 5, histFile);
+    assert.ok(result.length <= 5);
+  });
+
+  it("returns entries sorted oldest first", () => {
+    const now = Date.now();
+    writeEntries(histFile, [
+      { ts: now + 1000, time: "12:00:01", tag: "system", text: "second match" },
+      { ts: now, time: "12:00:00", tag: "system", text: "first match" },
+    ]);
+    const result = searchHistory("match", 50, histFile);
+    assert.ok(result[0].ts <= result[1].ts);
+  });
+
+  it("filters out entries older than maxAgeMs", () => {
+    const now = Date.now();
+    const old = now - 10 * 24 * 60 * 60 * 1000; // 10 days ago
+    writeEntries(histFile, [
+      { ts: old, time: "00:00:00", tag: "system", text: "old match" },
+      { ts: now, time: "12:00:00", tag: "system", text: "recent match" },
+    ]);
+    const result = searchHistory("match", 50, histFile, 7 * 24 * 60 * 60 * 1000);
+    assert.equal(result.length, 1);
+    assert.ok(result[0].text.includes("recent"));
+  });
+
+  it("searches .old file too", () => {
+    const now = Date.now();
+    writeEntries(histFile + ".old", [
+      { ts: now, time: "12:00:00", tag: "system", text: "old file match" },
+    ]);
+    writeEntries(histFile, [
+      { ts: now + 1, time: "12:00:01", tag: "system", text: "current file match" },
+    ]);
+    const result = searchHistory("match", 50, histFile);
+    assert.ok(result.length >= 2);
+  });
+
+  it("deduplicates identical ts+text entries", () => {
+    const now = Date.now();
+    const entry = { ts: now, time: "12:00:00", tag: "system", text: "duplicate match" };
+    // write same entry to both files
+    writeEntries(histFile + ".old", [entry]);
+    writeEntries(histFile, [entry]);
+    const result = searchHistory("match", 50, histFile);
+    assert.equal(result.length, 1);
   });
 });
 

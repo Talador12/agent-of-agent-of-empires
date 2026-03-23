@@ -1237,3 +1237,52 @@ describe("onBurnRate", () => {
     assert.equal(calls, 10);
   });
 });
+
+describe("onStats", () => {
+  it("registers and calls stats handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onStats(() => { called = true; });
+    reader["statsHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["statsHandler"]?.(); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onStats(() => { calls++; });
+    reader.onStats(() => { calls += 10; });
+    reader["statsHandler"]!();
+    assert.equal(calls, 10);
+  });
+});
+
+describe("onRecall", () => {
+  it("registers and calls recall handler with keyword and max", () => {
+    const reader = new InputReader();
+    let kw = "", mx = 0;
+    reader.onRecall((k, m) => { kw = k; mx = m; });
+    reader["recallHandler"]!("error", 25);
+    assert.equal(kw, "error");
+    assert.equal(mx, 25);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["recallHandler"]?.("kw", 50); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onRecall(() => { calls++; });
+    reader.onRecall(() => { calls += 10; });
+    reader["recallHandler"]!("kw", 50);
+    assert.equal(calls, 10);
+  });
+});

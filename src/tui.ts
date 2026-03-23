@@ -194,6 +194,21 @@ function computeCompactRowCount(sessions: DaemonSessionState[], maxWidth: number
   return Math.max(1, formatCompactRows(sessions, maxWidth).length);
 }
 
+// ── Header status tag helpers (pure, exported for testing) ──────────────────
+
+/** Format watchdog status tag for the header (empty string when disabled). */
+export function formatWatchdogTag(thresholdMs: number | null): string {
+  if (thresholdMs === null) return "";
+  const mins = Math.round(thresholdMs / 60_000);
+  return `⊛${mins}m`;
+}
+
+/** Format group filter tag for the header (empty string when no filter). */
+export function formatGroupFilterTag(groupFilter: string | null): string {
+  if (!groupFilter) return "";
+  return `${GROUP_ICON}${groupFilter}`;
+}
+
 // ── Status rendering ────────────────────────────────────────────────────────
 
 const STATUS_DOT: Record<string, string> = {
@@ -331,6 +346,72 @@ export function formatIdleSince(ms: number, thresholdMs = 2 * 60_000): string {
   return `idle ${formatUptime(ms)}`;
 }
 
+// ── Session stats ─────────────────────────────────────────────────────────────
+
+export interface SessionStatEntry {
+  title: string;
+  displayName?: string;
+  status: string;
+  health: number;
+  errors: number;
+  burnRatePerMin: number | null;
+  contextPct: number | null;    // 0–100 or null if no ceiling info
+  uptimeMs: number | null;
+  idleSinceMs: number | null;
+}
+
+/**
+ * Build stats entries for all sessions — pure, testable, no side effects.
+ */
+export function buildSessionStats(
+  sessions: readonly DaemonSessionState[],
+  errorCounts: ReadonlyMap<string, number>,
+  burnRates: ReadonlyMap<string, number | null>,
+  firstSeen: ReadonlyMap<string, number>,
+  lastChangeAt: ReadonlyMap<string, number>,
+  healthScores: ReadonlyMap<string, number>,
+  sessionAliases: ReadonlyMap<string, string>,
+  now?: number,
+): SessionStatEntry[] {
+  const nowMs = now ?? Date.now();
+  return sessions.map((s) => {
+    const ceiling = parseContextCeiling(s.contextTokens);
+    const ctxPct = ceiling ? Math.round((ceiling.current / ceiling.max) * 100) : null;
+    const fs = firstSeen.get(s.id);
+    const lc = lastChangeAt.get(s.id);
+    return {
+      title: s.title,
+      displayName: sessionAliases.get(s.id),
+      status: s.status,
+      health: healthScores.get(s.id) ?? 100,
+      errors: errorCounts.get(s.id) ?? 0,
+      burnRatePerMin: burnRates.get(s.id) ?? null,
+      contextPct: ctxPct,
+      uptimeMs: fs !== undefined ? nowMs - fs : null,
+      idleSinceMs: lc !== undefined ? nowMs - lc : null,
+    };
+  });
+}
+
+/**
+ * Format session stats entries as a multi-line activity-log-friendly string.
+ * Each line is one session summary.
+ */
+export function formatSessionStatsLines(entries: SessionStatEntry[]): string[] {
+  if (entries.length === 0) return ["  no sessions"];
+  return entries.map((e) => {
+    const label = e.displayName ? `${e.displayName} (${e.title})` : e.title;
+    const healthStr = `⬡${e.health}`;
+    const errStr = e.errors > 0 ? ` ${e.errors}err` : "";
+    const burnStr = e.burnRatePerMin !== null && e.burnRatePerMin > 0
+      ? ` ${Math.round(e.burnRatePerMin / 100) * 100}tok/min` : "";
+    const ctxStr = e.contextPct !== null ? ` ctx:${e.contextPct}%` : "";
+    const upStr = e.uptimeMs !== null ? ` up:${formatUptime(e.uptimeMs)}` : "";
+    const idleStr = e.idleSinceMs !== null ? ` ${formatIdleSince(e.idleSinceMs)}` : "";
+    return `  ${label} [${e.status}] ${healthStr}${errStr}${burnStr}${ctxStr}${upStr}${idleStr}`;
+  });
+}
+
 // ── Session rename ────────────────────────────────────────────────────────────
 
 /** Max visible length for a custom session display name. */
@@ -360,7 +441,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
   "/jump", "/marks", "/search", "/alias", "/insist", "/task", "/tasks",
-  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy",
+  "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy", "/stats", "/recall",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -1047,6 +1128,28 @@ export class TUI {
     return result;
   }
 
+  /** Compute health scores for all sessions and return as a map (id → score). */
+  getAllHealthScores(now?: number): Map<string, number> {
+    const nowMs = now ?? Date.now();
+    const result = new Map<string, number>();
+    for (const s of this.sessions) {
+      const ceiling = parseContextCeiling(s.contextTokens);
+      const cf = ceiling ? ceiling.current / ceiling.max : null;
+      const bh = this.sessionContextHistory.get(s.id);
+      const br = bh ? computeContextBurnRate(bh, nowMs) : null;
+      const lc = this.lastChangeAt.get(s.id);
+      const idle = lc !== undefined ? nowMs - lc : null;
+      result.set(s.id, computeHealthScore({
+        errorCount: this.sessionErrorCounts.get(s.id) ?? 0,
+        burnRatePerMin: br,
+        contextFraction: cf,
+        idleMs: idle,
+        watchdogThresholdMs: this.watchdogThresholdMs,
+      }));
+    }
+    return result;
+  }
+
   /** Return all sessions with their current burn rates (tokens/min, null if insufficient data). */
   getAllBurnRates(now?: number): Map<string, number | null> {
     const result = new Map<string, number | null>();
@@ -1700,7 +1803,14 @@ export class TUI {
       // reasoner badge
       const reasonerTag = this.reasonerName ? `  ${SLATE}│${RESET}  ${TEAL}${this.reasonerName}${RESET}` : "";
 
-      line = ` ${INDIGO}${BOLD}aoaoe${RESET} ${SLATE}${this.version}${RESET}  ${SLATE}│${RESET}  #${this.pollCount}  ${SLATE}│${RESET}  ${sessCount}  ${SLATE}│${RESET}  ${phaseText}${activeTag}${countdownTag}${reasonerTag}`;
+      // watchdog indicator — show threshold when active
+      const wdMin = this.watchdogThresholdMs !== null ? Math.round(this.watchdogThresholdMs / 60_000) : null;
+      const watchdogTag = wdMin !== null ? `  ${SLATE}│${RESET}  ${AMBER}⊛${wdMin}m${RESET}` : "";
+
+      // group filter indicator
+      const groupFilterTag = this.groupFilter ? `  ${SLATE}│${RESET}  ${TEAL}${GROUP_ICON}${this.groupFilter}${RESET}` : "";
+
+      line = ` ${INDIGO}${BOLD}aoaoe${RESET} ${SLATE}${this.version}${RESET}  ${SLATE}│${RESET}  #${this.pollCount}  ${SLATE}│${RESET}  ${sessCount}  ${SLATE}│${RESET}  ${phaseText}${activeTag}${countdownTag}${watchdogTag}${groupFilterTag}${reasonerTag}`;
     }
     process.stderr.write(
       SAVE_CURSOR +
