@@ -4,7 +4,7 @@
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml"><img src="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="https://www.npmjs.com/package/aoaoe"><img src="https://img.shields.io/npm/v/aoaoe" alt="npm version"></a>
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/releases"><img src="https://img.shields.io/github/v/release/Talador12/agent-of-agent-of-empires" alt="GitHub release"></a>
-    <img src="https://img.shields.io/badge/tests-2005-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/tests-2146-brightgreen" alt="tests">
     <img src="https://img.shields.io/badge/node-%3E%3D20-blue" alt="Node.js >= 20">
     <img src="https://img.shields.io/badge/runtime%20deps-0-brightgreen" alt="zero runtime dependencies">
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
@@ -14,6 +14,8 @@
 An autonomous supervisor for [Agent of Empires](https://github.com/njbrake/agent-of-empires) sessions. Uses [OpenCode](https://github.com/anomalyco/opencode) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as the reasoning engine.
 
 **This project is a companion to [Agent of Empires (AoE)](https://github.com/njbrake/agent-of-empires) by [Nate Brake](https://x.com/natebrake).** AoE is the foundation -- it manages multiple AI coding agents in tmux sessions with git worktrees. aoaoe adds an autonomous supervisor layer on top. You need AoE running first; aoaoe plugs into it.
+
+> **Self-improvement mode**: `make self` starts aoaoe supervising its own AoE session — reading the roadmap from `aoaoe.tasks.json`, implementing features, committing, and pushing. It updates itself in real time.
 
 ## What is this?
 
@@ -102,6 +104,18 @@ The real deal. Polls, reasons, and executes -- sending keystrokes to agents, res
 | `--dry-run` | Yes | Yes | No |
 | `--confirm` | Yes | Yes | You approve each action |
 | `aoaoe` | Yes | Yes | Yes |
+
+## Self-improvement
+
+aoaoe can supervise its own development. With an `aoaoe` AoE session open on this repo:
+
+```bash
+make setup   # install deps, build, create AoE session if missing (one-time)
+make self    # aoaoe supervises itself: reads roadmap, implements, commits, pushes
+make self-dry  # watch-only — see what it would do without letting it act
+```
+
+The goal in `aoaoe.tasks.json` drives the session: pick backlog items, implement with tests, commit atomically, push, tag releases. The daemon watches its own tmux pane and nudges the agent when it stalls or needs direction.
 
 ## Quick Start
 
@@ -248,7 +262,7 @@ The daemon runs an interactive TUI with a rich command set. These commands are a
 | `1`-`9` | Quick-switch: jump to session N |
 | `/view [N\|name]` | Drill into a session's live output (default: 1) |
 | `/back` | Return to overview from drill-down |
-| `/sort [mode]` | Sort sessions: `status`, `name`, `activity`, `default` (no arg = cycle) |
+| `/sort [mode]` | Sort sessions: `status`, `name`, `activity`, `health`, `default` (no arg = cycle) |
 | `/compact` | Toggle compact mode (dense session panel) |
 | `/pin [N\|name]` | Pin/unpin a session to the top |
 | `/bell` | Toggle terminal bell on errors/completions |

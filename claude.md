@@ -9,9 +9,23 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 
 ## Current Focus
 
-2146 tests across 35 files. v0.157–v0.160 shipped: note history tracking, `/label` cards, draining sessions in reasoner prompt, `/sessions` rich table.
+UI overhaul in progress. Core issues identified from real usage with `make self`:
 
-## Roadmap
+### UI Overhaul — Active Work
+
+**Bug 1 — Output overwrites input**: Daemon status/thinking output is written at the current cursor position, which clobbers the `> you:` input line while typing. All output must go above the input line at all times — the input row must be the final owned row, never overwritten by daemon output.
+
+**Bug 2 — Rate limiting from AI Gateway**: aoaoe reasons on every poll tick (default 15s). Decoupled observation polling (fast, cheap tmux reads) from reasoning (expensive LLM calls). Observation polling should run frequently; reasoning only when meaningful change is detected or a minimum interval has elapsed. Default reasoning interval should be 60s+, not 15s.
+
+**Bug 3 — Encoded ANSI sequences in input**: Reasoner output contains raw ANSI escape sequences (e.g. `\x1b[12;24D`) that are being sent directly to tmux via send-keys. Must strip all ANSI before injecting text into agent panes.
+
+**Redesign — Input box**: Replace the bare `> you:` prompt with a styled box (light grey border, blue accent bar) matching OpenCode's chat UI aesthetic. Reasoner responses received while user is typing must be queued and displayed above the input box at the timestamp they were received — never injected into the input field. Pending messages (queued but not yet picked up by the reasoner) must be displayed immediately and persistently in the input area — not only when the reasoner is actively cycling. If the reasoner is idle, paused, or between cycles, queued messages must still be visible so the user knows their input is registered.
+
+**Redesign — Session panel as table**: Replace the current card layout with a structured `name | task | status | action` table. Strip OpenCode helper text (ctrl+t, ctrl+p lines) from the name/status fields — those are UI chrome, not state. Status should reflect what the agent is actually doing (current task, progress, last meaningful output), not terminal UI hints.
+
+**Add — Dual progress indicators**: Two distinct bars serving different purposes:
+- *Reasoning animation*: While an LLM call is in flight, show a sweeping animation — a row of grey block characters with a blue-tip segment bouncing back and forth (matching OpenCode's in-progress aesthetic). Shown in the separator or header, disappears when reasoning completes.
+- *Poll countdown bar*: When idle (between cycles), show a static progress bar of grey blocks filling left-to-right indicating time elapsed toward the next observation/reasoning poll. Gives the user a sense of when the next cycle will fire without needing to read a number.
 
 ### Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously

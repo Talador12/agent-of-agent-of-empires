@@ -4,12 +4,13 @@
     "sessionTitle": "agent-of-agent-of-empires",
     "sessionMode": "existing",
     "tool": "opencode",
-    "goal": [
-      "Keep implementing and iterating improvements on the roadmap in claude.md",
-      "Pick the next batch of features from the Ideas Backlog, implement them with full tests",
-      "Commit and push after each version — small, self-contained improvements only",
-      "Add new ideas you come up with to the roadmap backlog",
-      "Cut a release tag when there are meaningful updates"
-    ]
+    "goal": "- Keep implementing and iterating improvements on the roadmap in claude.md\n- Pick the next batch of features from the Ideas Backlog, implement them with full tests\n- Commit and push after each version — small, self-contained improvements only\n- Add new ideas you come up with to the roadmap backlog\n- Cut a release tag when there are meaningful updates"
+  },
+  {
+    "repo": "/Users/kadler/Documents/repos",
+    "sessionTitle": "aoaoe",
+    "sessionMode": "existing",
+    "tool": "opencode",
+    "goal": "Continue the roadmap in claude.md"
   }
 ]
