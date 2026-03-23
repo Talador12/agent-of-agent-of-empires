@@ -525,6 +525,99 @@ export function formatHealthSparkline(history: readonly HealthSnapshot[], now?: 
   }).join("");
 }
 
+// ── Health trend chart (pure, exported for testing) ───────────────────────────
+
+/**
+ * Format health score history as a multi-line ASCII bar chart.
+ * Returns an array of lines suitable for logging to the activity area.
+ * Each column is one snapshot, ordered oldest→newest.
+ * Bar height 0–8 rows. Color: LIME/AMBER/ROSE.
+ */
+export function formatHealthTrendChart(
+  history: readonly HealthSnapshot[],
+  title: string,
+  height = 6,
+): string[] {
+  if (history.length === 0) return [`  ${title}: no health history`];
+  const MAX_COLS = 40;
+  const samples = history.slice(-MAX_COLS);
+  const lines: string[] = [];
+
+  // header
+  const minScore = Math.min(...samples.map((h) => h.score));
+  const maxScore = Math.max(...samples.map((h) => h.score));
+  lines.push(`  ${DIM}${title}${RESET} health trend (${samples.length} samples, ${minScore}–${maxScore})`);
+
+  // chart rows (top = high score, bottom = low score)
+  for (let row = height - 1; row >= 0; row--) {
+    const threshold = Math.round(((row + 1) / height) * 100);
+    const prevThreshold = Math.round((row / height) * 100);
+    const yLabel = row === height - 1 ? "100" : row === 0 ? "  0" : `   `;
+    const bar = samples.map((h) => {
+      if (h.score >= threshold) {
+        const color = h.score >= HEALTH_GOOD ? LIME : h.score >= HEALTH_WARN ? AMBER : ROSE;
+        return `${color}█${RESET}`;
+      }
+      if (h.score >= prevThreshold) {
+        const color = h.score >= HEALTH_GOOD ? LIME : h.score >= HEALTH_WARN ? AMBER : ROSE;
+        return `${color}▄${RESET}`;
+      }
+      return `${DIM}·${RESET}`;
+    }).join("");
+    lines.push(`  ${DIM}${yLabel}${RESET}│${bar}`);
+  }
+  lines.push(`     └${"─".repeat(samples.length)}`);
+
+  return lines;
+}
+
+// ── Session flap detection (pure, exported for testing) ────────────────────────
+
+/** Status change entry for flap detection. */
+export interface StatusChange {
+  status: string;
+  ts: number;
+}
+
+/** Max status change entries stored per session. */
+export const MAX_STATUS_HISTORY = 30;
+
+/** Flap detection window: check for oscillation in the last N minutes. */
+export const FLAP_WINDOW_MS = 10 * 60_000;
+
+/** Min status changes in window to be considered flapping. */
+export const FLAP_THRESHOLD = 5;
+
+/**
+ * Detect if a session is "flapping" — rapidly oscillating between statuses.
+ * Returns true when there are >= FLAP_THRESHOLD status changes in FLAP_WINDOW_MS.
+ */
+export function isFlapping(
+  changes: readonly StatusChange[],
+  now?: number,
+  windowMs = FLAP_WINDOW_MS,
+  threshold = FLAP_THRESHOLD,
+): boolean {
+  const cutoff = (now ?? Date.now()) - windowMs;
+  const recent = changes.filter((c) => c.ts >= cutoff);
+  return recent.length >= threshold;
+}
+
+// ── Alert mute patterns (pure, exported for testing) ──────────────────────────
+
+/**
+ * Check if an alert text matches any suppressed pattern (case-insensitive substring).
+ * Returns true when the alert should be hidden.
+ */
+export function isAlertMuted(text: string, patterns: ReadonlySet<string>): boolean {
+  if (patterns.size === 0) return false;
+  const lower = text.toLowerCase();
+  for (const p of patterns) {
+    if (lower.includes(p.toLowerCase())) return true;
+  }
+  return false;
+}
+
 // ── Cost summary (pure, exported for testing) ────────────────────────────────
 
 /**
@@ -918,7 +1011,8 @@ export const BUILTIN_COMMANDS = new Set([
   "/group", "/groups", "/group-filter", "/burn-rate", "/snapshot", "/broadcast", "/watchdog", "/top", "/ceiling", "/rename", "/copy", "/stats", "/recall", "/pin-all-errors", "/export-stats",
   "/mute-errors", "/prev-goal", "/tag", "/tags", "/tag-filter", "/find", "/reset-health", "/timeline", "/color", "/clear-history",
   "/duplicate", "/color-all", "/quiet-hours", "/quiet-status", "/history-stats", "/cost-summary", "/session-report", "/alert-log",
-  "/budget", "/pause-all", "/resume-all",
+  "/budget", "/budgets", "/budget-status", "/pause-all", "/resume-all",
+  "/health-trend", "/alert-mute",
 ]);
 
 /** Resolve a slash command through the alias map. Returns the expanded command or the original. */
@@ -1268,6 +1362,10 @@ export class TUI {
   private sessionBudgets = new Map<string, number>(); // session ID → USD budget
   private globalBudget: number | null = null;          // global fallback budget in USD
   private budgetAlerted = new Map<string, number>();   // session ID → epoch ms of last budget alert
+  private sessionStatusHistory = new Map<string, StatusChange[]>(); // session ID → status change log
+  private prevSessionStatus = new Map<string, string>(); // session ID → last known status (for change detection)
+  private flapAlerted = new Map<string, number>(); // session ID → epoch ms of last flap alert
+  private alertMutePatterns = new Set<string>(); // substrings to hide from /alert-log display
 
   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
@@ -1818,9 +1916,43 @@ export class TUI {
     return this.sessionHealthHistory.get(id) ?? [];
   }
 
-  /** Return all alert log entries (last 100 "status" tag entries). */
-  getAlertLog(): readonly ActivityEntry[] {
-    return this.alertLog;
+  /** Return all alert log entries (last 100 "status" tag entries), filtered by mute patterns. */
+  getAlertLog(includeAll = false): readonly ActivityEntry[] {
+    if (includeAll || this.alertMutePatterns.size === 0) return this.alertLog;
+    return this.alertLog.filter((e) => !isAlertMuted(e.text, this.alertMutePatterns));
+  }
+
+  /** Return status change history for a session. */
+  getSessionStatusHistory(id: string): readonly StatusChange[] {
+    return this.sessionStatusHistory.get(id) ?? [];
+  }
+
+  /** Check if a session is currently flapping. */
+  isSessionFlapping(id: string, now?: number): boolean {
+    const hist = this.sessionStatusHistory.get(id);
+    return hist ? isFlapping(hist, now) : false;
+  }
+
+  // ── Alert mute patterns ──────────────────────────────────────────────────
+
+  /** Add a pattern to suppress from alert log display. */
+  addAlertMutePattern(pattern: string): void {
+    this.alertMutePatterns.add(pattern.toLowerCase().trim());
+  }
+
+  /** Remove a pattern from alert mute list. Returns true if it was present. */
+  removeAlertMutePattern(pattern: string): boolean {
+    return this.alertMutePatterns.delete(pattern.toLowerCase().trim());
+  }
+
+  /** Clear all alert mute patterns. */
+  clearAlertMutePatterns(): void {
+    this.alertMutePatterns.clear();
+  }
+
+  /** Return all alert mute patterns (for display/persistence). */
+  getAlertMutePatterns(): ReadonlySet<string> {
+    return this.alertMutePatterns;
   }
 
   /** Get the latest cost string for a session (or undefined). */
@@ -2162,6 +2294,23 @@ export class TUI {
        const quietNow = this.isCurrentlyQuiet(new Date(now));
        for (const s of opts.sessions) {
         if (!this.sessionFirstSeen.has(s.id)) this.sessionFirstSeen.set(s.id, now);
+        // track status changes for flap detection
+        const prevStatus = this.prevSessionStatus.get(s.id);
+        if (prevStatus !== undefined && prevStatus !== s.status) {
+          const statusHist = this.sessionStatusHistory.get(s.id) ?? [];
+          statusHist.push({ status: s.status, ts: now });
+          if (statusHist.length > MAX_STATUS_HISTORY) statusHist.shift();
+          this.sessionStatusHistory.set(s.id, statusHist);
+          // check for flapping
+          if (isFlapping(statusHist, now) && !quietNow) {
+            const lastFlapAlert = this.flapAlerted.get(s.id) ?? 0;
+            if (now - lastFlapAlert >= 5 * 60_000) {
+              this.flapAlerted.set(s.id, now);
+              this.log("status", `flap: ${s.title} is oscillating rapidly (${statusHist.filter((c) => c.ts >= now - FLAP_WINDOW_MS).length} status changes in ${Math.round(FLAP_WINDOW_MS / 60_000)}m)`, s.id);
+            }
+          }
+        }
+        this.prevSessionStatus.set(s.id, s.status);
         const prev = this.prevLastActivity.get(s.id);
         if (s.lastActivity !== undefined && s.lastActivity !== prev) {
           this.lastChangeAt.set(s.id, now);

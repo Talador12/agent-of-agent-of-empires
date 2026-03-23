@@ -1539,6 +1539,52 @@ describe("onHistoryStats", () => {
   it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["historyStatsHandler"]?.()); });
 });
 
+describe("onHealthTrend", () => {
+  it("calls handler with target and height", () => {
+    const r = new InputReader(); let tgt = "", ht = 0;
+    r.onHealthTrend((t, h) => { tgt = t; ht = h; });
+    r["healthTrendHandler"]!("alpha", 6);
+    assert.equal(tgt, "alpha"); assert.equal(ht, 6);
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["healthTrendHandler"]?.("x", 6)); });
+});
+
+describe("onAlertMute", () => {
+  it("calls handler with pattern", () => {
+    const r = new InputReader(); let pat: string | null = "unset";
+    r.onAlertMute((p) => { pat = p; });
+    r["alertMuteHandler"]!("watchdog");
+    assert.equal(pat, "watchdog");
+  });
+  it("calls handler with null for clear", () => {
+    const r = new InputReader(); let pat: string | null = "unset";
+    r.onAlertMute((p) => { pat = p; });
+    r["alertMuteHandler"]!(null);
+    assert.equal(pat, null);
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["alertMuteHandler"]?.(null)); });
+});
+
+describe("onBudgetsList", () => {
+  it("calls handler", () => {
+    const r = new InputReader(); let called = false;
+    r.onBudgetsList(() => { called = true; });
+    r["budgetsListHandler"]!();
+    assert.equal(called, true);
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["budgetsListHandler"]?.()); });
+});
+
+describe("onBudgetStatus", () => {
+  it("calls handler", () => {
+    const r = new InputReader(); let called = false;
+    r.onBudgetStatus(() => { called = true; });
+    r["budgetStatusHandler"]!();
+    assert.equal(called, true);
+  });
+  it("is safe without handler", () => { assert.doesNotThrow(() => new InputReader()["budgetStatusHandler"]?.()); });
+});
+
 describe("onBudget", () => {
   it("calls handler with target and budget", () => {
     const r = new InputReader(); let tgt: string | null = "unset"; let bud: number | null = -1;

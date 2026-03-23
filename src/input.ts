@@ -72,6 +72,10 @@ export type QuietStatusHandler = () => void; // show quiet hours status
 export type AlertLogHandler = (count: number) => void; // show recent auto-generated alerts
 export type BudgetHandler = (target: string | null, budgetUSD: number | null) => void; // set cost budget
 export type BulkControlHandler = (action: "pause" | "resume") => void; // pause-all / resume-all
+export type HealthTrendHandler = (target: string, height: number) => void; // show health trend chart
+export type AlertMuteHandler = (pattern: string | null) => void; // add/clear alert mute pattern
+export type BudgetsListHandler = () => void; // list all active budgets
+export type BudgetStatusHandler = () => void; // show which sessions are over/under budget
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -170,6 +174,10 @@ export class InputReader {
   private alertLogHandler: AlertLogHandler | null = null;
   private budgetHandler: BudgetHandler | null = null;
   private bulkControlHandler: BulkControlHandler | null = null;
+  private healthTrendHandler: HealthTrendHandler | null = null;
+  private alertMuteHandler: AlertMuteHandler | null = null;
+  private budgetsListHandler: BudgetsListHandler | null = null;
+  private budgetStatusHandler: BudgetStatusHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -438,6 +446,10 @@ export class InputReader {
   onAlertLog(handler: AlertLogHandler): void { this.alertLogHandler = handler; }
   onBudget(handler: BudgetHandler): void { this.budgetHandler = handler; }
   onBulkControl(handler: BulkControlHandler): void { this.bulkControlHandler = handler; }
+  onHealthTrend(handler: HealthTrendHandler): void { this.healthTrendHandler = handler; }
+  onAlertMute(handler: AlertMuteHandler): void { this.alertMuteHandler = handler; }
+  onBudgetsList(handler: BudgetsListHandler): void { this.budgetsListHandler = handler; }
+  onBudgetStatus(handler: BudgetStatusHandler): void { this.budgetStatusHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -722,8 +734,12 @@ ${BOLD}navigation:${RESET}
   /budget [N] [$]    set cost budget: /budget 1 2.50 (session), /budget 2.50 (global), /budget clear
   /pause-all         send interrupt to all sessions
   /resume-all        send resume to all sessions
-  /alert-log [N]     show last N auto-generated alerts (burn-rate/watchdog/ceiling; default 20)
-  /history-stats     show aggregate statistics from persisted activity history
+   /alert-log [N]     show last N auto-generated alerts (burn-rate/watchdog/ceiling; default 20)
+   /alert-mute [pat]  suppress alerts containing pattern; no arg = list; clear = remove all
+   /health-trend N    show ASCII health score chart for session N [height]
+   /budgets           list all active cost budgets
+   /budget-status     show which sessions are over or under budget
+   /history-stats     show aggregate statistics from persisted activity history
   /cost-summary      show total estimated spend across all sessions
   /session-report N  generate full markdown report for a session → ~/.aoaoe/report-<name>-<ts>.md
   /clip [N]          copy last N activity entries to clipboard (default 20)
@@ -1305,6 +1321,35 @@ ${BOLD}other:${RESET}
       case "/resume-all":
         if (this.bulkControlHandler) this.bulkControlHandler("resume");
         else console.error(`${DIM}resume-all not available${RESET}`);
+        break;
+
+      case "/health-trend": {
+        const htArgs = line.slice("/health-trend".length).trim().split(/\s+/).filter(Boolean);
+        const htTarget = htArgs[0] ?? "";
+        const htHeight = htArgs[1] ? parseInt(htArgs[1], 10) : 6;
+        if (!htTarget) { console.error(`${DIM}usage: /health-trend <N|name> [height]${RESET}`); break; }
+        if (this.healthTrendHandler) this.healthTrendHandler(htTarget, isNaN(htHeight) || htHeight < 2 ? 6 : Math.min(htHeight, 20));
+        else console.error(`${DIM}health-trend not available${RESET}`);
+        break;
+      }
+
+      case "/alert-mute": {
+        const amArg = line.slice("/alert-mute".length).trim();
+        if (this.alertMuteHandler) {
+          if (amArg.toLowerCase() === "clear") this.alertMuteHandler(null);
+          else this.alertMuteHandler(amArg || null);
+        } else console.error(`${DIM}alert-mute not available${RESET}`);
+        break;
+      }
+
+      case "/budgets":
+        if (this.budgetsListHandler) this.budgetsListHandler();
+        else console.error(`${DIM}budgets not available${RESET}`);
+        break;
+
+      case "/budget-status":
+        if (this.budgetStatusHandler) this.budgetStatusHandler();
+        else console.error(`${DIM}budget-status not available${RESET}`);
         break;
 
       case "/quiet-status":

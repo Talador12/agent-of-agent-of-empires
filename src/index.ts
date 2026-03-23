@@ -17,7 +17,7 @@ import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks } from "./task-manager.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
@@ -1005,6 +1005,75 @@ async function main() {
         count++;
       }
       tui!.log("system", `${action}-all: sent to ${count} session${count !== 1 ? "s" : ""}`);
+    });
+    // wire /health-trend
+    input.onHealthTrend((target, height) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const sessions = tui!.getSessions();
+      const session = num !== undefined
+        ? sessions[num - 1]
+        : sessions.find((s) => s.title.toLowerCase() === target.toLowerCase() || s.id.startsWith(target));
+      if (!session) { tui!.log("system", `session not found: ${target}`); return; }
+      const hist = tui!.getSessionHealthHistory(session.id);
+      const lines = formatHealthTrendChart(hist, session.title, height);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /alert-mute
+    input.onAlertMute((pattern) => {
+      if (pattern === null) {
+        // null = "clear" keyword
+        tui!.clearAlertMutePatterns();
+        tui!.log("system", "alert-mute: all patterns cleared");
+        return;
+      }
+      if (!pattern) {
+        // empty = list patterns
+        const pats = tui!.getAlertMutePatterns();
+        if (pats.size === 0) {
+          tui!.log("system", "alert-mute: no patterns set — use /alert-mute <text> to suppress");
+        } else {
+          tui!.log("system", `alert-mute: ${pats.size} pattern${pats.size !== 1 ? "s" : ""}:`);
+          for (const p of pats) tui!.log("system", `  "${p}"`);
+        }
+        return;
+      }
+      tui!.addAlertMutePattern(pattern);
+      tui!.log("system", `alert-mute: added "${pattern}" — matching alerts hidden from /alert-log`);
+    });
+    // wire /budgets list
+    input.onBudgetsList(() => {
+      const global = tui!.getGlobalBudget();
+      const perSession = tui!.getAllSessionBudgets();
+      if (global === null && perSession.size === 0) {
+        tui!.log("system", "budgets: none set — use /budget $N (global) or /budget <N> $N (per-session)");
+        return;
+      }
+      if (global !== null) tui!.log("system", `  global: $${global.toFixed(2)}`);
+      const sessions = tui!.getSessions();
+      for (const [id, budget] of perSession) {
+        const s = sessions.find((s) => s.id === id);
+        const label = s?.title ?? id.slice(0, 8);
+        tui!.log("system", `  ${label}: $${budget.toFixed(2)}`);
+      }
+    });
+    // wire /budget-status
+    input.onBudgetStatus(() => {
+      const sessions = tui!.getSessions();
+      const costs = tui!.getAllSessionCosts();
+      const global = tui!.getGlobalBudget();
+      const perSession = tui!.getAllSessionBudgets();
+      let shown = 0;
+      for (const s of sessions) {
+        const budget = perSession.get(s.id) ?? global;
+        const costStr = costs.get(s.id);
+        if (budget === null) continue;
+        const over = isOverBudget(costStr, budget);
+        const costLabel = costStr ?? "(no data)";
+        const status = over ? `OVER ($${budget.toFixed(2)} budget)` : `ok ($${budget.toFixed(2)} budget)`;
+        tui!.log("system", `  ${s.title}: ${costLabel} — ${status}`);
+        shown++;
+      }
+      if (shown === 0) tui!.log("system", "budget-status: no sessions with budgets configured");
     });
     // wire /quiet-status
     input.onQuietStatus(() => {

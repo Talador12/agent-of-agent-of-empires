@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.149.0
+## Version: v0.153.0
 
 ## Current Focus
 
-2061 tests across 35 files. v0.147–v0.149 shipped: session age badge in cards, per-session cost budgets with alerts, and `/pause-all`/`/resume-all` bulk control.
+2097 tests across 35 files. v0.150–v0.153 shipped: `/health-trend` ASCII chart, `/alert-mute` pattern suppression, `/budgets`+`/budget-status`, and session flap detection.
 
 ## Roadmap
 
@@ -24,12 +24,26 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 - **Natural language task intent** — infer task updates from plain lines like "task for adventure: ..."
 - **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
 - **Reasoner confidence badge** — if reasoner returns a confidence signal, show in header
-- **`/health-trend`** — show health score over time per session as ASCII chart
-- **Session age in cards** — show `age:Nh` badge in normal session cards alongside other indicators
-- **`/alert-mute <pattern>`** — suppress specific alert patterns from the alert log
-- **`/budget <N>`** — set a cost budget per session; alert when exceeded
-- **`/pause-all`/`/resume-all`** — bulk pause/resume all sessions via tmux send-keys
 - **Parallel `/stats` refresh** — auto-refresh `/stats` output every N seconds in TUI drill-down
+- **`/note-history`** — show previous notes on a session (track last N before clear)
+- **`/flap-log`** — show sessions that have been flagged as flapping recently
+- **Session drain mode** — mark a session as "draining" so reasoner skips it (won't assign new tasks)
+- **`/export-all`** — bulk export snapshot + stats + report for all sessions at once
+- **Compact mode health glyph color-coding** — use accent color from `/color` in compact tokens
+- **`/label <N> <text>`** — freeform one-line label shown below session title in normal cards
+
+### What shipped in v0.150.0–v0.153.0
+
+**v0.150.0 — /health-trend**: `formatHealthTrendChart(history, title, height)` — multi-line ASCII bar chart, oldest→newest, color-coded LIME/AMBER/ROSE. Max 40 columns. Bottom `└───` x-axis. `/health-trend <N|name> [height]` wired.
+
+**v0.151.0 — /alert-mute**: `isAlertMuted(text, patterns)` pure fn — case-insensitive substring match. TUI stores `alertMutePatterns` Set. `getAlertLog()` applies mute filter by default; `getAlertLog(true)` bypasses. `/alert-mute <pattern>` adds, `/alert-mute` lists, `/alert-mute clear` removes all.
+
+**v0.152.0 — /budgets + /budget-status**: `/budgets` lists global + per-session budgets. `/budget-status` shows which sessions are over/under their budget, using `isOverBudget()`.
+
+**v0.153.0 — Session Flap Detection**: `StatusChange {status, ts}` interface. `MAX_STATUS_HISTORY=30`, `FLAP_WINDOW_MS=10min`, `FLAP_THRESHOLD=5`. `isFlapping()` pure fn. TUI tracks `sessionStatusHistory` via `prevSessionStatus` diff in `updateState()`. Fires "status" alert when flapping detected (rate-limited 5min, quiet-hours aware). `getSessionStatusHistory(id)` and `isSessionFlapping(id)` accessors. 36 new tests total.
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +36, net 2097 tests across 35 files.
 
 ### What shipped in v0.147.0–v0.149.0
 

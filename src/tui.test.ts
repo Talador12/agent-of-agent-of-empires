@@ -35,6 +35,9 @@ import {
   parseSessionAge, formatSessionAge,
   formatHealthSparkline, MAX_HEALTH_HISTORY,
   isOverBudget, formatBudgetAlert,
+  formatHealthTrendChart,
+  isFlapping, MAX_STATUS_HISTORY, FLAP_WINDOW_MS, FLAP_THRESHOLD,
+  isAlertMuted,
   truncateRename, MAX_RENAME_LEN,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
@@ -4280,6 +4283,204 @@ describe("TUI getSessionOutput", () => {
   it("getDrilldownId returns null before entering drilldown", () => {
     const tui = new TUI();
     assert.equal(tui.getDrilldownId(), null);
+  });
+});
+
+// ── formatHealthTrendChart ────────────────────────────────────────────────
+
+describe("formatHealthTrendChart", () => {
+  it("returns single-line message for empty history", () => {
+    const lines = formatHealthTrendChart([], "Alpha");
+    assert.equal(lines.length, 1);
+    assert.ok(lines[0].includes("no health history"));
+  });
+
+  it("returns multiple lines for history", () => {
+    const now = Date.now();
+    const hist = Array.from({ length: 5 }, (_, i) => ({ score: 80 - i * 5, ts: now - i * 60_000 }));
+    const lines = formatHealthTrendChart(hist, "Alpha", 4);
+    assert.ok(lines.length > 2);
+  });
+
+  it("includes title in header", () => {
+    const now = Date.now();
+    const hist = [{ score: 90, ts: now }];
+    const lines = formatHealthTrendChart(hist, "MySession", 4);
+    assert.ok(lines[0].includes("MySession"));
+  });
+
+  it("bottom row is always present (x-axis)", () => {
+    const now = Date.now();
+    const hist = [{ score: 80, ts: now }];
+    const lines = formatHealthTrendChart(hist, "X", 3);
+    assert.ok(lines[lines.length - 1].includes("└"));
+  });
+
+  it("height parameter controls number of data rows", () => {
+    const now = Date.now();
+    const hist = Array.from({ length: 10 }, (_, i) => ({ score: 70, ts: now - i * 1000 }));
+    const lines4 = formatHealthTrendChart(hist, "X", 4);
+    const lines6 = formatHealthTrendChart(hist, "X", 6);
+    // 6-row chart should have more lines than 4-row
+    assert.ok(lines6.length > lines4.length);
+  });
+});
+
+// ── isFlapping ────────────────────────────────────────────────────────────
+
+describe("isFlapping", () => {
+  it("returns false for empty history", () => {
+    assert.equal(isFlapping([]), false);
+  });
+
+  it("returns false when below threshold", () => {
+    const now = Date.now();
+    const changes = Array.from({ length: FLAP_THRESHOLD - 1 }, (_, i) => ({
+      status: i % 2 === 0 ? "working" : "idle",
+      ts: now - i * 60_000,
+    }));
+    assert.equal(isFlapping(changes, now), false);
+  });
+
+  it("returns true when at or above threshold", () => {
+    const now = Date.now();
+    const changes = Array.from({ length: FLAP_THRESHOLD }, (_, i) => ({
+      status: i % 2 === 0 ? "working" : "idle",
+      ts: now - i * 60_000,
+    }));
+    assert.equal(isFlapping(changes, now), true);
+  });
+
+  it("ignores changes outside window", () => {
+    const now = Date.now();
+    const oldChanges = Array.from({ length: FLAP_THRESHOLD + 3 }, (_, i) => ({
+      status: "working",
+      ts: now - FLAP_WINDOW_MS - i * 1000, // all outside window
+    }));
+    assert.equal(isFlapping(oldChanges, now), false);
+  });
+});
+
+// ── FLAP constants ────────────────────────────────────────────────────────
+
+describe("FLAP constants", () => {
+  it("MAX_STATUS_HISTORY is 30", () => { assert.equal(MAX_STATUS_HISTORY, 30); });
+  it("FLAP_WINDOW_MS is 10 minutes", () => { assert.equal(FLAP_WINDOW_MS, 10 * 60_000); });
+  it("FLAP_THRESHOLD is 5", () => { assert.equal(FLAP_THRESHOLD, 5); });
+});
+
+// ── isAlertMuted ──────────────────────────────────────────────────────────
+
+describe("isAlertMuted", () => {
+  it("returns false for empty patterns", () => {
+    assert.equal(isAlertMuted("watchdog alert", new Set()), false);
+  });
+
+  it("returns true when text matches a pattern", () => {
+    assert.equal(isAlertMuted("watchdog: session stalled", new Set(["watchdog"])), true);
+  });
+
+  it("is case-insensitive", () => {
+    assert.equal(isAlertMuted("WATCHDOG stall", new Set(["watchdog"])), true);
+  });
+
+  it("returns false when no pattern matches", () => {
+    assert.equal(isAlertMuted("burn rate high", new Set(["watchdog"])), false);
+  });
+
+  it("matches any of multiple patterns", () => {
+    const pats = new Set(["watchdog", "ceiling"]);
+    assert.equal(isAlertMuted("context ceiling at 92%", pats), true);
+    assert.equal(isAlertMuted("watchdog stall", pats), true);
+    assert.equal(isAlertMuted("budget exceeded", pats), false);
+  });
+});
+
+// ── TUI flap detection ────────────────────────────────────────────────────
+
+describe("TUI flap detection", () => {
+  it("getSessionStatusHistory starts empty", () => {
+    const tui = new TUI();
+    assert.equal(tui.getSessionStatusHistory("s1").length, 0);
+  });
+
+  it("isSessionFlapping returns false initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.isSessionFlapping("s1"), false);
+  });
+
+  it("tracks status changes across updates", () => {
+    const tui = new TUI();
+    const base = { id: "s1", title: "Alpha", tool: "opencode",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined };
+    // initial update — establishes prevStatus
+    tui.updateState({ sessions: [{ ...base, status: "working" as const }] });
+    // status change
+    tui.updateState({ sessions: [{ ...base, status: "idle" as const }] });
+    tui.updateState({ sessions: [{ ...base, status: "working" as const }] });
+    const hist = tui.getSessionStatusHistory("s1");
+    assert.ok(hist.length >= 2);
+  });
+
+  it("detects flapping when status oscillates rapidly", () => {
+    const tui = new TUI();
+    const base = { id: "s1", title: "Alpha", tool: "opencode",
+      contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined };
+    tui.updateState({ sessions: [{ ...base, status: "working" as const }] });
+    for (let i = 0; i < FLAP_THRESHOLD; i++) {
+      const st = i % 2 === 0 ? "idle" : "working";
+      tui.updateState({ sessions: [{ ...base, status: st as "idle" | "working" }] });
+    }
+    assert.equal(tui.isSessionFlapping("s1"), true);
+  });
+});
+
+// ── TUI alert mute patterns ───────────────────────────────────────────────
+
+describe("TUI alert mute patterns", () => {
+  it("starts with no mute patterns", () => {
+    const tui = new TUI();
+    assert.equal(tui.getAlertMutePatterns().size, 0);
+  });
+
+  it("addAlertMutePattern adds pattern", () => {
+    const tui = new TUI();
+    tui.addAlertMutePattern("watchdog");
+    assert.ok(tui.getAlertMutePatterns().has("watchdog"));
+  });
+
+  it("removeAlertMutePattern removes pattern", () => {
+    const tui = new TUI();
+    tui.addAlertMutePattern("watchdog");
+    const removed = tui.removeAlertMutePattern("watchdog");
+    assert.equal(removed, true);
+    assert.equal(tui.getAlertMutePatterns().size, 0);
+  });
+
+  it("clearAlertMutePatterns clears all", () => {
+    const tui = new TUI();
+    tui.addAlertMutePattern("watchdog");
+    tui.addAlertMutePattern("burn");
+    tui.clearAlertMutePatterns();
+    assert.equal(tui.getAlertMutePatterns().size, 0);
+  });
+
+  it("getAlertLog filters muted patterns", () => {
+    const tui = new TUI();
+    tui.log("status", "watchdog: stalled");
+    tui.log("status", "burn rate high");
+    tui.addAlertMutePattern("watchdog");
+    const filtered = tui.getAlertLog(); // default: apply mute
+    assert.equal(filtered.length, 1);
+    assert.ok(filtered[0].text.includes("burn rate"));
+  });
+
+  it("getAlertLog(includeAll=true) ignores mute patterns", () => {
+    const tui = new TUI();
+    tui.log("status", "watchdog: stalled");
+    tui.addAlertMutePattern("watchdog");
+    const all = tui.getAlertLog(true);
+    assert.equal(all.length, 1);
   });
 });
 
