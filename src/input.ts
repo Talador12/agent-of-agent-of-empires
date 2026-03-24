@@ -82,6 +82,9 @@ export type ExportAllHandler = () => void; // bulk export snapshot+stats for all
 export type NoteHistoryHandler = (target: string) => void; // show note history for a session
 export type LabelHandler = (target: string, label: string) => void; // set/clear session label
 export type SessionsTableHandler = () => void; // show rich sessions table
+export type LabelsHandler = () => void; // list all active session labels
+export type PinDrainingHandler = () => void; // pin all draining sessions
+export type IconHandler = (target: string, emoji: string | null) => void; // set/clear session emoji icon
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -190,6 +193,9 @@ export class InputReader {
   private noteHistoryHandler: NoteHistoryHandler | null = null;
   private labelHandler: LabelHandler | null = null;
   private sessionsTableHandler: SessionsTableHandler | null = null;
+  private labelsHandler: LabelsHandler | null = null;
+  private pinDrainingHandler: PinDrainingHandler | null = null;
+  private iconHandler: IconHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -468,6 +474,9 @@ export class InputReader {
   onNoteHistory(handler: NoteHistoryHandler): void { this.noteHistoryHandler = handler; }
   onLabel(handler: LabelHandler): void { this.labelHandler = handler; }
   onSessionsTable(handler: SessionsTableHandler): void { this.sessionsTableHandler = handler; }
+  onLabels(handler: LabelsHandler): void { this.labelsHandler = handler; }
+  onPinDraining(handler: PinDrainingHandler): void { this.pinDrainingHandler = handler; }
+  onIcon(handler: IconHandler): void { this.iconHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -733,7 +742,11 @@ ${BOLD}navigation:${RESET}
   /copy [N|name]     copy session's current pane output to clipboard (default: current drill-down)
   /stats             show per-session health, errors, burn rate, context %, uptime
   /recall <keyword>  search persisted activity history (last 7 days) for keyword
-  /pin-all-errors    pin every session currently in error status
+   /pin-all-errors    pin every session currently in error status
+   /pin-draining      pin all draining sessions to the top
+   /labels            list all active session labels
+   /sort-by-health    sort sessions by health score (ascending, worst first)
+   /icon N [emoji]    set a single emoji shown in the session row (no emoji = clear)
   /export-stats      export /stats output as JSON to ~/.aoaoe/stats-<ts>.json
   /mute-errors       toggle suppression of error/! action entries in activity log
   /prev-goal N [n]   restore Nth session's goal from history (n=1 most recent)
@@ -1485,6 +1498,45 @@ ${BOLD}other:${RESET}
           console.error(`${DIM}pin-all-errors not available (no TUI)${RESET}`);
         }
         break;
+
+      case "/pin-draining":
+        if (this.pinDrainingHandler) {
+          this.pinDrainingHandler();
+        } else {
+          console.error(`${DIM}pin-draining not available (no TUI)${RESET}`);
+        }
+        break;
+
+      case "/labels":
+        if (this.labelsHandler) {
+          this.labelsHandler();
+        } else {
+          console.error(`${DIM}labels not available (no TUI)${RESET}`);
+        }
+        break;
+
+      case "/sort-by-health":
+        if (this.sortHandler) {
+          this.sortHandler("health");
+        } else {
+          console.error(`${DIM}sort not available (no TUI)${RESET}`);
+        }
+        break;
+
+      case "/icon": {
+        const iconArgs = line.slice("/icon".length).trim();
+        if (!iconArgs) { console.error(`${DIM}usage: /icon <N|name> <emoji>${RESET}`); break; }
+        const iconSpaceIdx = iconArgs.indexOf(" ");
+        if (iconSpaceIdx < 0) { console.error(`${DIM}usage: /icon <N|name> <emoji>${RESET}`); break; }
+        const iconTarget = iconArgs.slice(0, iconSpaceIdx).trim();
+        const iconEmoji  = iconArgs.slice(iconSpaceIdx + 1).trim();
+        if (this.iconHandler) {
+          this.iconHandler(iconTarget, iconEmoji || null);
+        } else {
+          console.error(`${DIM}icon not available (no TUI)${RESET}`);
+        }
+        break;
+      }
 
       case "/export-stats":
         if (this.exportStatsHandler) {

@@ -1449,6 +1449,7 @@ export class TUI {
   private flapAlerted = new Map<string, number>(); // session ID → epoch ms of last flap alert
   private alertMutePatterns = new Set<string>(); // substrings to hide from /alert-log display
   private drainingIds = new Set<string>(); // session IDs marked as draining (skip by reasoner)
+  private sessionIcons = new Map<string, string>(); // session ID → single emoji icon
   private flapLog: { sessionId: string; title: string; ts: number; count: number }[] = []; // recent flap events
 
   // drill-down mode: show a single session's full output
@@ -1805,6 +1806,51 @@ export class TUI {
   /** Return all session labels. */
   getAllLabels(): ReadonlyMap<string, string> {
     return this.sessionLabels;
+  }
+
+  /**
+   * Pin all sessions currently marked as draining.
+   * Returns the count of newly pinned sessions.
+   */
+  pinDraining(): number {
+    let pinned = 0;
+    for (const id of this.drainingIds) {
+      if (!this.pinnedIds.has(id)) {
+        this.pinnedIds.add(id);
+        pinned++;
+      }
+    }
+    if (pinned > 0) {
+      this.sessions = sortSessions(this.sessions, this.sortMode, this.lastChangeAt, this.pinnedIds);
+      if (this.active) this.paintSessions();
+    }
+    return pinned;
+  }
+
+  /** Set or clear a single emoji icon for a session (shown in the table NAME cell). */
+  setIcon(sessionIdOrIndex: string | number, emoji: string | null): boolean {
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      sessionId = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle
+      )?.id;
+    }
+    if (!sessionId) return false;
+    if (!emoji) {
+      this.sessionIcons.delete(sessionId);
+    } else {
+      this.sessionIcons.set(sessionId, emoji.trim().slice(0, 2)); // cap at 2 chars (1 emoji)
+    }
+    if (this.active) this.paintSessions();
+    return true;
+  }
+
+  /** Get the emoji icon for a session, or undefined. */
+  getIcon(id: string): string | undefined {
+    return this.sessionIcons.get(id);
   }
 
   /** Return the current sessions (read-only, for resolving IDs to titles in the UI). */
@@ -3125,7 +3171,7 @@ export class TUI {
         const draining = this.drainingIds.has(s.id);
         const sessionLabel = this.sessionLabels.get(s.id);
         const sTags = this.sessionTags.get(s.id);
-        const line = formatSessionTableRow({
+         const line = formatSessionTableRow({
           s, idx: i + 1, innerWidth, isHovered,
           pinned, muted, noted, group,
           errSparkline: errSparkline || undefined,
@@ -3133,6 +3179,7 @@ export class TUI {
           colorName, draining, sessionLabel, sTags,
           mutedCount: this.mutedEntryCounts.get(s.id) ?? 0,
           noteText: this.sessionNotes.get(s.id),
+          icon: this.sessionIcons.get(s.id),
         });
         const padded = padBoxLineHover(line, this.cols, isHovered);
         // +2: skip top border row + column header row
@@ -3198,6 +3245,7 @@ export class TUI {
       sTags: this.sessionTags.get(s.id),
       mutedCount: this.mutedEntryCounts.get(s.id) ?? 0,
       noteText: this.sessionNotes.get(s.id),
+      icon: this.sessionIcons.get(s.id),
     });
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 2 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
@@ -3479,10 +3527,11 @@ function formatSessionTableRow(opts: {
   sTags: Set<string> | undefined;
   mutedCount: number;
   noteText: string | undefined;
+  icon?: string | undefined;
 }): string {
   const { s, idx, innerWidth, isHovered, pinned, muted, noted, group,
     errSparkline, idleSinceMs, healthScore, displayName, colorName, draining,
-    sessionLabel, sTags, mutedCount } = opts;
+    sessionLabel, sTags, mutedCount, icon } = opts;
 
   const bg = isHovered ? BG_HOVER : "";
   const c = computeTableCols(innerWidth);
@@ -3494,6 +3543,7 @@ function formatSessionTableRow(opts: {
   const pinMark   = pinned   ? `${AMBER}${PIN_ICON}${RESET}` : "";
   const muteMark  = muted    ? `${DIM}${MUTE_ICON}${RESET}` : "";
   const noteMark  = noted    ? `${TEAL}${NOTE_ICON}${RESET}` : "";
+  const iconPrefix = icon ? `${icon} ` : "";
   const idxStr    = `${SLATE}${String(idx).padStart(2)}${RESET}`;
   const rawName   = displayName ?? s.title;
   const nameStr   = displayName
@@ -3502,7 +3552,7 @@ function formatSessionTableRow(opts: {
   const toolStr   = `${SLATE}${s.tool.slice(0, 6)}${RESET}`;
   // icons consume space from name column
   const iconStr   = `${pinMark}${muteMark}${noteMark}${drainMark}${colorDot}`;
-  const nameCell  = `${bg}${idxStr} ${dot} ${iconStr}${nameStr} ${toolStr}`;
+  const nameCell  = `${bg}${idxStr} ${dot} ${iconPrefix}${iconStr}${nameStr} ${toolStr}`;
 
   // ── TASK column ───────────────────────────────────────────────────────────
   const rawTask = s.currentTask ?? s.lastActivity ?? "";

@@ -1062,6 +1062,40 @@ async function main() {
         tui!.log("error", `export-all failed: ${err}`);
       }
     });
+    // wire /labels — list all session labels
+    input.onLabels(() => {
+      const labels = tui!.getAllLabels();
+      if (labels.size === 0) {
+        tui!.log("system", "labels: no labels set — use /label <N> <text> to add one");
+        return;
+      }
+      tui!.log("system", `labels: ${labels.size} active`);
+      for (const [id, label] of labels) {
+        const session = tui!.getSessions().find((s) => s.id === id);
+        const name = session?.title ?? id;
+        tui!.log("system", `  ${name}: "${label}"`);
+      }
+    });
+    // wire /pin-draining — pin all draining sessions
+    input.onPinDraining(() => {
+      const count = tui!.pinDraining();
+      if (count === 0) {
+        tui!.log("system", "pin-draining: no draining sessions to pin (use /drain <N> first)");
+      } else {
+        tui!.log("system", `pin-draining: pinned ${count} draining session${count !== 1 ? "s" : ""}`);
+        persistPrefs();
+      }
+    });
+    // wire /icon <N|name> <emoji>
+    input.onIcon((target, emoji) => {
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const ok = tui!.setIcon(num ?? target, emoji);
+      if (ok) {
+        tui!.log("system", emoji ? `icon set for ${target}: ${emoji}` : `icon cleared for ${target}`);
+      } else {
+        tui!.log("system", `session not found: ${target}`);
+      }
+    });
     // wire /budget cost alerts
     input.onBudget((target, budgetUSD) => {
       if (budgetUSD === null) {
