@@ -66,6 +66,8 @@ import {
   resolveProfiles, mergeProfileSessions, formatProfileSummary,
   createReplayState, advanceReplay, formatReplayStatusBar,
   REPLAY_DEFAULT_LPS, REPLAY_MAX_LPS,
+  shouldCompactContext, formatCompactionNudge, formatCompactionAlert,
+  CONTEXT_COMPACTION_THRESHOLD, COMPACTION_COOLDOWN_MS,
   TUI,
 } from "./tui.js";
 import type { SessionReplayState } from "./tui.js";
@@ -4059,6 +4061,106 @@ describe("TUI sessionNotifyFilters", () => {
     assert.ok(f);
     assert.ok(!f.has("session_error"));
     assert.ok(f.has("action_executed"));
+  });
+});
+
+// ── Automatic context compaction ─────────────────────────────────────────
+
+describe("CONTEXT_COMPACTION_THRESHOLD", () => {
+  it("is 0.80", () => { assert.equal(CONTEXT_COMPACTION_THRESHOLD, 0.80); });
+});
+
+describe("COMPACTION_COOLDOWN_MS", () => {
+  it("is 10 minutes", () => { assert.equal(COMPACTION_COOLDOWN_MS, 10 * 60_000); });
+});
+
+describe("shouldCompactContext", () => {
+  it("returns false when below threshold", () => {
+    assert.equal(shouldCompactContext(0.5, undefined, Date.now()), false);
+  });
+
+  it("returns true when at threshold with no prior nudge", () => {
+    assert.equal(shouldCompactContext(0.80, undefined, Date.now()), true);
+  });
+
+  it("returns true when above threshold with no prior nudge", () => {
+    assert.equal(shouldCompactContext(0.95, undefined, Date.now()), true);
+  });
+
+  it("returns false when within cooldown", () => {
+    const now = Date.now();
+    assert.equal(shouldCompactContext(0.85, now - 1000, now), false); // 1s ago
+  });
+
+  it("returns true when cooldown elapsed", () => {
+    const now = Date.now();
+    assert.equal(shouldCompactContext(0.85, now - COMPACTION_COOLDOWN_MS - 1, now), true);
+  });
+
+  it("respects custom threshold", () => {
+    assert.equal(shouldCompactContext(0.70, undefined, Date.now(), COMPACTION_COOLDOWN_MS, 0.60), true);
+    assert.equal(shouldCompactContext(0.70, undefined, Date.now(), COMPACTION_COOLDOWN_MS, 0.80), false);
+  });
+
+  it("respects custom cooldown", () => {
+    const now = Date.now();
+    assert.equal(shouldCompactContext(0.85, now - 5000, now, 3000), true);  // 5s > 3s cooldown
+    assert.equal(shouldCompactContext(0.85, now - 5000, now, 10000), false); // 5s < 10s cooldown
+  });
+});
+
+describe("formatCompactionNudge", () => {
+  it("includes percentage", () => {
+    const msg = formatCompactionNudge("Alpha", 85);
+    assert.ok(msg.includes("85%"));
+  });
+
+  it("includes compact instruction", () => {
+    const msg = formatCompactionNudge("Alpha", 85);
+    assert.ok(msg.toLowerCase().includes("compact"));
+  });
+});
+
+describe("formatCompactionAlert", () => {
+  it("includes session title and percentage", () => {
+    const msg = formatCompactionAlert("Alpha", 85);
+    assert.ok(msg.includes("Alpha"));
+    assert.ok(msg.includes("85%"));
+  });
+
+  it("mentions compaction nudge", () => {
+    assert.ok(formatCompactionAlert("X", 90).includes("compaction"));
+  });
+});
+
+describe("TUI compaction tracking", () => {
+  it("getCompactionNudgeAt returns undefined initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.getCompactionNudgeAt("s1"), undefined);
+  });
+
+  it("recordCompactionNudge stores timestamp", () => {
+    const tui = new TUI();
+    const now = Date.now();
+    tui.recordCompactionNudge("s1", now);
+    assert.equal(tui.getCompactionNudgeAt("s1"), now);
+  });
+
+  it("getAllCompactionNudges returns all entries", () => {
+    const tui = new TUI();
+    tui.recordCompactionNudge("s1", 100);
+    tui.recordCompactionNudge("s2", 200);
+    const all = tui.getAllCompactionNudges();
+    assert.equal(all.size, 2);
+    assert.equal(all.get("s1"), 100);
+    assert.equal(all.get("s2"), 200);
+  });
+
+  it("overwrites previous nudge timestamp", () => {
+    const tui = new TUI();
+    tui.recordCompactionNudge("s1", 100);
+    tui.recordCompactionNudge("s1", 500);
+    assert.equal(tui.getCompactionNudgeAt("s1"), 500);
   });
 });
 

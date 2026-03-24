@@ -8,11 +8,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.175.0
+## Version: v0.176.0
 
 ## Current Focus
 
-Webhook notification filters shipped. Backlog continuing.
+Auto context compaction shipped. Backlog continuing.
 
 ### Open Items
 - Backlog continues below.
@@ -20,7 +20,22 @@ Webhook notification filters shipped. Backlog continuing.
 ### Ideas Backlog
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session dependency graph** — detect when one session's output is consumed by another, visualize in TUI
-- **Automatic context compaction** — when context usage nears ceiling, summarize and compact older context
+
+### What shipped in v0.176.0
+
+**v0.176.0 — Automatic Context Compaction**:
+- When a session's context usage exceeds 80% (`CONTEXT_COMPACTION_THRESHOLD`), the daemon sends a compaction nudge via `tmux send-keys` asking the agent to summarize and drop unnecessary context.
+- `shouldCompactContext(fraction, lastNudge, now, cooldown, threshold)` — pure fn: returns true when fraction ≥ threshold and cooldown has elapsed since last nudge. Supports custom thresholds and cooldowns.
+- `formatCompactionNudge(title, pct)` — the message sent to the agent, asking it to compact.
+- `formatCompactionAlert(title, pct)` — activity log entry confirming the nudge was sent.
+- `CONTEXT_COMPACTION_THRESHOLD = 0.80` — lower than the 90% ceiling alert, gives agents time to compact before hitting the wall.
+- `COMPACTION_COOLDOWN_MS = 10 * 60_000` — 10 min cooldown per session to avoid spam.
+- TUI state: `compactionNudged` map + `recordCompactionNudge`, `getCompactionNudgeAt`, `getAllCompactionNudges`.
+- Wired in `index.ts` after `setSessionOutputs`: iterates `sessionStates`, checks ceiling, sends nudge via tmux, records timestamp. Only fires in non-observe, non-dry-run mode. Best-effort (errors silently caught).
+- 17 new tests: CONTEXT_COMPACTION_THRESHOLD (1), COMPACTION_COOLDOWN_MS (1), shouldCompactContext (7 — below, at, above threshold, within cooldown, after cooldown, custom threshold, custom cooldown), formatCompactionNudge (2), formatCompactionAlert (2), TUI tracking (4).
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +17, net 2427 tests across 35 files.
 
 ### What shipped in v0.175.0
 

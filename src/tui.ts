@@ -1615,6 +1615,9 @@ export class TUI {
    // per-session notification filters
    private sessionNotifyFilters = new Map<string, Set<import("./types.js").NotificationEvent>>();
 
+   // context compaction: tracks when each session was last sent a compaction nudge
+   private compactionNudged = new Map<string, number>(); // session ID → epoch ms
+
    // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
   private drilldownSessionId: string | null = null;
@@ -2399,6 +2402,23 @@ export class TUI {
   /** Get all per-session notification filters. */
   getAllSessionNotifyFilters(): ReadonlyMap<string, Set<import("./types.js").NotificationEvent>> {
     return this.sessionNotifyFilters;
+  }
+
+  // ── Context compaction ──────────────────────────────────────────────────
+
+  /** Record that a compaction nudge was sent to a session. */
+  recordCompactionNudge(sessionId: string, now?: number): void {
+    this.compactionNudged.set(sessionId, now ?? Date.now());
+  }
+
+  /** Get the last compaction nudge timestamp for a session. */
+  getCompactionNudgeAt(sessionId: string): number | undefined {
+    return this.compactionNudged.get(sessionId);
+  }
+
+  /** Get all compaction nudge timestamps. */
+  getAllCompactionNudges(): ReadonlyMap<string, number> {
+    return this.compactionNudged;
   }
 
   // ── Trust ladder ─────────────────────────────────────────────────────────
@@ -4421,6 +4441,45 @@ export function parseContextCeiling(contextTokens: string | undefined): { curren
 
 /** Alert threshold: fire ceiling warning when context usage exceeds this fraction. */
 export const CONTEXT_CEILING_THRESHOLD = 0.90;
+
+// ── Automatic context compaction ────────────────────────────────────────────
+
+/** Compaction nudge threshold: suggest compaction when context exceeds this fraction. */
+export const CONTEXT_COMPACTION_THRESHOLD = 0.80;
+
+/** Cooldown between compaction nudges for the same session (10 minutes). */
+export const COMPACTION_COOLDOWN_MS = 10 * 60_000;
+
+/**
+ * Determine whether a compaction nudge should be sent to a session.
+ * Returns true when context fraction exceeds threshold and the cooldown has elapsed.
+ */
+export function shouldCompactContext(
+  fraction: number,
+  lastNudgeAt: number | undefined,
+  now: number,
+  cooldownMs: number = COMPACTION_COOLDOWN_MS,
+  threshold: number = CONTEXT_COMPACTION_THRESHOLD,
+): boolean {
+  if (fraction < threshold) return false;
+  if (lastNudgeAt !== undefined && now - lastNudgeAt < cooldownMs) return false;
+  return true;
+}
+
+/**
+ * Format the compaction nudge message to send to a session.
+ * This message asks the agent to summarize and compact its context.
+ */
+export function formatCompactionNudge(title: string, pct: number): string {
+  return `Your context is at ${pct}% capacity. Please summarize your progress so far and compact your context — drop any file contents, tool outputs, or intermediate reasoning you no longer need. Keep only the essential state needed to continue your current task.`;
+}
+
+/**
+ * Format a compaction alert for the activity log.
+ */
+export function formatCompactionAlert(title: string, pct: number): string {
+  return `${title}: context at ${pct}% — sent compaction nudge`;
+}
 
 /** Format a context ceiling alert for the activity log. */
 export function formatContextCeilingAlert(title: string, current: number, max: number): string {

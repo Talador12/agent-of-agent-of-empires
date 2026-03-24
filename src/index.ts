@@ -19,7 +19,7 @@ import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, impor
 import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
 import { parsePaneMilestones } from "./task-parser.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
@@ -2350,6 +2350,34 @@ async function daemonTick(
               taskManager.reportProgress(change.title, m.summary);
             }
           }
+        }
+      }
+    }
+  }
+
+  // automatic context compaction: nudge sessions approaching context ceiling
+  if (tui && !config.observe && !config.dryRun) {
+    const now = Date.now();
+    // build tmux name lookup from observation snapshots
+    const tmuxLookup = new Map<string, string>();
+    for (const snap of observation.sessions) tmuxLookup.set(snap.session.id, snap.session.tmux_name);
+
+    for (const s of sessionStates) {
+      const ceiling = parseContextCeiling(s.contextTokens);
+      if (!ceiling) continue;
+      const fraction = ceiling.current / ceiling.max;
+      const lastNudge = tui.getCompactionNudgeAt(s.id);
+      if (shouldCompactContext(fraction, lastNudge, now)) {
+        const pct = Math.round(fraction * 100);
+        const nudgeMsg = formatCompactionNudge(s.title, pct);
+        const tmuxName = tmuxLookup.get(s.id);
+        if (tmuxName) {
+          shellExec("tmux", ["send-keys", "-t", tmuxName, nudgeMsg, "Enter"])
+            .then(() => {
+              tui.recordCompactionNudge(s.id, now);
+              tui.log("status", formatCompactionAlert(s.title, pct), s.id);
+            })
+            .catch(() => { /* best-effort */ });
         }
       }
     }
