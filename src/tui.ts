@@ -15,7 +15,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import type { DaemonSessionState, DaemonPhase } from "./types.js";
+import type { DaemonSessionState, DaemonPhase, ConfidenceLevel } from "./types.js";
 import {
   BOLD, DIM, RESET, GREEN, YELLOW, RED, CYAN, WHITE,
   BG_DARK, BG_HEADER2, BG_HOVER, BG_INPUT, BG_SECTION,
@@ -283,6 +283,18 @@ export function formatWatchdogTag(thresholdMs: number | null): string {
 export function formatGroupFilterTag(groupFilter: string | null): string {
   if (!groupFilter) return "";
   return `${GROUP_ICON}${groupFilter}`;
+}
+
+/**
+ * Format a confidence badge for the header bar.
+ * high → lime ▲ high    medium → nothing (no noise when neutral)
+ * low  → rose ▼ low
+ * Returns empty string for null/medium so the badge only appears when it matters.
+ */
+export function formatConfidenceBadge(confidence: ConfidenceLevel | null): string {
+  if (!confidence || confidence === "medium") return "";
+  if (confidence === "high") return `${LIME}▲ high${RESET}`;
+  return `${ROSE}▼ low${RESET}`;
 }
 
 // ── Status rendering ────────────────────────────────────────────────────────
@@ -1498,6 +1510,7 @@ export class TUI {
   private pollCount = 0;
   private sessions: DaemonSessionState[] = [];
   private paused = false;
+  private lastConfidence: ConfidenceLevel | null = null; // most recent reasoner confidence signal
   private version = "";
   private reasonerName = "";
   private nextTickAt = 0;    // epoch ms for poll countdown display
@@ -2130,6 +2143,17 @@ export class TUI {
   /** Return all per-session budgets. */
   getAllSessionBudgets(): ReadonlyMap<string, number> {
     return this.sessionBudgets;
+  }
+
+  /** Record the confidence level from the most recent reasoning cycle. Triggers a header repaint. */
+  setLastConfidence(confidence: ConfidenceLevel | null): void {
+    this.lastConfidence = confidence ?? null;
+    if (this.active) this.paintHeader();
+  }
+
+  /** Return the most recent reasoner confidence level, or null if none recorded yet. */
+  getLastConfidence(): ConfidenceLevel | null {
+    return this.lastConfidence;
   }
 
   /** Return health history for a session (for sparkline). */
@@ -3150,7 +3174,15 @@ export class TUI {
         ? ` ${STEEL}${BOX.v}${RESET}${BG_DARK} ${TEAL}${GROUP_ICON}${this.groupFilter}${RESET}${BG_DARK}`
         : "";
 
-      line = ` ${brand}  ${poll}  ${agents}  ${phaseChunk}${reasonerChunk}${watchdogChunk}${groupFilterChunk}`;
+      // ── confidence badge ─────────────────────────────────────────────────────
+      // Only shown for non-neutral signals: lime ▲ high or rose ▼ low.
+      // medium is intentionally silent — no noise when the reasoner is doing fine.
+      const confBadge = formatConfidenceBadge(this.lastConfidence);
+      const confidenceChunk = confBadge
+        ? ` ${STEEL}${BOX.v}${RESET}${BG_DARK} ${confBadge}${BG_DARK}`
+        : "";
+
+      line = ` ${brand}  ${poll}  ${agents}  ${phaseChunk}${reasonerChunk}${watchdogChunk}${groupFilterChunk}${confidenceChunk}`;
     }
     process.stderr.write(
       SAVE_CURSOR +

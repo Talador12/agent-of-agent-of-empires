@@ -5,11 +5,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.164.0
+## Version: v0.165.0
 
 ## Current Focus
 
-UI overhaul shipped (v0.160.1–v0.162.0). Ready for `make self`.
+Confidence badge shipped. Ready for next backlog item.
 
 ### Open Items
 - Backlog continues below — all recent items shipped.
@@ -19,15 +19,26 @@ UI overhaul shipped (v0.160.1–v0.162.0). Ready for `make self`.
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Trust ladder mode** — auto-escalate observe -> dry-run -> confirm -> autopilot from stable behavior
-- **Decision confidence hint** — show low/medium/high confidence with each planned action bundle
 - **Task fan-out templates** — generate a starter task list from currently active/inactive AoE sessions
 - **Task intake UX** — guided `/task new` flow in TUI (prompt for repo/mode/goal)
 - **Natural language task intent** — infer task updates from plain lines like "task for adventure: ..."
 - **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
-- **Reasoner confidence badge** — if reasoner returns a confidence signal, show in header
 - **Parallel `/stats` refresh** — auto-refresh `/stats` output every N seconds in TUI drill-down
 - **Compact mode health glyph color-coding** — use accent color from `/color` in compact tokens
 - **`/diff-sessions <A> <B>`** — compare two sessions' latest pane output line-by-line
+
+### What shipped in v0.165.0
+
+**v0.165.0 — Reasoner Confidence Badge**:
+- `formatConfidenceBadge(confidence)` pure fn — returns `lime ▲ high` or `rose ▼ low`; empty for `null`/`medium` (no noise when neutral)
+- `TUI.setLastConfidence(level)` — stores most recent reasoning cycle's confidence, triggers immediate header repaint
+- `TUI.getLastConfidence()` — returns current value
+- Header bar shows confidence badge as a new chunk after the group filter badge
+- `index.ts`: `tui.setLastConfidence(result.confidence)` wired after each `daemonTick` reasoning cycle
+- 10 new tests: `formatConfidenceBadge` (null, medium, high, low) + TUI accessor (initial null, set, update, medium, clear with null, all levels)
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +10, net 2221 tests across 35 files.
 
 ### What shipped in v0.160.1–v0.161.0
 

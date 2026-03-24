@@ -2263,6 +2263,8 @@ async function daemonTick(
       : "";
     if (tui) {
       tui.log("reasoner", `decided: ${actionSummary}${confidenceBadge}`);
+      // update header confidence badge — triggers an immediate header repaint
+      tui.setLastConfidence(result.confidence ?? null);
     } else {
       process.stdout.write(` -> ${actionSummary}${confidenceBadge}\n`);
     }

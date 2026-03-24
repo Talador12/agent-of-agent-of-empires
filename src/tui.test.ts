@@ -57,9 +57,11 @@ import {
   FILTER_PRESETS, resolveFilterPreset,
   resolveAlias, validateAliasName, MAX_ALIASES, BUILTIN_COMMANDS,
   validateGroupName, formatGroupBadge, GROUP_ICON, MAX_GROUP_NAME_LEN,
+  formatConfidenceBadge,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry, SortMode, TuiPrefs, SnapshotData, SnapshotSession, TopSortMode, SessionReportData } from "./tui.js";
+import type { ConfidenceLevel } from "./types.js";
 import type { DaemonSessionState } from "./types.js";
 
 function stripAnsi(s: string): string {
@@ -3218,6 +3220,80 @@ describe("formatGroupFilterTag", () => {
   it("includes GROUP_ICON", () => {
     const tag = formatGroupFilterTag("backend");
     assert.ok(tag.includes(GROUP_ICON));
+  });
+});
+
+// ── formatConfidenceBadge ─────────────────────────────────────────────────
+
+describe("formatConfidenceBadge", () => {
+  it("returns empty string for null", () => {
+    assert.equal(formatConfidenceBadge(null), "");
+  });
+
+  it("returns empty string for medium (no noise when neutral)", () => {
+    assert.equal(formatConfidenceBadge("medium"), "");
+  });
+
+  it("returns non-empty string for high", () => {
+    const badge = formatConfidenceBadge("high");
+    assert.ok(badge.length > 0);
+    assert.ok(stripAnsi(badge).includes("high"));
+    assert.ok(stripAnsi(badge).includes("▲"));
+  });
+
+  it("returns non-empty string for low", () => {
+    const badge = formatConfidenceBadge("low");
+    assert.ok(badge.length > 0);
+    assert.ok(stripAnsi(badge).includes("low"));
+    assert.ok(stripAnsi(badge).includes("▼"));
+  });
+});
+
+// ── TUI.setLastConfidence / getLastConfidence ─────────────────────────────
+
+describe("TUI confidence tracking", () => {
+  function makeTUI() {
+    return new TUI();
+  }
+
+  it("getLastConfidence returns null initially", () => {
+    const tui = makeTUI();
+    assert.equal(tui.getLastConfidence(), null);
+  });
+
+  it("setLastConfidence stores the value", () => {
+    const tui = makeTUI();
+    tui.setLastConfidence("high");
+    assert.equal(tui.getLastConfidence(), "high");
+  });
+
+  it("setLastConfidence can be updated", () => {
+    const tui = makeTUI();
+    tui.setLastConfidence("high");
+    tui.setLastConfidence("low");
+    assert.equal(tui.getLastConfidence(), "low");
+  });
+
+  it("setLastConfidence accepts medium", () => {
+    const tui = makeTUI();
+    tui.setLastConfidence("medium");
+    assert.equal(tui.getLastConfidence(), "medium");
+  });
+
+  it("setLastConfidence accepts null to clear", () => {
+    const tui = makeTUI();
+    tui.setLastConfidence("high");
+    tui.setLastConfidence(null);
+    assert.equal(tui.getLastConfidence(), null);
+  });
+
+  it("getLastConfidence reflects all ConfidenceLevel values", () => {
+    const tui = makeTUI();
+    const levels: Array<ConfidenceLevel | null> = ["high", "medium", "low", null];
+    for (const level of levels) {
+      tui.setLastConfidence(level);
+      assert.equal(tui.getLastConfidence(), level);
+    }
   });
 });
 
