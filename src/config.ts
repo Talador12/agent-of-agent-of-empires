@@ -525,7 +525,7 @@ export function parseCliArgs(argv: string[]): {
   };
 
   const knownFlags = new Set([
-    "--reasoner", "--poll-interval", "--reason-interval", "--port", "--model", "--profile", "--health-port",
+    "--reasoner", "--opencode", "--claude-code", "--poll-interval", "--reason-interval", "--port", "--model", "--profile", "--health-port",
     "--verbose", "-v", "--dry-run", "--observe", "--confirm", "--help", "-h", "--version",
   ]);
 
@@ -535,6 +535,12 @@ export function parseCliArgs(argv: string[]): {
       case "--reasoner":
         overrides.reasoner = toReasonerBackend(nextArg(i, arg));
         i++;
+        break;
+      case "--opencode":
+        overrides.reasoner = "opencode";
+        break;
+      case "--claude-code":
+        overrides.reasoner = "claude-code";
         break;
       case "--poll-interval": {
         const val = parseInt(nextArg(i, arg), 10);
@@ -655,6 +661,8 @@ commands:
 
 options:
   --reasoner <opencode|claude-code>  reasoning backend (default: opencode)
+  --opencode                         shorthand for --reasoner opencode
+  --claude-code                      shorthand for --reasoner claude-code
   --poll-interval <ms>               tmux observation poll interval in ms (default: 10000)
   --reason-interval <ms>             minimum ms between LLM reasoning calls (default: 60000)
   --port <number>                    opencode server port (default: 4097)

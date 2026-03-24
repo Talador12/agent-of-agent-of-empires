@@ -10,7 +10,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
 .PHONY: help list-targets makeinfo setup build dev lint check test test-integration test-all \
-        clean start daemon self self-dry watch release demo demo-setup demo-dry
+        clean start daemon self self-dry self-opencode self-claude watch release demo demo-setup demo-dry
 
 # Prevent Make from trying to remake Makefile via pattern rule
 Makefile: makeinfo ;
@@ -41,7 +41,19 @@ makeinfo: # Shows the current make command running
 
 # Start the supervisor — polls your AoE sessions, reasons, and acts autonomously.
 # Creates the AoE session for this repo if it doesn't exist.
+# Reasoner backend comes from config (default: opencode). Override with make self-opencode or make self-claude.
 self: build ## [Watch] aoaoe supervises itself (reads roadmap, implements, commits, pushes)
+	@$(MAKE) -s _self-run REASONER_FLAG=
+
+self-opencode: build ## [Watch] Same as self but forces --reasoner opencode
+	@$(MAKE) -s _self-run REASONER_FLAG=--opencode
+
+self-claude: build ## [Watch] Same as self but forces --reasoner claude-code
+	@$(MAKE) -s _self-run REASONER_FLAG=--claude-code
+
+# shared impl — called by self / self-opencode / self-claude
+REASONER_FLAG ?=
+_self-run:
 	@echo ""
 	@echo "╔══════════════════════════════════════════════════════════════╗"
 	@echo "║                  aoaoe  self-improvement                    ║"
@@ -54,7 +66,6 @@ self: build ## [Watch] aoaoe supervises itself (reads roadmap, implements, commi
 	@echo "║  ESC ESC  interrupt    /help  all commands                  ║"
 	@echo "╚══════════════════════════════════════════════════════════════╝"
 	@echo ""
-	@# ── Ensure the AoE session exists ──────────────────────────────────
 	@SESSION_INFO=$$(aoe list --json 2>/dev/null | python3 -c \
 		"import sys,json; sessions=json.load(sys.stdin); s=next((s for s in sessions if s['title']=='aoaoe'),None); print(s['id'][:8] if s else '')" \
 		2>/dev/null); \
@@ -76,7 +87,7 @@ self: build ## [Watch] aoaoe supervises itself (reads roadmap, implements, commi
 	echo ""; \
 	echo "  Starting aoaoe supervisor TUI..."; \
 	echo ""
-	node dist/index.js
+	node dist/index.js $(REASONER_FLAG)
 
 self-dry: build ## [Watch] Observe + plan only, no actions executed (safe alongside live sessions)
 	@echo ""
