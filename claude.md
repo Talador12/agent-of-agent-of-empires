@@ -8,11 +8,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.177.0
+## Version: v0.178.0
 
 ## Current Focus
 
-Session dependency graph shipped. Only web dashboard remains on original backlog.
+Cross-session relay shipped. Backlog continuing.
 
 ### Open Items
 - Backlog continues below.
@@ -21,7 +21,20 @@ Session dependency graph shipped. Only web dashboard remains on original backlog
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session output search index** — full-text search across all session outputs with ranked results
 - **Automatic session restart on OOM** — detect out-of-memory patterns and restart the agent
-- **Cross-session message relay** — forward a message from one session's output to another session's input
+
+### What shipped in v0.178.0
+
+**v0.178.0 — Cross-Session Message Relay**:
+- `/relay <source> <target> <pattern>` — when source session's new output contains pattern (case-insensitive), forward the matching line to target session as `[relay from source] ...` via tmux send-keys.
+- `/relay` — list all relay rules. `/relay rm <id>` — remove a rule by ID.
+- Pure functions: `createRelayRule(src, tgt, pattern)` — auto-incrementing IDs. `matchRelayRules(sourceTitle, line, rules)` — returns all matching rules for a source+line combo. `formatRelayRules(rules)` — display. `resetRelayIdCounter()` for test isolation.
+- `RelayRule` interface: id, source, target, pattern, createdAt.
+- TUI state: `relayRules` array + `addRelayRule`, `removeRelayRule`, `getRelayRules`.
+- Wired in index.ts: on each poll, iterates `observation.changes` new lines, strips ANSI, checks against relay rules, sends matched lines to target via tmux. Best-effort, non-observe/non-dry-run only.
+- 17 new tests: createRelayRule (2 — ID increment, trim), matchRelayRules (4 — no match, match, case-insensitive, multiple), formatRelayRules (2 — empty, details), TUI relay state (5 — initial, add, remove, remove-missing, multiple), onRelay handler (3).
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +17, net 2459 tests across 35 files.
 
 ### What shipped in v0.177.0
 

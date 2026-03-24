@@ -1618,6 +1618,9 @@ export class TUI {
    // context compaction: tracks when each session was last sent a compaction nudge
    private compactionNudged = new Map<string, number>(); // session ID → epoch ms
 
+   // cross-session message relay rules
+   private relayRules: RelayRule[] = [];
+
    // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
   private drilldownSessionId: string | null = null;
@@ -2419,6 +2422,28 @@ export class TUI {
   /** Get all compaction nudge timestamps. */
   getAllCompactionNudges(): ReadonlyMap<string, number> {
     return this.compactionNudged;
+  }
+
+  // ── Cross-session relay ────────────────────────────────────────────────
+
+  /** Add a relay rule. Returns the created rule. */
+  addRelayRule(source: string, target: string, pattern: string): RelayRule {
+    const rule = createRelayRule(source, target, pattern);
+    this.relayRules.push(rule);
+    return rule;
+  }
+
+  /** Remove a relay rule by ID. Returns true if found and removed. */
+  removeRelayRule(id: number): boolean {
+    const idx = this.relayRules.findIndex((r) => r.id === id);
+    if (idx < 0) return false;
+    this.relayRules.splice(idx, 1);
+    return true;
+  }
+
+  /** Get all relay rules. */
+  getRelayRules(): readonly RelayRule[] {
+    return this.relayRules;
   }
 
   // ── Trust ladder ─────────────────────────────────────────────────────────
@@ -4906,6 +4931,64 @@ export function formatDependencyGraph(graph: SessionDependencyGraph): string[] {
   }
   if (graph.leaves.length > 0) {
     lines.push(`  ${DIM}leaves (no dependents):${RESET} ${graph.leaves.join(", ")}`);
+  }
+  return lines;
+}
+
+// ── Cross-session message relay ─────────────────────────────────────────────
+
+export interface RelayRule {
+  id: number;         // auto-incrementing rule ID
+  source: string;     // source session title (case-insensitive match)
+  target: string;     // target session title
+  pattern: string;    // substring to match in source output (case-insensitive)
+  createdAt: number;
+}
+
+/** Global counter for relay rule IDs. */
+let nextRelayId = 1;
+
+/** Reset the relay ID counter (for testing). */
+export function resetRelayIdCounter(): void { nextRelayId = 1; }
+
+/**
+ * Create a new relay rule.
+ */
+export function createRelayRule(source: string, target: string, pattern: string): RelayRule {
+  return {
+    id: nextRelayId++,
+    source: source.trim(),
+    target: target.trim(),
+    pattern: pattern.trim(),
+    createdAt: Date.now(),
+  };
+}
+
+/**
+ * Check if a line of output from a source session matches any relay rules.
+ * Returns the matching rules (there may be multiple for the same source).
+ */
+export function matchRelayRules(
+  sourceTitle: string,
+  line: string,
+  rules: readonly RelayRule[],
+): RelayRule[] {
+  const srcLower = sourceTitle.toLowerCase();
+  const lineLower = line.toLowerCase();
+  return rules.filter((r) =>
+    r.source.toLowerCase() === srcLower && lineLower.includes(r.pattern.toLowerCase()),
+  );
+}
+
+/**
+ * Format relay rules for display.
+ */
+export function formatRelayRules(rules: readonly RelayRule[]): string[] {
+  if (rules.length === 0) return ["(no relay rules configured)"];
+  const lines: string[] = [];
+  lines.push(`relay rules: ${rules.length}`);
+  for (const r of rules) {
+    lines.push(`  ${DIM}#${r.id}${RESET} ${BOLD}${r.source}${RESET} ${DIM}→${RESET} ${BOLD}${r.target}${RESET} ${DIM}when output contains "${r.pattern}"${RESET}`);
   }
   return lines;
 }

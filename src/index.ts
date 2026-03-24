@@ -19,7 +19,7 @@ import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, impor
 import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
 import { parsePaneMilestones } from "./task-parser.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph, formatRelayRules, matchRelayRules } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
@@ -1209,6 +1209,32 @@ async function main() {
       const lines = formatDependencyGraph(graph);
       for (const line of lines) tui!.log("system", line);
     });
+    // wire /relay — cross-session message relay
+    input.onRelay((args) => {
+      if (!args) {
+        // list rules
+        const lines = formatRelayRules(tui!.getRelayRules());
+        for (const line of lines) tui!.log("system", line);
+        return;
+      }
+      const parts = args.split(/\s+/);
+      if (parts[0] === "rm" && parts[1]) {
+        const id = parseInt(parts[1], 10);
+        if (isNaN(id)) { tui!.log("system", `relay: invalid ID '${parts[1]}'`); return; }
+        const ok = tui!.removeRelayRule(id);
+        tui!.log("system", ok ? `relay: removed rule #${id}` : `relay: rule #${id} not found`);
+        return;
+      }
+      // add rule: <source> <target> <pattern...>
+      if (parts.length < 3) {
+        tui!.log("system", "usage: /relay <source> <target> <pattern> — or /relay rm <id>");
+        return;
+      }
+      const [source, target, ...patternParts] = parts;
+      const pattern = patternParts.join(" ");
+      const rule = tui!.addRelayRule(source, target, pattern);
+      tui!.log("system", `relay: added rule #${rule.id} — ${source} → ${target} when output contains "${pattern}"`);
+    });
     input.onNotifyFilter((sessionTitle, events) => {
       if (sessionTitle === null) {
         // list current filters
@@ -2363,6 +2389,34 @@ async function daemonTick(
           for (const m of milestones) {
             if (!recentSummaries.has(m.summary)) {
               taskManager.reportProgress(change.title, m.summary);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // cross-session message relay: check new output against relay rules
+  if (tui && observation.changes.length > 0 && !config.observe && !config.dryRun) {
+    const rules = tui.getRelayRules();
+    if (rules.length > 0) {
+      // build tmux name lookup for targets
+      const tmuxMap = new Map<string, string>();
+      for (const snap of observation.sessions) tmuxMap.set(snap.session.title.toLowerCase(), snap.session.tmux_name);
+
+      for (const change of observation.changes) {
+        if (!change.newLines) continue;
+        for (const line of change.newLines.split("\n")) {
+          const stripped = line.replace(/\x1b\[[0-9;]*[mABCDHJKST]/g, "").trim();
+          if (!stripped) continue;
+          const matches = matchRelayRules(change.title, stripped, rules);
+          for (const rule of matches) {
+            const targetTmux = tmuxMap.get(rule.target.toLowerCase());
+            if (targetTmux) {
+              const relayMsg = `[relay from ${change.title}] ${stripped.slice(0, 200)}`;
+              shellExec("tmux", ["send-keys", "-t", targetTmux, relayMsg, "Enter"])
+                .then(() => tui.log("system", `relay #${rule.id}: ${change.title} → ${rule.target}`, undefined))
+                .catch(() => { /* best-effort */ });
             }
           }
         }

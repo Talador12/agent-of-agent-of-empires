@@ -2035,3 +2035,29 @@ describe("onDeps", () => {
     assert.equal(calls, 10);
   });
 });
+
+// ── onRelay ──────────────────────────────────────────────────────────────
+
+describe("onRelay", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let received = "";
+    reader.onRelay((args) => { received = args; });
+    reader["relayHandler"]!("alpha bravo error");
+    assert.equal(received, "alpha bravo error");
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["relayHandler"]?.("x"); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onRelay(() => { calls++; });
+    reader.onRelay(() => { calls += 10; });
+    reader["relayHandler"]!("");
+    assert.equal(calls, 10);
+  });
+});

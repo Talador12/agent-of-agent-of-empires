@@ -69,8 +69,10 @@ import {
   shouldCompactContext, formatCompactionNudge, formatCompactionAlert,
   CONTEXT_COMPACTION_THRESHOLD, COMPACTION_COOLDOWN_MS,
   buildSessionDependencyGraph, formatDependencyGraph,
+  createRelayRule, matchRelayRules, formatRelayRules, resetRelayIdCounter,
   TUI,
 } from "./tui.js";
+import type { RelayRule } from "./tui.js";
 import type { SessionReplayState } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
 import type { TaskDefinition } from "./types.js";
@@ -4278,6 +4280,119 @@ describe("formatDependencyGraph", () => {
     const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
     assert.ok(plain.includes("roots"));
     assert.ok(plain.includes("leaves"));
+  });
+});
+
+// ── Cross-session message relay ──────────────────────────────────────────
+
+describe("createRelayRule", () => {
+  it("creates a rule with auto-incrementing ID", () => {
+    resetRelayIdCounter();
+    const r1 = createRelayRule("alpha", "bravo", "error");
+    const r2 = createRelayRule("bravo", "charlie", "done");
+    assert.equal(r1.id, 1);
+    assert.equal(r2.id, 2);
+    assert.equal(r1.source, "alpha");
+    assert.equal(r1.target, "bravo");
+    assert.equal(r1.pattern, "error");
+  });
+
+  it("trims whitespace", () => {
+    resetRelayIdCounter();
+    const r = createRelayRule("  alpha  ", "  bravo  ", "  error  ");
+    assert.equal(r.source, "alpha");
+    assert.equal(r.target, "bravo");
+    assert.equal(r.pattern, "error");
+  });
+});
+
+describe("matchRelayRules", () => {
+  it("returns empty when no rules match", () => {
+    resetRelayIdCounter();
+    const rules = [createRelayRule("alpha", "bravo", "error")];
+    assert.deepEqual(matchRelayRules("charlie", "some output", rules), []);
+  });
+
+  it("matches by source title and pattern", () => {
+    resetRelayIdCounter();
+    const rules = [createRelayRule("alpha", "bravo", "error")];
+    const matches = matchRelayRules("alpha", "got an error here", rules);
+    assert.equal(matches.length, 1);
+    assert.equal(matches[0].target, "bravo");
+  });
+
+  it("is case-insensitive on source and pattern", () => {
+    resetRelayIdCounter();
+    const rules = [createRelayRule("Alpha", "Bravo", "ERROR")];
+    const matches = matchRelayRules("alpha", "Got an Error", rules);
+    assert.equal(matches.length, 1);
+  });
+
+  it("returns multiple matches when multiple rules match", () => {
+    resetRelayIdCounter();
+    const rules = [
+      createRelayRule("alpha", "bravo", "error"),
+      createRelayRule("alpha", "charlie", "error"),
+    ];
+    const matches = matchRelayRules("alpha", "error occurred", rules);
+    assert.equal(matches.length, 2);
+  });
+
+  it("does not match when pattern is absent from line", () => {
+    resetRelayIdCounter();
+    const rules = [createRelayRule("alpha", "bravo", "error")];
+    assert.deepEqual(matchRelayRules("alpha", "all good", rules), []);
+  });
+});
+
+describe("formatRelayRules", () => {
+  it("returns placeholder for empty rules", () => {
+    const lines = formatRelayRules([]);
+    assert.ok(lines[0].includes("no relay rules"));
+  });
+
+  it("shows count and rule details", () => {
+    resetRelayIdCounter();
+    const rules = [createRelayRule("alpha", "bravo", "error")];
+    const lines = formatRelayRules(rules);
+    assert.ok(lines[0].includes("1"));
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("alpha"));
+    assert.ok(plain.includes("bravo"));
+    assert.ok(plain.includes("error"));
+  });
+});
+
+describe("TUI relay rules", () => {
+  it("getRelayRules empty initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.getRelayRules().length, 0);
+  });
+
+  it("addRelayRule adds and returns rule", () => {
+    const tui = new TUI();
+    const rule = tui.addRelayRule("alpha", "bravo", "error");
+    assert.ok(rule.id > 0);
+    assert.equal(tui.getRelayRules().length, 1);
+  });
+
+  it("removeRelayRule removes by ID", () => {
+    const tui = new TUI();
+    const rule = tui.addRelayRule("alpha", "bravo", "error");
+    assert.equal(tui.removeRelayRule(rule.id), true);
+    assert.equal(tui.getRelayRules().length, 0);
+  });
+
+  it("removeRelayRule returns false for missing ID", () => {
+    const tui = new TUI();
+    assert.equal(tui.removeRelayRule(999), false);
+  });
+
+  it("supports multiple rules", () => {
+    const tui = new TUI();
+    tui.addRelayRule("a", "b", "x");
+    tui.addRelayRule("c", "d", "y");
+    assert.equal(tui.getRelayRules().length, 2);
   });
 });
 
