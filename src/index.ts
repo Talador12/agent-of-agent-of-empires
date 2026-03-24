@@ -19,7 +19,7 @@ import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, impor
 import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
 import { parsePaneMilestones } from "./task-parser.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph, formatRelayRules, matchRelayRules, detectOOM, shouldRestartOnOOM, formatOOMAlert, searchSessionOutputs, formatSearchResults } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph, formatRelayRules, matchRelayRules, detectOOM, shouldRestartOnOOM, formatOOMAlert, searchSessionOutputs, formatSearchResults, formatThrottleConfig } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
@@ -1223,6 +1223,36 @@ async function main() {
       for (const line of lines) tui!.log("system", line);
     });
     // wire /relay — cross-session message relay
+    // wire /throttle — per-session action cooldown override
+    input.onThrottle((args) => {
+      if (!args) {
+        const globalMs = config.policies.actionCooldownMs ?? 30_000;
+        const titles = new Map<string, string>();
+        for (const s of tui!.getSessions()) titles.set(s.id, s.title);
+        const lines = formatThrottleConfig(tui!.getAllSessionThrottles(), globalMs, titles);
+        for (const line of lines) tui!.log("system", line);
+        return;
+      }
+      const parts = args.split(/\s+/);
+      const target = parts[0];
+      const valueStr = parts[1];
+      // resolve session
+      const sessions = tui!.getSessions();
+      const needle = target.toLowerCase();
+      const session = /^\d+$/.test(target)
+        ? sessions[parseInt(target, 10) - 1]
+        : sessions.find((s) => s.id.startsWith(needle) || s.title.toLowerCase() === needle);
+      if (!session) { tui!.log("system", `throttle: session not found: ${target}`); return; }
+      if (!valueStr || valueStr === "clear") {
+        const ok = tui!.clearSessionThrottle(session.id);
+        tui!.log("system", ok ? `throttle: cleared override for ${session.title} (using global)` : `throttle: no override set for ${session.title}`);
+        return;
+      }
+      const ms = parseInt(valueStr, 10);
+      if (isNaN(ms) || ms < 0) { tui!.log("system", `throttle: invalid ms value '${valueStr}'`); return; }
+      tui!.setSessionThrottle(session.id, ms);
+      tui!.log("system", `throttle: ${session.title} → ${(ms / 1000).toFixed(1)}s cooldown`);
+    });
     input.onRelay((args) => {
       if (!args) {
         // list rules

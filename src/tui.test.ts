@@ -73,6 +73,7 @@ import {
   detectOOM, shouldRestartOnOOM, formatOOMAlert,
   OOM_RESTART_COOLDOWN_MS, OOM_MAX_RESTARTS,
   searchSessionOutputs, formatSearchResults, SEARCH_MAX_SNIPPETS,
+  getEffectiveThrottle, formatThrottleConfig, DEFAULT_ACTION_COOLDOWN_MS,
   TUI,
 } from "./tui.js";
 import type { RelayRule } from "./tui.js";
@@ -4616,6 +4617,99 @@ describe("formatSearchResults", () => {
     const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
     assert.ok(plain.includes("Alpha"));
     assert.ok(plain.includes("error here"));
+  });
+});
+
+// ── Configurable action throttle per session ─────────────────────────────
+
+describe("DEFAULT_ACTION_COOLDOWN_MS", () => {
+  it("is 30s", () => { assert.equal(DEFAULT_ACTION_COOLDOWN_MS, 30_000); });
+});
+
+describe("getEffectiveThrottle", () => {
+  it("returns global when no per-session override", () => {
+    assert.equal(getEffectiveThrottle("s1", new Map(), 30_000), 30_000);
+  });
+
+  it("returns per-session override when set", () => {
+    const map = new Map([["s1", 5_000]]);
+    assert.equal(getEffectiveThrottle("s1", map, 30_000), 5_000);
+  });
+
+  it("returns global for unset session", () => {
+    const map = new Map([["s2", 5_000]]);
+    assert.equal(getEffectiveThrottle("s1", map, 30_000), 30_000);
+  });
+
+  it("defaults global to DEFAULT_ACTION_COOLDOWN_MS", () => {
+    assert.equal(getEffectiveThrottle("s1", new Map()), DEFAULT_ACTION_COOLDOWN_MS);
+  });
+
+  it("allows 0ms override (no cooldown)", () => {
+    const map = new Map([["s1", 0]]);
+    assert.equal(getEffectiveThrottle("s1", map, 30_000), 0);
+  });
+});
+
+describe("formatThrottleConfig", () => {
+  it("shows global and no overrides message", () => {
+    const lines = formatThrottleConfig(new Map(), 30_000);
+    assert.ok(lines[0].includes("30s"));
+    assert.ok(lines[1].includes("no per-session"));
+  });
+
+  it("shows per-session overrides with titles", () => {
+    const map = new Map([["s1", 5_000]]);
+    const titles = new Map([["s1", "Alpha"]]);
+    const lines = formatThrottleConfig(map, 30_000, titles);
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("Alpha"));
+    assert.ok(plain.includes("5.0s"));
+  });
+
+  it("falls back to session ID when no title", () => {
+    const map = new Map([["s1", 10_000]]);
+    const lines = formatThrottleConfig(map, 30_000);
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("s1"));
+  });
+});
+
+describe("TUI session throttle", () => {
+  it("getSessionThrottle returns undefined initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.getSessionThrottle("s1"), undefined);
+  });
+
+  it("setSessionThrottle stores value", () => {
+    const tui = new TUI();
+    tui.setSessionThrottle("s1", 5_000);
+    assert.equal(tui.getSessionThrottle("s1"), 5_000);
+  });
+
+  it("clearSessionThrottle removes override", () => {
+    const tui = new TUI();
+    tui.setSessionThrottle("s1", 5_000);
+    assert.equal(tui.clearSessionThrottle("s1"), true);
+    assert.equal(tui.getSessionThrottle("s1"), undefined);
+  });
+
+  it("clearSessionThrottle returns false for missing", () => {
+    const tui = new TUI();
+    assert.equal(tui.clearSessionThrottle("s1"), false);
+  });
+
+  it("getAllSessionThrottles returns all", () => {
+    const tui = new TUI();
+    tui.setSessionThrottle("s1", 5_000);
+    tui.setSessionThrottle("s2", 10_000);
+    assert.equal(tui.getAllSessionThrottles().size, 2);
+  });
+
+  it("clamps negative to 0", () => {
+    const tui = new TUI();
+    tui.setSessionThrottle("s1", -100);
+    assert.equal(tui.getSessionThrottle("s1"), 0);
   });
 });
 

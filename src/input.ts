@@ -96,6 +96,7 @@ export type NotifyFilterHandler = (sessionTitle: string | null, events: string[]
 export type DepsHandler = () => void; // show session dependency graph
 export type FullSearchHandler = (query: string) => void; // ranked full-text search across session outputs
 export type RelayHandler = (args: string) => void; // cross-session relay management
+export type ThrottleHandler = (args: string) => void; // per-session action throttle
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -306,6 +307,7 @@ export class InputReader {
   private depsHandler: DepsHandler | null = null;
   private fullSearchHandler: FullSearchHandler | null = null;
   private relayHandler: RelayHandler | null = null;
+  private throttleHandler: ThrottleHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -602,6 +604,7 @@ export class InputReader {
   onDeps(handler: DepsHandler): void { this.depsHandler = handler; }
   onFullSearch(handler: FullSearchHandler): void { this.fullSearchHandler = handler; }
   onRelay(handler: RelayHandler): void { this.relayHandler = handler; }
+  onThrottle(handler: ThrottleHandler): void { this.throttleHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -901,6 +904,7 @@ ${BOLD}navigation:${RESET}
   /ctx-budget        show smart context budget allocations per session
    /deps              show session dependency graph (path, goal, task cross-refs)
    /relay [args]      cross-session relay: no args=list, <src> <tgt> <pattern>=add, rm <id>=remove
+   /throttle [s] [ms] per-session action cooldown: no args=show, <session> <ms>=set, <session> clear=remove
    /stats             show per-session health, errors, burn rate, context %, uptime
    /stats-live        toggle auto-refresh of /stats every 5 seconds (like top)
    /recall <keyword>  search persisted activity history (last 7 days) for keyword
@@ -1815,6 +1819,13 @@ ${BOLD}other:${RESET}
         const relayArgs = line.slice("/relay".length).trim();
         if (this.relayHandler) this.relayHandler(relayArgs);
         else console.error(`${DIM}relay not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/throttle": {
+        const thArgs = line.slice("/throttle".length).trim();
+        if (this.throttleHandler) this.throttleHandler(thArgs);
+        else console.error(`${DIM}throttle not available (no TUI)${RESET}`);
         break;
       }
 

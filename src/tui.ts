@@ -1624,6 +1624,9 @@ export class TUI {
    // OOM restart tracking per session
    private oomRestarts = new Map<string, { lastAt: number; count: number }>();
 
+   // per-session action throttle overrides (ms)
+   private sessionThrottles = new Map<string, number>();
+
    // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
   private drilldownSessionId: string | null = null;
@@ -2466,6 +2469,28 @@ export class TUI {
   /** Reset OOM restart counter for a session (e.g. after manual intervention). */
   resetOOMCounter(sessionId: string): void {
     this.oomRestarts.delete(sessionId);
+  }
+
+  // ── Per-session action throttle ────────────────────────────────────────
+
+  /** Set a per-session action throttle override (in ms). */
+  setSessionThrottle(sessionId: string, ms: number): void {
+    this.sessionThrottles.set(sessionId, Math.max(0, ms));
+  }
+
+  /** Get the throttle override for a session, or undefined if using global. */
+  getSessionThrottle(sessionId: string): number | undefined {
+    return this.sessionThrottles.get(sessionId);
+  }
+
+  /** Clear a per-session throttle (reverts to global). */
+  clearSessionThrottle(sessionId: string): boolean {
+    return this.sessionThrottles.delete(sessionId);
+  }
+
+  /** Get all per-session throttle overrides. */
+  getAllSessionThrottles(): ReadonlyMap<string, number> {
+    return this.sessionThrottles;
   }
 
   // ── Trust ladder ─────────────────────────────────────────────────────────
@@ -5158,6 +5183,45 @@ export function formatSearchResults(results: readonly SearchResult[], query: str
     lines.push(`  ${BOLD}${r.sessionTitle}${RESET} ${DIM}(${r.matchCount} hits, score ${r.score})${RESET}`);
     for (const s of r.snippets) {
       lines.push(`    ${DIM}${s}${RESET}`);
+    }
+  }
+  return lines;
+}
+
+// ── Configurable action throttle per session ────────────────────────────────
+
+/** Default global action cooldown (ms). */
+export const DEFAULT_ACTION_COOLDOWN_MS = 30_000;
+
+/**
+ * Get the effective throttle (cooldown) for a session.
+ * Per-session override takes priority, then falls back to the global value.
+ */
+export function getEffectiveThrottle(
+  sessionId: string,
+  perSessionMap: ReadonlyMap<string, number>,
+  globalMs: number = DEFAULT_ACTION_COOLDOWN_MS,
+): number {
+  const override = perSessionMap.get(sessionId);
+  return override !== undefined ? override : globalMs;
+}
+
+/**
+ * Format the current throttle configuration for display.
+ */
+export function formatThrottleConfig(
+  perSessionMap: ReadonlyMap<string, number>,
+  globalMs: number,
+  sessionTitles?: ReadonlyMap<string, string>, // id → title for display
+): string[] {
+  const lines: string[] = [];
+  lines.push(`action throttle: global ${(globalMs / 1000).toFixed(0)}s`);
+  if (perSessionMap.size === 0) {
+    lines.push(`  (no per-session overrides)`);
+  } else {
+    for (const [id, ms] of perSessionMap) {
+      const title = sessionTitles?.get(id) ?? id;
+      lines.push(`  ${BOLD}${title}${RESET} ${DIM}→ ${(ms / 1000).toFixed(1)}s${RESET}`);
     }
   }
   return lines;

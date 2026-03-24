@@ -8,11 +8,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.180.0
+## Version: v0.181.0
 
 ## Current Focus
 
-Session output search index shipped. Backlog continuing.
+Per-session action throttle shipped. Backlog continuing.
 
 ### Open Items
 - Backlog continues below.
@@ -20,7 +20,19 @@ Session output search index shipped. Backlog continuing.
 ### Ideas Backlog
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session output diffing** — diff two snapshots of the same session's output to see what changed
-- **Configurable action throttle per session** — different sessions get different action rate limits
+
+### What shipped in v0.181.0
+
+**v0.181.0 — Configurable Action Throttle Per Session**:
+- `getEffectiveThrottle(sessionId, perSessionMap, globalMs)` — pure fn: per-session override → global fallback. Supports 0ms (no cooldown).
+- `formatThrottleConfig(perSessionMap, globalMs, sessionTitles)` — display with per-session overrides and title lookup.
+- `DEFAULT_ACTION_COOLDOWN_MS = 30_000` — exported constant.
+- TUI state: `sessionThrottles` map + `setSessionThrottle` (clamps negative to 0), `getSessionThrottle`, `clearSessionThrottle`, `getAllSessionThrottles`.
+- `/throttle` — no args: show global + all overrides. `/throttle <session> <ms>`: set per-session cooldown. `/throttle <session> clear`: remove override. Session resolved by index, ID prefix, or title.
+- 18 new tests: DEFAULT_ACTION_COOLDOWN_MS (1), getEffectiveThrottle (5 — global, override, unset, default, zero), formatThrottleConfig (3 — no overrides, with titles, fallback ID), TUI state (6 — initial, set, clear, clear-missing, getAll, clamp-negative), onThrottle handler (3).
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +18, net 2516 tests across 35 files.
 
 ### What shipped in v0.180.0
 
