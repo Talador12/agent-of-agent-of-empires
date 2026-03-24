@@ -5,18 +5,17 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.162.1
+## Version: v0.163.0
 
 ## Current Focus
 
 UI overhaul shipped (v0.160.1–v0.162.0). Ready for `make self`.
 
 ### Open Items
-- **Vibe column accuracy** — current heuristics (health score proxy) are coarse. Need real pane output analysis: error repetition detection, output velocity, loop detection. Backlog item.
-- **make self startup clarity** — banner now shows `aoe_aoaoe_<id8>` tmux window name; TUI welcome log now lists supervised sessions with tmux names and goal previews. ✓ done in v0.162.1.
+- **`/diff-sessions <A> <B>`** — next up: compare two sessions' pane output side-by-side
+- **Decision confidence hint** — show low/medium/high confidence with each reasoner action bundle
 
 ### Ideas Backlog
-- **Vibe column accuracy** — replace health-proxy heuristics with real pane output analysis: error repetition, output velocity, loop detection, progress markers
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Smart session context budget** — dynamic context allocation based on session activity

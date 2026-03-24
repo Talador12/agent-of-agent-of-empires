@@ -27,6 +27,7 @@ import {
 } from "./colors.js";
 import { appendHistoryEntry } from "./tui-history.js";
 import type { HistoryEntry } from "./tui-history.js";
+import { analysePaneOutput, classifyVibe, formatVibe } from "./vibe.js";
 
 // ── ANSI helpers ────────────────────────────────────────────────────────────
 
@@ -1450,6 +1451,7 @@ export class TUI {
   private alertMutePatterns = new Set<string>(); // substrings to hide from /alert-log display
   private drainingIds = new Set<string>(); // session IDs marked as draining (skip by reasoner)
   private sessionIcons = new Map<string, string>(); // session ID → single emoji icon
+  private sessionVibes = new Map<string, string>(); // session ID → pre-computed formatted vibe cell
   private flapLog: { sessionId: string; title: string; ts: number; count: number }[] = []; // recent flap events
 
   // drill-down mode: show a single session's full output
@@ -2836,12 +2838,27 @@ export class TUI {
 
   // ── Drill-down mode ────────────────────────────────────────────────────
 
-  /** Store full session outputs (called each tick from main loop) */
+  /** Store full session outputs (called each tick from main loop) and recompute vibes. */
   setSessionOutputs(outputs: Map<string, string>): void {
     for (const [id, text] of outputs) {
       const prevLen = this.sessionOutputs.get(id)?.length ?? 0;
       const lines = text.split("\n");
       this.sessionOutputs.set(id, lines);
+
+      // recompute vibe from real pane analysis
+      const session = this.sessions.find((s) => s.id === id);
+      if (session) {
+        const lastChange = this.lastChangeAt.get(id);
+        const idleSinceMs = lastChange !== undefined ? Date.now() - lastChange : undefined;
+        const analysis = analysePaneOutput(text);
+        const result = classifyVibe(analysis, {
+          userActive: session.userActive ?? false,
+          status: session.status,
+          idleSinceMs,
+          consecutiveErrors: this.sessionErrorCounts.get(id) ?? 0,
+        });
+        this.sessionVibes.set(id, formatVibe(result));
+      }
       // track new lines while scrolled back in drill-down
       if (this.viewMode === "drilldown" && this.drilldownSessionId === id && this.drilldownScrollOffset > 0) {
         const newLines = Math.max(0, lines.length - prevLen);
@@ -3171,16 +3188,17 @@ export class TUI {
         const draining = this.drainingIds.has(s.id);
         const sessionLabel = this.sessionLabels.get(s.id);
         const sTags = this.sessionTags.get(s.id);
-         const line = formatSessionTableRow({
-          s, idx: i + 1, innerWidth, isHovered,
-          pinned, muted, noted, group,
-          errSparkline: errSparkline || undefined,
-          idleSinceMs, healthScore, displayName,
-          colorName, draining, sessionLabel, sTags,
-          mutedCount: this.mutedEntryCounts.get(s.id) ?? 0,
-          noteText: this.sessionNotes.get(s.id),
-          icon: this.sessionIcons.get(s.id),
-        });
+          const line = formatSessionTableRow({
+           s, idx: i + 1, innerWidth, isHovered,
+           pinned, muted, noted, group,
+           errSparkline: errSparkline || undefined,
+           idleSinceMs, healthScore, displayName,
+           colorName, draining, sessionLabel, sTags,
+           mutedCount: this.mutedEntryCounts.get(s.id) ?? 0,
+           noteText: this.sessionNotes.get(s.id),
+           icon: this.sessionIcons.get(s.id),
+           vibeCell: this.sessionVibes.get(s.id),
+         });
         const padded = padBoxLineHover(line, this.cols, isHovered);
         // +2: skip top border row + column header row
         process.stderr.write(moveTo(startRow + 2 + i, 1) + CLEAR_LINE + padded);
@@ -3246,6 +3264,7 @@ export class TUI {
       mutedCount: this.mutedEntryCounts.get(s.id) ?? 0,
       noteText: this.sessionNotes.get(s.id),
       icon: this.sessionIcons.get(s.id),
+      vibeCell: this.sessionVibes.get(s.id),
     });
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 2 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
@@ -3551,10 +3570,11 @@ function formatSessionTableRow(opts: {
   mutedCount: number;
   noteText: string | undefined;
   icon?: string | undefined;
+  vibeCell?: string | undefined; // pre-computed from vibe.ts; falls back to legacy heuristic
 }): string {
   const { s, idx, innerWidth, isHovered, pinned, muted, noted, group,
     errSparkline, idleSinceMs, healthScore, displayName, colorName, draining,
-    sessionLabel, sTags, mutedCount, icon } = opts;
+    sessionLabel, sTags, mutedCount, icon, vibeCell: vibeCellOverride } = opts;
 
   const bg = isHovered ? BG_HOVER : "";
   const c = computeTableCols(innerWidth);
@@ -3596,8 +3616,9 @@ function formatSessionTableRow(opts: {
   const statusCell = formatStatusCell(s, idleSinceMs);
 
   // ── VIBE column ───────────────────────────────────────────────────────────
-  const errorCount = healthScore < 60 ? 3 : healthScore < 80 ? 1 : 0; // approximate from health
-  const vibeCell = inferVibe(s, errorCount, idleSinceMs);
+  // Use pre-computed real-pane vibe when available; fall back to legacy heuristic
+  const errorCountFallback = healthScore < 60 ? 3 : healthScore < 80 ? 1 : 0;
+  const vibeCell = vibeCellOverride ?? inferVibe(s, errorCountFallback, idleSinceMs);
 
   // ── ACTION column ─────────────────────────────────────────────────────────
   // last meaningful action hint: error sparkline or health badge
