@@ -17,22 +17,37 @@ self: build
 	@echo ""
 	@echo "╔══════════════════════════════════════════════════════════════╗"
 	@echo "║                  aoaoe  self-improvement                    ║"
-	@echo "║                                                              ║"
+	@echo "╠══════════════════════════════════════════════════════════════╣"
 	@echo "║  aoaoe supervises its own AoE session. It reads the         ║"
 	@echo "║  roadmap in aoaoe.tasks.json, picks the next item,          ║"
 	@echo "║  implements it with tests, commits, and pushes —            ║"
 	@echo "║  updating itself in real time.                              ║"
-	@echo "║                                                              ║"
+	@echo "╠══════════════════════════════════════════════════════════════╣"
 	@echo "║  ESC ESC  interrupt    /help  all commands                  ║"
 	@echo "╚══════════════════════════════════════════════════════════════╝"
 	@echo ""
-	@if ! aoe list --json 2>/dev/null | python3 -c \
-		"import sys,json; sessions=json.load(sys.stdin); exit(0 if any(s['title']=='aoaoe' for s in sessions) else 1)" \
-		2>/dev/null; then \
-		echo "  no 'aoaoe' AoE session found — creating one..."; \
+	@# ── Ensure the AoE session exists ──────────────────────────────────
+	@SESSION_INFO=$$(aoe list --json 2>/dev/null | python3 -c \
+		"import sys,json; sessions=json.load(sys.stdin); s=next((s for s in sessions if s['title']=='aoaoe'),None); print(s['id'][:8] if s else '')" \
+		2>/dev/null); \
+	if [ -z "$$SESSION_INFO" ]; then \
+		echo "  creating 'aoaoe' AoE session..."; \
 		aoe add "$(PWD)" -t "aoaoe" -c opencode -y; \
-		echo ""; \
-	fi
+		SESSION_INFO=$$(aoe list --json 2>/dev/null | python3 -c \
+			"import sys,json; sessions=json.load(sys.stdin); s=next((s for s in sessions if s['title']=='aoaoe'),None); print(s['id'][:8] if s else '?')" \
+			2>/dev/null); \
+	fi; \
+	TMUX_NAME="aoe_aoaoe_$$SESSION_INFO"; \
+	echo "  ┌─ AoE window ──────────────────────────────────────────────┐"; \
+	echo "  │  aoaoe is running in this tmux session:                   │"; \
+	printf "  │    %-57s│\n" "$$TMUX_NAME"; \
+	echo "  │                                                           │"; \
+	echo "  │  To watch the agent work, in another terminal:            │"; \
+	printf "  │    tmux attach -t %-42s│\n" "$$TMUX_NAME"; \
+	echo "  └───────────────────────────────────────────────────────────┘"; \
+	echo ""; \
+	echo "  Starting aoaoe supervisor TUI..."; \
+	echo ""
 	node dist/index.js
 
 # Watch mode — aoaoe observes and plans but never acts. Safe to run alongside live sessions.

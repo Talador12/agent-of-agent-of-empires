@@ -5,40 +5,18 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.162.0
+## Version: v0.162.1
 
 ## Current Focus
 
-UI overhaul in progress. Core issues identified from real usage with `make self`:
+UI overhaul shipped (v0.160.1–v0.162.0). Ready for `make self`.
 
-### UI Overhaul — Active Work
-
-**Bug 1 — Output overwrites input**: Daemon status/thinking output is written at the current cursor position, which clobbers the `> you:` input line while typing. All output must go above the input line at all times — the input row must be the final owned row, never overwritten by daemon output.
-
-**Bug 2 — Rate limiting from AI Gateway**: aoaoe reasons on every poll tick (default 15s). Decoupled observation polling (fast, cheap tmux reads) from reasoning (expensive LLM calls). Observation polling should run frequently; reasoning only when meaningful change is detected or a minimum interval has elapsed. Default reasoning interval should be 60s+, not 15s.
-
-**Bug 3 — Encoded ANSI sequences in input**: Reasoner output contains raw ANSI escape sequences (e.g. `\x1b[12;24D`) that are being sent directly to tmux via send-keys. Must strip all ANSI before injecting text into agent panes.
-
-**Redesign — Input box**: Replace the bare `> you:` prompt with a styled box (light grey border, blue accent bar) matching OpenCode's chat UI aesthetic. Reasoner responses received while user is typing must be queued and displayed above the input box at the timestamp they were received — never injected into the input field. Pending messages (queued but not yet picked up by the reasoner) must be displayed immediately and persistently in the input area — not only when the reasoner is actively cycling. If the reasoner is idle, paused, or between cycles, queued messages must still be visible so the user knows their input is registered.
-
-**Redesign — Session panel as table**: Replace the current card layout with a structured `name | task | status | vibe | action` table. Strip OpenCode helper text (ctrl+t, ctrl+p lines) from the name/status fields — those are UI chrome, not state. Status should reflect what the agent is actually doing (current task, progress, last meaningful output), not terminal UI hints.
-
-**Add — Vibe column**: A fifth column in the session table showing LLM-inferred agent state — distinct from the literal `status` field (which is "waiting", "error", "done", etc.). Vibe is a higher-level read of what the agent is actually experiencing:
-- 🟢 **flowing** — making steady progress, shipping work, no blockers
-- 🔵 **focused** — working through a specific blocker methodically, making incremental progress
-- 🟡 **needs direction** — stalled, uncertain, waiting on input or a decision with no clear path forward
-- 🔴 **lost** — repeating the same errors, looping unproductively, stuck in a dumb cycle
-- ⚪ **idle** — not enough recent output to classify
-
-Vibe is derived from pane output analysis (error repetition, progress markers, output velocity, loop detection) — not from the LLM per-poll (too expensive), but from heuristics in the poller/parser layer with optional LLM upgrade.
-
-**Add — Dual progress indicators**: Two distinct bars serving different purposes:
-- *Reasoning animation*: While an LLM call is in flight, show a sweeping animation — a row of grey block characters with a blue-tip segment bouncing back and forth (matching OpenCode's in-progress aesthetic). Shown in the separator or header, disappears when reasoning completes.
-- *Poll countdown bar*: When idle (between cycles), show a static progress bar of grey blocks filling left-to-right indicating time elapsed toward the next observation/reasoning poll. Gives the user a sense of when the next cycle will fire without needing to read a number.
-
-**Add — Roadmap-continue mode**: `aoaoe.tasks.json` gets a top-level `"continueOnRoadmap": true` flag. When the task queue drains (all tasks complete), instead of stopping, the daemon reads the Ideas Backlog from `claude.md` and feeds the next batch of items to the session as an ongoing goal — effectively making the agent self-directed indefinitely. A special task entry type `"mode": "roadmap"` lets individual tasks delegate to the roadmap rather than having a fixed goal. The current `aoaoe.tasks.json` in this repo uses this to power `make self`.
+### Open Items
+- **Vibe column accuracy** — current heuristics (health score proxy) are coarse. Need real pane output analysis: error repetition detection, output velocity, loop detection. Backlog item.
+- **make self startup clarity** — banner now shows `aoe_aoaoe_<id8>` tmux window name; TUI welcome log now lists supervised sessions with tmux names and goal previews. ✓ done in v0.162.1.
 
 ### Ideas Backlog
+- **Vibe column accuracy** — replace health-proxy heuristics with real pane output analysis: error repetition, output velocity, loop detection, progress markers
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Smart session context budget** — dynamic context allocation based on session activity
@@ -51,14 +29,7 @@ Vibe is derived from pane output analysis (error repetition, progress markers, o
 - **Reasoner confidence badge** — if reasoner returns a confidence signal, show in header
 - **Parallel `/stats` refresh** — auto-refresh `/stats` output every N seconds in TUI drill-down
 - **Compact mode health glyph color-coding** — use accent color from `/color` in compact tokens
-- **`/labels`** — list all active session labels
-- **`/sort-by-health`** — sort mode: sessions sorted by health score ascending
-- **`/pin-draining`** — pin all draining sessions to top for easy monitoring
-- **Session emoji icons** — `/icon <N> <emoji>` set a single emoji shown in the session card
 - **`/diff-sessions <A> <B>`** — compare two sessions' latest pane output line-by-line
-- **Vibe column** — heuristic + optional LLM-upgraded agent vibe classification (flowing / focused / needs-direction / lost / idle) shown as a colored column in the session table
-- **Roadmap-continue mode** — `continueOnRoadmap: true` in `aoaoe.tasks.json` keeps the agent self-directed after queue drains; `"mode": "roadmap"` task type delegates goal to Ideas Backlog in `claude.md`
-- **UI overhaul** — full TUI redesign: styled section boxes with double-line borders, `NAME│TASK│STATUS│VIBE│ACTION` table, colored activity gutter, styled input box with persistent pending-message chips, dual progress indicators (reasoning sweep animation + idle countdown bar)
 
 ### What shipped in v0.160.1–v0.161.0
 

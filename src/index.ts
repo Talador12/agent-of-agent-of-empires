@@ -1557,20 +1557,34 @@ async function main() {
     // welcome banner — plain-English explanation of what's happening
     tui.log("system", "");
     if (config.observe) {
-      tui.log("system", "OBSERVE MODE — watching your agents without touching anything.");
+      tui.log("system", "OBSERVE MODE — watching agents without touching anything.");
       tui.log("system", "No AI calls, no actions, zero cost. Just monitoring.");
     } else if (config.confirm) {
-      tui.log("system", `The AI supervisor is watching your agents and will ask before acting.`);
-      tui.log("system", `You'll see a y/n prompt before any action runs.`);
+      tui.log("system", "supervisor is active — will ask before every action.");
+      tui.log("system", "You'll see a y/n prompt before anything runs.");
     } else if (config.dryRun) {
-      tui.log("system", `DRY RUN — the AI will think about what to do, but won't actually do it.`);
+      tui.log("system", "DRY RUN — AI will think, but nothing will be executed.");
     } else {
-      tui.log("system", `The AI supervisor is watching your agents and will help when needed.`);
+      tui.log("system", "supervisor is active — watching agents and acting when needed.");
     }
     tui.log("system", "");
-    tui.log("system", `config: ${configPath ?? "using defaults (no config file found)"}`);
-    tui.log("system", "Type a message to talk to the AI, or use /help for commands.");
-    tui.log("system", "Press ESC twice to interrupt the AI mid-thought.");
+
+    // show which AoE sessions are being supervised (with tmux window names)
+    if (taskManager && taskManager.tasks.length > 0) {
+      tui.log("system", "── supervised sessions ─────────────────────────────────");
+      for (const t of taskManager.tasks) {
+        const tmuxName = `aoe_${t.sessionTitle}_${t.sessionId?.slice(0, 8) ?? "????????"}`;
+        const goalLines = goalToList(t.goal);
+        const goalPreview = goalLines[0]?.slice(0, 60) ?? "continue roadmap";
+        tui.log("system", `  ${t.sessionTitle}  →  tmux: ${tmuxName}`);
+        tui.log("system", `  goal: ${goalPreview}${goalLines.length > 1 ? ` (+${goalLines.length - 1} more)` : ""}`);
+      }
+      tui.log("system", "────────────────────────────────────────────────────────");
+    }
+
+    tui.log("system", "");
+    tui.log("system", `config: ${configPath ?? "defaults"}`);
+    tui.log("system", "/help for commands  •  ESC ESC to interrupt  •  type to message the AI");
     tui.log("system", "");
 
     // catch-up: show recent activity from actions.log
