@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { InputReader, INSIST_PREFIX, parseMouseEvent } from "./input.js";
+import { InputReader, INSIST_PREFIX, parseMouseEvent, parseNaturalTaskIntent } from "./input.js";
 import type { MouseEvent } from "./input.js";
 
 describe("InputReader queue management", () => {
@@ -1755,5 +1755,73 @@ describe("onClearHistory", () => {
     reader.onClearHistory(() => { calls += 10; });
     reader["clearHistoryHandler"]!();
     assert.equal(calls, 10);
+  });
+});
+
+// ── parseNaturalTaskIntent ───────────────────────────────────────────────────
+
+describe("parseNaturalTaskIntent", () => {
+  it("returns null for empty string", () => {
+    assert.equal(parseNaturalTaskIntent(""), null);
+  });
+
+  it("returns null for plain sentence with no intent marker", () => {
+    assert.equal(parseNaturalTaskIntent("just a normal message"), null);
+  });
+
+  it("parses 'task for <session>: <goal>'", () => {
+    const r = parseNaturalTaskIntent("task for adventure: implement login");
+    assert.deepEqual(r, { session: "adventure", goal: "implement login" });
+  });
+
+  it("parses 'task for <session> - <goal>'", () => {
+    const r = parseNaturalTaskIntent("task for aoaoe - fix the flap detector");
+    assert.deepEqual(r, { session: "aoaoe", goal: "fix the flap detector" });
+  });
+
+  it("parses 'task <session>: <goal>'", () => {
+    const r = parseNaturalTaskIntent("task cloud-hypervisor: rebase onto main");
+    assert.deepEqual(r, { session: "cloud-hypervisor", goal: "rebase onto main" });
+  });
+
+  it("parses '<session>: <goal>' (single-word session)", () => {
+    const r = parseNaturalTaskIntent("adventure: implement the inventory system");
+    assert.deepEqual(r, { session: "adventure", goal: "implement the inventory system" });
+  });
+
+  it("is case-insensitive for 'task for'", () => {
+    const r = parseNaturalTaskIntent("TASK FOR adventure: implement login");
+    assert.deepEqual(r, { session: "adventure", goal: "implement login" });
+  });
+
+  it("is case-insensitive for 'task'", () => {
+    const r = parseNaturalTaskIntent("Task adventure: fix tests");
+    assert.deepEqual(r, { session: "adventure", goal: "fix tests" });
+  });
+
+  it("rejects bare number as session (e.g. '12:30')", () => {
+    assert.equal(parseNaturalTaskIntent("12:30 is the time"), null);
+  });
+
+  it("rejects 'http:' scheme prefix", () => {
+    assert.equal(parseNaturalTaskIntent("http: not a task"), null);
+  });
+
+  it("rejects single-char session name", () => {
+    assert.equal(parseNaturalTaskIntent("x: something"), null);
+  });
+
+  it("trims whitespace from goal", () => {
+    const r = parseNaturalTaskIntent("task for adventure:   implement login   ");
+    assert.deepEqual(r, { session: "adventure", goal: "implement login" });
+  });
+
+  it("returns null when goal is empty after colon", () => {
+    assert.equal(parseNaturalTaskIntent("task for adventure:"), null);
+  });
+
+  it("handles session names with hyphens", () => {
+    const r = parseNaturalTaskIntent("task for cloud-hypervisor: fix sev-snp");
+    assert.deepEqual(r, { session: "cloud-hypervisor", goal: "fix sev-snp" });
   });
 });

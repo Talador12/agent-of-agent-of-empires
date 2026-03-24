@@ -12,5 +12,19 @@
     "sessionMode": "existing",
     "tool": "opencode",
     "goal": "Continue the roadmap in claude.md"
+  },
+  {
+    "repo": "/Users/kadler/Documents/repos/github/adventure",
+    "sessionTitle": "adventure",
+    "sessionMode": "existing",
+    "tool": "opencode",
+    "goal": "Continue the roadmap in claude.md — ship the next feature, commit, push. Current version v9.5.0. Fix the blocked portrait assets if possible or pick the next unblocked item."
+  },
+  {
+    "repo": "/Users/kadler/Documents/repos/github/code-music",
+    "sessionTitle": "code-music",
+    "sessionMode": "existing",
+    "tool": "opencode",
+    "goal": "Continue the roadmap in claude.md — implement the next feature or song, run tests, commit, push. Currently at v0.17.0 with 55 songs and 269 tests."
   }
 ]

@@ -1864,25 +1864,42 @@ async function main() {
           const msg = `task command error: ${err}`;
           if (tui) tui.log("error", msg); else log(msg);
         }
-      } else if (cmd.startsWith("__CMD_QUICKTASK__")) {
-        const goal = cmd.slice("__CMD_QUICKTASK__".length).trim();
-        if (!goal) continue;
-        const sessionId = tui?.getDrilldownSessionId();
-        if (!sessionId) {
-          const msg = "quick task needs a target session: use /view first, then type :<goal>";
-          if (tui) tui.log("system", msg); else log(msg);
-          reasonerConsole.writeSystem(msg);
-          continue;
-        }
-        try {
-          const output = await quickTaskUpdate(sessionId, goal);
-          if (tui) tui.log("system", output); else log(output);
-          reasonerConsole.writeSystem(output);
-        } catch (err) {
-          const msg = `quick task error: ${err}`;
-          if (tui) tui.log("error", msg); else log(msg);
-        }
-      }
+       } else if (cmd.startsWith("__CMD_QUICKTASK__")) {
+         const goal = cmd.slice("__CMD_QUICKTASK__".length).trim();
+         if (!goal) continue;
+         const sessionId = tui?.getDrilldownSessionId();
+         if (!sessionId) {
+           const msg = "quick task needs a target session: use /view first, then type :<goal>";
+           if (tui) tui.log("system", msg); else log(msg);
+           reasonerConsole.writeSystem(msg);
+           continue;
+         }
+         try {
+           const output = await quickTaskUpdate(sessionId, goal);
+           if (tui) tui.log("system", output); else log(output);
+           reasonerConsole.writeSystem(output);
+         } catch (err) {
+           const msg = `quick task error: ${err}`;
+           if (tui) tui.log("error", msg); else log(msg);
+         }
+       } else if (cmd.startsWith("__CMD_NATURALTASK__")) {
+         // natural language task intent: "task for adventure: implement login"
+         // format: __CMD_NATURALTASK__<session>\t<goal>
+         const payload = cmd.slice("__CMD_NATURALTASK__".length);
+         const tabIdx = payload.indexOf("\t");
+         if (tabIdx < 0) continue;
+         const sessionRef = payload.slice(0, tabIdx).trim();
+         const goal = payload.slice(tabIdx + 1).trim();
+         if (!sessionRef || !goal) continue;
+         try {
+           const output = await quickTaskUpdate(sessionRef, goal);
+           if (tui) tui.log("system", `task intent: ${output}`); else log(`task intent: ${output}`);
+           reasonerConsole.writeSystem(`task intent: ${output}`);
+         } catch (err) {
+           const msg = `task intent error: ${err}`;
+           if (tui) tui.log("error", msg); else log(msg);
+         }
+       }
     }
 
     // check pause from both stdin input and console commands

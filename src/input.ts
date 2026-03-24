@@ -153,6 +153,56 @@ export function isMouseOrEscapeSequence(line: string): boolean {
   return false;
 }
 
+/**
+ * Parse a plain-English task intent from a user-typed line.
+ * Returns { session, goal } when matched, null otherwise.
+ *
+ * Recognised patterns (case-insensitive):
+ *   "task for <session>: <goal>"
+ *   "task for <session> - <goal>"
+ *   "task <session>: <goal>"
+ *   "<session>: <goal>"   (only when session name contains no spaces, to avoid false positives)
+ *
+ * The session token must be a single word (no spaces) to avoid treating
+ * arbitrary sentences like "implement login: use JWT" as task intents.
+ */
+export function parseNaturalTaskIntent(line: string): { session: string; goal: string } | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+
+  // "task for <session>: <goal>" or "task for <session> - <goal>"
+  const forMatch = trimmed.match(/^task\s+for\s+(\S+)\s*[:\-]\s*(.+)$/i);
+  if (forMatch) {
+    const goal = forMatch[2].trim();
+    if (goal) return { session: forMatch[1], goal };
+  }
+
+  // "task <session>: <goal>"
+  const shortMatch = trimmed.match(/^task\s+(\S+)\s*:\s*(.+)$/i);
+  if (shortMatch) {
+    const goal = shortMatch[2].trim();
+    if (goal) return { session: shortMatch[1], goal };
+  }
+
+  // "<session>: <goal>" — only when session is a single word (no spaces)
+  // This avoids treating "fix the login bug: use JWT" as session="fix" goal="the login bug: use JWT"
+  const colonMatch = trimmed.match(/^(\S+):\s*(.+)$/);
+  if (colonMatch) {
+    const goal = colonMatch[2].trim();
+    // reject if it looks like a URL scheme, a time (12:30), or a single-char prefix
+    if (
+      goal &&
+      colonMatch[1].length > 1 &&
+      !/^\d+$/.test(colonMatch[1]) &&       // not a bare number
+      !/^https?$/i.test(colonMatch[1])       // not a URL scheme
+    ) {
+      return { session: colonMatch[1], goal };
+    }
+  }
+
+  return null;
+}
+
 export class InputReader {
   private rl: Interface | null = null;
   private queue: string[] = []; // pending user messages for the reasoner
@@ -737,6 +787,19 @@ export class InputReader {
       this.queue.push(`__CMD_QUICKTASK__${line}`);
       this.notifyQueueChange();
       console.error(`${GREEN}captured${RESET} ${DIM}goal updated for current session${RESET}`);
+      this.rl?.prompt();
+      return;
+    }
+
+    // natural language task intent in overview mode:
+    // "task for adventure: implement login" or "adventure: implement login"
+    // Parsed before the generic queue push so it routes to task management directly.
+    const taskIntent = parseNaturalTaskIntent(line);
+    if (taskIntent) {
+      // __CMD_NATURALTASK__<session>\t<goal> — tab-separated so both parts are recoverable
+      this.queue.push(`__CMD_NATURALTASK__${taskIntent.session}\t${taskIntent.goal}`);
+      this.notifyQueueChange();
+      console.error(`${GREEN}task intent${RESET} ${DIM}→ ${taskIntent.session}: ${taskIntent.goal}${RESET}`);
       this.rl?.prompt();
       return;
     }
