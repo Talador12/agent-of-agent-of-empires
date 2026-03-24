@@ -99,6 +99,7 @@ export type RelayHandler = (args: string) => void; // cross-session relay manage
 export type ThrottleHandler = (args: string) => void; // per-session action throttle
 export type SnapHandler = (target: string) => void; // save output snapshot
 export type SnapDiffHandler = (target: string) => void; // diff current output vs snapshot
+export type AlertPatternHandler = (args: string) => void; // output pattern alerting management
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -312,6 +313,7 @@ export class InputReader {
   private throttleHandler: ThrottleHandler | null = null;
   private snapHandler: SnapHandler | null = null;
   private snapDiffHandler: SnapDiffHandler | null = null;
+  private alertPatternHandler: AlertPatternHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -611,6 +613,7 @@ export class InputReader {
   onThrottle(handler: ThrottleHandler): void { this.throttleHandler = handler; }
   onSnap(handler: SnapHandler): void { this.snapHandler = handler; }
   onSnapDiff(handler: SnapDiffHandler): void { this.snapDiffHandler = handler; }
+  onAlertPattern(handler: AlertPatternHandler): void { this.alertPatternHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -913,6 +916,7 @@ ${BOLD}navigation:${RESET}
    /throttle [s] [ms] per-session action cooldown: no args=show, <session> <ms>=set, <session> clear=remove
    /snap <N|name>     save a snapshot of session output for later diffing
    /snap-diff <N|name> diff current output against last /snap snapshot
+   /alert-pattern [args] output alerting: no args=list, <regex> [label]=add, rm <id>=remove
    /stats             show per-session health, errors, burn rate, context %, uptime
    /stats-live        toggle auto-refresh of /stats every 5 seconds (like top)
    /recall <keyword>  search persisted activity history (last 7 days) for keyword
@@ -1850,6 +1854,13 @@ ${BOLD}other:${RESET}
         if (!sdTarget) { console.error(`${DIM}usage: /snap-diff <N|name> — diff vs last snapshot${RESET}`); break; }
         if (this.snapDiffHandler) this.snapDiffHandler(sdTarget);
         else console.error(`${DIM}snap-diff not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/alert-pattern": {
+        const apArgs = line.slice("/alert-pattern".length).trim();
+        if (this.alertPatternHandler) this.alertPatternHandler(apArgs);
+        else console.error(`${DIM}alert-pattern not available (no TUI)${RESET}`);
         break;
       }
 

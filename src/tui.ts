@@ -1630,6 +1630,9 @@ export class TUI {
    // session output snapshots for diffing
    private outputSnapshots = new Map<string, string[]>(); // session ID → snapshot lines
 
+   // output pattern alerting
+   private alertPatterns: AlertPattern[] = [];
+
    // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
   private drilldownSessionId: string | null = null;
@@ -2526,6 +2529,29 @@ export class TUI {
   /** Check if a snapshot exists for a session. */
   hasOutputSnapshot(sessionId: string): boolean {
     return this.outputSnapshots.has(sessionId);
+  }
+
+  // ── Output pattern alerting ────────────────────────────────────────────
+
+  /** Add an alert pattern. Returns null if regex is invalid. */
+  addAlertPattern(pattern: string, label?: string): AlertPattern | null {
+    const ap = createAlertPattern(pattern, label);
+    if (!ap) return null;
+    this.alertPatterns.push(ap);
+    return ap;
+  }
+
+  /** Remove an alert pattern by ID. */
+  removeAlertPattern(id: number): boolean {
+    const idx = this.alertPatterns.findIndex((p) => p.id === id);
+    if (idx < 0) return false;
+    this.alertPatterns.splice(idx, 1);
+    return true;
+  }
+
+  /** Get all alert patterns. */
+  getAlertPatterns(): readonly AlertPattern[] {
+    return this.alertPatterns;
   }
 
   // ── Trust ladder ─────────────────────────────────────────────────────────
@@ -5363,6 +5389,55 @@ export function formatSessionDiff(
     lastShown = i;
   }
 
+  return lines;
+}
+
+// ── Output pattern alerting ─────────────────────────────────────────────────
+
+export interface AlertPattern {
+  id: number;
+  pattern: string;   // regex source string
+  regex: RegExp;
+  label?: string;    // optional human-readable label
+  createdAt: number;
+}
+
+let nextAlertPatternId = 1;
+
+/** Reset alert pattern ID counter (for testing). */
+export function resetAlertPatternIdCounter(): void { nextAlertPatternId = 1; }
+
+/**
+ * Create a new alert pattern. Returns null if the regex is invalid.
+ */
+export function createAlertPattern(pattern: string, label?: string): AlertPattern | null {
+  try {
+    const regex = new RegExp(pattern, "i");
+    return { id: nextAlertPatternId++, pattern, regex, label: label?.trim() || undefined, createdAt: Date.now() };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check a line against all alert patterns. Returns matching patterns.
+ */
+export function matchAlertPatterns(line: string, patterns: readonly AlertPattern[]): AlertPattern[] {
+  const clean = line.replace(/\x1b\[[0-9;]*[mABCDHJKST]/g, "");
+  return patterns.filter((p) => p.regex.test(clean));
+}
+
+/**
+ * Format alert patterns for display.
+ */
+export function formatAlertPatterns(patterns: readonly AlertPattern[]): string[] {
+  if (patterns.length === 0) return ["(no alert patterns configured)"];
+  const lines: string[] = [];
+  lines.push(`alert patterns: ${patterns.length}`);
+  for (const p of patterns) {
+    const labelStr = p.label ? ` ${DIM}(${p.label})${RESET}` : "";
+    lines.push(`  ${DIM}#${p.id}${RESET} ${BOLD}/${p.pattern}/i${RESET}${labelStr}`);
+  }
   return lines;
 }
 

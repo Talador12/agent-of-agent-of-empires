@@ -19,7 +19,7 @@ import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, impor
 import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
 import { parsePaneMilestones } from "./task-parser.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph, formatRelayRules, matchRelayRules, detectOOM, shouldRestartOnOOM, formatOOMAlert, searchSessionOutputs, formatSearchResults, formatThrottleConfig, diffSessionOutput, formatSessionDiff } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph, formatRelayRules, matchRelayRules, detectOOM, shouldRestartOnOOM, formatOOMAlert, searchSessionOutputs, formatSearchResults, formatThrottleConfig, diffSessionOutput, formatSessionDiff, formatAlertPatterns, matchAlertPatterns } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
@@ -1225,6 +1225,31 @@ async function main() {
     // wire /relay — cross-session message relay
     // wire /throttle — per-session action cooldown override
     // wire /snap — save output snapshot for later diffing
+    // wire /alert-pattern — output pattern alerting
+    input.onAlertPattern((args) => {
+      if (!args) {
+        const lines = formatAlertPatterns(tui!.getAlertPatterns());
+        for (const line of lines) tui!.log("system", line);
+        return;
+      }
+      const parts = args.split(/\s+/);
+      if (parts[0] === "rm" && parts[1]) {
+        const id = parseInt(parts[1], 10);
+        if (isNaN(id)) { tui!.log("system", `alert-pattern: invalid ID '${parts[1]}'`); return; }
+        const ok = tui!.removeAlertPattern(id);
+        tui!.log("system", ok ? `alert-pattern: removed #${id}` : `alert-pattern: #${id} not found`);
+        return;
+      }
+      // add: first token is regex, rest is optional label
+      const pattern = parts[0];
+      const label = parts.slice(1).join(" ") || undefined;
+      const ap = tui!.addAlertPattern(pattern, label);
+      if (ap) {
+        tui!.log("system", `alert-pattern: added #${ap.id} /${ap.pattern}/i${ap.label ? ` (${ap.label})` : ""}`);
+      } else {
+        tui!.log("system", `alert-pattern: invalid regex '${pattern}'`);
+      }
+    });
     input.onSnap((target) => {
       const ref = /^\d+$/.test(target) ? parseInt(target, 10) : target;
       const sid = tui!.saveOutputSnapshot(ref);
@@ -2465,6 +2490,24 @@ async function daemonTick(
             if (!recentSummaries.has(m.summary)) {
               taskManager.reportProgress(change.title, m.summary);
             }
+          }
+        }
+      }
+    }
+  }
+
+  // output pattern alerting: check new output against configured alert patterns
+  if (tui && observation.changes.length > 0) {
+    const patterns = tui.getAlertPatterns();
+    if (patterns.length > 0) {
+      for (const change of observation.changes) {
+        if (!change.newLines) continue;
+        for (const line of change.newLines.split("\n")) {
+          const matches = matchAlertPatterns(line, patterns);
+          for (const m of matches) {
+            const clean = line.replace(/\x1b\[[0-9;]*[mABCDHJKST]/g, "").trim().slice(0, 100);
+            const label = m.label ? ` (${m.label})` : "";
+            tui.log("status", `alert #${m.id}${label}: ${change.title} — "${clean}"`);
           }
         }
       }

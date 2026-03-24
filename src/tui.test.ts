@@ -75,6 +75,7 @@ import {
   searchSessionOutputs, formatSearchResults, SEARCH_MAX_SNIPPETS,
   getEffectiveThrottle, formatThrottleConfig, DEFAULT_ACTION_COOLDOWN_MS,
   diffSessionOutput, summarizeDiff, formatSessionDiff,
+  createAlertPattern, matchAlertPatterns, formatAlertPatterns, resetAlertPatternIdCounter,
   TUI,
 } from "./tui.js";
 import type { RelayRule } from "./tui.js";
@@ -4822,6 +4823,125 @@ describe("TUI output snapshots", () => {
   it("getOutputSnapshot returns null when none saved", () => {
     const tui = new TUI();
     assert.equal(tui.getOutputSnapshot("s1"), null);
+  });
+});
+
+// ── Output pattern alerting ──────────────────────────────────────────────
+
+describe("createAlertPattern", () => {
+  it("creates a pattern with auto-incrementing ID", () => {
+    resetAlertPatternIdCounter();
+    const p1 = createAlertPattern("error");
+    const p2 = createAlertPattern("warn");
+    assert.ok(p1); assert.ok(p2);
+    assert.equal(p1.id, 1);
+    assert.equal(p2.id, 2);
+  });
+
+  it("returns null for invalid regex", () => {
+    resetAlertPatternIdCounter();
+    assert.equal(createAlertPattern("[invalid"), null);
+  });
+
+  it("stores label when provided", () => {
+    resetAlertPatternIdCounter();
+    const p = createAlertPattern("error", "critical errors");
+    assert.equal(p!.label, "critical errors");
+  });
+
+  it("omits label when empty", () => {
+    resetAlertPatternIdCounter();
+    const p = createAlertPattern("error", "  ");
+    assert.equal(p!.label, undefined);
+  });
+
+  it("creates case-insensitive regex", () => {
+    resetAlertPatternIdCounter();
+    const p = createAlertPattern("Error");
+    assert.ok(p!.regex.test("an ERROR here"));
+  });
+});
+
+describe("matchAlertPatterns", () => {
+  it("returns empty when no patterns match", () => {
+    resetAlertPatternIdCounter();
+    const patterns = [createAlertPattern("error")!];
+    assert.deepEqual(matchAlertPatterns("all good", patterns), []);
+  });
+
+  it("matches a pattern", () => {
+    resetAlertPatternIdCounter();
+    const patterns = [createAlertPattern("error")!];
+    const matches = matchAlertPatterns("got an error", patterns);
+    assert.equal(matches.length, 1);
+  });
+
+  it("matches multiple patterns", () => {
+    resetAlertPatternIdCounter();
+    const patterns = [createAlertPattern("error")!, createAlertPattern("fail")!];
+    const matches = matchAlertPatterns("error and fail", patterns);
+    assert.equal(matches.length, 2);
+  });
+
+  it("strips ANSI before matching", () => {
+    resetAlertPatternIdCounter();
+    const patterns = [createAlertPattern("error")!];
+    assert.equal(matchAlertPatterns("\x1b[31merror\x1b[0m", patterns).length, 1);
+  });
+
+  it("supports regex features", () => {
+    resetAlertPatternIdCounter();
+    const patterns = [createAlertPattern("err\\d+")!];
+    assert.equal(matchAlertPatterns("got err42", patterns).length, 1);
+    assert.equal(matchAlertPatterns("got error", patterns).length, 0);
+  });
+});
+
+describe("formatAlertPatterns", () => {
+  it("returns placeholder for empty", () => {
+    assert.ok(formatAlertPatterns([])[0].includes("no alert patterns"));
+  });
+
+  it("shows count and pattern details", () => {
+    resetAlertPatternIdCounter();
+    const patterns = [createAlertPattern("error", "errors")!];
+    const lines = formatAlertPatterns(patterns);
+    assert.ok(lines[0].includes("1"));
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("/error/i"));
+    assert.ok(plain.includes("errors"));
+  });
+});
+
+describe("TUI alert patterns", () => {
+  it("getAlertPatterns empty initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.getAlertPatterns().length, 0);
+  });
+
+  it("addAlertPattern adds and returns pattern", () => {
+    const tui = new TUI();
+    const p = tui.addAlertPattern("error");
+    assert.ok(p);
+    assert.equal(tui.getAlertPatterns().length, 1);
+  });
+
+  it("addAlertPattern returns null for invalid regex", () => {
+    const tui = new TUI();
+    assert.equal(tui.addAlertPattern("[bad"), null);
+    assert.equal(tui.getAlertPatterns().length, 0);
+  });
+
+  it("removeAlertPattern removes by ID", () => {
+    const tui = new TUI();
+    const p = tui.addAlertPattern("error")!;
+    assert.equal(tui.removeAlertPattern(p.id), true);
+    assert.equal(tui.getAlertPatterns().length, 0);
+  });
+
+  it("removeAlertPattern returns false for missing", () => {
+    const tui = new TUI();
+    assert.equal(tui.removeAlertPattern(999), false);
   });
 });
 

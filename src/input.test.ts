@@ -2145,3 +2145,29 @@ describe("onSnapDiff", () => {
     assert.doesNotThrow(() => { reader["snapDiffHandler"]?.("x"); });
   });
 });
+
+// ── onAlertPattern ───────────────────────────────────────────────────────
+
+describe("onAlertPattern", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let received = "";
+    reader.onAlertPattern((a) => { received = a; });
+    reader["alertPatternHandler"]!("error critical");
+    assert.equal(received, "error critical");
+  });
+
+  it("is safe without handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["alertPatternHandler"]?.("x"); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onAlertPattern(() => { calls++; });
+    reader.onAlertPattern(() => { calls += 10; });
+    reader["alertPatternHandler"]!("");
+    assert.equal(calls, 10);
+  });
+});

@@ -8,11 +8,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.182.0
+## Version: v0.183.0
 
 ## Current Focus
 
-Session output diffing shipped. All original backlog items complete except web dashboard.
+Output pattern alerting shipped. Backlog continuing.
 
 ### Open Items
 - Backlog continues below.
@@ -20,7 +20,21 @@ Session output diffing shipped. All original backlog items complete except web d
 ### Ideas Backlog
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session lifecycle hooks** — pre/post start, stop, restart hooks for custom automation
-- **Output pattern alerting** — configurable regex patterns that trigger alerts when matched in any session
+
+### What shipped in v0.183.0
+
+**v0.183.0 — Output Pattern Alerting**:
+- `/alert-pattern <regex> [label]` — add a regex pattern that triggers an alert whenever any session's new output matches. Case-insensitive. Optional human-readable label.
+- `/alert-pattern` — list all configured patterns. `/alert-pattern rm <id>` — remove by ID.
+- `createAlertPattern(pattern, label)` — pure fn: creates `AlertPattern` with auto-incrementing ID. Returns null for invalid regex.
+- `matchAlertPatterns(line, patterns)` — pure fn: checks a line against all patterns, strips ANSI first, returns matching patterns. Supports full regex syntax.
+- `formatAlertPatterns(patterns)` — display with `#id /pattern/i (label)` format.
+- TUI state: `alertPatterns` array + `addAlertPattern`, `removeAlertPattern`, `getAlertPatterns`.
+- Wired in index.ts: on each poll, iterates `observation.changes` new lines, checks against all alert patterns. Matching lines fire a `"status"` log entry with pattern ID, label, session title, and line snippet (100 chars).
+- 20 new tests: createAlertPattern (5 — ID increment, invalid regex, label, empty label, case-insensitive), matchAlertPatterns (5 — no match, match, multiple, ANSI strip, regex features), formatAlertPatterns (2 — empty, details), TUI state (5 — initial, add, add-invalid, remove, remove-missing), onAlertPattern handler (3).
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +20, net 2556 tests across 35 files.
 
 ### What shipped in v0.182.0
 
