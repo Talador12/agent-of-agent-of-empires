@@ -8,18 +8,33 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.181.0
+## Version: v0.182.0
 
 ## Current Focus
 
-Per-session action throttle shipped. Backlog continuing.
+Session output diffing shipped. All original backlog items complete except web dashboard.
 
 ### Open Items
 - Backlog continues below.
 
 ### Ideas Backlog
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- **Session output diffing** — diff two snapshots of the same session's output to see what changed
+- **Session lifecycle hooks** — pre/post start, stop, restart hooks for custom automation
+- **Output pattern alerting** — configurable regex patterns that trigger alerts when matched in any session
+
+### What shipped in v0.182.0
+
+**v0.182.0 — Session Output Diffing**:
+- `/snap <N|name>` — save a snapshot of a session's current pane output for later comparison.
+- `/snap-diff <N|name>` — diff the current output against the last `/snap` snapshot. Shows a colored line-level diff with `+`/`-` prefixes, context lines, and `...` separators between non-adjacent hunks.
+- `diffSessionOutput(oldLines, newLines)` — pure fn: LCS-based O(n*m) line-level diff producing `DiffLine[]` with type `same`/`added`/`removed`.
+- `summarizeDiff(diff)` — counts of added, removed, unchanged lines.
+- `formatSessionDiff(title, diff, contextLines)` — colored display with `+N -N (unchanged)` header, context window around changes, ANSI stripping, 120-char truncation.
+- TUI state: `outputSnapshots` map + `saveOutputSnapshot`, `getOutputSnapshot`, `hasOutputSnapshot`.
+- 20 new tests: diffSessionOutput (7 — empty, all-added, all-removed, identical, added, removed, replacement), summarizeDiff (2 — counts, empty), formatSessionDiff (5 — no-changes, header, added, removed, hunk separator), TUI snapshots (2), onSnap/onSnapDiff handlers (4).
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +20, net 2536 tests across 35 files.
 
 ### What shipped in v0.181.0
 

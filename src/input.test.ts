@@ -2113,3 +2113,35 @@ describe("onThrottle", () => {
     assert.equal(calls, 10);
   });
 });
+
+// ── onSnap + onSnapDiff ──────────────────────────────────────────────────
+
+describe("onSnap", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let received = "";
+    reader.onSnap((t) => { received = t; });
+    reader["snapHandler"]!("alpha");
+    assert.equal(received, "alpha");
+  });
+
+  it("is safe without handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["snapHandler"]?.("x"); });
+  });
+});
+
+describe("onSnapDiff", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let received = "";
+    reader.onSnapDiff((t) => { received = t; });
+    reader["snapDiffHandler"]!("alpha");
+    assert.equal(received, "alpha");
+  });
+
+  it("is safe without handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["snapDiffHandler"]?.("x"); });
+  });
+});

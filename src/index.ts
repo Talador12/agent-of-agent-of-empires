@@ -19,7 +19,7 @@ import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, impor
 import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
 import { parsePaneMilestones } from "./task-parser.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph, formatRelayRules, matchRelayRules, detectOOM, shouldRestartOnOOM, formatOOMAlert, searchSessionOutputs, formatSearchResults, formatThrottleConfig } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph, formatRelayRules, matchRelayRules, detectOOM, shouldRestartOnOOM, formatOOMAlert, searchSessionOutputs, formatSearchResults, formatThrottleConfig, diffSessionOutput, formatSessionDiff } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
@@ -1224,6 +1224,38 @@ async function main() {
     });
     // wire /relay — cross-session message relay
     // wire /throttle — per-session action cooldown override
+    // wire /snap — save output snapshot for later diffing
+    input.onSnap((target) => {
+      const ref = /^\d+$/.test(target) ? parseInt(target, 10) : target;
+      const sid = tui!.saveOutputSnapshot(ref);
+      if (sid) {
+        const session = tui!.getSessions().find((s) => s.id === sid);
+        tui!.log("system", `snapshot saved for ${session?.title ?? sid}`);
+      } else {
+        tui!.log("system", `snap: session not found or has no output: ${target}`);
+      }
+    });
+    // wire /snap-diff — diff current output vs last snapshot
+    input.onSnapDiff((target) => {
+      const ref = /^\d+$/.test(target) ? parseInt(target, 10) : target;
+      // resolve session ID
+      const sessions = tui!.getSessions();
+      let session: typeof sessions[0] | undefined;
+      if (typeof ref === "number") {
+        session = sessions[ref - 1];
+      } else {
+        const needle = ref.toLowerCase();
+        session = sessions.find((s) => s.id === ref || s.id.startsWith(needle) || s.title.toLowerCase() === needle);
+      }
+      if (!session) { tui!.log("system", `snap-diff: session not found: ${target}`); return; }
+      const snapshot = tui!.getOutputSnapshot(session.id);
+      if (!snapshot) { tui!.log("system", `snap-diff: no snapshot saved for ${session.title} — use /snap first`); return; }
+      const current = tui!.getSessionOutput(session.id);
+      if (!current) { tui!.log("system", `snap-diff: no current output for ${session.title}`); return; }
+      const diff = diffSessionOutput(snapshot, current);
+      const lines = formatSessionDiff(session.title, diff);
+      for (const line of lines) tui!.log("system", line);
+    });
     input.onThrottle((args) => {
       if (!args) {
         const globalMs = config.policies.actionCooldownMs ?? 30_000;

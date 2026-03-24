@@ -97,6 +97,8 @@ export type DepsHandler = () => void; // show session dependency graph
 export type FullSearchHandler = (query: string) => void; // ranked full-text search across session outputs
 export type RelayHandler = (args: string) => void; // cross-session relay management
 export type ThrottleHandler = (args: string) => void; // per-session action throttle
+export type SnapHandler = (target: string) => void; // save output snapshot
+export type SnapDiffHandler = (target: string) => void; // diff current output vs snapshot
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -308,6 +310,8 @@ export class InputReader {
   private fullSearchHandler: FullSearchHandler | null = null;
   private relayHandler: RelayHandler | null = null;
   private throttleHandler: ThrottleHandler | null = null;
+  private snapHandler: SnapHandler | null = null;
+  private snapDiffHandler: SnapDiffHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -605,6 +609,8 @@ export class InputReader {
   onFullSearch(handler: FullSearchHandler): void { this.fullSearchHandler = handler; }
   onRelay(handler: RelayHandler): void { this.relayHandler = handler; }
   onThrottle(handler: ThrottleHandler): void { this.throttleHandler = handler; }
+  onSnap(handler: SnapHandler): void { this.snapHandler = handler; }
+  onSnapDiff(handler: SnapDiffHandler): void { this.snapDiffHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -905,6 +911,8 @@ ${BOLD}navigation:${RESET}
    /deps              show session dependency graph (path, goal, task cross-refs)
    /relay [args]      cross-session relay: no args=list, <src> <tgt> <pattern>=add, rm <id>=remove
    /throttle [s] [ms] per-session action cooldown: no args=show, <session> <ms>=set, <session> clear=remove
+   /snap <N|name>     save a snapshot of session output for later diffing
+   /snap-diff <N|name> diff current output against last /snap snapshot
    /stats             show per-session health, errors, burn rate, context %, uptime
    /stats-live        toggle auto-refresh of /stats every 5 seconds (like top)
    /recall <keyword>  search persisted activity history (last 7 days) for keyword
@@ -1826,6 +1834,22 @@ ${BOLD}other:${RESET}
         const thArgs = line.slice("/throttle".length).trim();
         if (this.throttleHandler) this.throttleHandler(thArgs);
         else console.error(`${DIM}throttle not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/snap": {
+        const snapTarget = line.slice("/snap".length).trim();
+        if (!snapTarget) { console.error(`${DIM}usage: /snap <N|name> — save output snapshot${RESET}`); break; }
+        if (this.snapHandler) this.snapHandler(snapTarget);
+        else console.error(`${DIM}snap not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/snap-diff": {
+        const sdTarget = line.slice("/snap-diff".length).trim();
+        if (!sdTarget) { console.error(`${DIM}usage: /snap-diff <N|name> — diff vs last snapshot${RESET}`); break; }
+        if (this.snapDiffHandler) this.snapDiffHandler(sdTarget);
+        else console.error(`${DIM}snap-diff not available (no TUI)${RESET}`);
         break;
       }
 

@@ -74,6 +74,7 @@ import {
   OOM_RESTART_COOLDOWN_MS, OOM_MAX_RESTARTS,
   searchSessionOutputs, formatSearchResults, SEARCH_MAX_SNIPPETS,
   getEffectiveThrottle, formatThrottleConfig, DEFAULT_ACTION_COOLDOWN_MS,
+  diffSessionOutput, summarizeDiff, formatSessionDiff,
   TUI,
 } from "./tui.js";
 import type { RelayRule } from "./tui.js";
@@ -4710,6 +4711,117 @@ describe("TUI session throttle", () => {
     const tui = new TUI();
     tui.setSessionThrottle("s1", -100);
     assert.equal(tui.getSessionThrottle("s1"), 0);
+  });
+});
+
+// ── Session output diffing ───────────────────────────────────────────────
+
+describe("diffSessionOutput", () => {
+  it("returns empty for two empty arrays", () => {
+    assert.deepEqual(diffSessionOutput([], []), []);
+  });
+
+  it("all added when old is empty", () => {
+    const diff = diffSessionOutput([], ["a", "b"]);
+    assert.equal(diff.length, 2);
+    assert.ok(diff.every((d) => d.type === "added"));
+  });
+
+  it("all removed when new is empty", () => {
+    const diff = diffSessionOutput(["a", "b"], []);
+    assert.equal(diff.length, 2);
+    assert.ok(diff.every((d) => d.type === "removed"));
+  });
+
+  it("all same when identical", () => {
+    const diff = diffSessionOutput(["a", "b"], ["a", "b"]);
+    assert.equal(diff.length, 2);
+    assert.ok(diff.every((d) => d.type === "same"));
+  });
+
+  it("detects added lines", () => {
+    const diff = diffSessionOutput(["a", "b"], ["a", "x", "b"]);
+    assert.ok(diff.some((d) => d.type === "added" && d.text === "x"));
+  });
+
+  it("detects removed lines", () => {
+    const diff = diffSessionOutput(["a", "x", "b"], ["a", "b"]);
+    assert.ok(diff.some((d) => d.type === "removed" && d.text === "x"));
+  });
+
+  it("handles complete replacement", () => {
+    const diff = diffSessionOutput(["old1", "old2"], ["new1", "new2"]);
+    const { added, removed } = summarizeDiff(diff);
+    assert.equal(added, 2);
+    assert.equal(removed, 2);
+  });
+});
+
+describe("summarizeDiff", () => {
+  it("counts correctly", () => {
+    const diff = diffSessionOutput(["a", "b", "c"], ["a", "x", "c"]);
+    const { added, removed, same } = summarizeDiff(diff);
+    assert.equal(same, 2);
+    assert.equal(added, 1);
+    assert.equal(removed, 1);
+  });
+
+  it("returns zeros for empty diff", () => {
+    const { added, removed, same } = summarizeDiff([]);
+    assert.equal(added, 0);
+    assert.equal(removed, 0);
+    assert.equal(same, 0);
+  });
+});
+
+describe("formatSessionDiff", () => {
+  it("returns no-changes for identical output", () => {
+    const diff = diffSessionOutput(["a"], ["a"]);
+    const lines = formatSessionDiff("Alpha", diff);
+    assert.ok(lines[0].includes("no changes"));
+  });
+
+  it("shows +N -N header for changes", () => {
+    const diff = diffSessionOutput(["a"], ["a", "b"]);
+    const lines = formatSessionDiff("Alpha", diff);
+    const plain = lines[0].replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("+1"));
+    assert.ok(plain.includes("Alpha"));
+  });
+
+  it("includes + prefix for added lines", () => {
+    const diff = diffSessionOutput([], ["new line"]);
+    const lines = formatSessionDiff("X", diff);
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("+ new line"));
+  });
+
+  it("includes - prefix for removed lines", () => {
+    const diff = diffSessionOutput(["old line"], []);
+    const lines = formatSessionDiff("X", diff);
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("- old line"));
+  });
+
+  it("shows ... separator between non-adjacent hunks", () => {
+    const old = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+    const nw = ["a", "X", "c", "d", "e", "f", "g", "h", "Y", "j"];
+    const diff = diffSessionOutput(old, nw);
+    const lines = formatSessionDiff("T", diff, 1);
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("..."));
+  });
+});
+
+describe("TUI output snapshots", () => {
+  it("hasOutputSnapshot is false initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.hasOutputSnapshot("s1"), false);
+  });
+
+  it("getOutputSnapshot returns null when none saved", () => {
+    const tui = new TUI();
+    assert.equal(tui.getOutputSnapshot("s1"), null);
   });
 });
 

@@ -1627,6 +1627,9 @@ export class TUI {
    // per-session action throttle overrides (ms)
    private sessionThrottles = new Map<string, number>();
 
+   // session output snapshots for diffing
+   private outputSnapshots = new Map<string, string[]>(); // session ID → snapshot lines
+
    // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
   private drilldownSessionId: string | null = null;
@@ -2491,6 +2494,38 @@ export class TUI {
   /** Get all per-session throttle overrides. */
   getAllSessionThrottles(): ReadonlyMap<string, number> {
     return this.sessionThrottles;
+  }
+
+  // ── Session output snapshots for diffing ──────────────────────────────
+
+  /** Save a snapshot of a session's current output for later diffing. */
+  saveOutputSnapshot(sessionIdOrIndex: string | number): string | null {
+    const output = this.getSessionOutput(sessionIdOrIndex);
+    if (!output) return null;
+    // resolve ID
+    let sessionId: string | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      sessionId = this.sessions[sessionIdOrIndex - 1]?.id;
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      const match = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+      sessionId = match?.id;
+    }
+    if (!sessionId) return null;
+    this.outputSnapshots.set(sessionId, [...output]);
+    return sessionId;
+  }
+
+  /** Get a previously saved snapshot. */
+  getOutputSnapshot(sessionId: string): string[] | null {
+    return this.outputSnapshots.get(sessionId) ?? null;
+  }
+
+  /** Check if a snapshot exists for a session. */
+  hasOutputSnapshot(sessionId: string): boolean {
+    return this.outputSnapshots.has(sessionId);
   }
 
   // ── Trust ladder ─────────────────────────────────────────────────────────
@@ -5224,6 +5259,110 @@ export function formatThrottleConfig(
       lines.push(`  ${BOLD}${title}${RESET} ${DIM}→ ${(ms / 1000).toFixed(1)}s${RESET}`);
     }
   }
+  return lines;
+}
+
+// ── Session output diffing ──────────────────────────────────────────────────
+
+export type DiffLineType = "same" | "added" | "removed";
+
+export interface DiffLine {
+  type: DiffLineType;
+  text: string;
+}
+
+/**
+ * Compute a line-level diff between two string arrays (old vs new).
+ * Uses a simple O(n*m) LCS approach — fine for typical pane outputs (<500 lines).
+ * Returns an array of DiffLine entries.
+ */
+export function diffSessionOutput(
+  oldLines: readonly string[],
+  newLines: readonly string[],
+): DiffLine[] {
+  const n = oldLines.length;
+  const m = newLines.length;
+
+  // LCS table
+  const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      dp[i][j] = oldLines[i - 1] === newLines[j - 1]
+        ? dp[i - 1][j - 1] + 1
+        : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+
+  // backtrack to build diff
+  const result: DiffLine[] = [];
+  let i = n, j = m;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+      result.push({ type: "same", text: oldLines[i - 1] });
+      i--; j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      result.push({ type: "added", text: newLines[j - 1] });
+      j--;
+    } else {
+      result.push({ type: "removed", text: oldLines[i - 1] });
+      i--;
+    }
+  }
+
+  return result.reverse();
+}
+
+/**
+ * Summarize a diff: count of added, removed, unchanged lines.
+ */
+export function summarizeDiff(diff: readonly DiffLine[]): { added: number; removed: number; same: number } {
+  let added = 0, removed = 0, same = 0;
+  for (const d of diff) {
+    if (d.type === "added") added++;
+    else if (d.type === "removed") removed++;
+    else same++;
+  }
+  return { added, removed, same };
+}
+
+/**
+ * Format a session output diff for TUI display.
+ * Shows only changed lines (added/removed) with a few context lines around them.
+ */
+export function formatSessionDiff(
+  title: string,
+  diff: readonly DiffLine[],
+  contextLines: number = 2,
+): string[] {
+  const { added, removed, same } = summarizeDiff(diff);
+  if (added === 0 && removed === 0) return [`${title}: no changes since snapshot`];
+
+  const lines: string[] = [];
+  lines.push(`${title}: ${LIME}+${added}${RESET} ${ROSE}-${removed}${RESET} ${DIM}(${same} unchanged)${RESET}`);
+
+  // find which lines to show (changed + context)
+  const showLine = new Array(diff.length).fill(false);
+  for (let i = 0; i < diff.length; i++) {
+    if (diff[i].type !== "same") {
+      for (let c = Math.max(0, i - contextLines); c <= Math.min(diff.length - 1, i + contextLines); c++) {
+        showLine[c] = true;
+      }
+    }
+  }
+
+  let lastShown = -1;
+  for (let i = 0; i < diff.length; i++) {
+    if (!showLine[i]) continue;
+    if (lastShown >= 0 && i - lastShown > 1) {
+      lines.push(`${DIM}  ...${RESET}`);
+    }
+    const d = diff[i];
+    const prefix = d.type === "added" ? `${LIME}+ ` : d.type === "removed" ? `${ROSE}- ` : `${DIM}  `;
+    const text = d.text.replace(/\x1b\[[0-9;]*[mABCDHJKST]/g, "").slice(0, 120);
+    lines.push(`${prefix}${text}${RESET}`);
+    lastShown = i;
+  }
+
   return lines;
 }
 
