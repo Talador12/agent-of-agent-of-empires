@@ -63,6 +63,7 @@ import {
   TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE,
   computeTrustEscalation, computeTrustDemotion, formatTrustLadderStatus,
   computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, CTX_BUDGET_WEIGHTS,
+  resolveProfiles, mergeProfileSessions, formatProfileSummary,
   TUI,
 } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
@@ -3758,6 +3759,112 @@ describe("formatContextBudgetTable", () => {
     assert.ok(plain.includes("Bravo"));
     assert.ok(plain.includes("Charlie"));
     assert.ok(plain.includes("Delta"));
+  });
+});
+
+// ── Multi-profile support ────────────────────────────────────────────────
+
+describe("resolveProfiles", () => {
+  it("returns [default] when no aoe config", () => {
+    assert.deepEqual(resolveProfiles({}), ["default"]);
+  });
+
+  it("returns [profile] from legacy single profile", () => {
+    assert.deepEqual(resolveProfiles({ aoe: { profile: "work" } }), ["work"]);
+  });
+
+  it("returns profiles array when set", () => {
+    assert.deepEqual(resolveProfiles({ aoe: { profile: "work", profiles: ["work", "personal"] } }), ["work", "personal"]);
+  });
+
+  it("deduplicates profiles", () => {
+    assert.deepEqual(resolveProfiles({ aoe: { profiles: ["a", "b", "a"] } }), ["a", "b"]);
+  });
+
+  it("falls back to legacy when profiles is empty array", () => {
+    assert.deepEqual(resolveProfiles({ aoe: { profile: "main", profiles: [] } }), ["main"]);
+  });
+
+  it("returns [default] when profile is undefined and profiles is empty", () => {
+    assert.deepEqual(resolveProfiles({ aoe: { profiles: [] } }), ["default"]);
+  });
+});
+
+describe("mergeProfileSessions", () => {
+  it("returns empty for empty input", () => {
+    assert.deepEqual(mergeProfileSessions(new Map()), []);
+  });
+
+  it("merges sessions from multiple profiles", () => {
+    const input = new Map([
+      ["work", [{ id: "s1", title: "Alpha" }]],
+      ["personal", [{ id: "s2", title: "Bravo" }]],
+    ]);
+    const merged = mergeProfileSessions(input);
+    assert.equal(merged.length, 2);
+    assert.equal(merged[0].profile, "work");
+    assert.equal(merged[1].profile, "personal");
+  });
+
+  it("deduplicates by session ID (first wins)", () => {
+    const input = new Map([
+      ["work", [{ id: "s1", title: "Alpha" }]],
+      ["personal", [{ id: "s1", title: "Alpha-dup" }]],
+    ]);
+    const merged = mergeProfileSessions(input);
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].profile, "work");
+    assert.equal(merged[0].title, "Alpha");
+  });
+
+  it("preserves session fields", () => {
+    const input = new Map([
+      ["p1", [{ id: "s1", title: "Test" }]],
+    ]);
+    const merged = mergeProfileSessions(input);
+    assert.equal(merged[0].sessionId, "s1");
+    assert.equal(merged[0].title, "Test");
+    assert.equal(merged[0].profile, "p1");
+  });
+});
+
+describe("formatProfileSummary", () => {
+  it("returns placeholder for empty map", () => {
+    const lines = formatProfileSummary(new Map());
+    assert.ok(lines[0].includes("no profiles"));
+  });
+
+  it("shows total count in header", () => {
+    const counts = new Map([["default", 3], ["work", 2]]);
+    const lines = formatProfileSummary(counts);
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("2 active"));
+    assert.ok(plain.includes("5 total"));
+  });
+
+  it("marks active profile with filled dot", () => {
+    const counts = new Map([["default", 3], ["work", 2]]);
+    const lines = formatProfileSummary(counts, "default");
+    // active profile should have a filled dot (●) while others have hollow (○)
+    const defaultLine = lines.find((l) => l.includes("default"))!;
+    const workLine = lines.find((l) => l.includes("work"))!;
+    assert.ok(defaultLine.includes("●"));
+    assert.ok(workLine.includes("○"));
+  });
+
+  it("includes per-profile session counts", () => {
+    const counts = new Map([["dev", 5]]);
+    const lines = formatProfileSummary(counts);
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("5 sessions"));
+  });
+
+  it("uses singular 'session' for count of 1", () => {
+    const counts = new Map([["solo", 1]]);
+    const lines = formatProfileSummary(counts);
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("1 session"));
+    assert.ok(!plain.includes("1 sessions"));
   });
 });
 

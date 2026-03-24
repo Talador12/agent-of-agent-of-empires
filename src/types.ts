@@ -127,6 +127,7 @@ export interface AoaoeConfig {
   };
   aoe: {
     profile: string;
+    profiles?: string[]; // multi-profile: poll sessions from all listed profiles simultaneously
   };
   policies: {
     maxIdleBeforeNudgeMs: number;

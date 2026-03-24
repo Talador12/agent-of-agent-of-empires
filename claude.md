@@ -8,18 +8,31 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.171.0
+## Version: v0.172.0
 
 ## Current Focus
 
-Smart context budget shipped. Ready for next backlog item.
+Multi-profile support shipped (pure functions + /profile command). Poller multi-profile polling is the natural follow-up.
 
 ### Open Items
-- Backlog continues below — all recent items shipped.
+- **Poller multi-profile polling** — wire `resolveProfiles` into poller to actually call `aoe -p <profile> list --json` for each profile and merge results.
+- Backlog continues below.
 
 ### Ideas Backlog
-- **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
+
+### What shipped in v0.172.0
+
+**v0.172.0 — Multi-Profile Support**:
+- `resolveProfiles(config)` — resolves profile list from `aoe.profiles` array or legacy single `aoe.profile`. Deduplicates, falls back to `["default"]`.
+- `mergeProfileSessions(profileSessions)` — merges sessions from multiple profiles, tags each with source profile, deduplicates by session ID (first wins).
+- `formatProfileSummary(counts, active)` — formatted display with filled/hollow dots for active/inactive profiles, per-profile session counts, total summary.
+- `config.aoe.profiles?: string[]` — new optional field for multi-profile config.
+- `/profile` command — shows active profiles and session counts.
+- 18 new tests: resolveProfiles (6 — no config, legacy, array, dedup, empty, default fallback), mergeProfileSessions (4 — empty, multi, dedup, fields), formatProfileSummary (5 — empty, total, active marker, counts, singular), onProfile handler (3).
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `src/types.ts`, `package.json`, `claude.md`
+Test changes: +18, net 2356 tests across 35 files.
 
 ### What shipped in v0.171.0
 

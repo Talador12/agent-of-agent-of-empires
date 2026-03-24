@@ -1929,3 +1929,29 @@ describe("onCtxBudget", () => {
     assert.equal(calls, 10);
   });
 });
+
+// ── onProfile ────────────────────────────────────────────────────────────
+
+describe("onProfile", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onProfile(() => { called = true; });
+    reader["profileHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["profileHandler"]?.(); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onProfile(() => { calls++; });
+    reader.onProfile(() => { calls += 10; });
+    reader["profileHandler"]!();
+    assert.equal(calls, 10);
+  });
+});

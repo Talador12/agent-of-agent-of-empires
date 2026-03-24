@@ -4513,6 +4513,66 @@ export function formatContextBudgetTable(allocations: readonly ContextBudgetAllo
   return lines;
 }
 
+// ── Multi-profile support ───────────────────────────────────────────────────
+// Manage sessions across multiple AoE profiles simultaneously.
+
+export interface ProfileSession {
+  profile: string;
+  sessionId: string;
+  title: string;
+}
+
+/**
+ * Resolve the list of profiles to poll from config.
+ * Supports both the new `profiles` array and the legacy single `profile` field.
+ * Always returns at least ["default"].
+ */
+export function resolveProfiles(config: { aoe?: { profile?: string; profiles?: string[] } }): string[] {
+  if (config.aoe?.profiles && Array.isArray(config.aoe.profiles) && config.aoe.profiles.length > 0) {
+    return [...new Set(config.aoe.profiles)]; // deduplicate
+  }
+  return [config.aoe?.profile ?? "default"];
+}
+
+/**
+ * Merge sessions from multiple profiles into a single list.
+ * Each session is tagged with its source profile.
+ * Deduplicates by session ID (first occurrence wins if same ID appears in multiple profiles).
+ */
+export function mergeProfileSessions(
+  profileSessions: ReadonlyMap<string, readonly { id: string; title: string }[]>,
+): ProfileSession[] {
+  const seen = new Set<string>();
+  const merged: ProfileSession[] = [];
+  for (const [profile, sessions] of profileSessions) {
+    for (const s of sessions) {
+      if (seen.has(s.id)) continue;
+      seen.add(s.id);
+      merged.push({ profile, sessionId: s.id, title: s.title });
+    }
+  }
+  return merged;
+}
+
+/**
+ * Format a profile summary showing each profile and its session count.
+ */
+export function formatProfileSummary(
+  profileCounts: ReadonlyMap<string, number>,
+  activeProfile?: string,
+): string[] {
+  if (profileCounts.size === 0) return ["(no profiles configured)"];
+  const lines: string[] = [];
+  const total = [...profileCounts.values()].reduce((a, b) => a + b, 0);
+  lines.push(`profiles: ${profileCounts.size} active, ${total} total sessions`);
+  for (const [name, count] of profileCounts) {
+    const marker = name === activeProfile ? `${LIME}●${RESET} ` : `${DIM}○${RESET} `;
+    const label = count === 1 ? "session" : "sessions";
+    lines.push(`  ${marker}${BOLD}${name}${RESET} ${DIM}(${count} ${label})${RESET}`);
+  }
+  return lines;
+}
+
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
 export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator, computeSparkline, formatSparkline, sortSessions, nextSortMode, SORT_MODES, formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN, PIN_ICON, MUTE_ICON, NOTE_ICON };

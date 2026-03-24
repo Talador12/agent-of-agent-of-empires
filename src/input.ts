@@ -90,6 +90,7 @@ export type DiffSessionsHandler = (a: string, b: string) => void; // compare two
 export type FanOutHandler = () => void; // generate starter task list from active sessions
 export type TrustHandler = (arg: string) => void; // /trust [level|auto|off|on]
 export type CtxBudgetHandler = () => void; // show smart context budget allocations
+export type ProfileHandler = () => void; // show active profiles summary
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -294,6 +295,7 @@ export class InputReader {
   private fanOutHandler: FanOutHandler | null = null;
   private trustHandler: TrustHandler | null = null;
   private ctxBudgetHandler: CtxBudgetHandler | null = null;
+  private profileHandler: ProfileHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -584,6 +586,7 @@ export class InputReader {
   onFanOut(handler: FanOutHandler): void { this.fanOutHandler = handler; }
   onTrust(handler: TrustHandler): void { this.trustHandler = handler; }
   onCtxBudget(handler: CtxBudgetHandler): void { this.ctxBudgetHandler = handler; }
+  onProfile(handler: ProfileHandler): void { this.profileHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -844,6 +847,7 @@ ${BOLD}controls:${RESET}
   /pause             pause the supervisor
   /resume            resume the supervisor
   /mode [name]       set mode: observe, dry-run, confirm, autopilot (no arg = show)
+   /profile           show active AoE profiles and session counts
    /trust [arg]       trust ladder: no arg = show status, arg = observe/dry-run/confirm/autopilot/auto/off
   /interrupt         interrupt the AI mid-thought
   ESC ESC            same as /interrupt (shortcut)
@@ -967,6 +971,11 @@ ${BOLD}other:${RESET}
         this.queue.push(`__CMD_MODE__${modeArg}`);
         break;
       }
+
+      case "/profile":
+        if (this.profileHandler) this.profileHandler();
+        else console.error(`${DIM}profile not available (no TUI)${RESET}`);
+        break;
 
       case "/trust": {
         const trustArg = line.slice("/trust".length).trim().toLowerCase();
