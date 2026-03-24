@@ -1982,3 +1982,30 @@ describe("onReplay", () => {
     assert.equal(calls, 10);
   });
 });
+
+// ── onNotifyFilter ───────────────────────────────────────────────────────
+
+describe("onNotifyFilter", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let session: string | null = ""; let events: string[] = [];
+    reader.onNotifyFilter((s, e) => { session = s; events = e; });
+    reader["notifyFilterHandler"]!("Alpha", ["session_error"]);
+    assert.equal(session, "Alpha");
+    assert.deepEqual(events, ["session_error"]);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["notifyFilterHandler"]?.("x", []); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onNotifyFilter(() => { calls++; });
+    reader.onNotifyFilter(() => { calls += 10; });
+    reader["notifyFilterHandler"]!(null, []);
+    assert.equal(calls, 10);
+  });
+});

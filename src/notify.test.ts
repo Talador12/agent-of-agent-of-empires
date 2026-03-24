@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatSlackPayload, sendNotification, isRateLimited, resetRateLimiter, sendTestNotification, fetchWithRetry } from "./notify.js";
-import type { NotificationPayload } from "./notify.js";
+import { formatSlackPayload, sendNotification, isRateLimited, resetRateLimiter, sendTestNotification, fetchWithRetry, shouldNotifySession, formatNotifyFilters, parseNotifyEvents, VALID_NOTIFY_EVENTS } from "./notify.js";
+import type { NotificationPayload, SessionNotifyFilter } from "./notify.js";
 import type { AoaoeConfig } from "./types.js";
 
 function makeConfig(notifications?: AoaoeConfig["notifications"]): AoaoeConfig {
@@ -345,5 +345,126 @@ describe("fetchWithRetry", () => {
         10,    // 10ms base delay for fast test
       ),
     );
+  });
+});
+
+// ── shouldNotifySession ──────────────────────────────────────────────────
+
+describe("shouldNotifySession", () => {
+  it("allows all events when no filters exist", () => {
+    assert.equal(shouldNotifySession("session_error", "Alpha", new Map(), undefined), true);
+  });
+
+  it("respects global events filter", () => {
+    assert.equal(shouldNotifySession("session_error", "Alpha", new Map(), ["session_error"]), true);
+    assert.equal(shouldNotifySession("action_executed", "Alpha", new Map(), ["session_error"]), false);
+  });
+
+  it("per-session filter overrides global", () => {
+    const filters = new Map([["Alpha", new Set(["action_executed" as const])]]);
+    // session_error is in global but NOT in per-session → blocked
+    assert.equal(shouldNotifySession("session_error", "Alpha", filters, ["session_error"]), false);
+    // action_executed is in per-session → allowed
+    assert.equal(shouldNotifySession("action_executed", "Alpha", filters, ["session_error"]), true);
+  });
+
+  it("case-insensitive session matching", () => {
+    const filters = new Map([["Alpha", new Set(["session_error" as const])]]);
+    assert.equal(shouldNotifySession("session_error", "ALPHA", filters, undefined), true);
+    assert.equal(shouldNotifySession("action_executed", "alpha", filters, undefined), false);
+  });
+
+  it("sessions without filter use global", () => {
+    const filters = new Map([["Alpha", new Set(["session_error" as const])]]);
+    // Bravo has no filter — uses global
+    assert.equal(shouldNotifySession("session_error", "Bravo", filters, ["session_error"]), true);
+    assert.equal(shouldNotifySession("action_executed", "Bravo", filters, ["session_error"]), false);
+  });
+
+  it("empty per-session filter blocks all events", () => {
+    const filters = new Map([["Alpha", new Set<never>() as SessionNotifyFilter]]);
+    assert.equal(shouldNotifySession("session_error", "Alpha", filters, undefined), false);
+    assert.equal(shouldNotifySession("daemon_started", "Alpha", filters, undefined), false);
+  });
+
+  it("undefined session uses global filter only", () => {
+    assert.equal(shouldNotifySession("session_error", undefined, new Map(), ["session_error"]), true);
+    assert.equal(shouldNotifySession("action_executed", undefined, new Map(), ["session_error"]), false);
+  });
+});
+
+// ── formatNotifyFilters ──────────────────────────────────────────────────
+
+describe("formatNotifyFilters", () => {
+  it("returns placeholder for empty map", () => {
+    const lines = formatNotifyFilters(new Map());
+    assert.ok(lines[0].includes("no per-session"));
+  });
+
+  it("shows count in header", () => {
+    const filters = new Map<string, SessionNotifyFilter>();
+    filters.set("Alpha", new Set(["session_error"]));
+    filters.set("Bravo", new Set(["action_executed", "action_failed"]));
+    const lines = formatNotifyFilters(filters);
+    assert.ok(lines[0].includes("2 sessions"));
+  });
+
+  it("shows events per session", () => {
+    const filters = new Map([["Alpha", new Set(["session_error" as const, "session_done" as const])]]);
+    const lines = formatNotifyFilters(filters);
+    const joined = lines.join("\n");
+    assert.ok(joined.includes("Alpha"));
+    assert.ok(joined.includes("session_done"));
+    assert.ok(joined.includes("session_error"));
+  });
+
+  it("shows blocked message for empty filter", () => {
+    const filters = new Map([["Alpha", new Set<never>() as SessionNotifyFilter]]);
+    const lines = formatNotifyFilters(filters);
+    assert.ok(lines.join("\n").includes("all blocked"));
+  });
+});
+
+// ── parseNotifyEvents ────────────────────────────────────────────────────
+
+describe("parseNotifyEvents", () => {
+  it("parses valid events", () => {
+    const result = parseNotifyEvents(["session_error", "action_executed"]);
+    assert.equal(result.size, 2);
+    assert.ok(result.has("session_error"));
+    assert.ok(result.has("action_executed"));
+  });
+
+  it("ignores unknown events", () => {
+    const result = parseNotifyEvents(["session_error", "not_a_real_event"]);
+    assert.equal(result.size, 1);
+  });
+
+  it("is case-insensitive", () => {
+    const result = parseNotifyEvents(["SESSION_ERROR"]);
+    assert.equal(result.size, 1);
+    assert.ok(result.has("session_error"));
+  });
+
+  it("returns empty set for no valid events", () => {
+    const result = parseNotifyEvents(["foo", "bar"]);
+    assert.equal(result.size, 0);
+  });
+
+  it("returns empty set for empty input", () => {
+    assert.equal(parseNotifyEvents([]).size, 0);
+  });
+});
+
+// ── VALID_NOTIFY_EVENTS ──────────────────────────────────────────────────
+
+describe("VALID_NOTIFY_EVENTS", () => {
+  it("has 6 event types", () => {
+    assert.equal(VALID_NOTIFY_EVENTS.length, 6);
+  });
+
+  it("includes session_error and action_executed", () => {
+    assert.ok(VALID_NOTIFY_EVENTS.includes("session_error"));
+    assert.ok(VALID_NOTIFY_EVENTS.includes("action_executed"));
   });
 });

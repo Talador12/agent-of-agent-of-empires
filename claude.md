@@ -8,11 +8,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.174.0
+## Version: v0.175.0
 
 ## Current Focus
 
-Session replay shipped. Backlog continuing.
+Webhook notification filters shipped. Backlog continuing.
 
 ### Open Items
 - Backlog continues below.
@@ -21,7 +21,21 @@ Session replay shipped. Backlog continuing.
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session dependency graph** — detect when one session's output is consumed by another, visualize in TUI
 - **Automatic context compaction** — when context usage nears ceiling, summarize and compact older context
-- **Webhook notification filters** — per-session filters for which events trigger notifications
+
+### What shipped in v0.175.0
+
+**v0.175.0 — Webhook Notification Filters**:
+- `shouldNotifySession(event, sessionTitle, sessionFilters, globalEvents)` — pure fn checking per-session filter → global events → allow-all fallback. Case-insensitive session matching.
+- `formatNotifyFilters(sessionFilters)` — display per-session filters with event lists, "all blocked" for empty sets.
+- `parseNotifyEvents(eventNames)` — parse string list into validated `Set<NotificationEvent>`, case-insensitive, ignores unknown.
+- `VALID_NOTIFY_EVENTS` — all 6 event types as readonly array.
+- TUI state: `sessionNotifyFilters` map + `setSessionNotifyFilter`, `getSessionNotifyFilter`, `clearSessionNotifyFilter`, `getAllSessionNotifyFilters`.
+- `/notify-filter` command: no args = list filters, `<session> <events...>` = set, `<session> clear` = remove, `clear` = remove all.
+- Wired into `sendNotification` call sites in `index.ts` — session_error, session_done, action_executed, action_failed all check per-session filters before firing.
+- 26 new tests: shouldNotifySession (7), formatNotifyFilters (4), parseNotifyEvents (5), VALID_NOTIFY_EVENTS (2), TUI state (5), onNotifyFilter handler (3).
+
+Modified: `src/notify.ts`, `src/notify.test.ts`, `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +26, net 2410 tests across 35 files.
 
 ### What shipped in v0.174.0
 

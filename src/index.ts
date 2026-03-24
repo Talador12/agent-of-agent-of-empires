@@ -25,7 +25,7 @@ import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
-import { sendNotification, sendTestNotification } from "./notify.js";
+import { sendNotification, sendTestNotification, formatNotifyFilters, parseNotifyEvents, shouldNotifySession } from "./notify.js";
 import { startHealthServer } from "./health.js";
 import { loadTuiHistory, searchHistory, TUI_HISTORY_FILE, computeHistoryStats } from "./tui-history.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
@@ -1192,6 +1192,35 @@ async function main() {
       const ref = /^\d+$/.test(target) ? parseInt(target, 10) : target;
       const ok = tui!.startReplay(ref, speed ?? undefined);
       if (!ok) tui!.log("system", `replay: session not found or has no output: ${target}`);
+    });
+    // wire /notify-filter — per-session notification event filters
+    input.onNotifyFilter((sessionTitle, events) => {
+      if (sessionTitle === null) {
+        // list current filters
+        const filters = tui!.getAllSessionNotifyFilters();
+        const lines = formatNotifyFilters(filters);
+        for (const line of lines) tui!.log("system", line);
+        return;
+      }
+      if (sessionTitle === "__CLEAR_ALL__") {
+        // clear all filters
+        const filters = tui!.getAllSessionNotifyFilters();
+        const count = filters.size;
+        for (const key of [...filters.keys()]) tui!.clearSessionNotifyFilter(key);
+        tui!.log("system", `notify-filter: cleared ${count} filter${count !== 1 ? "s" : ""}`);
+        return;
+      }
+      if (events.length === 1 && events[0] === "__CLEAR__") {
+        // clear filter for one session
+        const ok = tui!.clearSessionNotifyFilter(sessionTitle);
+        tui!.log("system", ok ? `notify-filter: cleared filter for ${sessionTitle}` : `notify-filter: no filter set for ${sessionTitle}`);
+        return;
+      }
+      // set filter
+      const parsed = parseNotifyEvents(events);
+      tui!.setSessionNotifyFilter(sessionTitle, parsed);
+      const eventList = [...parsed].sort().join(", ") || "(none — all blocked)";
+      tui!.log("system", `notify-filter: ${sessionTitle} → ${eventList}`);
     });
     // wire /ctx-budget — show smart context budget allocations
     input.onCtxBudget(() => {
@@ -2408,10 +2437,16 @@ async function daemonTick(
     for (const snap of observation.sessions) {
       const s = snap.session;
       if (s.status === "error" && changedSet.has(s.title)) {
-        sendNotification(config, { event: "session_error", timestamp: Date.now(), session: s.title, detail: `status: ${s.status}` });
+        const filters = tui ? tui.getAllSessionNotifyFilters() : new Map();
+        if (shouldNotifySession("session_error", s.title, filters, config.notifications?.events)) {
+          sendNotification(config, { event: "session_error", timestamp: Date.now(), session: s.title, detail: `status: ${s.status}` });
+        }
       }
       if (s.status === "done" && changedSet.has(s.title)) {
-        sendNotification(config, { event: "session_done", timestamp: Date.now(), session: s.title });
+        const filters = tui ? tui.getAllSessionNotifyFilters() : new Map();
+        if (shouldNotifySession("session_done", s.title, filters, config.notifications?.events)) {
+          sendNotification(config, { event: "session_done", timestamp: Date.now(), session: s.title });
+        }
       }
     }
   }
@@ -2497,13 +2532,19 @@ async function daemonTick(
       log(`[${icon}] ${displayText}`);
     }
     reasonerConsole.writeAction(entry.action.action, richDetail, entry.success);
-    // notify: action executed or failed
-    sendNotification(config, {
-      event: entry.success ? "action_executed" : "action_failed",
-      timestamp: Date.now(),
-      session: sessionTitle,
-      detail: `${entry.action.action}${actionText ? `: ${actionText.slice(0, 200)}` : ""}`,
-    });
+    // notify: action executed or failed (respects per-session filters)
+    {
+      const nEvent = entry.success ? "action_executed" as const : "action_failed" as const;
+      const nFilters = tui ? tui.getAllSessionNotifyFilters() : new Map();
+      if (shouldNotifySession(nEvent, sessionTitle, nFilters, config.notifications?.events)) {
+        sendNotification(config, {
+          event: nEvent,
+          timestamp: Date.now(),
+          session: sessionTitle,
+          detail: `${entry.action.action}${actionText ? `: ${actionText.slice(0, 200)}` : ""}`,
+        });
+      }
+    }
   }
   const actionsOk = executed.filter((e) => e.success && e.action.action !== "wait").length;
   const actionsFail = executed.filter((e) => !e.success && e.action.action !== "wait").length;

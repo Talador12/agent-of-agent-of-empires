@@ -227,6 +227,77 @@ function eventTitle(event: NotificationEvent): string {
 }
 
 // emoji icon for each event type (used in Slack messages)
+// ── Per-session notification filters ────────────────────────────────────────
+// Allow per-session control over which events trigger notifications.
+// When a filter is set for a session, only those events fire.
+// Sessions without a filter use the global events list (or all events).
+
+/** Per-session filter: only these events trigger notifications for this session. */
+export type SessionNotifyFilter = Set<NotificationEvent>;
+
+/**
+ * Check whether a notification should fire for a specific session,
+ * considering both per-session filters and the global events list.
+ *
+ * Priority: per-session filter > global events > allow all.
+ */
+export function shouldNotifySession(
+  event: NotificationEvent,
+  sessionTitle: string | undefined,
+  sessionFilters: ReadonlyMap<string, SessionNotifyFilter>,
+  globalEvents: readonly NotificationEvent[] | undefined,
+): boolean {
+  // check per-session filter (case-insensitive match)
+  if (sessionTitle) {
+    const key = sessionTitle.toLowerCase();
+    for (const [title, filter] of sessionFilters) {
+      if (title.toLowerCase() === key) {
+        return filter.has(event);
+      }
+    }
+  }
+  // fall back to global events filter
+  if (globalEvents && globalEvents.length > 0) {
+    return globalEvents.includes(event);
+  }
+  // no filters at all — allow everything
+  return true;
+}
+
+/**
+ * Format the current per-session notification filters for display.
+ */
+export function formatNotifyFilters(
+  sessionFilters: ReadonlyMap<string, SessionNotifyFilter>,
+): string[] {
+  if (sessionFilters.size === 0) return ["(no per-session notification filters set)"];
+  const lines: string[] = [];
+  lines.push(`notification filters: ${sessionFilters.size} session${sessionFilters.size !== 1 ? "s" : ""}`);
+  for (const [title, filter] of sessionFilters) {
+    const events = [...filter].sort().join(", ");
+    lines.push(`  ${title}: ${events || "(none — all blocked)"}`);
+  }
+  return lines;
+}
+
+/**
+ * Parse a list of event names into a valid Set of NotificationEvent.
+ * Ignores unknown event names.
+ */
+export const VALID_NOTIFY_EVENTS: readonly NotificationEvent[] = [
+  "session_error", "session_done", "action_executed", "action_failed", "daemon_started", "daemon_stopped",
+];
+
+export function parseNotifyEvents(eventNames: readonly string[]): SessionNotifyFilter {
+  const valid = new Set(VALID_NOTIFY_EVENTS);
+  const result = new Set<NotificationEvent>();
+  for (const name of eventNames) {
+    const lower = name.toLowerCase().trim();
+    if (valid.has(lower as NotificationEvent)) result.add(lower as NotificationEvent);
+  }
+  return result;
+}
+
 function eventIcon(event: NotificationEvent): string {
   switch (event) {
     case "session_error": return "\u{1F6A8}";     // 🚨

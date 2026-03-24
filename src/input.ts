@@ -92,6 +92,7 @@ export type TrustHandler = (arg: string) => void; // /trust [level|auto|off|on]
 export type CtxBudgetHandler = () => void; // show smart context budget allocations
 export type ProfileHandler = () => void; // show active profiles summary
 export type ReplayHandler = (target: string, speed: number | null) => void; // replay session output
+export type NotifyFilterHandler = (sessionTitle: string | null, events: string[]) => void; // per-session notification filter
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -298,6 +299,7 @@ export class InputReader {
   private ctxBudgetHandler: CtxBudgetHandler | null = null;
   private profileHandler: ProfileHandler | null = null;
   private replayHandler: ReplayHandler | null = null;
+  private notifyFilterHandler: NotifyFilterHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -590,6 +592,7 @@ export class InputReader {
   onCtxBudget(handler: CtxBudgetHandler): void { this.ctxBudgetHandler = handler; }
   onProfile(handler: ProfileHandler): void { this.profileHandler = handler; }
   onReplay(handler: ReplayHandler): void { this.replayHandler = handler; }
+  onNotifyFilter(handler: NotifyFilterHandler): void { this.notifyFilterHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -852,6 +855,7 @@ ${BOLD}controls:${RESET}
   /mode [name]       set mode: observe, dry-run, confirm, autopilot (no arg = show)
    /profile           show active AoE profiles and session counts
    /replay <N> [lps]  play back a session's output history (default 10 lines/sec)
+   /notify-filter [s] [events]  set per-session notification filter (no args = list, 'clear' = remove)
    /trust [arg]       trust ladder: no arg = show status, arg = observe/dry-run/confirm/autopilot/auto/off
   /interrupt         interrupt the AI mid-thought
   ESC ESC            same as /interrupt (shortcut)
@@ -991,6 +995,32 @@ ${BOLD}other:${RESET}
         const rpSpeed = rpArgs[1] ? parseInt(rpArgs[1], 10) : null;
         if (this.replayHandler) this.replayHandler(rpTarget, isNaN(rpSpeed as number) ? null : rpSpeed);
         else console.error(`${DIM}replay not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/notify-filter": {
+        const nfArgs = line.slice("/notify-filter".length).trim().split(/\s+/).filter(Boolean);
+        if (nfArgs.length === 0) {
+          // no args: list current filters
+          if (this.notifyFilterHandler) this.notifyFilterHandler(null, []);
+          else console.error(`${DIM}notify-filter not available (no TUI)${RESET}`);
+        } else if (nfArgs.length === 1 && nfArgs[0].toLowerCase() === "clear") {
+          // /notify-filter clear — remove all filters
+          if (this.notifyFilterHandler) this.notifyFilterHandler("__CLEAR_ALL__", []);
+          else console.error(`${DIM}notify-filter not available (no TUI)${RESET}`);
+        } else {
+          // /notify-filter <session> [event1 event2 ...]
+          const session = nfArgs[0];
+          const events = nfArgs.slice(1);
+          if (events.length === 1 && events[0].toLowerCase() === "clear") {
+            // /notify-filter <session> clear — remove filter for this session
+            if (this.notifyFilterHandler) this.notifyFilterHandler(session, ["__CLEAR__"]);
+            else console.error(`${DIM}notify-filter not available (no TUI)${RESET}`);
+          } else {
+            if (this.notifyFilterHandler) this.notifyFilterHandler(session, events);
+            else console.error(`${DIM}notify-filter not available (no TUI)${RESET}`);
+          }
+        }
         break;
       }
 

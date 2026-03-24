@@ -1612,6 +1612,9 @@ export class TUI {
    private replayState: SessionReplayState | null = null;
    private replayTimer: ReturnType<typeof setInterval> | null = null;
 
+   // per-session notification filters
+   private sessionNotifyFilters = new Map<string, Set<import("./types.js").NotificationEvent>>();
+
    // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
   private drilldownSessionId: string | null = null;
@@ -2374,6 +2377,28 @@ export class TUI {
     this.replayState = { ...this.replayState, paused: !this.replayState.paused };
     this.log("system", formatReplayStatusBar(this.replayState));
     return true;
+  }
+
+  // ── Per-session notification filters ────────────────────────────────────
+
+  /** Set a per-session notification filter. Empty set = block all events for that session. */
+  setSessionNotifyFilter(sessionTitle: string, events: Set<import("./types.js").NotificationEvent>): void {
+    this.sessionNotifyFilters.set(sessionTitle, events);
+  }
+
+  /** Get the filter for a session, or undefined if none set. */
+  getSessionNotifyFilter(sessionTitle: string): Set<import("./types.js").NotificationEvent> | undefined {
+    return this.sessionNotifyFilters.get(sessionTitle);
+  }
+
+  /** Clear a per-session filter (reverts to global behavior). */
+  clearSessionNotifyFilter(sessionTitle: string): boolean {
+    return this.sessionNotifyFilters.delete(sessionTitle);
+  }
+
+  /** Get all per-session notification filters. */
+  getAllSessionNotifyFilters(): ReadonlyMap<string, Set<import("./types.js").NotificationEvent>> {
+    return this.sessionNotifyFilters;
   }
 
   // ── Trust ladder ─────────────────────────────────────────────────────────

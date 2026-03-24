@@ -4023,6 +4023,45 @@ describe("TUI session replay", () => {
   });
 });
 
+// ── TUI per-session notification filters ─────────────────────────────────
+
+describe("TUI sessionNotifyFilters", () => {
+  it("getAllSessionNotifyFilters empty initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.getAllSessionNotifyFilters().size, 0);
+  });
+
+  it("setSessionNotifyFilter stores filter", () => {
+    const tui = new TUI();
+    tui.setSessionNotifyFilter("Alpha", new Set(["session_error"]));
+    const f = tui.getSessionNotifyFilter("Alpha");
+    assert.ok(f);
+    assert.ok(f.has("session_error"));
+  });
+
+  it("clearSessionNotifyFilter removes filter", () => {
+    const tui = new TUI();
+    tui.setSessionNotifyFilter("Alpha", new Set(["session_error"]));
+    assert.equal(tui.clearSessionNotifyFilter("Alpha"), true);
+    assert.equal(tui.getSessionNotifyFilter("Alpha"), undefined);
+  });
+
+  it("clearSessionNotifyFilter returns false for missing", () => {
+    const tui = new TUI();
+    assert.equal(tui.clearSessionNotifyFilter("Nope"), false);
+  });
+
+  it("overwrites existing filter", () => {
+    const tui = new TUI();
+    tui.setSessionNotifyFilter("Alpha", new Set(["session_error"]));
+    tui.setSessionNotifyFilter("Alpha", new Set(["action_executed"]));
+    const f = tui.getSessionNotifyFilter("Alpha");
+    assert.ok(f);
+    assert.ok(!f.has("session_error"));
+    assert.ok(f.has("action_executed"));
+  });
+});
+
 // ── rankSessions ─────────────────────────────────────────────────────────
 
 function makeRankSessions(): DaemonSessionState[] {
