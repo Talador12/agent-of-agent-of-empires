@@ -59,8 +59,10 @@ import {
   validateGroupName, formatGroupBadge, GROUP_ICON, MAX_GROUP_NAME_LEN,
   formatConfidenceBadge,
   STATS_REFRESH_INTERVAL_MS,
+  buildFanOutTemplate, FAN_OUT_DEFAULT_GOAL,
   TUI,
 } from "./tui.js";
+import type { TaskDefinition } from "./types.js";
 import type { ActivityEntry, SortMode, TuiPrefs, SnapshotData, SnapshotSession, TopSortMode, SessionReportData } from "./tui.js";
 import type { ConfidenceLevel } from "./types.js";
 import type { DaemonSessionState } from "./types.js";
@@ -3361,6 +3363,96 @@ describe("TUI stats-live", () => {
     assert.equal(tui.isStatsRefreshing(), true);
     assert.ok(calls >= 11, "restart should fire callback again");
     tui.stopStatsRefresh();
+  });
+});
+
+// ── buildFanOutTemplate ──────────────────────────────────────────────────
+
+function makeFanOutSessions(): DaemonSessionState[] {
+  return [
+    { id: "s1", title: "Alpha", status: "working", tool: "opencode", path: "/repos/alpha", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s2", title: "Bravo", status: "idle", tool: "opencode", path: "/repos/bravo", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s3", title: "Charlie", status: "error", tool: "claude-code", path: "/repos/charlie", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+  ];
+}
+
+describe("buildFanOutTemplate", () => {
+  it("generates entries for all sessions when no existing tasks", () => {
+    const sessions = makeFanOutSessions();
+    const { defs, added } = buildFanOutTemplate(sessions, []);
+    assert.equal(defs.length, 3);
+    assert.deepEqual(added, ["Alpha", "Bravo", "Charlie"]);
+  });
+
+  it("preserves existing tasks and only adds missing ones", () => {
+    const sessions = makeFanOutSessions();
+    const existing: TaskDefinition[] = [
+      { repo: "/repos/alpha", sessionTitle: "Alpha", tool: "opencode", goal: "custom goal" },
+    ];
+    const { defs, added } = buildFanOutTemplate(sessions, existing);
+    assert.equal(defs.length, 3); // 1 existing + 2 new
+    assert.deepEqual(added, ["Bravo", "Charlie"]);
+    // existing task preserved with its custom goal
+    assert.equal(defs[0].goal, "custom goal");
+  });
+
+  it("matches existing tasks case-insensitively", () => {
+    const sessions = makeFanOutSessions();
+    const existing: TaskDefinition[] = [
+      { repo: "/repos/alpha", sessionTitle: "ALPHA", tool: "opencode", goal: "keep" },
+    ];
+    const { defs, added } = buildFanOutTemplate(sessions, existing);
+    assert.equal(added.length, 2);
+    assert.ok(!added.includes("Alpha"));
+  });
+
+  it("returns empty added when all sessions already tracked", () => {
+    const sessions = makeFanOutSessions();
+    const existing: TaskDefinition[] = sessions.map((s) => ({
+      repo: s.path ?? s.title,
+      sessionTitle: s.title,
+      tool: s.tool,
+      goal: "existing",
+    }));
+    const { defs, added } = buildFanOutTemplate(sessions, existing);
+    assert.equal(added.length, 0);
+    assert.equal(defs.length, 3);
+  });
+
+  it("handles empty sessions list", () => {
+    const { defs, added } = buildFanOutTemplate([], []);
+    assert.equal(defs.length, 0);
+    assert.equal(added.length, 0);
+  });
+
+  it("new entries use FAN_OUT_DEFAULT_GOAL", () => {
+    const sessions = makeFanOutSessions().slice(0, 1);
+    const { defs } = buildFanOutTemplate(sessions, []);
+    assert.equal(defs[0].goal, FAN_OUT_DEFAULT_GOAL);
+  });
+
+  it("new entries use sessionMode existing", () => {
+    const sessions = makeFanOutSessions().slice(0, 1);
+    const { defs } = buildFanOutTemplate(sessions, []);
+    assert.equal(defs[0].sessionMode, "existing");
+  });
+
+  it("new entries use session path as repo", () => {
+    const sessions = makeFanOutSessions().slice(0, 1);
+    const { defs } = buildFanOutTemplate(sessions, []);
+    assert.equal(defs[0].repo, "/repos/alpha");
+  });
+
+  it("falls back to title when path is undefined", () => {
+    const sessions: DaemonSessionState[] = [
+      { id: "s1", title: "NoPather", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    ];
+    const { defs } = buildFanOutTemplate(sessions, []);
+    assert.equal(defs[0].repo, "NoPather");
+  });
+
+  it("FAN_OUT_DEFAULT_GOAL is the expected string", () => {
+    assert.equal(FAN_OUT_DEFAULT_GOAL, "Continue the roadmap in claude.md");
   });
 });
 

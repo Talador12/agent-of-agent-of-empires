@@ -1851,3 +1851,29 @@ describe("onStatsLive", () => {
     assert.equal(calls, 10);
   });
 });
+
+// ── onFanOut ─────────────────────────────────────────────────────────────
+
+describe("onFanOut", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onFanOut(() => { called = true; });
+    reader["fanOutHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["fanOutHandler"]?.(); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onFanOut(() => { calls++; });
+    reader.onFanOut(() => { calls += 10; });
+    reader["fanOutHandler"]!();
+    assert.equal(calls, 10);
+  });
+});

@@ -15,7 +15,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import type { DaemonSessionState, DaemonPhase, ConfidenceLevel } from "./types.js";
+import type { DaemonSessionState, DaemonPhase, ConfidenceLevel, TaskDefinition } from "./types.js";
 import {
   BOLD, DIM, RESET, GREEN, YELLOW, RED, CYAN, WHITE,
   BG_DARK, BG_HEADER2, BG_HOVER, BG_INPUT, BG_SECTION,
@@ -883,6 +883,47 @@ export function formatBudgetAlert(title: string, costStr: string, budgetUSD: num
  * { path, tool, title } for use in a create_agent action.
  * Returns null if source session not found or path/tool missing.
  */
+/** Default goal for fan-out generated tasks. */
+export const FAN_OUT_DEFAULT_GOAL = "Continue the roadmap in claude.md";
+
+/**
+ * Generate a task definition list from visible sessions, merging with existing tasks.
+ * Existing tasks (matched by sessionTitle, case-insensitive) are preserved as-is.
+ * New sessions get a default goal and "existing" mode.
+ * Returns { defs, added } where `added` lists the titles of newly created entries.
+ */
+export function buildFanOutTemplate(
+  sessions: readonly DaemonSessionState[],
+  existingTasks: readonly TaskDefinition[],
+): { defs: TaskDefinition[]; added: string[] } {
+  // index existing tasks by normalized title for fast lookup
+  const existingByTitle = new Map<string, TaskDefinition>();
+  for (const t of existingTasks) {
+    const key = (t.sessionTitle ?? t.repo).toLowerCase();
+    existingByTitle.set(key, t);
+  }
+
+  const defs: TaskDefinition[] = [...existingTasks]; // preserve all existing
+  const added: string[] = [];
+
+  for (const s of sessions) {
+    const key = s.title.toLowerCase();
+    if (existingByTitle.has(key)) continue; // already tracked
+
+    const def: TaskDefinition = {
+      repo: s.path ?? s.title,
+      sessionTitle: s.title,
+      sessionMode: "existing",
+      tool: s.tool || "opencode",
+      goal: FAN_OUT_DEFAULT_GOAL,
+    };
+    defs.push(def);
+    added.push(s.title);
+  }
+
+  return { defs, added };
+}
+
 export function buildDuplicateArgs(
   sessions: readonly DaemonSessionState[],
   sessionIdOrIndex: string | number,

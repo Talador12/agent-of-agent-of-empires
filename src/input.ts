@@ -87,6 +87,7 @@ export type LabelsHandler = () => void; // list all active session labels
 export type PinDrainingHandler = () => void; // pin all draining sessions
 export type IconHandler = (target: string, emoji: string | null) => void; // set/clear session emoji icon
 export type DiffSessionsHandler = (a: string, b: string) => void; // compare two sessions' pane output
+export type FanOutHandler = () => void; // generate starter task list from active sessions
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -288,6 +289,7 @@ export class InputReader {
   private pinDrainingHandler: PinDrainingHandler | null = null;
   private iconHandler: IconHandler | null = null;
   private diffSessionsHandler: DiffSessionsHandler | null = null;
+  private fanOutHandler: FanOutHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -575,6 +577,7 @@ export class InputReader {
   onPinDraining(handler: PinDrainingHandler): void { this.pinDrainingHandler = handler; }
   onIcon(handler: IconHandler): void { this.iconHandler = handler; }
   onDiffSessions(handler: DiffSessionsHandler): void { this.diffSessionsHandler = handler; }
+  onFanOut(handler: FanOutHandler): void { this.fanOutHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -906,7 +909,8 @@ ${BOLD}navigation:${RESET}
    /label N [text]    set a freeform label shown in the session card (no text = clear)
    /sessions          show rich session table (status, health, group, cost, flags)
    /diff-sessions A B compare pane output of two sessions line by line
-   /history-stats     show aggregate statistics from persisted activity history
+    /fan-out           generate task list entries for all sessions missing one
+    /history-stats     show aggregate statistics from persisted activity history
   /cost-summary      show total estimated spend across all sessions
   /session-report N  generate full markdown report for a session → ~/.aoaoe/report-<name>-<ts>.md
   /clip [N]          copy last N activity entries to clipboard (default 20)
@@ -1572,6 +1576,11 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}diff-sessions not available (no TUI)${RESET}`);
         break;
       }
+
+      case "/fan-out":
+        if (this.fanOutHandler) this.fanOutHandler();
+        else console.error(`${DIM}fan-out not available (no TUI)${RESET}`);
+        break;
 
       case "/export-all":
         if (this.exportAllHandler) this.exportAllHandler();

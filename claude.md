@@ -8,11 +8,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.166.0
+## Version: v0.167.0
 
 ## Current Focus
 
-Stats-live + natural task intent shipped. Ready for next backlog item.
+Fan-out templates shipped. Ready for next backlog item.
 
 ### Open Items
 - Backlog continues below — all recent items shipped.
@@ -22,9 +22,20 @@ Stats-live + natural task intent shipped. Ready for next backlog item.
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Trust ladder mode** — auto-escalate observe -> dry-run -> confirm -> autopilot from stable behavior
-- **Task fan-out templates** — generate a starter task list from currently active/inactive AoE sessions
 - **Task intake UX** — guided `/task new` flow in TUI (prompt for repo/mode/goal)
 - **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
+
+### What shipped in v0.167.0
+
+**v0.167.0 — /fan-out Task Templates**:
+- `/fan-out` — scans all visible sessions, generates `aoaoe.tasks.json` entries for any session that doesn't already have one. Existing tasks preserved as-is (matched by sessionTitle, case-insensitive). New entries get `sessionMode: "existing"`, `goal: "Continue the roadmap in claude.md"`.
+- `buildFanOutTemplate(sessions, existingTasks)` pure fn — returns `{ defs, added }` where `added` lists newly created titles. Preserves existing task goals and ordering.
+- `FAN_OUT_DEFAULT_GOAL` exported constant.
+- Wired in index.ts: loads existing tasks, merges with fan-out, saves via `saveTaskDefinitions`.
+- 13 new tests: buildFanOutTemplate (10 — empty, missing, preserved, case-insensitive, all-tracked, default goal, session mode, path fallback, constant value) + onFanOut input handler (3)
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +13, net 2259 tests across 35 files.
 
 ### What shipped in v0.166.0
 
