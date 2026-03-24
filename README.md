@@ -4,7 +4,7 @@
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml"><img src="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="https://www.npmjs.com/package/aoaoe"><img src="https://img.shields.io/npm/v/aoaoe" alt="npm version"></a>
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/releases"><img src="https://img.shields.io/github/v/release/Talador12/agent-of-agent-of-empires" alt="GitHub release"></a>
-    <img src="https://img.shields.io/badge/tests-2181-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/tests-2427-brightgreen" alt="tests">
     <img src="https://img.shields.io/badge/node-%3E%3D20-blue" alt="Node.js >= 20">
     <img src="https://img.shields.io/badge/runtime%20deps-0-brightgreen" alt="zero runtime dependencies">
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
@@ -336,6 +336,10 @@ The daemon runs an interactive TUI with a rich command set. These commands are a
 | `/clear-history` | Truncate `~/.aoaoe/tui-history.jsonl` |
 | `/copy [N]` | Copy session's current pane output to clipboard (default: current drill-down) |
 | `/alias /x /cmd` | Create command alias (`/x` expands to `/cmd`); no args = list |
+| `/ctx-budget` | Show context budget allocation across sessions (activity-weighted) |
+| `/profile [name]` | Show active AoE profiles; optionally switch focus to a named profile |
+| `/replay <N\|name> [lps]` | Play back a session's stored pane output line by line (default 10 lps; run again to stop) |
+| `/notify-filter <session> <events...>` | Set per-session webhook event filter (`session_error`, `session_done`, etc.); no args = list; `clear` = remove all |
 
 ### Other
 
@@ -376,6 +380,9 @@ The daemon runs an interactive TUI with a rich command set. These commands are a
 - **Activity heatmap** -- 24-hour colored block chart via `aoaoe stats`
 - **Bookmarks** -- mark positions, jump back, diff since a bookmark
 - **Clipboard export** -- `/clip` and `/copy` copy activity or session pane output to clipboard
+- **Automatic context compaction** -- when a session hits 80% context usage, daemon sends a compaction nudge via tmux; 10-min cooldown per session
+- **Multi-profile polling** -- daemon polls all configured AoE profiles simultaneously; sessions deduped by ID across profiles
+- **Session replay** -- `/replay <N|name> [lps]` plays back stored pane output in the activity log at configurable speed
 
 ## Chat UI Commands
 

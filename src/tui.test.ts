@@ -70,6 +70,8 @@ import {
   CONTEXT_COMPACTION_THRESHOLD, COMPACTION_COOLDOWN_MS,
   buildSessionDependencyGraph, formatDependencyGraph,
   createRelayRule, matchRelayRules, formatRelayRules, resetRelayIdCounter,
+  detectOOM, shouldRestartOnOOM, formatOOMAlert,
+  OOM_RESTART_COOLDOWN_MS, OOM_MAX_RESTARTS,
   TUI,
 } from "./tui.js";
 import type { RelayRule } from "./tui.js";
@@ -4393,6 +4395,126 @@ describe("TUI relay rules", () => {
     tui.addRelayRule("a", "b", "x");
     tui.addRelayRule("c", "d", "y");
     assert.equal(tui.getRelayRules().length, 2);
+  });
+});
+
+// ── Automatic session restart on OOM ─────────────────────────────────────
+
+describe("OOM_RESTART_COOLDOWN_MS", () => {
+  it("is 5 minutes", () => { assert.equal(OOM_RESTART_COOLDOWN_MS, 5 * 60_000); });
+});
+
+describe("OOM_MAX_RESTARTS", () => {
+  it("is 3", () => { assert.equal(OOM_MAX_RESTARTS, 3); });
+});
+
+describe("detectOOM", () => {
+  it("returns null for no OOM", () => {
+    assert.equal(detectOOM(["all good", "working fine"]), null);
+  });
+
+  it("detects JavaScript heap out of memory", () => {
+    const line = "FATAL ERROR: CALL_AND_RETRY_LAST JavaScript heap out of memory";
+    assert.equal(detectOOM([line]), line);
+  });
+
+  it("detects reached heap limit", () => {
+    assert.ok(detectOOM(["FATAL ERROR: Reached heap limit Allocation failed"]));
+  });
+
+  it("detects allocation failed", () => {
+    assert.ok(detectOOM(["Allocation failed - JavaScript heap out of memory"]));
+  });
+
+  it("detects ENOMEM", () => {
+    assert.ok(detectOOM(["Error: spawn ENOMEM"]));
+  });
+
+  it("detects cannot allocate memory", () => {
+    assert.ok(detectOOM(["Cannot allocate memory"]));
+  });
+
+  it("strips ANSI before matching", () => {
+    assert.ok(detectOOM(["\x1b[31mFATAL ERROR: JavaScript heap out of memory\x1b[0m"]));
+  });
+
+  it("returns first matching line", () => {
+    const result = detectOOM(["line 1", "JavaScript heap out of memory", "ENOMEM"]);
+    assert.ok(result!.includes("heap out of memory"));
+  });
+
+  it("is case-insensitive", () => {
+    assert.ok(detectOOM(["javascript HEAP out of MEMORY"]));
+  });
+});
+
+describe("shouldRestartOnOOM", () => {
+  it("returns true with no prior restarts", () => {
+    assert.equal(shouldRestartOnOOM(undefined, 0, Date.now()), true);
+  });
+
+  it("returns false when max restarts reached", () => {
+    assert.equal(shouldRestartOnOOM(undefined, 3, Date.now()), false);
+  });
+
+  it("returns false within cooldown", () => {
+    const now = Date.now();
+    assert.equal(shouldRestartOnOOM(now - 1000, 1, now), false);
+  });
+
+  it("returns true after cooldown elapsed", () => {
+    const now = Date.now();
+    assert.equal(shouldRestartOnOOM(now - OOM_RESTART_COOLDOWN_MS - 1, 1, now), true);
+  });
+
+  it("respects custom max restarts", () => {
+    assert.equal(shouldRestartOnOOM(undefined, 1, Date.now(), OOM_RESTART_COOLDOWN_MS, 1), false);
+  });
+
+  it("respects custom cooldown", () => {
+    const now = Date.now();
+    assert.equal(shouldRestartOnOOM(now - 2000, 1, now, 1000, 3), true);
+  });
+});
+
+describe("formatOOMAlert", () => {
+  it("includes title and restarting", () => {
+    const msg = formatOOMAlert("Alpha", "heap out of memory", true);
+    assert.ok(msg.includes("Alpha"));
+    assert.ok(msg.includes("restarting"));
+  });
+
+  it("includes not restarting when max reached", () => {
+    const msg = formatOOMAlert("Alpha", "heap out of memory", false);
+    assert.ok(msg.includes("not restarting"));
+  });
+
+  it("truncates long matched line", () => {
+    const long = "x".repeat(200);
+    const msg = formatOOMAlert("A", long, true);
+    assert.ok(msg.length < 200);
+  });
+});
+
+describe("TUI OOM restart tracking", () => {
+  it("getOOMRestartInfo returns undefined initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.getOOMRestartInfo("s1"), undefined);
+  });
+
+  it("recordOOMRestart increments count", () => {
+    const tui = new TUI();
+    tui.recordOOMRestart("s1", 100);
+    assert.deepEqual(tui.getOOMRestartInfo("s1"), { lastAt: 100, count: 1 });
+    tui.recordOOMRestart("s1", 200);
+    assert.deepEqual(tui.getOOMRestartInfo("s1"), { lastAt: 200, count: 2 });
+  });
+
+  it("resetOOMCounter clears info", () => {
+    const tui = new TUI();
+    tui.recordOOMRestart("s1", 100);
+    tui.resetOOMCounter("s1");
+    assert.equal(tui.getOOMRestartInfo("s1"), undefined);
   });
 });
 

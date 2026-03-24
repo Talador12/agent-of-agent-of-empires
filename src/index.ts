@@ -19,7 +19,7 @@ import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, impor
 import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
 import { parsePaneMilestones } from "./task-parser.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph, formatRelayRules, matchRelayRules } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph, formatRelayRules, matchRelayRules, detectOOM, shouldRestartOnOOM, formatOOMAlert } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
@@ -2420,6 +2420,32 @@ async function daemonTick(
             }
           }
         }
+      }
+    }
+  }
+
+  // automatic OOM restart: detect heap exhaustion in new output and restart the session
+  if (tui && observation.changes.length > 0 && !config.observe && !config.dryRun) {
+    const now = Date.now();
+    for (const change of observation.changes) {
+      if (!change.newLines) continue;
+      const oomLine = detectOOM(change.newLines.split("\n"));
+      if (!oomLine) continue;
+
+      // find session ID from observation snapshots
+      const snap = observation.sessions.find((s) => s.session.title === change.title);
+      if (!snap) continue;
+      const sid = snap.session.id;
+
+      const info = tui.getOOMRestartInfo(sid);
+      const canRestart = shouldRestartOnOOM(info?.lastAt, info?.count ?? 0, now);
+      tui.log("status", formatOOMAlert(change.title, oomLine, canRestart), sid);
+
+      if (canRestart) {
+        tui.recordOOMRestart(sid, now);
+        shellExec("aoe", ["session", "restart", sid])
+          .then(() => tui.log("+ action", `OOM restart: ${change.title}`, sid))
+          .catch((err: unknown) => tui.log("! action", `OOM restart failed: ${change.title}: ${err}`, sid));
       }
     }
   }

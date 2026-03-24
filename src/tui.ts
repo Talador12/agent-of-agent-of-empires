@@ -1621,6 +1621,9 @@ export class TUI {
    // cross-session message relay rules
    private relayRules: RelayRule[] = [];
 
+   // OOM restart tracking per session
+   private oomRestarts = new Map<string, { lastAt: number; count: number }>();
+
    // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
   private drilldownSessionId: string | null = null;
@@ -2444,6 +2447,25 @@ export class TUI {
   /** Get all relay rules. */
   getRelayRules(): readonly RelayRule[] {
     return this.relayRules;
+  }
+
+  // ── OOM restart tracking ──────────────────────────────────────────────
+
+  /** Record an OOM restart for a session. */
+  recordOOMRestart(sessionId: string, now?: number): void {
+    const ts = now ?? Date.now();
+    const prev = this.oomRestarts.get(sessionId);
+    this.oomRestarts.set(sessionId, { lastAt: ts, count: (prev?.count ?? 0) + 1 });
+  }
+
+  /** Get OOM restart info for a session. */
+  getOOMRestartInfo(sessionId: string): { lastAt: number; count: number } | undefined {
+    return this.oomRestarts.get(sessionId);
+  }
+
+  /** Reset OOM restart counter for a session (e.g. after manual intervention). */
+  resetOOMCounter(sessionId: string): void {
+    this.oomRestarts.delete(sessionId);
   }
 
   // ── Trust ladder ─────────────────────────────────────────────────────────
@@ -4991,6 +5013,61 @@ export function formatRelayRules(rules: readonly RelayRule[]): string[] {
     lines.push(`  ${DIM}#${r.id}${RESET} ${BOLD}${r.source}${RESET} ${DIM}→${RESET} ${BOLD}${r.target}${RESET} ${DIM}when output contains "${r.pattern}"${RESET}`);
   }
   return lines;
+}
+
+// ── Automatic session restart on OOM ────────────────────────────────────────
+
+/** Cooldown between OOM restart attempts for the same session (5 minutes). */
+export const OOM_RESTART_COOLDOWN_MS = 5 * 60_000;
+
+/** Max OOM restarts per session before giving up (avoid restart loops). */
+export const OOM_MAX_RESTARTS = 3;
+
+/**
+ * Detect out-of-memory or heap exhaustion patterns in pane output lines.
+ * Returns the first matching line, or null if no OOM detected.
+ */
+export function detectOOM(lines: readonly string[]): string | null {
+  for (const raw of lines) {
+    const line = raw.replace(/\x1b\[[0-9;]*[mABCDHJKST]/g, "").toLowerCase();
+    if (
+      line.includes("javascript heap out of memory") ||
+      line.includes("fatal error: reached heap limit") ||
+      line.includes("allocation failed - javascript heap") ||
+      line.includes("fatal process oom") ||
+      line.includes("out of memory") && line.includes("kill") ||
+      line.includes("enomem") ||
+      line.includes("cannot allocate memory") ||
+      line.includes("heap limit allocation failed")
+    ) {
+      return raw;
+    }
+  }
+  return null;
+}
+
+/**
+ * Check whether an OOM restart should be attempted for a session.
+ */
+export function shouldRestartOnOOM(
+  lastRestartAt: number | undefined,
+  restartCount: number,
+  now: number,
+  cooldownMs: number = OOM_RESTART_COOLDOWN_MS,
+  maxRestarts: number = OOM_MAX_RESTARTS,
+): boolean {
+  if (restartCount >= maxRestarts) return false;
+  if (lastRestartAt !== undefined && now - lastRestartAt < cooldownMs) return false;
+  return true;
+}
+
+/**
+ * Format an OOM alert for the activity log.
+ */
+export function formatOOMAlert(title: string, matchedLine: string, restarting: boolean): string {
+  const action = restarting ? "restarting session" : "max restarts reached, not restarting";
+  const snippet = matchedLine.replace(/\x1b\[[0-9;]*[mABCDHJKST]/g, "").trim().slice(0, 80);
+  return `${title}: OOM detected — "${snippet}" — ${action}`;
 }
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────

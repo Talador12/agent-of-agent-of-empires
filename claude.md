@@ -8,11 +8,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.178.0
+## Version: v0.179.0
 
 ## Current Focus
 
-Cross-session relay shipped. Backlog continuing.
+OOM auto-restart shipped. Backlog continuing.
 
 ### Open Items
 - Backlog continues below.
@@ -20,7 +20,22 @@ Cross-session relay shipped. Backlog continuing.
 ### Ideas Backlog
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session output search index** — full-text search across all session outputs with ranked results
-- **Automatic session restart on OOM** — detect out-of-memory patterns and restart the agent
+- **Session output diffing** — diff two snapshots of the same session's output to see what changed
+- **Configurable action throttle per session** — different sessions get different action rate limits
+
+### What shipped in v0.179.0
+
+**v0.179.0 — Automatic Session Restart on OOM**:
+- `detectOOM(lines)` — pure fn scanning pane output for heap exhaustion patterns: "JavaScript heap out of memory", "Reached heap limit", "Allocation failed", "ENOMEM", "Cannot allocate memory", etc. Strips ANSI, case-insensitive. Returns first matching line or null.
+- `shouldRestartOnOOM(lastRestartAt, restartCount, now, cooldown, maxRestarts)` — pure fn: returns true when restart is allowed (under max count, cooldown elapsed).
+- `formatOOMAlert(title, matchedLine, restarting)` — activity log message with snippet + action taken.
+- `OOM_RESTART_COOLDOWN_MS = 5 min`, `OOM_MAX_RESTARTS = 3` — prevents restart loops.
+- TUI state: `oomRestarts` map + `recordOOMRestart`, `getOOMRestartInfo`, `resetOOMCounter`.
+- Wired in index.ts: on each poll, scans `observation.changes` new lines for OOM, checks cooldown/max, calls `aoe session restart` via shell. Logs both the detection alert and the restart action. Non-observe/non-dry-run only.
+- 23 new tests: OOM_RESTART_COOLDOWN_MS (1), OOM_MAX_RESTARTS (1), detectOOM (9 — no match, heap, limit, alloc, ENOMEM, cannot-allocate, ANSI strip, first-match, case-insensitive), shouldRestartOnOOM (6 — no prior, max reached, within cooldown, after cooldown, custom max, custom cooldown), formatOOMAlert (3 — restarting, not restarting, truncate), TUI tracking (3).
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +23, net 2482 tests across 35 files.
 
 ### What shipped in v0.178.0
 
