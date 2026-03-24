@@ -85,6 +85,7 @@ export type SessionsTableHandler = () => void; // show rich sessions table
 export type LabelsHandler = () => void; // list all active session labels
 export type PinDrainingHandler = () => void; // pin all draining sessions
 export type IconHandler = (target: string, emoji: string | null) => void; // set/clear session emoji icon
+export type DiffSessionsHandler = (a: string, b: string) => void; // compare two sessions' pane output
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -196,6 +197,7 @@ export class InputReader {
   private labelsHandler: LabelsHandler | null = null;
   private pinDrainingHandler: PinDrainingHandler | null = null;
   private iconHandler: IconHandler | null = null;
+  private diffSessionsHandler: DiffSessionsHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -477,6 +479,7 @@ export class InputReader {
   onLabels(handler: LabelsHandler): void { this.labelsHandler = handler; }
   onPinDraining(handler: PinDrainingHandler): void { this.pinDrainingHandler = handler; }
   onIcon(handler: IconHandler): void { this.iconHandler = handler; }
+  onDiffSessions(handler: DiffSessionsHandler): void { this.diffSessionsHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -777,6 +780,7 @@ ${BOLD}navigation:${RESET}
    /note-history N    show previous notes for a session (before they were cleared)
    /label N [text]    set a freeform label shown in the session card (no text = clear)
    /sessions          show rich session table (status, health, group, cost, flags)
+   /diff-sessions A B compare pane output of two sessions line by line
    /history-stats     show aggregate statistics from persisted activity history
   /cost-summary      show total estimated spend across all sessions
   /session-report N  generate full markdown report for a session → ~/.aoaoe/report-<name>-<ts>.md
@@ -1432,6 +1436,17 @@ ${BOLD}other:${RESET}
         if (this.sessionsTableHandler) this.sessionsTableHandler();
         else console.error(`${DIM}sessions not available${RESET}`);
         break;
+
+      case "/diff-sessions": {
+        const dsArgs = line.slice("/diff-sessions".length).trim().split(/\s+/);
+        if (dsArgs.length < 2 || !dsArgs[0] || !dsArgs[1]) {
+          console.error(`${DIM}usage: /diff-sessions <A> <B> — compare pane output of two sessions${RESET}`);
+          break;
+        }
+        if (this.diffSessionsHandler) this.diffSessionsHandler(dsArgs[0], dsArgs[1]);
+        else console.error(`${DIM}diff-sessions not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/export-all":
         if (this.exportAllHandler) this.exportAllHandler();

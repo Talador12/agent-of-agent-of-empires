@@ -1,6 +1,44 @@
 // shared response parsing + validation for both reasoner backends
 // validates per-action-type required fields to prevent executor crashes
-import type { Action, ReasonerResult } from "../types.js";
+import type { Action, ReasonerResult, ConfidenceLevel } from "../types.js";
+
+// LOW confidence markers in reasoning text
+const LOW_CONFIDENCE_PATTERNS = [
+  /\bnot sure\b|\bunsure\b|\bunclear\b|\buncertain\b/i,
+  /\bmaybe\b|\bperhaps\b|\bmight\b|\bcould be\b/i,
+  /\bhard to tell\b|\bdifficult to determine\b|\bcan't tell\b/i,
+  /\bguessing\b|\bguess\b|\bassume\b/i,
+  /\blimited (context|information|data)\b/i,
+];
+
+// HIGH confidence markers
+const HIGH_CONFIDENCE_PATTERNS = [
+  /\bclearly\b|\bobviously\b|\bdefinitely\b|\bcertainly\b/i,
+  /\bthe (agent|session) (is|was|has)\b/i,
+  /\bI can see\b|\bI can confirm\b|\bit is clear\b/i,
+  /\bsuccessfully\b|\bconfirmed\b|\bcompleted\b/i,
+];
+
+/**
+ * Infer confidence from the reasoning text and action set.
+ * This is a fast heuristic — no LLM call.
+ */
+export function inferConfidence(reasoning: string | undefined, actions: Action[]): ConfidenceLevel {
+  if (!reasoning) return "medium";
+
+  const lowSignals = LOW_CONFIDENCE_PATTERNS.filter((re) => re.test(reasoning)).length;
+  const highSignals = HIGH_CONFIDENCE_PATTERNS.filter((re) => re.test(reasoning)).length;
+
+  // a "wait" with no reasoning = low confidence
+  if (actions.every((a) => a.action === "wait") && !reasoning.trim()) return "low";
+
+  if (lowSignals >= 2) return "low";
+  if (lowSignals === 1 && highSignals === 0) return "low";
+  if (highSignals >= 2 && lowSignals === 0) return "high";
+  if (highSignals >= 1 && lowSignals === 0) return "high";
+
+  return "medium";
+}
 
 // validate a parsed object into a ReasonerResult with per-field type checks
 export function validateResult(parsed: unknown): ReasonerResult {
@@ -22,9 +60,11 @@ export function validateResult(parsed: unknown): ReasonerResult {
     validActions.push({ action: "wait", reason: "no valid actions in response" });
   }
 
+  const reasoning = typeof obj.reasoning === "string" ? obj.reasoning : undefined;
   return {
     actions: validActions,
-    reasoning: typeof obj.reasoning === "string" ? obj.reasoning : undefined,
+    reasoning,
+    confidence: inferConfidence(reasoning, validActions),
   };
 }
 

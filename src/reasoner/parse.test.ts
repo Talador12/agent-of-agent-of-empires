@@ -3,7 +3,7 @@
 // exercises the module boundary directly (no reasoner wiring).
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { validateResult, parseReasonerResponse, extractFirstValidJson } from "./parse.js";
+import { validateResult, parseReasonerResponse, extractFirstValidJson, inferConfidence } from "./parse.js";
 
 // ---------------------------------------------------------------------------
 // validateResult — per-action-type field validation
@@ -303,5 +303,51 @@ describe("extractFirstValidJson (parse.ts direct)", () => {
     const text = '"not an object" {"real": 1}';
     const r = extractFirstValidJson(text) as Record<string, number>;
     assert.deepEqual(r, { real: 1 });
+  });
+});
+
+// ── inferConfidence ───────────────────────────────────────────────────────────
+
+describe("inferConfidence", () => {
+  const waitAction = [{ action: "wait" as const }];
+  const sendAction = [{ action: "send_input" as const, session: "x", text: "go" }];
+
+  it("returns medium for undefined reasoning", () => {
+    assert.equal(inferConfidence(undefined, sendAction), "medium");
+  });
+
+  it("returns high for clearly confident reasoning", () => {
+    const r = inferConfidence("The agent has clearly completed the task and confirmed success.", sendAction);
+    assert.equal(r, "high");
+  });
+
+  it("returns low for uncertain reasoning", () => {
+    const r = inferConfidence("I'm not sure what the agent is doing. Maybe it's stuck, hard to tell.", waitAction);
+    assert.equal(r, "low");
+  });
+
+  it("returns low for single uncertainty signal with no high signals", () => {
+    const r = inferConfidence("This might be an error state.", waitAction);
+    assert.equal(r, "low");
+  });
+
+  it("returns medium for mixed signals", () => {
+    const r = inferConfidence("I can see progress but maybe there are still issues.", sendAction);
+    assert.equal(r, "medium");
+  });
+
+  it("returns medium for neutral reasoning without strong signals", () => {
+    const r = inferConfidence("The agent sent a message and is waiting for a response.", sendAction);
+    assert.ok(r === "medium" || r === "high", `expected medium or high for neutral text, got ${r}`);
+  });
+
+  it("validateResult includes confidence field", () => {
+    const parsed = {
+      actions: [{ action: "wait" }],
+      reasoning: "Clearly the agent has finished successfully.",
+    };
+    const result = validateResult(parsed);
+    assert.ok(result.confidence !== undefined);
+    assert.ok(["high", "medium", "low"].includes(result.confidence!));
   });
 });

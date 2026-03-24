@@ -5,15 +5,14 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.163.0
+## Version: v0.163.1
 
 ## Current Focus
 
 UI overhaul shipped (v0.160.1–v0.162.0). Ready for `make self`.
 
 ### Open Items
-- **`/diff-sessions <A> <B>`** — next up: compare two sessions' pane output side-by-side
-- **Decision confidence hint** — show low/medium/high confidence with each reasoner action bundle
+- Backlog continues below — all recent items shipped.
 
 ### Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously

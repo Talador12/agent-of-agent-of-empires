@@ -96,9 +96,12 @@ export function actionDetail(action: Action): string | undefined {
   }
 }
 
+export type ConfidenceLevel = "high" | "medium" | "low";
+
 export interface ReasonerResult {
   actions: Action[];
-  reasoning?: string; // optional explanation from the LLM
+  reasoning?: string;    // optional explanation from the LLM
+  confidence?: ConfidenceLevel; // inferred signal from reasoning content
 }
 
 // reasoner backend interface

@@ -1087,7 +1087,7 @@ async function main() {
       }
     });
     // wire /icon <N|name> <emoji>
-    input.onIcon((target, emoji) => {
+     input.onIcon((target, emoji) => {
       const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
       const ok = tui!.setIcon(num ?? target, emoji);
       if (ok) {
@@ -1095,6 +1095,24 @@ async function main() {
       } else {
         tui!.log("system", `session not found: ${target}`);
       }
+    });
+    // wire /diff-sessions A B
+    input.onDiffSessions((a, b) => {
+      const sessions = tui!.getSessions();
+      const resolve = (ref: string) => {
+        const num = /^\d+$/.test(ref) ? parseInt(ref, 10) : NaN;
+        if (!isNaN(num)) return sessions[num - 1];
+        return sessions.find((s) => s.title.toLowerCase() === ref.toLowerCase() || s.id.startsWith(ref));
+      };
+      const sA = resolve(a);
+      const sB = resolve(b);
+      if (!sA) { tui!.log("system", `diff-sessions: session not found: ${a}`); return; }
+      if (!sB) { tui!.log("system", `diff-sessions: session not found: ${b}`); return; }
+      const linesA = (tui!.getSessionOutput(sA.id) ?? []).filter((l: string) => l.trim());
+      const linesB = (tui!.getSessionOutput(sB.id) ?? []).filter((l: string) => l.trim());
+      const diff = diffSessions(sA.title, linesA, sB.title, linesB);
+      tui!.log("system", `diff-sessions: ${sA.title} vs ${sB.title} (last ${Math.max(linesA.length, linesB.length)} lines)`);
+      for (const line of diff) tui!.log("system", line);
     });
     // wire /budget cost alerts
     input.onBudget((target, budgetUSD) => {
@@ -2238,10 +2256,15 @@ async function daemonTick(
     }
 
     const actionSummary = result.actions.map((a) => a.action).join(", ");
+    const confidenceBadge = result.confidence
+      ? result.confidence === "high"   ? " ▲ high confidence"
+        : result.confidence === "low"  ? " ▼ low confidence"
+        : ""
+      : "";
     if (tui) {
-      tui.log("reasoner", `decided: ${actionSummary}`);
+      tui.log("reasoner", `decided: ${actionSummary}${confidenceBadge}`);
     } else {
-      process.stdout.write(` -> ${actionSummary}\n`);
+      process.stdout.write(` -> ${actionSummary}${confidenceBadge}\n`);
     }
   }
 
@@ -2638,6 +2661,37 @@ async function runNotifyTest(): Promise<void> {
     console.log(`  ${icon} slack webhook:   ${result.slackOk ? "ok" : result.slackError ?? "failed"}`);
   }
   console.log("");
+}
+
+/**
+ * Produce a human-readable line-by-line diff between two sessions' pane output.
+ * Only lines unique to one side are shown — shared lines are collapsed.
+ * Returns at most 40 diff lines to keep the activity log readable.
+ */
+function diffSessions(titleA: string, linesA: string[], titleB: string, linesB: string[]): string[] {
+  const setA = new Set(linesA.map((l) => l.trim()).filter(Boolean));
+  const setB = new Set(linesB.map((l) => l.trim()).filter(Boolean));
+  const onlyA = [...setA].filter((l) => !setB.has(l));
+  const onlyB = [...setB].filter((l) => !setA.has(l));
+  const shared = [...setA].filter((l) => setB.has(l)).length;
+  const out: string[] = [];
+  out.push(`  ${shared} lines in common`);
+  const MAX = 18;
+  if (onlyA.length === 0 && onlyB.length === 0) {
+    out.push("  sessions are identical");
+    return out;
+  }
+  if (onlyA.length > 0) {
+    out.push(`  only in ${titleA} (${onlyA.length}):`);
+    for (const l of onlyA.slice(0, MAX)) out.push(`  - ${l.slice(0, 80)}`);
+    if (onlyA.length > MAX) out.push(`    … +${onlyA.length - MAX} more`);
+  }
+  if (onlyB.length > 0) {
+    out.push(`  only in ${titleB} (${onlyB.length}):`);
+    for (const l of onlyB.slice(0, MAX)) out.push(`  + ${l.slice(0, 80)}`);
+    if (onlyB.length > MAX) out.push(`    … +${onlyB.length - MAX} more`);
+  }
+  return out;
 }
 
 function readPkgVersion(): string | null {

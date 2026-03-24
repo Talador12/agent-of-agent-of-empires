@@ -152,7 +152,16 @@ const PIN_ICON = "▲";
  * Each token: "{idx}{pin?}{mute?}{dot}{name}{health?}" — e.g. "1▲●Alpha" for pinned, "2◌●Bravo" for muted.
  * Returns array of formatted row strings (one per display row).
  */
-function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pinnedIds?: Set<string>, mutedIds?: Set<string>, noteIds?: Set<string>, healthScores?: Map<string, number>, activityRates?: Map<string, number>): string[] {
+function formatCompactRows(
+  sessions: DaemonSessionState[],
+  maxWidth: number,
+  pinnedIds?: Set<string>,
+  mutedIds?: Set<string>,
+  noteIds?: Set<string>,
+  healthScores?: Map<string, number>,
+  activityRates?: Map<string, number>,
+  sessionColors?: Map<string, string>, // session ID → accent color name (from /color)
+): string[] {
   if (sessions.length === 0) return [`${DIM}no agents connected${RESET}`];
 
   const tokens: string[] = [];
@@ -168,17 +177,35 @@ function formatCompactRows(sessions: DaemonSessionState[], maxWidth: number, pin
     const pin = pinned ? `${AMBER}${PIN_ICON}${RESET}` : "";
     const muteIcon = muted ? `${DIM}${MUTE_ICON}${RESET}` : "";
     const noteIcon = noted ? `${TEAL}${NOTE_ICON}${RESET}` : "";
+
+    // session accent color — used to colorize the name in compact mode
+    const accentColorName = sessionColors?.get(s.id);
+    const accentAnsi = accentColorName ? colorNameToAnsi(accentColorName) : "";
+    const nameColor = accentAnsi || "";
     const name = truncatePlain(s.title, COMPACT_NAME_LEN);
-    // health indicator: single ⬡ glyph when score < HEALTH_GOOD, colored by severity
+
+    // health indicator: ⬡ glyph colored by severity when unhealthy,
+    // or by the session's accent color when healthy + accent is set
     const score = healthScores?.get(s.id);
-    const healthGlyph = (score !== undefined && score < HEALTH_GOOD)
-      ? `${score < HEALTH_WARN ? ROSE : AMBER}${HEALTH_ICON}${RESET}` : "";
-    const healthWidth = (score !== undefined && score < HEALTH_GOOD) ? 1 : 0;
+    let healthGlyph = "";
+    let healthWidth = 0;
+    if (score !== undefined && score < HEALTH_GOOD) {
+      // unhealthy: severity color overrides accent
+      const healthColor = score < HEALTH_WARN ? ROSE : AMBER;
+      healthGlyph = `${healthColor}${HEALTH_ICON}${RESET}`;
+      healthWidth = 1;
+    } else if (score !== undefined && accentAnsi) {
+      // healthy but has accent: show glyph in accent color as a style marker
+      healthGlyph = `${accentAnsi}${HEALTH_ICON}${RESET}`;
+      healthWidth = 1;
+    }
+
     // activity rate badge: "3/m" when rate > 0
     const rate = activityRates?.get(s.id) ?? 0;
     const rateBadge = formatActivityRateBadge(rate);
     const rateVisible = rateBadge ? stripAnsiForLen(rateBadge) : 0;
-    tokens.push(`${SLATE}${idx}${RESET}${pin}${muteIcon}${noteIcon}${dot}${BOLD}${name}${RESET}${healthGlyph}${rateBadge}`);
+
+    tokens.push(`${SLATE}${idx}${RESET}${pin}${muteIcon}${noteIcon}${dot}${nameColor}${BOLD}${name}${RESET}${healthGlyph}${rateBadge}`);
     widths.push(idx.length + (pinned ? 1 : 0) + (muted ? 1 : 0) + (noted ? 1 : 0) + 1 + name.length + healthWidth + rateVisible);
   }
 
@@ -922,6 +949,11 @@ export function formatColorDot(colorName: string): string {
   const color = SESSION_COLOR_MAP[colorName.toLowerCase() as SessionColorName];
   if (!color) return "";
   return `${color}${DOT.filled}${RESET} `;
+}
+
+/** Return the raw ANSI escape for a session color name (for compact mode colorizing). */
+export function colorNameToAnsi(colorName: string): string {
+  return SESSION_COLOR_MAP[colorName.toLowerCase() as SessionColorName] ?? "";
 }
 
 // ── Suppressed tags (mute-errors style) ──────────────────────────────────────
@@ -3149,7 +3181,7 @@ export class TUI {
           this.activityBuffer, this.activityTimestamps, s.id, nowMsCompact
         ));
       }
-      const compactRows = formatCompactRows(visibleSessions, innerWidth - 1, this.pinnedIds, this.mutedIds, noteIdSet, compactHealthScores, compactActivityRates);
+      const compactRows = formatCompactRows(visibleSessions, innerWidth - 1, this.pinnedIds, this.mutedIds, noteIdSet, compactHealthScores, compactActivityRates, this.sessionColors);
       for (let r = 0; r < compactRows.length; r++) {
         const line = `${STEEL}${BOX.v}${RESET} ${compactRows[r]}`;
         const padded = padBoxLine(line, this.cols);
