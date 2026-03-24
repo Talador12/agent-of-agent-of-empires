@@ -3037,8 +3037,9 @@ export class TUI {
       this.scrollBottom = this.rows - 2;
     } else {
       // Reserve at least MIN_ACTIVITY_ROWS rows for the activity log.
+      // Kept small so the agents panel can expand to show the full table.
       // header(1) + separator(1) + input(1) + MIN_ACTIVITY_ROWS = fixed overhead.
-      const MIN_ACTIVITY_ROWS = 8;
+      const MIN_ACTIVITY_ROWS = 4;
       const fixedOverhead = this.headerHeight + 1 /* separator */ + 1 /* input reserve */ + MIN_ACTIVITY_ROWS;
       const maxSessionRows = Math.max(2, this.rows - fixedOverhead);
 
@@ -3155,7 +3156,7 @@ export class TUI {
     // Determine if we are forced into compact due to screen size.
     // computeLayout already set sessionRows to the clamped value — use
     // that to decide: if sessionRows < sessions+3 we must be compact.
-    const MIN_ACTIVITY_ROWS = 8;
+    const MIN_ACTIVITY_ROWS = 4;
     const fixedOverhead = this.headerHeight + 1 + 1 + MIN_ACTIVITY_ROWS;
     const maxSessionRows = Math.max(2, this.rows - fixedOverhead);
     const fullRowsNeeded = Math.max(visibleCount, 1) + 3; // +3: top border, col header, bottom border
@@ -3546,26 +3547,27 @@ function formatPhaseChunk(
 
 // ── Session table (overview panel) ──────────────────────────────────────────
 
-// Column widths for NAME | TASK | STATUS | VIBE | ACTION table
+// Column widths for NAME | TASK | STATUS | HEALTH | CTX | COST table
 // These are target widths; they flex based on terminal width.
 const COL_NAME_MIN   = 12;
 const COL_TASK_MIN   = 18;
 const COL_STATUS_MIN =  8;
-const COL_VIBE_MIN   =  9;
-const COL_ACTION_MIN = 10;
+const COL_HEALTH_MIN =  6; // "⬡100" or colored badge
+const COL_CTX_MIN    =  7; // "137kt" context tokens
+const COL_COST_MIN   =  7; // "$3.42"
 const COL_SEP = `${STEEL} ${BOX.v} ${RESET}`; // colored column separator
 const COL_SEP_W = 3; // " │ " = 3 visible chars
-const COL_COUNT = 5; // NAME STATUS TASK VIBE ACTION
+const COL_COUNT = 6; // NAME TASK STATUS HEALTH CTX COST
 
 /** Compute column widths given total inner width */
-function computeTableCols(innerWidth: number): { name: number; task: number; status: number; vibe: number; action: number } {
-  // Fixed columns
-  const fixed = COL_SEP_W * (COL_COUNT - 1) + COL_STATUS_MIN + COL_VIBE_MIN + COL_ACTION_MIN + 2; // 2 for left border space
+function computeTableCols(innerWidth: number): { name: number; task: number; status: number; health: number; ctx: number; cost: number } {
+  // Fixed columns: separators + status + health + ctx + cost + 2 for left border space
+  const fixed = COL_SEP_W * (COL_COUNT - 1) + COL_STATUS_MIN + COL_HEALTH_MIN + COL_CTX_MIN + COL_COST_MIN + 2;
   const flex = Math.max(COL_NAME_MIN + COL_TASK_MIN, innerWidth - fixed);
   // Name gets 35% of flex, task gets 65%
   const name = Math.max(COL_NAME_MIN, Math.floor(flex * 0.35));
   const task = Math.max(COL_TASK_MIN, flex - name);
-  return { name, task, status: COL_STATUS_MIN, vibe: COL_VIBE_MIN, action: COL_ACTION_MIN };
+  return { name, task, status: COL_STATUS_MIN, health: COL_HEALTH_MIN, ctx: COL_CTX_MIN, cost: COL_COST_MIN };
 }
 
 /** Column header row — DIM with double-line separator below */
@@ -3578,8 +3580,9 @@ function formatSessionTableHeader(innerWidth: number): string {
     h("NAME",   c.name)   + COL_SEP +
     h("TASK",   c.task)   + COL_SEP +
     h("STATUS", c.status) + COL_SEP +
-    h("VIBE",   c.vibe)   + COL_SEP +
-    h("ACTION", c.action);
+    h("HEALTH", c.health) + COL_SEP +
+    h("CTX",    c.ctx)    + COL_SEP +
+    h("COST",   c.cost);
   // pad to full width with right border
   const padded = padBoxLine(divRow, innerWidth + 2);
   return padded;
@@ -3617,7 +3620,7 @@ function inferVibe(s: DaemonSessionState, errorCount: number, idleSinceMs: numbe
   return `${SLATE}idle    ${RESET}`;
 }
 
-/** One session row in the NAME | TASK | STATUS | VIBE | ACTION table */
+/** One session row in the NAME | TASK | STATUS | HEALTH | CTX | COST table */
 function formatSessionTableRow(opts: {
   s: DaemonSessionState;
   idx: number;
@@ -3638,11 +3641,11 @@ function formatSessionTableRow(opts: {
   mutedCount: number;
   noteText: string | undefined;
   icon?: string | undefined;
-  vibeCell?: string | undefined; // pre-computed from vibe.ts; falls back to legacy heuristic
+  vibeCell?: string | undefined; // pre-computed from vibe.ts (kept for compat; unused in table)
 }): string {
   const { s, idx, innerWidth, isHovered, pinned, muted, noted, group,
     errSparkline, idleSinceMs, healthScore, displayName, colorName, draining,
-    sessionLabel, sTags, mutedCount, icon, vibeCell: vibeCellOverride } = opts;
+    sessionLabel, sTags, mutedCount, icon } = opts;
 
   const bg = isHovered ? BG_HOVER : "";
   const c = computeTableCols(innerWidth);
@@ -3656,12 +3659,10 @@ function formatSessionTableRow(opts: {
   const noteMark  = noted    ? `${TEAL}${NOTE_ICON}${RESET}` : "";
   const iconPrefix = icon ? `${icon} ` : "";
   const idxStr    = `${SLATE}${String(idx).padStart(2)}${RESET}`;
-  const rawName   = displayName ?? s.title;
   const nameStr   = displayName
     ? `${BOLD}${truncatePlain(displayName, c.name - 6)}${RESET}`
     : `${BOLD}${truncatePlain(s.title, c.name - 6)}${RESET}`;
   const toolStr   = `${SLATE}${s.tool.slice(0, 6)}${RESET}`;
-  // icons consume space from name column
   const iconStr   = `${pinMark}${muteMark}${noteMark}${drainMark}${colorDot}`;
   const nameCell  = `${bg}${idxStr} ${dot} ${iconPrefix}${iconStr}${nameStr} ${toolStr}`;
 
@@ -3675,32 +3676,50 @@ function formatSessionTableRow(opts: {
     .map(l => l.trim())
     .filter(l => l && !/^(ctrl\+|─{3,}|Agents|Sessions|Tasks|Commands|\$|>|Press|Type|Use |Tab |Esc)/i.test(l))
     .join(" ")
-    .slice(0, c.task * 2); // give truncation room
+    .slice(0, c.task * 2);
   const taskStr   = `${DIM}${truncatePlain(cleanTask, c.task)}${RESET}`;
-  // context tokens hint
-  const ctxHint   = s.contextTokens ? `${STEEL} (${s.contextTokens.replace(" tokens", "t")})${RESET}` : "";
 
   // ── STATUS column ─────────────────────────────────────────────────────────
   const statusCell = formatStatusCell(s, idleSinceMs);
 
-  // ── VIBE column ───────────────────────────────────────────────────────────
-  // Use pre-computed real-pane vibe when available; fall back to legacy heuristic
-  const errorCountFallback = healthScore < 60 ? 3 : healthScore < 80 ? 1 : 0;
-  const vibeCell = vibeCellOverride ?? inferVibe(s, errorCountFallback, idleSinceMs);
+  // ── HEALTH column ─────────────────────────────────────────────────────────
+  // Health score (0–100) colored by severity + error sparkline when present
+  const healthColor = healthScore >= HEALTH_GOOD ? LIME : healthScore >= HEALTH_WARN ? AMBER : ROSE;
+  const spark       = errSparkline ?? "";
+  const healthCell  = `${healthColor}${HEALTH_ICON}${healthScore}${RESET}${spark ? ` ${spark}` : ""}`;
 
-  // ── ACTION column ─────────────────────────────────────────────────────────
-  // last meaningful action hint: error sparkline or health badge
-  const hb = formatHealthBadge(healthScore);
-  const spark = errSparkline ? ` ${errSparkline}` : "";
-  const actionCell = `${hb}${spark}`;
+  // ── CTX column ────────────────────────────────────────────────────────────
+  // Context token usage — compact: "137kt" or "—"
+  const ctxRaw  = s.contextTokens
+    ? s.contextTokens
+        .replace(/,/g, "")
+        .replace(/\s*tokens?.*$/i, "")
+        .trim()
+    : "";
+  const ctxNum  = ctxRaw ? parseInt(ctxRaw, 10) : NaN;
+  const ctxFmt  = isNaN(ctxNum)
+    ? (ctxRaw ? truncatePlain(ctxRaw, c.ctx) : `${DIM}—${RESET}`)
+    : ctxNum >= 1_000_000
+      ? `${ROSE}${(ctxNum / 1_000_000).toFixed(1)}Mt${RESET}`
+      : ctxNum >= 1_000
+        ? `${ctxNum >= 100_000 ? AMBER : SLATE}${Math.round(ctxNum / 1_000)}kt${RESET}`
+        : `${SLATE}${ctxNum}t${RESET}`;
+  const ctxCell = ctxFmt;
+
+  // ── COST column ───────────────────────────────────────────────────────────
+  const costRaw  = s.costStr ?? "";
+  const costCell = costRaw
+    ? `${TEAL}${truncatePlain(costRaw, c.cost)}${RESET}`
+    : `${DIM}—${RESET}`;
 
   return (
     `${bg}${STEEL}${BOX.v}${RESET} ` +
     `${nameCell.slice(0, nameCell.length)}${COL_SEP}` +
-    `${bg}${taskStr}${ctxHint}${COL_SEP}` +
+    `${bg}${taskStr}${COL_SEP}` +
     `${bg}${statusCell}${COL_SEP}` +
-    `${bg}${vibeCell}${COL_SEP}` +
-    `${bg}${actionCell}`
+    `${bg}${healthCell}${COL_SEP}` +
+    `${bg}${ctxCell}${COL_SEP}` +
+    `${bg}${costCell}`
   );
 }
 

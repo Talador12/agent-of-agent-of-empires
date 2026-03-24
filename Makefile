@@ -1,19 +1,47 @@
-# aoaoe Makefile
-# Run `make help` to see commands grouped by audience.
-# Requires: Node.js >= 20  |  aoe  |  tmux  |  opencode or claude-code
+################################################################################
+#                                  aoaoe                                       #
+#   Autonomous supervisor for Agent of Empires sessions.                       #
+#   Watches agents, reasons about what to do, and acts.                        #
+#                                                                               #
+#   Requires: Node.js >= 20  |  aoe  |  tmux  |  opencode or claude-code      #
+################################################################################
 
-.PHONY: help setup build dev lint check test test-integration test-all clean \
-        start daemon self self-dry watch \
-        demo demo-setup demo-dry \
-        release
+SHELL := /bin/bash
 
-# =============================================================================
-# [WATCH]  See it work. No setup. Just run.
-# =============================================================================
+.DEFAULT_GOAL := help
+.PHONY: help list-targets makeinfo setup build dev lint check test test-integration test-all \
+        clean start daemon self self-dry watch release demo demo-setup demo-dry
+
+# Prevent Make from trying to remake Makefile via pattern rule
+Makefile: makeinfo ;
+
+################################################################################
+#                             Utility Commands                                 #
+################################################################################
+
+help: ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "} {printf "%s %03d:## %s\n", $$1, length($$1), $$2}' | sort -k1,1 -k2,2n | awk -F':## ' '{split($$1, parts, " "); printf "\033[36m%-30s\033[0m %s\n", parts[1], $$2}'
+
+list-targets: ## [Utility] List all available targets
+	@LC_ALL=C $(MAKE) -pRrq -f $(firstword $(MAKEFILE_LIST)) : 2>/dev/null | awk -v RS= -F: '/(^|\n)# Files(\n|$$)/,/(^|\n)# Finished Make data base/ {if ($$1 !~ "^[#.]") {print $$1}}' | sort | grep -E -v -e '^[^[:alnum:]]' -e '^$@$$'
+
+makeinfo: # Shows the current make command running
+	@echoerr() { echo "$$@" 1>&2; }; \
+	goal="$(MAKECMDGOALS)"; \
+	if [ "$$goal" = "" ] || [ "$$goal" = "makeinfo" ]; then goal="help"; fi; \
+	echoerr ""; \
+	echoerr "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echoerr "  Running: $$goal"; \
+	echoerr "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echoerr ""
+
+################################################################################
+#                              Watch — See it work                             #
+################################################################################
 
 # Start the supervisor — polls your AoE sessions, reasons, and acts autonomously.
 # Creates the AoE session for this repo if it doesn't exist.
-self: build
+self: build ## [Watch] aoaoe supervises itself (reads roadmap, implements, commits, pushes)
 	@echo ""
 	@echo "╔══════════════════════════════════════════════════════════════╗"
 	@echo "║                  aoaoe  self-improvement                    ║"
@@ -50,20 +78,18 @@ self: build
 	echo ""
 	node dist/index.js
 
-# Watch mode — aoaoe observes and plans but never acts. Safe to run alongside live sessions.
-self-dry: build
+self-dry: build ## [Watch] Observe + plan only, no actions executed (safe alongside live sessions)
 	@echo ""
 	@echo "  aoaoe dry-run: observing + planning, no actions executed."
 	@echo "  Safe alongside any live AoE sessions. Ctrl+C to stop."
 	@echo ""
 	node dist/index.js --dry-run
 
-# =============================================================================
-# [RUN]  Use aoaoe on your own projects. First time? Start here.
-# =============================================================================
+################################################################################
+#                          Run — Supervise your projects                       #
+################################################################################
 
-# First-time setup: install deps, build, create the AoE session for this repo.
-setup:
+setup: ## [Run] Install deps, build, create the AoE session (run once before anything else)
 	npm install
 	npm run build
 	@echo ""
@@ -71,11 +97,11 @@ setup:
 	@if aoe list --json 2>/dev/null | python3 -c \
 		"import sys,json; sessions=json.load(sys.stdin); print('ok' if any(s['title']=='aoaoe' for s in sessions) else 'missing')" \
 		2>/dev/null | grep -q ok; then \
-		echo "  ✓ session already exists"; \
+		echo "  session already exists"; \
 	else \
 		echo "  creating session..."; \
 		aoe add "$(PWD)" -t "aoaoe" -c opencode -y; \
-		echo "  ✓ session created"; \
+		echo "  session created"; \
 	fi
 	@echo ""
 	@echo "  Ready."
@@ -84,53 +110,51 @@ setup:
 	@echo "  make self-dry     observe + plan, no actions"
 	@echo ""
 
-# Start the daemon against your own AoE sessions (not self-improvement mode).
-daemon: build
+daemon: build ## [Run] Supervise your AoE sessions (polls all active sessions, reasons, acts)
 	@echo ""
 	@echo "  starting aoaoe daemon..."
 	@echo "  watching all active AoE sessions. Ctrl+C to stop."
 	@echo ""
 	node dist/index.js
 
-start: daemon  # alias
+start: daemon ## [Run] Alias for daemon
 
-# =============================================================================
-# [BUILD]  Develop aoaoe itself. Tests, build, release.
-# =============================================================================
+################################################################################
+#                          Build — Develop aoaoe itself                        #
+################################################################################
 
-build:
+build: ## [Build] Compile TypeScript → dist/
 	npm run build
 
-dev:
+dev: ## [Build] Watch mode — recompile on save
 	npm run dev
 
-lint:
+watch: dev ## [Build] Alias for dev
+
+lint: ## [Build] Type-check without emitting
 	npm run lint
 
-check: lint
+check: lint ## [Build] Alias for lint
 
-# Unit tests — 2100+ tests, zero external deps, runs in seconds.
-test: build
+test: build ## [Build] Unit tests (2100+, no external deps, runs in seconds)
 	npm test
 
-# Integration test — creates real AoE sessions, runs the full loop, cleans up (~30s).
-# Requires: aoe, opencode (or claude-code), and tmux on PATH.
-test-integration: build
+test-integration: build ## [Build] End-to-end test — real aoe + tmux (~30s); requires aoe, opencode/claude-code, tmux
 	node dist/integration-test.js
 
-test-all: test test-integration
+test-all: test test-integration ## [Build] Unit + integration tests
 
-clean:
+clean: ## [Build] Remove dist/
 	rm -rf dist
 
-# Watch mode for development — recompiles on every save.
-watch:
-	npm run dev
+################################################################################
+#                                  Release                                     #
+################################################################################
 
 # Cut a release: runs all tests, bumps version, tags, and pushes.
 # CI handles npm publish + GitHub Release automatically.
 # Usage: make release v=0.30.0
-release: test-all
+release: test-all ## [Release] Tag + push a new version (CI publishes to npm). Usage: make release v=0.30.0
 	@if [ -z "$(v)" ]; then echo "  usage: make release v=0.30.0"; exit 1; fi
 	@if ! git diff --quiet HEAD; then echo "  error: uncommitted changes — commit or stash first"; exit 1; fi
 	@echo ""
@@ -143,66 +167,10 @@ release: test-all
 	@echo ""
 	@echo "  v$(v) tagged and pushed. CI will publish to npm + create GitHub Release."
 
-# =============================================================================
-# HELP
-# =============================================================================
+################################################################################
+#                               Backward Compat                                #
+################################################################################
 
-help:
-	@echo ""
-	@echo "╔══════════════════════════════════════════════════════════════════╗"
-	@echo "║                           aoaoe                                 ║"
-	@echo "║   Autonomous supervisor for Agent of Empires sessions.          ║"
-	@echo "║   Watches agents, reasons about what to do, and acts.           ║"
-	@echo "╚══════════════════════════════════════════════════════════════════╝"
-	@echo ""
-	@echo "  New here?  →  make setup   then   make self"
-	@echo ""
-	@echo "┌─ [WATCH]  See it work ────────────────────────────────────────────"
-	@echo "│"
-	@echo "│  make self              aoaoe supervises itself in real time"
-	@echo "│                         reads roadmap → implements → commits → pushes"
-	@echo "│"
-	@echo "│  make self-dry          observe + plan only, no actions executed"
-	@echo "│                         safe to run alongside any live sessions"
-	@echo "│"
-	@echo "├─ [RUN]  Supervise your own projects ─────────────────────────────"
-	@echo "│"
-	@echo "│  make setup             install deps, build, create AoE session"
-	@echo "│                         run this once before anything else"
-	@echo "│"
-	@echo "│  make daemon            supervise your AoE sessions"
-	@echo "│                         polls all active sessions, reasons, acts"
-	@echo "│"
-	@echo "│  The daemon TUI:"
-	@echo "│    ESC ESC              interrupt the current reasoning cycle"
-	@echo "│    /help                show all slash commands"
-	@echo "│    /pause / /resume     pause and resume the supervisor"
-	@echo "│    /mode dry-run        switch to observe-only at runtime"
-	@echo "│    /view N              drill into session N"
-	@echo "│    /pin N               pin session N to the top"
-	@echo "│    /note N <text>       attach a note to a session"
-	@echo "│    /task                manage task goals per session"
-	@echo "│"
-	@echo "├─ [BUILD]  Develop aoaoe itself ──────────────────────────────────"
-	@echo "│"
-	@echo "│  make build             compile TypeScript → dist/"
-	@echo "│  make watch             watch mode — recompile on save"
-	@echo "│  make lint              type-check without emitting"
-	@echo "│  make test              unit tests (2100+, no external deps)"
-	@echo "│  make test-integration  end-to-end test (real aoe + tmux, ~30s)"
-	@echo "│  make test-all          unit + integration"
-	@echo "│  make clean             remove dist/"
-	@echo "│"
-	@echo "│  make release v=0.30.0  tag + push (CI publishes to npm)"
-	@echo "│"
-	@echo "│  Docs:   README.md"
-	@echo "│  State:  claude.md  (roadmap, current work, version)"
-	@echo "│  Arch:   AGENTS.md  (source layout, conventions, testing)"
-	@echo "│"
-	@echo "└───────────────────────────────────────────────────────────────────"
-	@echo ""
-
-# kept for backward compat
-demo-setup: setup
-demo: self
-demo-dry: self-dry
+demo-setup: setup ## Alias for setup
+demo: self        ## Alias for self
+demo-dry: self-dry ## Alias for self-dry
