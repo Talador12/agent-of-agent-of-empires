@@ -6,6 +6,7 @@ import {
   quickHash,
   extractNewLines,
   stripAnsi,
+  buildProfileListArgs,
 } from "./poller.js";
 
 describe("sanitizeTmuxName", () => {
@@ -177,5 +178,27 @@ describe("extractNewLines", () => {
     const result = extractNewLines(previous, current);
     assert.ok(result.includes("new stuff"));
     assert.ok(!result.includes("line C"));
+  });
+});
+
+// ── buildProfileListArgs ─────────────────────────────────────────────────
+
+describe("buildProfileListArgs", () => {
+  it("returns ['list', '--json'] for default profile", () => {
+    assert.deepEqual(buildProfileListArgs("default"), ["list", "--json"]);
+  });
+
+  it("returns ['-p', name, 'list', '--json'] for non-default profile", () => {
+    assert.deepEqual(buildProfileListArgs("work"), ["-p", "work", "list", "--json"]);
+  });
+
+  it("handles profile with special characters", () => {
+    const args = buildProfileListArgs("my-profile_2");
+    assert.deepEqual(args, ["-p", "my-profile_2", "list", "--json"]);
+  });
+
+  it("treats empty string as non-default", () => {
+    const args = buildProfileListArgs("");
+    assert.deepEqual(args, ["-p", "", "list", "--json"]);
   });
 });

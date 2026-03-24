@@ -8,18 +8,35 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.172.0
+## Version: v0.173.0
 
 ## Current Focus
 
-Multi-profile support shipped (pure functions + /profile command). Poller multi-profile polling is the natural follow-up.
+Multi-profile polling fully wired. Backlog is down to web dashboard.
 
 ### Open Items
-- **Poller multi-profile polling** — wire `resolveProfiles` into poller to actually call `aoe -p <profile> list --json` for each profile and merge results.
 - Backlog continues below.
 
 ### Ideas Backlog
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
+- **Session dependency graph** — detect when one session's output is consumed by another, visualize in TUI
+- **Automatic context compaction** — when context usage nears ceiling, summarize and compact older context
+- **Webhook notification filters** — per-session filters for which events trigger notifications
+- **Session replay in TUI** — play back a session's full output history like a movie
+
+### What shipped in v0.173.0
+
+**v0.173.0 — Poller Multi-Profile Polling**:
+- `Poller.listSessions()` now iterates all profiles from `resolveProfiles(config)`, calling `aoe -p <profile> list --json` for each. Sessions are deduped by ID across profiles (first occurrence wins). Failed profiles log a warning and continue — no data loss.
+- `buildProfileListArgs(profile)` — pure exported fn: returns `["list", "--json"]` for default, `["-p", profile, "list", "--json"]` for others.
+- 4 new tests: buildProfileListArgs (default, non-default, special chars, empty string).
+
+This completes the multi-profile support feature started in v0.172.0:
+- v0.172.0: pure functions (`resolveProfiles`, `mergeProfileSessions`, `formatProfileSummary`), config type, `/profile` command
+- v0.173.0: poller wiring — the daemon now actually polls multiple profiles
+
+Modified: `src/poller.ts`, `src/poller.test.ts`, `package.json`, `claude.md`
+Test changes: +4, net 2360 tests across 35 files.
 
 ### What shipped in v0.172.0
 

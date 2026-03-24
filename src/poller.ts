@@ -11,6 +11,7 @@ import {
   type SessionChange,
   type Observation,
 } from "./types.js";
+import { resolveProfiles } from "./tui.js";
 
 export class Poller {
   private config: AoaoeConfig;
@@ -62,22 +63,35 @@ export class Poller {
   }
 
   private async listSessions(): Promise<AoeSession[]> {
-    // aoe list --json returns array with id, title, path, tool, command, profile, created_at
-    // does NOT include status or tmux_name -- we derive both
-    const result = await exec("aoe", ["list", "--json"]);
-    if (result.exitCode !== 0) {
-      this.log(`aoe list failed: ${result.stderr}`);
-      return [];
+    // multi-profile: poll each configured profile and merge results.
+    // sessions are deduped by ID (first occurrence wins across profiles).
+    const profiles = resolveProfiles(this.config);
+    const allRaw: Array<Record<string, unknown> & { _profile?: string }> = [];
+    const seenIds = new Set<string>();
+
+    for (const profile of profiles) {
+      const args = buildProfileListArgs(profile);
+      const result = await exec("aoe", args);
+      if (result.exitCode !== 0) {
+        this.log(`aoe list failed for profile '${profile}': ${result.stderr}`);
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(result.stdout);
+        const items = Array.isArray(parsed) ? parsed : [];
+        for (const item of items) {
+          const id = String(item.id ?? "");
+          if (seenIds.has(id)) continue; // dedup across profiles
+          seenIds.add(id);
+          item._profile = profile;
+          allRaw.push(item);
+        }
+      } catch (e) {
+        this.log(`failed to parse aoe list output for profile '${profile}': ${e}`);
+      }
     }
 
-    let raw: Record<string, unknown>[];
-    try {
-      const parsed = JSON.parse(result.stdout);
-      raw = Array.isArray(parsed) ? parsed : [];
-    } catch (e) {
-      this.log(`failed to parse aoe list output: ${e}`);
-      return [];
-    }
+    const raw = allRaw;
 
     // fetch per-session status in parallel — use allSettled so one failing
     // getSessionStatus doesn't lose all sessions
@@ -238,6 +252,16 @@ export class Poller {
 
 // replicate AoE tmux naming: aoe_<sanitized_title_max20>_<first8_of_id>
 // from agent-of-empires/src/tmux/session.rs:22-25
+/**
+ * Build the `aoe` CLI args for listing sessions from a specific profile.
+ * The "default" profile omits the -p flag (uses aoe's own default).
+ */
+export function buildProfileListArgs(profile: string): string[] {
+  return profile === "default"
+    ? ["list", "--json"]
+    : ["-p", profile, "list", "--json"];
+}
+
 export function computeTmuxName(id: string, title: string): string {
   const safeTitle = sanitizeTmuxName(title);
   const shortId = id.slice(0, 8);
