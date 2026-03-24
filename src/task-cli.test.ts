@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveTask, handleTaskSlashCommand } from "./task-cli.js";
+import { resolveTask, handleTaskSlashCommand, parseTaskNewIntent, suggestNewTasks } from "./task-cli.js";
 import type { TaskState } from "./types.js";
 
 function makeTask(overrides: Partial<TaskState> = {}): TaskState {
@@ -80,5 +80,130 @@ describe("handleTaskSlashCommand", () => {
   it("returns task list for 'list'", async () => {
     const result = await handleTaskSlashCommand("list");
     assert.ok(typeof result === "string");
+  });
+});
+
+// ── parseTaskNewIntent ──────────────────────────────────────────────────────
+
+describe("parseTaskNewIntent", () => {
+  it("returns null for empty input", () => {
+    assert.equal(parseTaskNewIntent(""), null);
+  });
+
+  it("parses title only", () => {
+    const r = parseTaskNewIntent("myproject");
+    assert.ok(r);
+    assert.equal(r.title, "myproject");
+    assert.equal(r.path, null);
+    assert.equal(r.tool, "opencode");
+    assert.equal(r.goal, null);
+  });
+
+  it("parses title + path", () => {
+    const r = parseTaskNewIntent("myproject /repos/myproject");
+    assert.ok(r);
+    assert.equal(r.title, "myproject");
+    assert.equal(r.path, "/repos/myproject");
+    assert.equal(r.tool, "opencode");
+  });
+
+  it("parses title + path + tool", () => {
+    const r = parseTaskNewIntent("myproject /repos/myproject claude-code");
+    assert.ok(r);
+    assert.equal(r.title, "myproject");
+    assert.equal(r.path, "/repos/myproject");
+    assert.equal(r.tool, "claude-code");
+  });
+
+  it("parses with inline goal via ::", () => {
+    const r = parseTaskNewIntent("myproject :: implement login");
+    assert.ok(r);
+    assert.equal(r.title, "myproject");
+    assert.equal(r.goal, "implement login");
+  });
+
+  it("parses title + path + goal", () => {
+    const r = parseTaskNewIntent("myproject /repos/proj :: fix tests");
+    assert.ok(r);
+    assert.equal(r.title, "myproject");
+    assert.equal(r.path, "/repos/proj");
+    assert.equal(r.goal, "fix tests");
+  });
+
+  it("skips leading 'new' keyword", () => {
+    const r = parseTaskNewIntent("new myproject /repos/proj");
+    assert.ok(r);
+    assert.equal(r.title, "myproject");
+    assert.equal(r.path, "/repos/proj");
+  });
+
+  it("detects tool name in path position", () => {
+    const r = parseTaskNewIntent("myproject claude-code");
+    assert.ok(r);
+    assert.equal(r.title, "myproject");
+    assert.equal(r.path, null);
+    assert.equal(r.tool, "claude-code");
+  });
+
+  it("returns null for just 'new' with no title", () => {
+    assert.equal(parseTaskNewIntent("new"), null);
+  });
+
+  it("sets mode to auto", () => {
+    const r = parseTaskNewIntent("myproject");
+    assert.ok(r);
+    assert.equal(r.mode, "auto");
+  });
+
+  it("handles empty goal after ::", () => {
+    const r = parseTaskNewIntent("myproject ::");
+    assert.ok(r);
+    assert.equal(r.goal, null);
+  });
+});
+
+// ── suggestNewTasks ─────────────────────────────────────────────────────────
+
+describe("suggestNewTasks", () => {
+  const sessions = [
+    { title: "Alpha", id: "s1", tool: "opencode", path: "/repos/alpha" },
+    { title: "Bravo", id: "s2", tool: "opencode", path: "/repos/bravo" },
+    { title: "Charlie", id: "s3", tool: "claude-code" },
+  ];
+
+  it("returns all sessions when no tasks exist", () => {
+    const suggestions = suggestNewTasks(sessions, []);
+    assert.equal(suggestions.length, 3);
+  });
+
+  it("filters out sessions that already have tasks", () => {
+    const tasks: TaskState[] = [makeTask({ sessionTitle: "Alpha" })];
+    const suggestions = suggestNewTasks(sessions, tasks);
+    assert.equal(suggestions.length, 2);
+    assert.ok(!suggestions.some((s) => s.title === "Alpha"));
+  });
+
+  it("matches case-insensitively", () => {
+    const tasks: TaskState[] = [makeTask({ sessionTitle: "BRAVO" })];
+    const suggestions = suggestNewTasks(sessions, tasks);
+    assert.ok(!suggestions.some((s) => s.title === "Bravo"));
+  });
+
+  it("returns empty when all sessions tracked", () => {
+    const tasks: TaskState[] = sessions.map((s) =>
+      makeTask({ sessionTitle: s.title })
+    );
+    const suggestions = suggestNewTasks(sessions, tasks);
+    assert.equal(suggestions.length, 0);
+  });
+
+  it("returns empty for empty sessions list", () => {
+    assert.deepEqual(suggestNewTasks([], []), []);
+  });
+
+  it("includes tool and path from session", () => {
+    const suggestions = suggestNewTasks(sessions.slice(2), []);
+    assert.equal(suggestions[0].tool, "claude-code");
+    assert.equal(suggestions[0].path, undefined);
   });
 });

@@ -8,11 +8,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.169.0
+## Version: v0.170.0
 
 ## Current Focus
 
-Background progress digestion shipped. Ready for next backlog item.
+Task intake UX shipped. Ready for next backlog item.
 
 ### Open Items
 - Backlog continues below — all recent items shipped.
@@ -21,7 +21,24 @@ Background progress digestion shipped. Ready for next backlog item.
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Smart session context budget** — dynamic context allocation based on session activity
-- **Task intake UX** — guided `/task new` flow in TUI (prompt for repo/mode/goal)
+
+### What shipped in v0.170.0
+
+**v0.170.0 — Task Intake UX**:
+- `parseTaskNewIntent(input)` pure fn — parses forgiving `/task new` syntax into structured intent:
+  - `"myproject"` — title only, path inferred from AoE session
+  - `"myproject /path/to/repo"` — title + path
+  - `"myproject /path claude-code"` — title + path + tool
+  - `"myproject :: implement login"` — title + inline goal
+  - `"myproject claude-code"` — detects tool name in path position
+  - Skips leading "new" keyword, defaults tool to "opencode", mode to "auto"
+- `suggestNewTasks(sessions, existingTasks)` pure fn — lists AoE sessions without task entries (case-insensitive match), for guided `/task new` with no args
+- `handleTaskSlashCommand` enhanced: `/task new` with no args now shows untracked sessions with suggestions. `/task new <title>` infers path from AoE session. `/task new <title> :: <goal>` creates and sets goal in one shot.
+- `listAoeSessions()` helper — wraps `aoe list --json`
+- 17 new tests: parseTaskNewIntent (11 — empty, title-only, title+path, title+path+tool, inline goal, path+goal, skip-new, tool-in-path, new-only, mode, empty-goal) + suggestNewTasks (6 — all sessions, filtered, case-insensitive, all-tracked, empty, tool+path)
+
+Modified: `src/task-cli.ts`, `src/task-cli.test.ts`, `package.json`, `claude.md`
+Test changes: +17, net 2319 tests across 35 files.
 
 ### What shipped in v0.169.0
 

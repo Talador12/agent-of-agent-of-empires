@@ -200,6 +200,16 @@ function parseTaskMode(raw: string | undefined): TaskSessionMode {
   return "new";
 }
 
+async function listAoeSessions(): Promise<AoeSessionLite[]> {
+  const listResult = await exec("aoe", ["list", "--json"]);
+  if (listResult.exitCode !== 0) return [];
+  try {
+    return JSON.parse(listResult.stdout) as AoeSessionLite[];
+  } catch {
+    return [];
+  }
+}
+
 async function findAoeSession(ref: string): Promise<AoeSessionLite | undefined> {
   const listResult = await exec("aoe", ["list", "--json"]);
   if (listResult.exitCode !== 0) return undefined;
@@ -328,6 +338,80 @@ export async function runTaskCli(argv: string[]): Promise<void> {
   }
 }
 
+// ── Task intake UX ──────────────────────────────────────────────────────────
+// Guided /task new flow — parse forgiving syntax and infer defaults.
+
+export interface TaskNewIntent {
+  title: string;
+  path: string | null;    // null = needs inference from sessionDirs / search
+  tool: string;
+  goal: string | null;    // null = no goal set yet
+  mode: TaskSessionMode;
+}
+
+/**
+ * Parse a forgiving /task new argument string into a structured intent.
+ * Supports multiple formats:
+ *   "/task new myproject /path/to/repo opencode"   — full explicit
+ *   "/task new myproject /path/to/repo"             — tool defaults to "opencode"
+ *   "/task new myproject"                           — path inferred, tool defaults
+ *   "/task new myproject :: implement login"         — with inline goal
+ *   "/task new myproject /path :: implement login"   — path + goal
+ * Returns null when no title is provided.
+ */
+export function parseTaskNewIntent(input: string): TaskNewIntent | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // split on :: to extract goal
+  let argsPart = trimmed;
+  let goal: string | null = null;
+  const goalIdx = trimmed.indexOf("::");
+  if (goalIdx >= 0) {
+    argsPart = trimmed.slice(0, goalIdx).trim();
+    goal = trimmed.slice(goalIdx + 2).trim() || null;
+  }
+
+  const parts = argsPart.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  // parts[0] might be "new" if called from handleTaskSlashCommand — skip it
+  let offset = 0;
+  if (parts[0] === "new") offset = 1;
+
+  const title = parts[offset];
+  if (!title) return null;
+
+  const pathArg = parts[offset + 1] ?? null;
+  const toolArg = parts[offset + 2] ?? "opencode";
+
+  // detect if pathArg looks like a tool name rather than a path
+  const knownTools = new Set(["opencode", "claude-code", "claude", "aider", "cursor"]);
+  let path: string | null = pathArg;
+  let tool = toolArg;
+  if (pathArg && knownTools.has(pathArg.toLowerCase())) {
+    tool = pathArg;
+    path = null;
+  }
+
+  return { title, path, tool, goal, mode: "auto" };
+}
+
+/**
+ * Suggest sessions that don't have a task entry yet.
+ * Useful for guided `/task new` when no args are given —
+ * shows the user which sessions are untracked.
+ */
+export function suggestNewTasks(
+  sessions: readonly { title: string; id: string; tool?: string; path?: string }[],
+  existingTasks: readonly TaskState[],
+): Array<{ title: string; id: string; tool: string; path: string | undefined }> {
+  const tracked = new Set(existingTasks.map((t) => t.sessionTitle.toLowerCase()));
+  return sessions
+    .filter((s) => !tracked.has(s.title.toLowerCase()))
+    .map((s) => ({ title: s.title, id: s.id, tool: s.tool ?? "opencode", path: s.path }));
+}
+
 // handle /task slash commands from within the running daemon (returns human-readable output)
 export async function handleTaskSlashCommand(args: string): Promise<string> {
   const raw = args.trim();
@@ -372,10 +456,35 @@ export async function handleTaskSlashCommand(args: string): Promise<string> {
     return ok ? `stopped ${rest[0]}` : `failed to stop ${rest[0]}`;
   }
 
-  if (sub === "new" && rest[0] && rest[1]) {
-    const tool = rest[2] || "opencode";
-    const ok = await taskNew(rest[0], rest[1], tool);
-    return ok ? `created ${rest[0]}` : `failed to create ${rest[0]}`;
+  if (sub === "new") {
+    // guided task intake UX: parse forgiving syntax with smart defaults
+    const newArgs = raw.slice(raw.indexOf("new")).trim(); // "new title path :: goal" or "new title" etc.
+    const intent = parseTaskNewIntent(newArgs);
+    if (!intent) {
+      // no title given — suggest untracked sessions
+      const sessions = await listAoeSessions();
+      const suggestions = suggestNewTasks(sessions, tasks);
+      if (suggestions.length === 0) {
+        return "all sessions already have task entries. usage: /task new <title> [path] [tool] [:: goal]";
+      }
+      const lines = suggestions.map((s) =>
+        `  ${BOLD}${s.title}${RESET} ${DIM}(${s.tool}${s.path ? `, ${s.path}` : ""})${RESET}`
+      );
+      return `sessions without tasks:\n${lines.join("\n")}\n\nusage: /task new <title> [path] [tool] [:: goal]`;
+    }
+    // infer path if not provided: try to find the session and use its path
+    let resolvedPath = intent.path;
+    if (!resolvedPath) {
+      const session = await findAoeSession(intent.title);
+      resolvedPath = session?.path ?? process.cwd();
+    }
+    const ok = await taskNew(intent.title, resolvedPath, intent.tool, intent.mode);
+    if (!ok) return `failed to create ${intent.title}`;
+    if (intent.goal) {
+      taskEdit(intent.title, intent.goal);
+      return `created ${intent.title} + set goal: ${intent.goal}`;
+    }
+    return `created ${intent.title} (path: ${resolvedPath}, tool: ${intent.tool})`;
   }
 
   if (sub === "rm" && rest[0]) {
