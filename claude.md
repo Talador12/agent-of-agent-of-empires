@@ -8,18 +8,32 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.176.0
+## Version: v0.177.0
 
 ## Current Focus
 
-Auto context compaction shipped. Backlog continuing.
+Session dependency graph shipped. Only web dashboard remains on original backlog.
 
 ### Open Items
 - Backlog continues below.
 
 ### Ideas Backlog
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- **Session dependency graph** — detect when one session's output is consumed by another, visualize in TUI
+- **Session output search index** — full-text search across all session outputs with ranked results
+- **Automatic session restart on OOM** — detect out-of-memory patterns and restart the agent
+- **Cross-session message relay** — forward a message from one session's output to another session's input
+
+### What shipped in v0.177.0
+
+**v0.177.0 — Session Dependency Graph**:
+- `buildSessionDependencyGraph(sessions, taskGoals)` — pure fn detecting relationships via 3 heuristics: path containment (A's path is parent of B's), goal reference (task goal mentions another session title), task reference (currentTask mentions another title). Deduplicates edges, computes roots (no outgoing deps) and leaves (no incoming deps). Ignores titles < 3 chars to avoid false positives.
+- `formatDependencyGraph(graph)` — formatted display with `from → to (reason)` edges, roots, and leaves.
+- `SessionDependencyEdge` and `SessionDependencyGraph` interfaces exported.
+- `/deps` command — shows the dependency graph for all active sessions, with task goals from TaskManager for cross-reference detection.
+- 15 new tests: buildSessionDependencyGraph (8 — empty, path containment, no self-dep, goal ref, task ref, short title skip, dedup, roots+leaves), formatDependencyGraph (4 — empty, header, edges, roots+leaves), onDeps handler (3).
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +15, net 2442 tests across 35 files.
 
 ### What shipped in v0.176.0
 

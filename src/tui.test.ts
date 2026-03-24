@@ -68,6 +68,7 @@ import {
   REPLAY_DEFAULT_LPS, REPLAY_MAX_LPS,
   shouldCompactContext, formatCompactionNudge, formatCompactionAlert,
   CONTEXT_COMPACTION_THRESHOLD, COMPACTION_COOLDOWN_MS,
+  buildSessionDependencyGraph, formatDependencyGraph,
   TUI,
 } from "./tui.js";
 import type { SessionReplayState } from "./tui.js";
@@ -4161,6 +4162,122 @@ describe("TUI compaction tracking", () => {
     tui.recordCompactionNudge("s1", 100);
     tui.recordCompactionNudge("s1", 500);
     assert.equal(tui.getCompactionNudgeAt("s1"), 500);
+  });
+});
+
+// ── Session dependency graph ─────────────────────────────────────────────
+
+function makeDepSessions(): DaemonSessionState[] {
+  return [
+    { id: "s1", title: "supervisor", status: "working", tool: "opencode", path: "/repos", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s2", title: "adventure", status: "working", tool: "opencode", path: "/repos/github/adventure", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s3", title: "code-music", status: "idle", tool: "opencode", path: "/repos/github/code-music", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s4", title: "standalone", status: "idle", tool: "opencode", path: "/other/project", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+  ];
+}
+
+describe("buildSessionDependencyGraph", () => {
+  it("returns empty graph for no sessions", () => {
+    const g = buildSessionDependencyGraph([]);
+    assert.equal(g.edges.length, 0);
+    assert.equal(g.roots.length, 0);
+    assert.equal(g.leaves.length, 0);
+  });
+
+  it("detects path containment dependencies", () => {
+    const sessions = makeDepSessions();
+    const g = buildSessionDependencyGraph(sessions);
+    const fromSupervisor = g.edges.filter((e) => e.from === "supervisor");
+    assert.ok(fromSupervisor.length >= 2); // supervisor → adventure, supervisor → code-music
+    assert.ok(fromSupervisor.some((e) => e.to === "adventure" && e.reason === "path containment"));
+    assert.ok(fromSupervisor.some((e) => e.to === "code-music" && e.reason === "path containment"));
+  });
+
+  it("does not create self-dependency", () => {
+    const sessions = makeDepSessions();
+    const g = buildSessionDependencyGraph(sessions);
+    assert.ok(!g.edges.some((e) => e.from === e.to));
+  });
+
+  it("detects goal reference dependency", () => {
+    const sessions = makeDepSessions().slice(2); // code-music, standalone
+    const goals = new Map([["standalone", "check on the code-music project"]]);
+    const g = buildSessionDependencyGraph(sessions, goals);
+    assert.ok(g.edges.some((e) => e.from === "standalone" && e.to === "code-music" && e.reason === "goal reference"));
+  });
+
+  it("detects currentTask reference dependency", () => {
+    const sessions: DaemonSessionState[] = [
+      { id: "s1", title: "watcher", status: "working", tool: "opencode", path: "/a", currentTask: "monitor adventure progress", contextTokens: undefined, lastActivity: undefined, userActive: false },
+      { id: "s2", title: "adventure", status: "working", tool: "opencode", path: "/b", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    ];
+    const g = buildSessionDependencyGraph(sessions);
+    assert.ok(g.edges.some((e) => e.from === "watcher" && e.to === "adventure" && e.reason === "task reference"));
+  });
+
+  it("ignores short titles (< 3 chars) to avoid false positives", () => {
+    const sessions: DaemonSessionState[] = [
+      { id: "s1", title: "ab", status: "working", tool: "opencode", path: "/x", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: "build ab module" },
+      { id: "s2", title: "cd", status: "idle", tool: "opencode", path: "/y", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    ];
+    const g = buildSessionDependencyGraph(sessions);
+    assert.equal(g.edges.length, 0);
+  });
+
+  it("deduplicates edges", () => {
+    const sessions: DaemonSessionState[] = [
+      { id: "s1", title: "watcher", status: "working", tool: "opencode", path: "/repos", currentTask: "check adventure", contextTokens: undefined, lastActivity: undefined, userActive: false },
+      { id: "s2", title: "adventure", status: "working", tool: "opencode", path: "/repos/adventure", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    ];
+    const goals = new Map([["watcher", "monitor adventure"]]);
+    const g = buildSessionDependencyGraph(sessions, goals);
+    const watcherToAdv = g.edges.filter((e) => e.from === "watcher" && e.to === "adventure");
+    assert.equal(watcherToAdv.length, 1); // path containment wins, no dupe
+  });
+
+  it("computes roots and leaves", () => {
+    const sessions = makeDepSessions();
+    const g = buildSessionDependencyGraph(sessions);
+    // supervisor depends on adventure + code-music, so it's NOT a root
+    // adventure, code-music, standalone have no outgoing deps to other sessions → roots
+    assert.ok(g.roots.includes("adventure"));
+    assert.ok(g.roots.includes("code-music"));
+    assert.ok(g.roots.includes("standalone"));
+    // supervisor is the only one with outgoing deps
+    assert.ok(!g.roots.includes("supervisor"));
+    // standalone has no one depending on it → leaf
+    assert.ok(g.leaves.includes("standalone"));
+    assert.ok(g.leaves.includes("supervisor")); // no one depends on supervisor
+  });
+});
+
+describe("formatDependencyGraph", () => {
+  it("returns placeholder for empty graph", () => {
+    const lines = formatDependencyGraph({ edges: [], roots: [], leaves: [] });
+    assert.ok(lines[0].includes("no dependencies"));
+  });
+
+  it("shows edge count in header", () => {
+    const graph = buildSessionDependencyGraph(makeDepSessions());
+    const lines = formatDependencyGraph(graph);
+    assert.ok(lines[0].includes("edge"));
+  });
+
+  it("includes from → to for each edge", () => {
+    const graph = buildSessionDependencyGraph(makeDepSessions());
+    const lines = formatDependencyGraph(graph);
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("supervisor"));
+    assert.ok(plain.includes("adventure"));
+    assert.ok(plain.includes("→"));
+  });
+
+  it("shows roots and leaves", () => {
+    const graph = buildSessionDependencyGraph(makeDepSessions());
+    const lines = formatDependencyGraph(graph);
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("roots"));
+    assert.ok(plain.includes("leaves"));
   });
 });
 

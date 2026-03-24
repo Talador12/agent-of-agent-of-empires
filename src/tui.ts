@@ -4806,6 +4806,110 @@ export function formatReplayStatusBar(state: SessionReplayState): string {
   return `${BOLD}REPLAY${RESET} ${state.title} ${DIM}${state.frameIndex}/${state.lines.length} (${pct}%) ${status} @ ${state.linesPerSecond} lps${RESET}`;
 }
 
+// ── Session dependency graph ────────────────────────────────────────────────
+// Detect relationships between sessions based on path containment and
+// cross-references in task goals / current activity.
+
+export interface SessionDependencyEdge {
+  from: string;    // session title (the one that depends)
+  to: string;      // session title (the dependency)
+  reason: string;  // why: "path containment" | "goal reference" | "task reference"
+}
+
+export interface SessionDependencyGraph {
+  edges: SessionDependencyEdge[];
+  roots: string[];   // sessions with no outgoing dependencies
+  leaves: string[];  // sessions that no one depends on
+}
+
+/**
+ * Build a dependency graph from session state and task goals.
+ * Detection heuristics:
+ *   1. Path containment: session A's path is a parent of session B's path → A watches B
+ *   2. Goal reference: a task's goal text mentions another session's title
+ *   3. Task reference: currentTask text mentions another session's title
+ */
+export function buildSessionDependencyGraph(
+  sessions: readonly DaemonSessionState[],
+  taskGoals?: ReadonlyMap<string, string>,  // sessionTitle → goal text
+): SessionDependencyGraph {
+  const edges: SessionDependencyEdge[] = [];
+  const titles = sessions.map((s) => s.title);
+  const titleSet = new Set(titles.map((t) => t.toLowerCase()));
+
+  for (const a of sessions) {
+    for (const b of sessions) {
+      if (a.id === b.id) continue;
+
+      // 1. path containment: A's path contains B's path → A depends on B
+      if (a.path && b.path && a.path !== b.path) {
+        const aPath = a.path.replace(/\/+$/, "");
+        const bPath = b.path.replace(/\/+$/, "");
+        if (bPath.startsWith(aPath + "/")) {
+          edges.push({ from: a.title, to: b.title, reason: "path containment" });
+          continue; // don't double-count
+        }
+      }
+
+      // 2. goal reference: task goal for A mentions B's title
+      if (taskGoals) {
+        const goalA = taskGoals.get(a.title);
+        if (goalA && mentionsTitle(goalA, b.title)) {
+          edges.push({ from: a.title, to: b.title, reason: "goal reference" });
+          continue;
+        }
+      }
+
+      // 3. task reference: currentTask for A mentions B's title
+      if (a.currentTask && mentionsTitle(a.currentTask, b.title)) {
+        edges.push({ from: a.title, to: b.title, reason: "task reference" });
+      }
+    }
+  }
+
+  // deduplicate edges (same from→to, keep first reason)
+  const seen = new Set<string>();
+  const deduped: SessionDependencyEdge[] = [];
+  for (const e of edges) {
+    const key = `${e.from}→${e.to}`;
+    if (!seen.has(key)) { seen.add(key); deduped.push(e); }
+  }
+
+  const fromSet = new Set(deduped.map((e) => e.from));
+  const toSet = new Set(deduped.map((e) => e.to));
+  const allTitles = new Set(titles);
+
+  const roots = titles.filter((t) => !fromSet.has(t));
+  const leaves = titles.filter((t) => !toSet.has(t));
+
+  return { edges: deduped, roots, leaves };
+}
+
+/** Check if text mentions a session title (case-insensitive, word boundary). */
+function mentionsTitle(text: string, title: string): boolean {
+  if (title.length < 3) return false; // skip very short titles to avoid false positives
+  return text.toLowerCase().includes(title.toLowerCase());
+}
+
+/**
+ * Format the dependency graph for TUI display.
+ */
+export function formatDependencyGraph(graph: SessionDependencyGraph): string[] {
+  if (graph.edges.length === 0) return ["(no dependencies detected between sessions)"];
+  const lines: string[] = [];
+  lines.push(`session dependencies: ${graph.edges.length} edge${graph.edges.length !== 1 ? "s" : ""}`);
+  for (const e of graph.edges) {
+    lines.push(`  ${BOLD}${e.from}${RESET} ${DIM}→${RESET} ${BOLD}${e.to}${RESET} ${DIM}(${e.reason})${RESET}`);
+  }
+  if (graph.roots.length > 0) {
+    lines.push(`  ${DIM}roots (no deps):${RESET} ${graph.roots.join(", ")}`);
+  }
+  if (graph.leaves.length > 0) {
+    lines.push(`  ${DIM}leaves (no dependents):${RESET} ${graph.leaves.join(", ")}`);
+  }
+  return lines;
+}
+
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
 export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator, computeSparkline, formatSparkline, sortSessions, nextSortMode, SORT_MODES, formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN, PIN_ICON, MUTE_ICON, NOTE_ICON };

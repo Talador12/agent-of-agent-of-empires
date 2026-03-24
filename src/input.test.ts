@@ -2009,3 +2009,29 @@ describe("onNotifyFilter", () => {
     assert.equal(calls, 10);
   });
 });
+
+// ── onDeps ───────────────────────────────────────────────────────────────
+
+describe("onDeps", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onDeps(() => { called = true; });
+    reader["depsHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["depsHandler"]?.(); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onDeps(() => { calls++; });
+    reader.onDeps(() => { calls += 10; });
+    reader["depsHandler"]!();
+    assert.equal(calls, 10);
+  });
+});

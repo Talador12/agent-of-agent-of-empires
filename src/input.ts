@@ -93,6 +93,7 @@ export type CtxBudgetHandler = () => void; // show smart context budget allocati
 export type ProfileHandler = () => void; // show active profiles summary
 export type ReplayHandler = (target: string, speed: number | null) => void; // replay session output
 export type NotifyFilterHandler = (sessionTitle: string | null, events: string[]) => void; // per-session notification filter
+export type DepsHandler = () => void; // show session dependency graph
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -300,6 +301,7 @@ export class InputReader {
   private profileHandler: ProfileHandler | null = null;
   private replayHandler: ReplayHandler | null = null;
   private notifyFilterHandler: NotifyFilterHandler | null = null;
+  private depsHandler: DepsHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -593,6 +595,7 @@ export class InputReader {
   onProfile(handler: ProfileHandler): void { this.profileHandler = handler; }
   onReplay(handler: ReplayHandler): void { this.replayHandler = handler; }
   onNotifyFilter(handler: NotifyFilterHandler): void { this.notifyFilterHandler = handler; }
+  onDeps(handler: DepsHandler): void { this.depsHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -890,6 +893,7 @@ ${BOLD}navigation:${RESET}
   /rename N|name [display] set custom display name in TUI (no display = clear)
   /copy [N|name]     copy session's current pane output to clipboard (default: current drill-down)
   /ctx-budget        show smart context budget allocations per session
+   /deps              show session dependency graph (path, goal, task cross-refs)
    /stats             show per-session health, errors, burn rate, context %, uptime
    /stats-live        toggle auto-refresh of /stats every 5 seconds (like top)
    /recall <keyword>  search persisted activity history (last 7 days) for keyword
@@ -1782,6 +1786,11 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/deps":
+        if (this.depsHandler) this.depsHandler();
+        else console.error(`${DIM}deps not available (no TUI)${RESET}`);
+        break;
 
       case "/ctx-budget":
         if (this.ctxBudgetHandler) {
