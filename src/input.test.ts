@@ -1877,3 +1877,29 @@ describe("onFanOut", () => {
     assert.equal(calls, 10);
   });
 });
+
+// ── onTrust ──────────────────────────────────────────────────────────────
+
+describe("onTrust", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let received = "";
+    reader.onTrust((arg) => { received = arg; });
+    reader["trustHandler"]!("autopilot");
+    assert.equal(received, "autopilot");
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["trustHandler"]?.("test"); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onTrust(() => { calls++; });
+    reader.onTrust(() => { calls += 10; });
+    reader["trustHandler"]!("");
+    assert.equal(calls, 10);
+  });
+});

@@ -18,7 +18,8 @@ import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, h
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks, saveTaskDefinitions } from "./task-manager.js";
 import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus } from "./tui.js";
+import type { TrustLevel } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
 import type { SortMode } from "./tui.js";
@@ -1133,6 +1134,39 @@ async function main() {
         tui!.log("system", `  + ${title}`);
       }
     });
+    // wire /trust — trust ladder management
+    input.onTrust((arg) => {
+      if (!arg) {
+        // show current status
+        const status = formatTrustLadderStatus(
+          tui!.getTrustLevel(), tui!.getTrustStableTicks(), tui!.isTrustAutoEnabled(),
+        );
+        tui!.log("system", status);
+        return;
+      }
+      if (arg === "auto" || arg === "on") {
+        tui!.setTrustAuto(true);
+        tui!.log("system", "trust: auto-escalation enabled");
+        return;
+      }
+      if (arg === "off") {
+        tui!.setTrustAuto(false);
+        tui!.log("system", "trust: auto-escalation disabled (staying at current level)");
+        return;
+      }
+      const validLevels = ["observe", "dry-run", "confirm", "autopilot"];
+      if (validLevels.includes(arg)) {
+        tui!.setTrustLevel(arg as any);
+        // also set the actual daemon mode to match
+        if (arg === "observe") { config.observe = true; config.confirm = false; config.dryRun = false; }
+        else if (arg === "dry-run") { config.observe = false; config.confirm = false; config.dryRun = true; }
+        else if (arg === "confirm") { config.observe = false; config.confirm = true; config.dryRun = false; }
+        else { config.observe = false; config.confirm = false; config.dryRun = false; }
+        tui!.log("system", `trust: level set to ${arg} (mode synced)`);
+        return;
+      }
+      tui!.log("system", `trust: unknown arg '${arg}' — use observe, dry-run, confirm, autopilot, auto, off`);
+    });
     // wire /budget cost alerts
     input.onBudget((target, budgetUSD) => {
       if (budgetUSD === null) {
@@ -2038,6 +2072,28 @@ async function main() {
         totalDecisions += decisionsThisTick;
         totalActionsExecuted += actionsOk;
         totalActionsFailed += actionsFail;
+
+        // trust ladder: record stable tick or failure, sync mode if escalated
+        if (tui && decisionsThisTick > 0) {
+          if (actionsFail > 0) {
+            tui.recordTrustFailure();
+            // sync daemon mode to observe
+            config.observe = true; config.confirm = false; config.dryRun = false;
+            tui.log("system", `trust: demoted to observe (action failure detected)`);
+          } else {
+            const { level, escalated } = tui.recordStableTick();
+            if (escalated) {
+              // sync daemon mode to match new trust level
+              if (level === "observe") { config.observe = true; config.confirm = false; config.dryRun = false; }
+              else if (level === "dry-run") { config.observe = false; config.confirm = false; config.dryRun = true; }
+              else if (level === "confirm") { config.observe = false; config.confirm = true; config.dryRun = false; }
+              else { config.observe = false; config.confirm = false; config.dryRun = false; }
+              tui.log("system", `trust: escalated to ${level} (${TRUST_STABLE_TICKS_TO_ESCALATE} stable ticks)`);
+              tui.updateState({ reasonerName: getReasonerLabel() });
+            }
+          }
+        }
+
         if (reasonerDurationMs !== undefined) {
           lastReasonerAt = Date.now();
           lastReasonerDurationMs = reasonerDurationMs;

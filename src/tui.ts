@@ -241,6 +241,63 @@ export const ACTIVITY_RATE_WINDOW_MS = 5 * 60_000;
 /** How often /stats-live refreshes (ms). */
 export const STATS_REFRESH_INTERVAL_MS = 5_000;
 
+// ── Trust Ladder ────────────────────────────────────────────────────────────
+// Auto-escalate observe → dry-run → confirm → autopilot based on stable behavior.
+
+export const TRUST_LEVELS = ["observe", "dry-run", "confirm", "autopilot"] as const;
+export type TrustLevel = typeof TRUST_LEVELS[number];
+
+/** Consecutive stable ticks before auto-promoting to the next trust level. */
+export const TRUST_STABLE_TICKS_TO_ESCALATE = 10;
+
+/**
+ * Compute whether the trust level should escalate.
+ * Returns the next level and whether an escalation happened.
+ * Only escalates when auto is enabled and stableTicks >= threshold.
+ */
+export function computeTrustEscalation(
+  currentLevel: TrustLevel,
+  stableTicks: number,
+  autoEnabled: boolean,
+): { nextLevel: TrustLevel; escalated: boolean } {
+  if (!autoEnabled) return { nextLevel: currentLevel, escalated: false };
+  const idx = TRUST_LEVELS.indexOf(currentLevel);
+  if (idx < 0 || idx >= TRUST_LEVELS.length - 1) return { nextLevel: currentLevel, escalated: false };
+  if (stableTicks < TRUST_STABLE_TICKS_TO_ESCALATE) return { nextLevel: currentLevel, escalated: false };
+  const next = TRUST_LEVELS[idx + 1];
+  return { nextLevel: next, escalated: true };
+}
+
+/**
+ * Demote trust level back to observe on any failure.
+ * Always returns "observe" regardless of current level.
+ */
+export function computeTrustDemotion(_currentLevel: TrustLevel): TrustLevel {
+  return "observe";
+}
+
+/**
+ * Format a human-readable trust ladder status string.
+ */
+export function formatTrustLadderStatus(
+  level: TrustLevel,
+  stableTicks: number,
+  autoEnabled: boolean,
+): string {
+  const idx = TRUST_LEVELS.indexOf(level);
+  const ladder = TRUST_LEVELS.map((l, i) => {
+    if (i === idx) return `[${l}]`;
+    if (i < idx) return `${l} ✓`;
+    return l;
+  }).join(" → ");
+  const autoLabel = autoEnabled ? "auto" : "manual";
+  const threshold = TRUST_STABLE_TICKS_TO_ESCALATE;
+  const progress = idx < TRUST_LEVELS.length - 1
+    ? ` (${stableTicks}/${threshold} stable ticks to next)`
+    : " (max level)";
+  return `trust: ${ladder}${progress} [${autoLabel}]`;
+}
+
 /**
  * Compute messages-per-minute for a session from the activity buffer.
  * Only counts entries within the last ACTIVITY_RATE_WINDOW_MS.
@@ -1546,6 +1603,11 @@ export class TUI {
    private statsRefreshTimer: ReturnType<typeof setInterval> | null = null;
    private statsRefreshCallback: (() => void) | null = null;
 
+   // trust ladder: auto-escalate observe → dry-run → confirm → autopilot
+   private trustLevel: TrustLevel = "observe";
+   private trustStableTicks = 0;
+   private trustAutoEnabled = true; // auto-escalation on by default
+
    // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
   private drilldownSessionId: string | null = null;
@@ -2231,6 +2293,53 @@ export class TUI {
   /** Whether /stats-live is currently running. */
   isStatsRefreshing(): boolean {
     return this.statsRefreshTimer !== null;
+  }
+
+  // ── Trust ladder ─────────────────────────────────────────────────────────
+
+  /** Get current trust level. */
+  getTrustLevel(): TrustLevel { return this.trustLevel; }
+
+  /** Get consecutive stable ticks since last failure. */
+  getTrustStableTicks(): number { return this.trustStableTicks; }
+
+  /** Whether auto-escalation is enabled. */
+  isTrustAutoEnabled(): boolean { return this.trustAutoEnabled; }
+
+  /** Manually set the trust level. Resets stable tick counter. */
+  setTrustLevel(level: TrustLevel): void {
+    this.trustLevel = level;
+    this.trustStableTicks = 0;
+  }
+
+  /** Toggle or explicitly set auto-escalation. */
+  setTrustAuto(enabled: boolean): void {
+    this.trustAutoEnabled = enabled;
+  }
+
+  /**
+   * Record a stable tick (no errors, no failed actions).
+   * Returns the new trust level and whether an escalation happened.
+   */
+  recordStableTick(): { level: TrustLevel; escalated: boolean } {
+    this.trustStableTicks++;
+    const { nextLevel, escalated } = computeTrustEscalation(
+      this.trustLevel, this.trustStableTicks, this.trustAutoEnabled,
+    );
+    if (escalated) {
+      this.trustLevel = nextLevel;
+      this.trustStableTicks = 0; // reset counter for next rung
+    }
+    return { level: this.trustLevel, escalated };
+  }
+
+  /**
+   * Record a failure (error session, failed action).
+   * Demotes trust to observe and resets counter.
+   */
+  recordTrustFailure(): void {
+    this.trustLevel = computeTrustDemotion(this.trustLevel);
+    this.trustStableTicks = 0;
   }
 
   /** Return health history for a session (for sparkline). */

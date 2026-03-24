@@ -88,6 +88,7 @@ export type PinDrainingHandler = () => void; // pin all draining sessions
 export type IconHandler = (target: string, emoji: string | null) => void; // set/clear session emoji icon
 export type DiffSessionsHandler = (a: string, b: string) => void; // compare two sessions' pane output
 export type FanOutHandler = () => void; // generate starter task list from active sessions
+export type TrustHandler = (arg: string) => void; // /trust [level|auto|off|on]
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -290,6 +291,7 @@ export class InputReader {
   private iconHandler: IconHandler | null = null;
   private diffSessionsHandler: DiffSessionsHandler | null = null;
   private fanOutHandler: FanOutHandler | null = null;
+  private trustHandler: TrustHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -578,6 +580,7 @@ export class InputReader {
   onIcon(handler: IconHandler): void { this.iconHandler = handler; }
   onDiffSessions(handler: DiffSessionsHandler): void { this.diffSessionsHandler = handler; }
   onFanOut(handler: FanOutHandler): void { this.fanOutHandler = handler; }
+  onTrust(handler: TrustHandler): void { this.trustHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -838,6 +841,7 @@ ${BOLD}controls:${RESET}
   /pause             pause the supervisor
   /resume            resume the supervisor
   /mode [name]       set mode: observe, dry-run, confirm, autopilot (no arg = show)
+   /trust [arg]       trust ladder: no arg = show status, arg = observe/dry-run/confirm/autopilot/auto/off
   /interrupt         interrupt the AI mid-thought
   ESC ESC            same as /interrupt (shortcut)
 
@@ -957,6 +961,13 @@ ${BOLD}other:${RESET}
       case "/mode": {
         const modeArg = line.slice("/mode".length).trim().toLowerCase();
         this.queue.push(`__CMD_MODE__${modeArg}`);
+        break;
+      }
+
+      case "/trust": {
+        const trustArg = line.slice("/trust".length).trim().toLowerCase();
+        if (this.trustHandler) this.trustHandler(trustArg);
+        else console.error(`${DIM}trust not available (no TUI)${RESET}`);
         break;
       }
 

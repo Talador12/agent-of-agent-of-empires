@@ -8,11 +8,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.167.0
+## Version: v0.168.0
 
 ## Current Focus
 
-Fan-out templates shipped. Ready for next backlog item.
+Trust ladder shipped. Ready for next backlog item.
 
 ### Open Items
 - Backlog continues below — all recent items shipped.
@@ -21,9 +21,27 @@ Fan-out templates shipped. Ready for next backlog item.
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Smart session context budget** — dynamic context allocation based on session activity
-- **Trust ladder mode** — auto-escalate observe -> dry-run -> confirm -> autopilot from stable behavior
 - **Task intake UX** — guided `/task new` flow in TUI (prompt for repo/mode/goal)
 - **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
+
+### What shipped in v0.168.0
+
+**v0.168.0 — Trust Ladder Mode**:
+- Auto-escalate `observe → dry-run → confirm → autopilot` based on stable behavior.
+- `TRUST_LEVELS` = `["observe", "dry-run", "confirm", "autopilot"]` — ordered rung list.
+- `TRUST_STABLE_TICKS_TO_ESCALATE = 10` — consecutive clean ticks before auto-promotion.
+- `computeTrustEscalation(level, ticks, auto)` — pure fn, returns `{nextLevel, escalated}`.
+- `computeTrustDemotion(level)` — always demotes to `"observe"` on any failure.
+- `formatTrustLadderStatus(level, ticks, auto)` — human-readable display with ladder visualization, progress fraction, auto/manual label.
+- TUI state: `trustLevel`, `trustStableTicks`, `trustAutoEnabled` with full accessor API.
+- `recordStableTick()` — increments counter, auto-escalates + syncs daemon mode when threshold hit, resets counter on promotion.
+- `recordTrustFailure()` — demotes to observe, resets counter, syncs daemon mode.
+- `/trust` — show ladder status. `/trust <level>` — manual set (syncs mode). `/trust auto|on` — enable auto. `/trust off` — disable auto.
+- Wired into `daemonTick`: after each reasoning cycle, records stable tick or failure. Escalation/demotion syncs `config.observe/dryRun/confirm` and updates header.
+- 28 new tests: TRUST_LEVELS (1), TRUST_STABLE_TICKS_TO_ESCALATE (1), computeTrustEscalation (7), computeTrustDemotion (1), formatTrustLadderStatus (5), TUI trust state (10), onTrust input handler (3)
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +28, net 2287 tests across 35 files.
 
 ### What shipped in v0.167.0
 

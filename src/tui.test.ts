@@ -60,8 +60,11 @@ import {
   formatConfidenceBadge,
   STATS_REFRESH_INTERVAL_MS,
   buildFanOutTemplate, FAN_OUT_DEFAULT_GOAL,
+  TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE,
+  computeTrustEscalation, computeTrustDemotion, formatTrustLadderStatus,
   TUI,
 } from "./tui.js";
+import type { TrustLevel } from "./tui.js";
 import type { TaskDefinition } from "./types.js";
 import type { ActivityEntry, SortMode, TuiPrefs, SnapshotData, SnapshotSession, TopSortMode, SessionReportData } from "./tui.js";
 import type { ConfidenceLevel } from "./types.js";
@@ -3453,6 +3456,178 @@ describe("buildFanOutTemplate", () => {
 
   it("FAN_OUT_DEFAULT_GOAL is the expected string", () => {
     assert.equal(FAN_OUT_DEFAULT_GOAL, "Continue the roadmap in claude.md");
+  });
+});
+
+// ── Trust Ladder pure functions ──────────────────────────────────────────
+
+describe("TRUST_LEVELS", () => {
+  it("has 4 levels in order", () => {
+    assert.deepEqual([...TRUST_LEVELS], ["observe", "dry-run", "confirm", "autopilot"]);
+  });
+});
+
+describe("TRUST_STABLE_TICKS_TO_ESCALATE", () => {
+  it("is 10", () => {
+    assert.equal(TRUST_STABLE_TICKS_TO_ESCALATE, 10);
+  });
+});
+
+describe("computeTrustEscalation", () => {
+  it("does not escalate when auto is disabled", () => {
+    const r = computeTrustEscalation("observe", 100, false);
+    assert.equal(r.nextLevel, "observe");
+    assert.equal(r.escalated, false);
+  });
+
+  it("does not escalate when ticks < threshold", () => {
+    const r = computeTrustEscalation("observe", 9, true);
+    assert.equal(r.nextLevel, "observe");
+    assert.equal(r.escalated, false);
+  });
+
+  it("escalates observe → dry-run at threshold", () => {
+    const r = computeTrustEscalation("observe", 10, true);
+    assert.equal(r.nextLevel, "dry-run");
+    assert.equal(r.escalated, true);
+  });
+
+  it("escalates dry-run → confirm", () => {
+    const r = computeTrustEscalation("dry-run", 10, true);
+    assert.equal(r.nextLevel, "confirm");
+    assert.equal(r.escalated, true);
+  });
+
+  it("escalates confirm → autopilot", () => {
+    const r = computeTrustEscalation("confirm", 10, true);
+    assert.equal(r.nextLevel, "autopilot");
+    assert.equal(r.escalated, true);
+  });
+
+  it("does not escalate beyond autopilot", () => {
+    const r = computeTrustEscalation("autopilot", 100, true);
+    assert.equal(r.nextLevel, "autopilot");
+    assert.equal(r.escalated, false);
+  });
+
+  it("escalates when ticks > threshold", () => {
+    const r = computeTrustEscalation("observe", 50, true);
+    assert.equal(r.escalated, true);
+  });
+});
+
+describe("computeTrustDemotion", () => {
+  it("demotes to observe from any level", () => {
+    for (const level of TRUST_LEVELS) {
+      assert.equal(computeTrustDemotion(level), "observe");
+    }
+  });
+});
+
+describe("formatTrustLadderStatus", () => {
+  it("shows current level bracketed", () => {
+    const s = formatTrustLadderStatus("observe", 3, true);
+    assert.ok(s.includes("[observe]"));
+  });
+
+  it("shows ticks progress", () => {
+    const s = formatTrustLadderStatus("dry-run", 5, true);
+    assert.ok(s.includes("5/10"));
+  });
+
+  it("shows max level label when at autopilot", () => {
+    const s = formatTrustLadderStatus("autopilot", 0, true);
+    assert.ok(s.includes("max level"));
+  });
+
+  it("shows auto when auto-enabled", () => {
+    const s = formatTrustLadderStatus("observe", 0, true);
+    assert.ok(s.includes("[auto]"));
+  });
+
+  it("shows manual when auto-disabled", () => {
+    const s = formatTrustLadderStatus("observe", 0, false);
+    assert.ok(s.includes("[manual]"));
+  });
+});
+
+// ── TUI trust ladder state ──────────────────────────────────────────────
+
+describe("TUI trust ladder", () => {
+  it("getTrustLevel defaults to observe", () => {
+    const tui = new TUI();
+    assert.equal(tui.getTrustLevel(), "observe");
+  });
+
+  it("getTrustStableTicks defaults to 0", () => {
+    const tui = new TUI();
+    assert.equal(tui.getTrustStableTicks(), 0);
+  });
+
+  it("isTrustAutoEnabled defaults to true", () => {
+    const tui = new TUI();
+    assert.equal(tui.isTrustAutoEnabled(), true);
+  });
+
+  it("setTrustLevel changes level and resets ticks", () => {
+    const tui = new TUI();
+    tui.recordStableTick(); // ticks = 1
+    tui.setTrustLevel("confirm");
+    assert.equal(tui.getTrustLevel(), "confirm");
+    assert.equal(tui.getTrustStableTicks(), 0);
+  });
+
+  it("setTrustAuto toggles auto", () => {
+    const tui = new TUI();
+    tui.setTrustAuto(false);
+    assert.equal(tui.isTrustAutoEnabled(), false);
+    tui.setTrustAuto(true);
+    assert.equal(tui.isTrustAutoEnabled(), true);
+  });
+
+  it("recordStableTick increments counter", () => {
+    const tui = new TUI();
+    tui.recordStableTick();
+    assert.equal(tui.getTrustStableTicks(), 1);
+    tui.recordStableTick();
+    assert.equal(tui.getTrustStableTicks(), 2);
+  });
+
+  it("recordStableTick auto-escalates at threshold", () => {
+    const tui = new TUI();
+    for (let i = 0; i < 9; i++) tui.recordStableTick();
+    assert.equal(tui.getTrustLevel(), "observe"); // not yet
+    const { level, escalated } = tui.recordStableTick(); // 10th
+    assert.equal(escalated, true);
+    assert.equal(level, "dry-run");
+    assert.equal(tui.getTrustStableTicks(), 0); // reset after escalation
+  });
+
+  it("recordStableTick does not escalate when auto is off", () => {
+    const tui = new TUI();
+    tui.setTrustAuto(false);
+    for (let i = 0; i < 20; i++) tui.recordStableTick();
+    assert.equal(tui.getTrustLevel(), "observe");
+  });
+
+  it("recordTrustFailure demotes to observe and resets ticks", () => {
+    const tui = new TUI();
+    tui.setTrustLevel("autopilot");
+    tui.recordStableTick();
+    tui.recordTrustFailure();
+    assert.equal(tui.getTrustLevel(), "observe");
+    assert.equal(tui.getTrustStableTicks(), 0);
+  });
+
+  it("full escalation ladder: observe → dry-run → confirm → autopilot", () => {
+    const tui = new TUI();
+    const levels: TrustLevel[] = [];
+    for (let i = 0; i < 30; i++) {
+      const { level, escalated } = tui.recordStableTick();
+      if (escalated) levels.push(level);
+    }
+    assert.deepEqual(levels, ["dry-run", "confirm", "autopilot"]);
+    assert.equal(tui.getTrustLevel(), "autopilot");
   });
 });
 
