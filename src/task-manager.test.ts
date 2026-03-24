@@ -1,8 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { deriveTitle, formatAgo, formatTaskTable } from "./task-manager.js";
+import { deriveTitle, formatAgo, formatTaskTable, readNextRoadmapItems } from "./task-manager.js";
 import { normalizeGoal, goalToList } from "./types.js";
 import type { TaskState } from "./types.js";
+import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 // ── deriveTitle ─────────────────────────────────────────────────────────────
 
@@ -263,5 +266,65 @@ describe("goalToList", () => {
     const normalized = normalizeGoal(["only step"]);
     const restored = goalToList(normalized);
     assert.deepEqual(restored, ["only step"]);
+  });
+});
+
+// ── readNextRoadmapItems ──────────────────────────────────────────────────────
+
+describe("readNextRoadmapItems", () => {
+  function makeTmpDir(): string {
+    const dir = join(tmpdir(), `aoaoe-test-roadmap-${process.pid}-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  function cleanup(dir: string): void {
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+
+  it("returns fallback when no claude.md exists", () => {
+    const dir = makeTmpDir();
+    try {
+      const result = readNextRoadmapItems(dir);
+      assert.ok(result.includes("roadmap"), `expected roadmap fallback, got: ${result}`);
+    } finally { cleanup(dir); }
+  });
+
+  it("extracts items from Ideas Backlog section", () => {
+    const dir = makeTmpDir();
+    try {
+      writeFileSync(join(dir, "claude.md"), [
+        "# Status",
+        "",
+        "### Ideas Backlog",
+        "- **Feature A** — do something cool",
+        "- **Feature B** — another thing",
+        "- **Feature C** — yet another",
+        "",
+        "### Shipped",
+      ].join("\n"));
+      const result = readNextRoadmapItems(dir, 2);
+      assert.ok(result.includes("Feature A"), `should include Feature A, got: ${result}`);
+      assert.ok(result.includes("Feature B"), `should include Feature B, got: ${result}`);
+      assert.ok(!result.includes("Feature C"), `should not include Feature C (maxItems=2), got: ${result}`);
+    } finally { cleanup(dir); }
+  });
+
+  it("falls back when backlog section is empty", () => {
+    const dir = makeTmpDir();
+    try {
+      writeFileSync(join(dir, "claude.md"), "### Ideas Backlog\n\n### Shipped\n");
+      const result = readNextRoadmapItems(dir);
+      assert.ok(result.includes("roadmap"), `expected fallback when empty, got: ${result}`);
+    } finally { cleanup(dir); }
+  });
+
+  it("handles items without description", () => {
+    const dir = makeTmpDir();
+    try {
+      writeFileSync(join(dir, "claude.md"), "### Ideas Backlog\n- **Feature X**\n");
+      const result = readNextRoadmapItems(dir, 1);
+      assert.ok(result.includes("Feature X"), `should include Feature X, got: ${result}`);
+    } finally { cleanup(dir); }
   });
 });

@@ -162,6 +162,7 @@ function validateDefinitions(raw: unknown[], basePath: string): TaskDefinition[]
       sessionMode: parseSessionMode(t.sessionMode),
       tool: typeof t.tool === "string" ? t.tool : "opencode",
       goal: (typeof t.goal === "string" || Array.isArray(t.goal)) ? t.goal : undefined,
+      continueOnRoadmap: t.continueOnRoadmap === true,
     });
   }
   return tasks;
@@ -355,17 +356,34 @@ export class TaskManager {
     this.save();
   }
 
-  // mark a task as completed, optionally clean up its session
+  // mark a task as completed, optionally clean up its session.
+  // if the task definition has continueOnRoadmap:true, resets with next backlog items instead.
   async completeTask(sessionTitle: string, summary: string, cleanupSession = true): Promise<void> {
     const task = this.getTaskForSession(sessionTitle);
     if (!task) return;
+
+    // find original definition to check continueOnRoadmap
+    const def = this.definitions.find(
+      (d) => (d.sessionTitle || deriveTitle(d.repo)).toLowerCase() === sessionTitle.toLowerCase()
+    );
+
+    if (def?.continueOnRoadmap) {
+      // instead of completing, refresh the goal from the roadmap and continue
+      const nextGoal = readNextRoadmapItems(this.basePath);
+      task.progress.push({ at: Date.now(), summary: `cycle complete: ${summary} — continuing on roadmap` });
+      task.goal = nextGoal;
+      task.status = "active";
+      task.lastProgressAt = Date.now();
+      log(`continueOnRoadmap: recycled task '${sessionTitle}' with fresh roadmap goal`);
+      this.save();
+      return;
+    }
 
     task.status = "completed";
     task.completedAt = Date.now();
     task.progress.push({ at: Date.now(), summary: `COMPLETED: ${summary}` });
 
     if (cleanupSession && task.sessionId) {
-      // stop and remove the AoE session
       await exec("aoe", ["session", "stop", task.sessionId]);
       await exec("aoe", ["remove", task.sessionId, "-y"]);
       log(`cleaned up session ${task.sessionTitle} (${task.sessionId})`);
@@ -382,6 +400,42 @@ export class TaskManager {
 // derive a session title from a repo path: "github/adventure" → "adventure"
 export function deriveTitle(repo: string): string {
   return basename(repo).toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+}
+
+/**
+ * Read the Ideas Backlog from claude.md in basePath and return it as a goal string.
+ * Extracts all `- **Item**` bullet lines from the "Ideas Backlog" section.
+ * Falls back to a generic roadmap directive if the file isn't found or has no items.
+ */
+export function readNextRoadmapItems(basePath: string, maxItems = 3): string {
+  const candidateFiles = ["claude.md", "CLAUDE.md", ".claude.md"];
+  for (const name of candidateFiles) {
+    const p = resolve(basePath, name);
+    if (!existsSync(p)) continue;
+    try {
+      const content = readFileSync(p, "utf-8");
+      // find the Ideas Backlog section
+      const backlogMatch = content.match(/###\s+Ideas Backlog\s*\n([\s\S]*?)(?=###|$)/);
+      if (!backlogMatch) continue;
+      const section = backlogMatch[1];
+      // extract bullet items: `- **Name** — description`
+      const items: string[] = [];
+      for (const line of section.split("\n")) {
+        const m = line.match(/^-\s+\*\*([^*]+)\*\*\s*(?:—\s*(.+))?/);
+        if (m) {
+          const name = m[1].trim();
+          const desc = m[2]?.trim() ?? "";
+          items.push(desc ? `${name}: ${desc}` : name);
+          if (items.length >= maxItems) break;
+        }
+      }
+      if (items.length > 0) {
+        const header = "Continue the roadmap — pick the next items from the Ideas Backlog and implement them with full tests, commit and push after each:";
+        return `${header}\n${items.map((i) => `- ${i}`).join("\n")}`;
+      }
+    } catch { /* ignore, try next file */ }
+  }
+  return "Continue the roadmap in claude.md — pick the next item from the Ideas Backlog, implement with tests, commit, and push.";
 }
 
 function parseSessionMode(raw: unknown): TaskSessionMode | undefined {

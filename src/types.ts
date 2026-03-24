@@ -197,6 +197,7 @@ export interface TaskDefinition {
   sessionMode?: TaskSessionMode; // auto=link-or-create, existing=link-only, new=create-only
   tool?: string;         // AoE tool name (default: "opencode")
   goal?: string | string[]; // what to accomplish — string or list of directives (joined with newlines)
+  continueOnRoadmap?: boolean; // when true, read Ideas Backlog from claude.md and continue indefinitely after goal completes
 }
 
 /**

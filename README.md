@@ -4,7 +4,7 @@
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml"><img src="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="https://www.npmjs.com/package/aoaoe"><img src="https://img.shields.io/npm/v/aoaoe" alt="npm version"></a>
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/releases"><img src="https://img.shields.io/github/v/release/Talador12/agent-of-agent-of-empires" alt="GitHub release"></a>
-    <img src="https://img.shields.io/badge/tests-2146-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/tests-2181-brightgreen" alt="tests">
     <img src="https://img.shields.io/badge/node-%3E%3D20-blue" alt="Node.js >= 20">
     <img src="https://img.shields.io/badge/runtime%20deps-0-brightgreen" alt="zero runtime dependencies">
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
@@ -290,6 +290,10 @@ The daemon runs an interactive TUI with a rich command set. These commands are a
 | `/color-all [c]` | Set accent color for all sessions at once |
 | `/mute-errors` | Toggle suppression of `error`/`! action` entries in activity log |
 | `/pin-all-errors` | Pin every session currently in error state |
+| `/pin-draining` | Pin all draining sessions to the top |
+| `/labels` | List all active session labels |
+| `/sort-by-health` | Sort sessions by health score (worst first) |
+| `/icon N [emoji]` | Set or clear a single emoji shown in the session row |
 | `/timeline N [n]` | Show last n activity entries for a session (default 30) |
 | `/find <text>` | Search all session pane outputs for text |
 | `/reset-health N` | Clear error counts + context history to reset a session's health score |
