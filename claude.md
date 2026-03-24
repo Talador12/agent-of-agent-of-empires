@@ -8,11 +8,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.173.0
+## Version: v0.174.0
 
 ## Current Focus
 
-Multi-profile polling fully wired. Backlog is down to web dashboard.
+Session replay shipped. Backlog continuing.
 
 ### Open Items
 - Backlog continues below.
@@ -22,7 +22,18 @@ Multi-profile polling fully wired. Backlog is down to web dashboard.
 - **Session dependency graph** — detect when one session's output is consumed by another, visualize in TUI
 - **Automatic context compaction** — when context usage nears ceiling, summarize and compact older context
 - **Webhook notification filters** — per-session filters for which events trigger notifications
-- **Session replay in TUI** — play back a session's full output history like a movie
+
+### What shipped in v0.174.0
+
+**v0.174.0 — Session Replay in TUI**:
+- `/replay <N|name> [lps]` — play back a session's stored pane output frame-by-frame in the activity log. Default 10 lines/sec, configurable. Running `/replay` again while playing stops it.
+- Pure functions: `createReplayState(id, title, lines, lps)` — creates replay state machine. `advanceReplay(state, batchSize)` — advances by N lines, returns new lines + done flag. `formatReplayStatusBar(state)` — `REPLAY Alpha 0/150 (0%) ▶ playing @ 10 lps`.
+- Constants: `REPLAY_DEFAULT_LPS = 10`, `REPLAY_MAX_LPS = 100`. Speed clamped to [1, 100].
+- TUI methods: `startReplay(ref, lps)` — starts interval timer, logs each line with `"replay"` tag. `stopReplay()` — clears timer. `isReplaying()` / `getReplayState()` — query. `toggleReplayPause()` — pause/resume.
+- 24 new tests: REPLAY_DEFAULT_LPS (1), REPLAY_MAX_LPS (1), createReplayState (4 — null empty, defaults, clamp, custom speed), advanceReplay (6 — single, batch, done, paused, at-end, clamp), formatReplayStatusBar (5 — playing, paused, done, pct, lps), TUI replay state (4 — initial, getState, stopSafe, pauseSafe), onReplay handler (3).
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +24, net 2384 tests across 35 files.
 
 ### What shipped in v0.173.0
 

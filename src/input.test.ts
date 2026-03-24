@@ -1955,3 +1955,30 @@ describe("onProfile", () => {
     assert.equal(calls, 10);
   });
 });
+
+// ── onReplay ─────────────────────────────────────────────────────────────
+
+describe("onReplay", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let target = ""; let speed: number | null = null;
+    reader.onReplay((t, s) => { target = t; speed = s; });
+    reader["replayHandler"]!("adventure", 20);
+    assert.equal(target, "adventure");
+    assert.equal(speed, 20);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["replayHandler"]?.("x", null); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onReplay(() => { calls++; });
+    reader.onReplay(() => { calls += 10; });
+    reader["replayHandler"]!("x", null);
+    assert.equal(calls, 10);
+  });
+});

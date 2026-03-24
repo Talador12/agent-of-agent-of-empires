@@ -1182,6 +1182,17 @@ async function main() {
       const lines = formatProfileSummary(counts, config.aoe.profile);
       for (const line of lines) tui!.log("system", line);
     });
+    // wire /replay — play back a session's stored output like a movie
+    input.onReplay((target, speed) => {
+      if (tui!.isReplaying()) {
+        tui!.stopReplay();
+        tui!.log("system", "replay stopped");
+        return;
+      }
+      const ref = /^\d+$/.test(target) ? parseInt(target, 10) : target;
+      const ok = tui!.startReplay(ref, speed ?? undefined);
+      if (!ok) tui!.log("system", `replay: session not found or has no output: ${target}`);
+    });
     // wire /ctx-budget — show smart context budget allocations
     input.onCtxBudget(() => {
       const sessions = tui!.getSessions();

@@ -64,8 +64,11 @@ import {
   computeTrustEscalation, computeTrustDemotion, formatTrustLadderStatus,
   computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, CTX_BUDGET_WEIGHTS,
   resolveProfiles, mergeProfileSessions, formatProfileSummary,
+  createReplayState, advanceReplay, formatReplayStatusBar,
+  REPLAY_DEFAULT_LPS, REPLAY_MAX_LPS,
   TUI,
 } from "./tui.js";
+import type { SessionReplayState } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
 import type { TaskDefinition } from "./types.js";
 import type { ActivityEntry, SortMode, TuiPrefs, SnapshotData, SnapshotSession, TopSortMode, SessionReportData } from "./tui.js";
@@ -3865,6 +3868,158 @@ describe("formatProfileSummary", () => {
     const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
     assert.ok(plain.includes("1 session"));
     assert.ok(!plain.includes("1 sessions"));
+  });
+});
+
+// ── Session Replay pure functions ────────────────────────────────────────
+
+describe("REPLAY_DEFAULT_LPS", () => {
+  it("is 10", () => { assert.equal(REPLAY_DEFAULT_LPS, 10); });
+});
+
+describe("REPLAY_MAX_LPS", () => {
+  it("is 100", () => { assert.equal(REPLAY_MAX_LPS, 100); });
+});
+
+describe("createReplayState", () => {
+  it("returns null for empty lines", () => {
+    assert.equal(createReplayState("s1", "Alpha", []), null);
+  });
+
+  it("creates state with defaults", () => {
+    const s = createReplayState("s1", "Alpha", ["line1", "line2"]);
+    assert.ok(s);
+    assert.equal(s.sessionId, "s1");
+    assert.equal(s.title, "Alpha");
+    assert.equal(s.lines.length, 2);
+    assert.equal(s.frameIndex, 0);
+    assert.equal(s.linesPerSecond, REPLAY_DEFAULT_LPS);
+    assert.equal(s.paused, false);
+  });
+
+  it("clamps speed to [1, REPLAY_MAX_LPS]", () => {
+    const slow = createReplayState("s1", "A", ["x"], 0);
+    assert.equal(slow!.linesPerSecond, 1);
+    const fast = createReplayState("s1", "A", ["x"], 999);
+    assert.equal(fast!.linesPerSecond, REPLAY_MAX_LPS);
+  });
+
+  it("accepts custom speed", () => {
+    const s = createReplayState("s1", "A", ["x"], 50);
+    assert.equal(s!.linesPerSecond, 50);
+  });
+});
+
+describe("advanceReplay", () => {
+  function makeState(lines: string[]): SessionReplayState {
+    return createReplayState("s1", "Alpha", lines)!;
+  }
+
+  it("advances by 1 line by default", () => {
+    const state = makeState(["a", "b", "c"]);
+    const { newLines, done, updatedState } = advanceReplay(state);
+    assert.deepEqual(newLines, ["a"]);
+    assert.equal(done, false);
+    assert.equal(updatedState.frameIndex, 1);
+  });
+
+  it("advances by batch size", () => {
+    const state = makeState(["a", "b", "c", "d"]);
+    const { newLines, done, updatedState } = advanceReplay(state, 3);
+    assert.deepEqual(newLines, ["a", "b", "c"]);
+    assert.equal(done, false);
+    assert.equal(updatedState.frameIndex, 3);
+  });
+
+  it("returns done when reaching end", () => {
+    const state = makeState(["a"]);
+    const { done, updatedState } = advanceReplay(state);
+    assert.equal(done, true);
+    assert.equal(updatedState.frameIndex, 1);
+  });
+
+  it("returns empty newLines when paused", () => {
+    const state = { ...makeState(["a", "b"]), paused: true };
+    const { newLines, done } = advanceReplay(state);
+    assert.deepEqual(newLines, []);
+    assert.equal(done, false);
+  });
+
+  it("returns empty newLines when already at end", () => {
+    const state = { ...makeState(["a"]), frameIndex: 1 };
+    const { newLines, done } = advanceReplay(state);
+    assert.deepEqual(newLines, []);
+    assert.equal(done, true);
+  });
+
+  it("clamps batch to remaining lines", () => {
+    const state = { ...makeState(["a", "b", "c"]), frameIndex: 1 };
+    const { newLines, done } = advanceReplay(state, 100);
+    assert.deepEqual(newLines, ["b", "c"]);
+    assert.equal(done, true);
+  });
+});
+
+describe("formatReplayStatusBar", () => {
+  function makeState(): SessionReplayState {
+    return createReplayState("s1", "Alpha", ["a", "b", "c", "d"])!;
+  }
+
+  it("shows playing status", () => {
+    const bar = formatReplayStatusBar(makeState());
+    const plain = bar.replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("REPLAY"));
+    assert.ok(plain.includes("Alpha"));
+    assert.ok(plain.includes("playing"));
+    assert.ok(plain.includes("0/4"));
+  });
+
+  it("shows paused status", () => {
+    const state = { ...makeState(), paused: true };
+    const plain = formatReplayStatusBar(state).replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("paused"));
+  });
+
+  it("shows done status", () => {
+    const state = { ...makeState(), frameIndex: 4 };
+    const plain = formatReplayStatusBar(state).replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("done"));
+    assert.ok(plain.includes("100%"));
+  });
+
+  it("shows percentage", () => {
+    const state = { ...makeState(), frameIndex: 2 };
+    const plain = formatReplayStatusBar(state).replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("50%"));
+  });
+
+  it("shows lps", () => {
+    const plain = formatReplayStatusBar(makeState()).replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("10 lps"));
+  });
+});
+
+// ── TUI session replay state ────────────────────────────────────────────
+
+describe("TUI session replay", () => {
+  it("isReplaying is false initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.isReplaying(), false);
+  });
+
+  it("getReplayState is null initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.getReplayState(), null);
+  });
+
+  it("stopReplay is safe when not replaying", () => {
+    const tui = new TUI();
+    assert.doesNotThrow(() => tui.stopReplay());
+  });
+
+  it("toggleReplayPause returns false when not replaying", () => {
+    const tui = new TUI();
+    assert.equal(tui.toggleReplayPause(), false);
   });
 });
 

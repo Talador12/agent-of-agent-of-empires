@@ -1608,6 +1608,10 @@ export class TUI {
    private trustStableTicks = 0;
    private trustAutoEnabled = true; // auto-escalation on by default
 
+   // session replay: play back stored pane output frame-by-frame
+   private replayState: SessionReplayState | null = null;
+   private replayTimer: ReturnType<typeof setInterval> | null = null;
+
    // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
   private drilldownSessionId: string | null = null;
@@ -2293,6 +2297,83 @@ export class TUI {
   /** Whether /stats-live is currently running. */
   isStatsRefreshing(): boolean {
     return this.statsRefreshTimer !== null;
+  }
+
+  // ── Session replay ──────────────────────────────────────────────────────
+
+  /**
+   * Start replaying a session's output. Enters drilldown for that session
+   * and plays back its stored lines frame-by-frame.
+   * Returns false if session not found or has no output.
+   */
+  startReplay(sessionIdOrIndex: string | number, linesPerSecond?: number): boolean {
+    const output = this.getSessionOutput(sessionIdOrIndex);
+    if (!output || output.length === 0) return false;
+
+    // resolve session
+    let session: DaemonSessionState | undefined;
+    if (typeof sessionIdOrIndex === "number") {
+      session = this.sessions[sessionIdOrIndex - 1];
+    } else {
+      const needle = sessionIdOrIndex.toLowerCase();
+      session = this.sessions.find(
+        (s) => s.id === sessionIdOrIndex || s.id.startsWith(needle) || s.title.toLowerCase() === needle,
+      );
+    }
+    if (!session) return false;
+
+    const state = createReplayState(session.id, session.title, output, linesPerSecond);
+    if (!state) return false;
+
+    this.stopReplay(); // stop any existing replay
+    this.replayState = state;
+
+    // tick at configured speed
+    const intervalMs = Math.round(1000 / state.linesPerSecond);
+    this.replayTimer = setInterval(() => {
+      if (!this.replayState) { this.stopReplay(); return; }
+      const { newLines, done, updatedState } = advanceReplay(this.replayState, 1);
+      this.replayState = updatedState;
+      if (newLines.length > 0) {
+        for (const line of newLines) {
+          this.log("replay", `${DIM}${line}${RESET}`);
+        }
+      }
+      if (done) {
+        this.log("system", formatReplayStatusBar(this.replayState));
+        this.stopReplay();
+      }
+    }, intervalMs);
+
+    this.log("system", formatReplayStatusBar(state));
+    return true;
+  }
+
+  /** Stop the current replay and clear the timer. */
+  stopReplay(): void {
+    if (this.replayTimer) {
+      clearInterval(this.replayTimer);
+      this.replayTimer = null;
+    }
+    this.replayState = null;
+  }
+
+  /** Whether a replay is currently active. */
+  isReplaying(): boolean {
+    return this.replayState !== null;
+  }
+
+  /** Get replay state for display purposes. */
+  getReplayState(): SessionReplayState | null {
+    return this.replayState;
+  }
+
+  /** Pause/resume the current replay. */
+  toggleReplayPause(): boolean {
+    if (!this.replayState) return false;
+    this.replayState = { ...this.replayState, paused: !this.replayState.paused };
+    this.log("system", formatReplayStatusBar(this.replayState));
+    return true;
   }
 
   // ── Trust ladder ─────────────────────────────────────────────────────────
@@ -4571,6 +4652,74 @@ export function formatProfileSummary(
     lines.push(`  ${marker}${BOLD}${name}${RESET} ${DIM}(${count} ${label})${RESET}`);
   }
   return lines;
+}
+
+// ── Session Replay in TUI ───────────────────────────────────────────────────
+// Play back a session's stored pane output frame-by-frame in the drill-down view.
+
+/** Default replay speed: lines per second. */
+export const REPLAY_DEFAULT_LPS = 10;
+/** Max replay speed. */
+export const REPLAY_MAX_LPS = 100;
+
+export interface SessionReplayState {
+  sessionId: string;
+  title: string;
+  lines: readonly string[];     // full output to replay
+  frameIndex: number;           // current line being displayed (0-based)
+  linesPerSecond: number;       // playback speed
+  paused: boolean;
+  startedAt: number;            // epoch ms
+}
+
+/**
+ * Create a new replay state for a session.
+ * Returns null if the session has no stored output.
+ */
+export function createReplayState(
+  sessionId: string,
+  title: string,
+  lines: readonly string[],
+  linesPerSecond: number = REPLAY_DEFAULT_LPS,
+): SessionReplayState | null {
+  if (lines.length === 0) return null;
+  return {
+    sessionId,
+    title,
+    lines,
+    frameIndex: 0,
+    linesPerSecond: Math.max(1, Math.min(REPLAY_MAX_LPS, linesPerSecond)),
+    paused: false,
+    startedAt: Date.now(),
+  };
+}
+
+/**
+ * Advance the replay by one tick. Returns the batch of new lines to display
+ * and the updated state. Returns empty batch when paused or finished.
+ */
+export function advanceReplay(
+  state: SessionReplayState,
+  batchSize: number = 1,
+): { newLines: string[]; done: boolean; updatedState: SessionReplayState } {
+  if (state.paused || state.frameIndex >= state.lines.length) {
+    return { newLines: [], done: state.frameIndex >= state.lines.length, updatedState: state };
+  }
+  const end = Math.min(state.frameIndex + batchSize, state.lines.length);
+  const newLines = state.lines.slice(state.frameIndex, end) as string[];
+  const updatedState = { ...state, frameIndex: end };
+  return { newLines, done: end >= state.lines.length, updatedState };
+}
+
+/**
+ * Format a replay status bar for the drill-down separator.
+ */
+export function formatReplayStatusBar(state: SessionReplayState): string {
+  const pct = state.lines.length > 0
+    ? Math.round((state.frameIndex / state.lines.length) * 100)
+    : 0;
+  const status = state.paused ? "⏸ paused" : state.frameIndex >= state.lines.length ? "⏹ done" : "▶ playing";
+  return `${BOLD}REPLAY${RESET} ${state.title} ${DIM}${state.frameIndex}/${state.lines.length} (${pct}%) ${status} @ ${state.linesPerSecond} lps${RESET}`;
 }
 
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
