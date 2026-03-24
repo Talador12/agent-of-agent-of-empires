@@ -1922,8 +1922,8 @@ async function main() {
             if (tui) tui.log("observation", `${ch.title}: ${preview}`); else log(`[obs] ${ch.title}: ${preview}`);
           }
         }
-        const nextReasonIn = Math.max(0, Math.ceil((config.reasonIntervalMs - msSinceLastReason) / 1000));
-        if (tui) tui.updateState({ nextReasonAt: Date.now() + nextReasonIn * 1000 });
+        const nextReasonMs = Math.max(0, config.reasonIntervalMs - msSinceLastReason);
+        if (tui) tui.updateState({ nextReasonAt: Date.now() + nextReasonMs });
       } else {
         // Full reasoning tick
         const {
@@ -1975,7 +1975,8 @@ async function main() {
         if (tui) tui.log("system", "skipping sleep — pending input detected"); else log("skipping sleep — pending input detected");
       } else {
         const nextTickAt = Date.now() + config.pollIntervalMs;
-        if (tui) tui.updateState({ phase: "sleeping", nextTickAt });
+        const nextReasonAtFull = lastReasonerAt > 0 ? lastReasonerAt + config.reasonIntervalMs : Date.now() + config.reasonIntervalMs;
+        if (tui) tui.updateState({ phase: "sleeping", nextTickAt, nextReasonAt: nextReasonAtFull });
         writeState("sleeping", { pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt, paused: false });
 
         const wake = await wakeableSleep(config.pollIntervalMs, AOAOE_DIR);

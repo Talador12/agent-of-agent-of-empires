@@ -5,7 +5,7 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.161.0
+## Version: v0.161.1
 
 ## Current Focus
 
@@ -59,6 +59,31 @@ Vibe is derived from pane output analysis (error repetition, progress markers, o
 - **Vibe column** — heuristic + optional LLM-upgraded agent vibe classification (flowing / focused / needs-direction / lost / idle) shown as a colored column in the session table
 - **Roadmap-continue mode** — `continueOnRoadmap: true` in `aoaoe.tasks.json` keeps the agent self-directed after queue drains; `"mode": "roadmap"` task type delegates goal to Ideas Backlog in `claude.md`
 - **UI overhaul** — full TUI redesign: styled section boxes with double-line borders, `NAME│TASK│STATUS│VIBE│ACTION` table, colored activity gutter, styled input box with persistent pending-message chips, dual progress indicators (reasoning sweep animation + idle countdown bar)
+
+### What shipped in v0.160.1–v0.161.0
+
+**v0.160.1 — UI Overhaul + Bug Fixes**:
+- Bug: `scrollBottom = rows-2` reserves input row; `paintInputLine` called after every scroll write — input line no longer overwritten by daemon output
+- Bug: `reasonIntervalMs` config (default 60s) decouples LLM calls from tmux observation polls (default 10s); reasoning only fires when interval elapsed or user message present. `--reason-interval` CLI flag. Validated in `validateConfig`.
+- Bug: ANSI escape sequences stripped from `send_input` text before tmux `send-keys -l` to prevent garbage characters in agent input
+- Session panel redesigned as `NAME│TASK│STATUS│VIBE│ACTION` table with double-line section borders; status cells color-coded (lime/amber/rose pills); vibe column inferred from health/status heuristics
+- Header: brand pill, chunked sections, bouncing blue-tip progress bar during reasoning, poll+reason countdown bars during idle
+- Separator: double-line rule with colored `◉ ACTIVITY` section label and sparkline
+- Input line: styled box with left accent bar (color = phase), pending chips always visible regardless of reasoner state
+- Activity log: colored left gutter bar `┃` per tag for fast visual scanning
+- `colors.ts`: expanded palette — PURPLE, ORANGE, PINK, GOLD, SILVER, STEEL, BG_INPUT, BG_SECTION, BG_HEADER2, colored bg pills, GLYPH constants, progress bar constants
+- Makefile: persona-grouped `[WATCH]/[RUN]/[BUILD]` with styled help matching code-music pattern
+
+**v0.161.0 — Backlog commands + nextReasonAt**:
+- `/labels` — list all active session labels with session names
+- `/pin-draining` — pin all draining sessions (`pinDraining()` method on TUI)
+- `/sort-by-health` — shortcut alias for `/sort health`
+- `/icon <N|name> [emoji]` — set/clear single emoji shown in session table NAME cell; `setIcon/getIcon` on TUI; `sessionIcons` map persisted in render
+- `nextReasonAt` field on TUI `updateState` and `formatPhaseChunk` — header now shows separate poll bar (teal dots) and reasoning countdown bar (blue blocks) independently
+- 10 new tests for `pinDraining`, `setIcon/getIcon`, `getAllLabels`
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/executor.ts`, `src/index.ts`, `src/config.ts`, `src/types.ts`, `src/colors.ts`, `Makefile`, `package.json`, `claude.md`
+Test changes: +31, net 2177 tests across 35 files.
 
 ### What shipped in v0.157.0–v0.160.0
 

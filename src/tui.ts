@@ -3044,7 +3044,7 @@ export class TUI {
       const agents = `${STEEL}${BOX.v}${RESET}${BG_DARK} ${SILVER}${GLYPH.agent} ${BOLD}${sessCountStr}${RESET}${BG_DARK} ${STEEL}${agentLabel}${RESET}${BG_DARK}${activeChip}`;
 
       // ── phase + progress ────────────────────────────────────────────────────
-      const phaseChunk = formatPhaseChunk(this.phase, this.paused, this.spinnerFrame, this.nextTickAt, this.cols);
+      const phaseChunk = formatPhaseChunk(this.phase, this.paused, this.spinnerFrame, this.nextTickAt, this.nextReasonAt, this.cols);
 
       // ── reasoner badge ──────────────────────────────────────────────────────
       const reasonerChunk = this.reasonerName
@@ -3385,53 +3385,76 @@ function formatPhaseChunk(
   paused: boolean,
   spinnerFrame: number,
   nextTickAt: number,
+  nextReasonAt: number,
   _cols: number,
 ): string {
+  const sep = `${STEEL}${BOX.v}${RESET}${BG_DARK}`;
+
   if (paused) {
-    return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${AMBER}${BOLD}⏸ paused${RESET}${BG_DARK}`;
+    return `${sep} ${AMBER}${BOLD}⏸ paused${RESET}${BG_DARK}`;
   }
 
   if (phase === "reasoning") {
-    // bouncing sweep: tip position cycles through block positions
+    // OpenCode-style bouncing blue-tip sweep over grey blocks
     const tip = spinnerFrame % PROGRESS_BLOCKS;
     const bar = Array.from({ length: PROGRESS_BLOCKS }, (_, i) => {
       if (i === tip) return `${PROGRESS_TIP}▓${RESET}`;
       if (i === (tip + 1) % PROGRESS_BLOCKS) return `${PROGRESS_TIP}▒${RESET}`;
       return `${PROGRESS_IDLE}░${RESET}`;
     }).join("");
-    return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${SKY}${BOLD}thinking${RESET}${BG_DARK} ${bar}`;
+    return `${sep} ${SKY}${BOLD}thinking${RESET}${BG_DARK} ${bar}`;
   }
 
-  if (phase === "sleeping" && nextTickAt > 0) {
-    // fill bar: fraction of interval elapsed
-    const remaining = Math.max(0, nextTickAt - Date.now());
-    // we don't know the full interval here, so use a fixed 60s display window
-    const DISPLAY_WINDOW = 60_000;
-    const elapsed = Math.max(0, DISPLAY_WINDOW - remaining);
-    const filled = Math.min(PROGRESS_BLOCKS, Math.round((elapsed / DISPLAY_WINDOW) * PROGRESS_BLOCKS));
-    const bar = Array.from({ length: PROGRESS_BLOCKS }, (_, i) => {
-      if (i < filled) return `${PROGRESS_TIP}▓${RESET}`;
-      return `${PROGRESS_IDLE}░${RESET}`;
-    }).join("");
-    const secs = Math.ceil(remaining / 1000);
-    return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${STEEL}${GLYPH.clock} ${secs}s${RESET}${BG_DARK} ${bar}`;
+  if (phase === "sleeping") {
+    const now = Date.now();
+
+    // Poll countdown bar (time to next observation tick)
+    let pollBar = "";
+    if (nextTickAt > 0) {
+      const pollRemaining = Math.max(0, nextTickAt - now);
+      const POLL_WINDOW = 15_000; // typical poll interval for display purposes
+      const pollElapsed = Math.max(0, POLL_WINDOW - pollRemaining);
+      const pollFilled = Math.min(PROGRESS_BLOCKS / 2, Math.round((pollElapsed / POLL_WINDOW) * (PROGRESS_BLOCKS / 2)));
+      pollBar = Array.from({ length: Math.floor(PROGRESS_BLOCKS / 2) }, (_, i) =>
+        i < pollFilled ? `${TEAL}▪${RESET}` : `${PROGRESS_IDLE}·${RESET}`
+      ).join("");
+    }
+
+    // Reason countdown (time to next LLM call) — only show when distinct from poll
+    let reasonPart = "";
+    if (nextReasonAt > 0) {
+      const reasonRemaining = Math.max(0, nextReasonAt - now);
+      const reasonSecs = Math.ceil(reasonRemaining / 1000);
+      const REASON_WINDOW = 60_000;
+      const reasonElapsed = Math.max(0, REASON_WINDOW - reasonRemaining);
+      const reasonFilled = Math.min(PROGRESS_BLOCKS, Math.round((reasonElapsed / REASON_WINDOW) * PROGRESS_BLOCKS));
+      const reasonBar = Array.from({ length: PROGRESS_BLOCKS }, (_, i) =>
+        i < reasonFilled ? `${PROGRESS_TIP}▓${RESET}` : `${PROGRESS_IDLE}░${RESET}`
+      ).join("");
+      reasonPart = ` ${sep} ${SLATE}${GLYPH.thinking} ${reasonSecs}s${RESET}${BG_DARK} ${reasonBar}`;
+    } else if (nextTickAt > 0) {
+      const remaining = Math.max(0, nextTickAt - now);
+      const secs = Math.ceil(remaining / 1000);
+      reasonPart = ` ${STEEL}${GLYPH.clock} ${secs}s${RESET}${BG_DARK}`;
+    }
+
+    return `${sep} ${STEEL}${GLYPH.clock} poll${RESET}${BG_DARK} ${pollBar}${reasonPart}`;
   }
 
   if (phase === "polling") {
-    return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${TEAL}${SPINNER[spinnerFrame]} polling${RESET}${BG_DARK}`;
+    return `${sep} ${TEAL}${SPINNER[spinnerFrame]} polling${RESET}${BG_DARK}`;
   }
 
   if (phase === "executing") {
-    return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${AMBER}${SPINNER[spinnerFrame]} executing${RESET}${BG_DARK}`;
+    return `${sep} ${AMBER}${SPINNER[spinnerFrame]} executing${RESET}${BG_DARK}`;
   }
 
   if (phase === "interrupted") {
-    return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${ROSE}${BOLD}✗ interrupted${RESET}${BG_DARK}`;
+    return `${sep} ${ROSE}${BOLD}✗ interrupted${RESET}${BG_DARK}`;
   }
 
-  // fallback
   const spin = SPINNER[spinnerFrame % SPINNER.length];
-  return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${SLATE}${spin} ${phase}${RESET}${BG_DARK}`;
+  return `${sep} ${SLATE}${spin} ${phase}${RESET}${BG_DARK}`;
 }
 
 // ── Session table (overview panel) ──────────────────────────────────────────

@@ -3085,6 +3085,105 @@ describe("TUI pinAllErrors", () => {
   });
 });
 
+// ── TUI pinDraining ───────────────────────────────────────────────────────
+
+describe("TUI pinDraining", () => {
+  function makeSessions(): DaemonSessionState[] {
+    return [
+      { id: "d1", title: "Alpha", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+      { id: "d2", title: "Bravo", status: "working", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    ];
+  }
+
+  it("pins all draining sessions", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessions() });
+    tui.drainSession("d1");
+    const count = tui.pinDraining();
+    assert.equal(count, 1);
+    assert.equal(tui.isPinned("d1"), true);
+  });
+
+  it("does not pin non-draining sessions", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessions() });
+    tui.drainSession("d1");
+    tui.pinDraining();
+    assert.equal(tui.isPinned("d2"), false);
+  });
+
+  it("returns 0 when no draining sessions", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessions() });
+    assert.equal(tui.pinDraining(), 0);
+  });
+
+  it("does not double-pin already pinned draining session", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessions() });
+    tui.drainSession("d1");
+    tui.pinDraining();
+    const count2 = tui.pinDraining();
+    assert.equal(count2, 0);
+  });
+});
+
+// ── TUI setIcon / getIcon ─────────────────────────────────────────────────
+
+describe("TUI setIcon / getIcon", () => {
+  function makeSessions(): DaemonSessionState[] {
+    return [
+      { id: "ic1", title: "Alpha", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    ];
+  }
+
+  it("sets and gets an icon by index", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessions() });
+    tui.setIcon(1, "🚀");
+    assert.equal(tui.getIcon("ic1"), "🚀");
+  });
+
+  it("sets and gets an icon by name", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessions() });
+    tui.setIcon("Alpha", "🔥");
+    assert.equal(tui.getIcon("ic1"), "🔥");
+  });
+
+  it("clears icon with null", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessions() });
+    tui.setIcon(1, "🚀");
+    tui.setIcon(1, null);
+    assert.equal(tui.getIcon("ic1"), undefined);
+  });
+
+  it("returns false for unknown session", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: makeSessions() });
+    assert.equal(tui.setIcon("nonexistent", "🔥"), false);
+  });
+});
+
+// ── TUI getAllLabels ───────────────────────────────────────────────────────
+
+describe("TUI getAllLabels", () => {
+  it("returns empty map when no labels set", () => {
+    const tui = new TUI();
+    assert.equal(tui.getAllLabels().size, 0);
+  });
+
+  it("returns set labels", () => {
+    const tui = new TUI();
+    tui.updateState({ sessions: [{ id: "lb1", title: "Alpha", status: "idle", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined }] });
+    tui.setLabel(1, "my label");
+    const labels = tui.getAllLabels();
+    assert.equal(labels.size, 1);
+    assert.equal(labels.get("lb1"), "my label");
+  });
+});
+
 // ── formatWatchdogTag ─────────────────────────────────────────────────────
 
 describe("formatWatchdogTag", () => {
