@@ -1903,3 +1903,29 @@ describe("onTrust", () => {
     assert.equal(calls, 10);
   });
 });
+
+// ── onCtxBudget ──────────────────────────────────────────────────────────
+
+describe("onCtxBudget", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onCtxBudget(() => { called = true; });
+    reader["ctxBudgetHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["ctxBudgetHandler"]?.(); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onCtxBudget(() => { calls++; });
+    reader.onCtxBudget(() => { calls += 10; });
+    reader["ctxBudgetHandler"]!();
+    assert.equal(calls, 10);
+  });
+});

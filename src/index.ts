@@ -19,7 +19,7 @@ import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, impor
 import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
 import { parsePaneMilestones } from "./task-parser.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
@@ -1169,6 +1169,17 @@ async function main() {
       tui!.log("system", `trust: unknown arg '${arg}' — use observe, dry-run, confirm, autopilot, auto, off`);
     });
     // wire /budget cost alerts
+    // wire /ctx-budget — show smart context budget allocations
+    input.onCtxBudget(() => {
+      const sessions = tui!.getSessions();
+      if (sessions.length === 0) {
+        tui!.log("system", "ctx-budget: no sessions");
+        return;
+      }
+      const allocations = computeContextBudgets(sessions);
+      const lines = formatContextBudgetTable(allocations, CTX_BUDGET_DEFAULT_GLOBAL);
+      for (const line of lines) tui!.log("system", line);
+    });
     input.onBudget((target, budgetUSD) => {
       if (budgetUSD === null) {
         // clear global budget

@@ -4428,6 +4428,91 @@ export function hitTestSession(row: number, headerHeight: number, sessionCount: 
   return row - firstSessionRow + 1; // 1-indexed
 }
 
+// ── Smart session context budget ────────────────────────────────────────────
+// Dynamically allocate per-session context token budgets based on activity.
+// Active sessions get more budget; idle/stopped sessions get less.
+
+/** Activity weight per session status — higher weight = larger budget share. */
+export const CTX_BUDGET_WEIGHTS: Record<string, number> = {
+  working: 3,
+  running: 3,
+  error:   2,
+  waiting: 1,
+  idle:    1,
+  stopped: 0,
+};
+
+/** Default global context budget when not configured (200k tokens). */
+export const CTX_BUDGET_DEFAULT_GLOBAL = 200_000;
+
+export interface ContextBudgetAllocation {
+  sessionId: string;
+  title: string;
+  status: string;
+  weight: number;
+  budgetTokens: number;   // allocated token budget for this session
+  currentTokens: number | null; // current usage if known
+  usagePct: number | null;      // currentTokens / budgetTokens as %, or null
+}
+
+/**
+ * Allocate context budgets across sessions proportional to activity weight.
+ * Sessions with weight 0 (stopped) get nothing.
+ * When all sessions are equal weight, budget splits evenly.
+ */
+export function computeContextBudgets(
+  sessions: readonly DaemonSessionState[],
+  globalMaxTokens: number = CTX_BUDGET_DEFAULT_GLOBAL,
+): ContextBudgetAllocation[] {
+  if (sessions.length === 0) return [];
+
+  const entries = sessions.map((s) => {
+    const weight = CTX_BUDGET_WEIGHTS[s.status] ?? 1;
+    const ceiling = parseContextCeiling(s.contextTokens);
+    const currentTokens = ceiling ? ceiling.current : parseContextTokenNumber(s.contextTokens);
+    return { sessionId: s.id, title: s.title, status: s.status, weight, currentTokens };
+  });
+
+  const totalWeight = entries.reduce((sum, e) => sum + e.weight, 0);
+
+  return entries.map((e) => {
+    const budgetTokens = totalWeight > 0
+      ? Math.round((e.weight / totalWeight) * globalMaxTokens)
+      : 0;
+    const usagePct = budgetTokens > 0 && e.currentTokens !== null
+      ? Math.round((e.currentTokens / budgetTokens) * 100)
+      : null;
+    return {
+      sessionId: e.sessionId,
+      title: e.title,
+      status: e.status,
+      weight: e.weight,
+      budgetTokens,
+      currentTokens: e.currentTokens,
+      usagePct,
+    };
+  });
+}
+
+/**
+ * Format context budget allocations as a human-readable table for /ctx-budget.
+ */
+export function formatContextBudgetTable(allocations: readonly ContextBudgetAllocation[], globalMax: number): string[] {
+  if (allocations.length === 0) return ["(no sessions)"];
+  const lines: string[] = [];
+  lines.push(`context budget: ${(globalMax / 1000).toFixed(0)}kt total across ${allocations.length} sessions`);
+  for (const a of allocations) {
+    const budget = `${(a.budgetTokens / 1000).toFixed(0)}kt`;
+    const usage = a.currentTokens !== null ? `${(a.currentTokens / 1000).toFixed(0)}kt` : "?";
+    const pct = a.usagePct !== null ? `${a.usagePct}%` : "—";
+    const bar = a.usagePct !== null
+      ? (a.usagePct >= 90 ? `${ROSE}█${RESET}` : a.usagePct >= 70 ? `${AMBER}▓${RESET}` : `${LIME}░${RESET}`)
+      : `${DIM}·${RESET}`;
+    lines.push(`  ${bar} ${BOLD}${a.title}${RESET} ${DIM}(${a.status}, w=${a.weight})${RESET}  ${usage}/${budget} ${pct}`);
+  }
+  return lines;
+}
+
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
 export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator, computeSparkline, formatSparkline, sortSessions, nextSortMode, SORT_MODES, formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN, PIN_ICON, MUTE_ICON, NOTE_ICON };

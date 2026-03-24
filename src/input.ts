@@ -89,6 +89,7 @@ export type IconHandler = (target: string, emoji: string | null) => void; // set
 export type DiffSessionsHandler = (a: string, b: string) => void; // compare two sessions' pane output
 export type FanOutHandler = () => void; // generate starter task list from active sessions
 export type TrustHandler = (arg: string) => void; // /trust [level|auto|off|on]
+export type CtxBudgetHandler = () => void; // show smart context budget allocations
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -292,6 +293,7 @@ export class InputReader {
   private diffSessionsHandler: DiffSessionsHandler | null = null;
   private fanOutHandler: FanOutHandler | null = null;
   private trustHandler: TrustHandler | null = null;
+  private ctxBudgetHandler: CtxBudgetHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -581,6 +583,7 @@ export class InputReader {
   onDiffSessions(handler: DiffSessionsHandler): void { this.diffSessionsHandler = handler; }
   onFanOut(handler: FanOutHandler): void { this.fanOutHandler = handler; }
   onTrust(handler: TrustHandler): void { this.trustHandler = handler; }
+  onCtxBudget(handler: CtxBudgetHandler): void { this.ctxBudgetHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -874,7 +877,8 @@ ${BOLD}navigation:${RESET}
   /ceiling           show context token usage vs limit for all sessions
   /rename N|name [display] set custom display name in TUI (no display = clear)
   /copy [N|name]     copy session's current pane output to clipboard (default: current drill-down)
-  /stats             show per-session health, errors, burn rate, context %, uptime
+  /ctx-budget        show smart context budget allocations per session
+   /stats             show per-session health, errors, burn rate, context %, uptime
    /stats-live        toggle auto-refresh of /stats every 5 seconds (like top)
    /recall <keyword>  search persisted activity history (last 7 days) for keyword
    /pin-all-errors    pin every session currently in error status
@@ -1722,6 +1726,14 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/ctx-budget":
+        if (this.ctxBudgetHandler) {
+          this.ctxBudgetHandler();
+        } else {
+          console.error(`${DIM}ctx-budget not available (no TUI)${RESET}`);
+        }
+        break;
 
       case "/stats":
         if (this.statsHandler) {

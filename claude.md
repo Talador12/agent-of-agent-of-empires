@@ -8,11 +8,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.170.0
+## Version: v0.171.0
 
 ## Current Focus
 
-Task intake UX shipped. Ready for next backlog item.
+Smart context budget shipped. Ready for next backlog item.
 
 ### Open Items
 - Backlog continues below — all recent items shipped.
@@ -20,7 +20,20 @@ Task intake UX shipped. Ready for next backlog item.
 ### Ideas Backlog
 - **Multi-profile support** — manage multiple AoE profiles simultaneously
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- **Smart session context budget** — dynamic context allocation based on session activity
+
+### What shipped in v0.171.0
+
+**v0.171.0 — Smart Session Context Budget**:
+- `computeContextBudgets(sessions, globalMax)` — allocates per-session token budgets proportional to activity weight. Working/running sessions get 3x share, error gets 2x, idle 1x, stopped 0.
+- `CTX_BUDGET_WEIGHTS` — configurable weight map per status. `CTX_BUDGET_DEFAULT_GLOBAL = 200_000`.
+- `ContextBudgetAllocation` interface — sessionId, title, status, weight, budgetTokens, currentTokens, usagePct.
+- `formatContextBudgetTable(allocations, globalMax)` — colored table with bar indicators: `█` rose ≥90%, `▓` amber ≥70%, `░` lime otherwise. Shows per-session `usage/budget pct`.
+- `/ctx-budget` command — shows smart budget allocations at a glance.
+- Parses current usage from both ceiling format (`50,000 / 200,000 tokens`) and plain (`10,000 tokens`).
+- 19 new tests: CTX_BUDGET_WEIGHTS (1), CTX_BUDGET_DEFAULT_GLOBAL (1), computeContextBudgets (9 — empty, proportional, ceiling parse, plain parse, null tokens, usagePct, usagePct null cases, default global, all-stopped), formatContextBudgetTable (5 — empty, header, line count, titles), onCtxBudget handler (3).
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +19, net 2338 tests across 35 files.
 
 ### What shipped in v0.170.0
 

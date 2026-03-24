@@ -62,6 +62,7 @@ import {
   buildFanOutTemplate, FAN_OUT_DEFAULT_GOAL,
   TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE,
   computeTrustEscalation, computeTrustDemotion, formatTrustLadderStatus,
+  computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, CTX_BUDGET_WEIGHTS,
   TUI,
 } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
@@ -3628,6 +3629,135 @@ describe("TUI trust ladder", () => {
     }
     assert.deepEqual(levels, ["dry-run", "confirm", "autopilot"]);
     assert.equal(tui.getTrustLevel(), "autopilot");
+  });
+});
+
+// ── Smart session context budget ─────────────────────────────────────────
+
+function makeCtxSessions(): DaemonSessionState[] {
+  return [
+    { id: "s1", title: "Alpha", status: "working", tool: "opencode", contextTokens: "50,000 / 200,000 tokens", lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s2", title: "Bravo", status: "idle", tool: "opencode", contextTokens: "10,000 tokens", lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s3", title: "Charlie", status: "error", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    { id: "s4", title: "Delta", status: "stopped", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+  ];
+}
+
+describe("CTX_BUDGET_WEIGHTS", () => {
+  it("working = 3, running = 3, error = 2, idle = 1, stopped = 0", () => {
+    assert.equal(CTX_BUDGET_WEIGHTS["working"], 3);
+    assert.equal(CTX_BUDGET_WEIGHTS["running"], 3);
+    assert.equal(CTX_BUDGET_WEIGHTS["error"], 2);
+    assert.equal(CTX_BUDGET_WEIGHTS["idle"], 1);
+    assert.equal(CTX_BUDGET_WEIGHTS["stopped"], 0);
+  });
+});
+
+describe("CTX_BUDGET_DEFAULT_GLOBAL", () => {
+  it("is 200k", () => {
+    assert.equal(CTX_BUDGET_DEFAULT_GLOBAL, 200_000);
+  });
+});
+
+describe("computeContextBudgets", () => {
+  it("returns empty for no sessions", () => {
+    assert.deepEqual(computeContextBudgets([]), []);
+  });
+
+  it("allocates proportionally to weight", () => {
+    const sessions = makeCtxSessions();
+    const allocs = computeContextBudgets(sessions, 120_000);
+    // weights: 3 + 1 + 2 + 0 = 6
+    const alpha = allocs.find((a) => a.title === "Alpha")!;
+    const bravo = allocs.find((a) => a.title === "Bravo")!;
+    const charlie = allocs.find((a) => a.title === "Charlie")!;
+    const delta = allocs.find((a) => a.title === "Delta")!;
+    assert.equal(alpha.budgetTokens, 60_000);   // 3/6 * 120k
+    assert.equal(bravo.budgetTokens, 20_000);   // 1/6 * 120k
+    assert.equal(charlie.budgetTokens, 40_000); // 2/6 * 120k
+    assert.equal(delta.budgetTokens, 0);        // 0/6 * 120k
+  });
+
+  it("parses currentTokens from ceiling format", () => {
+    const sessions = makeCtxSessions().slice(0, 1); // Alpha has 50,000 / 200,000
+    const allocs = computeContextBudgets(sessions, 100_000);
+    assert.equal(allocs[0].currentTokens, 50000);
+  });
+
+  it("parses currentTokens from plain format", () => {
+    const sessions = makeCtxSessions().slice(1, 2); // Bravo has 10,000 tokens
+    const allocs = computeContextBudgets(sessions, 100_000);
+    assert.equal(allocs[0].currentTokens, 10000);
+  });
+
+  it("currentTokens is null when not available", () => {
+    const sessions = makeCtxSessions().slice(2, 3); // Charlie has no contextTokens
+    const allocs = computeContextBudgets(sessions, 100_000);
+    assert.equal(allocs[0].currentTokens, null);
+  });
+
+  it("computes usagePct when both budget and current are known", () => {
+    const sessions = makeCtxSessions().slice(0, 1); // Alpha: 50k current, weight 3
+    const allocs = computeContextBudgets(sessions, 100_000);
+    // sole session gets full 100k budget, usage = 50k/100k = 50%
+    assert.equal(allocs[0].usagePct, 50);
+  });
+
+  it("usagePct is null when currentTokens unknown", () => {
+    const sessions = makeCtxSessions().slice(2, 3); // Charlie: no tokens
+    const allocs = computeContextBudgets(sessions, 100_000);
+    assert.equal(allocs[0].usagePct, null);
+  });
+
+  it("usagePct is null when budget is 0", () => {
+    const sessions = makeCtxSessions().slice(3, 4); // Delta: stopped, weight 0
+    const allocs = computeContextBudgets(sessions, 100_000);
+    assert.equal(allocs[0].usagePct, null);
+  });
+
+  it("uses default global budget when not specified", () => {
+    const sessions = makeCtxSessions().slice(0, 1);
+    const allocs = computeContextBudgets(sessions);
+    assert.equal(allocs[0].budgetTokens, CTX_BUDGET_DEFAULT_GLOBAL);
+  });
+
+  it("handles all-stopped sessions (total weight 0)", () => {
+    const sessions: DaemonSessionState[] = [
+      { id: "s1", title: "X", status: "stopped", tool: "opencode", contextTokens: undefined, lastActivity: undefined, userActive: false, currentTask: undefined },
+    ];
+    const allocs = computeContextBudgets(sessions, 100_000);
+    assert.equal(allocs[0].budgetTokens, 0);
+  });
+});
+
+describe("formatContextBudgetTable", () => {
+  it("returns (no sessions) for empty input", () => {
+    const lines = formatContextBudgetTable([], 200_000);
+    assert.ok(lines[0].includes("no sessions"));
+  });
+
+  it("header shows total and count", () => {
+    const allocs = computeContextBudgets(makeCtxSessions(), 200_000);
+    const lines = formatContextBudgetTable(allocs, 200_000);
+    assert.ok(lines[0].includes("200kt"));
+    assert.ok(lines[0].includes("4 sessions"));
+  });
+
+  it("includes one line per session", () => {
+    const allocs = computeContextBudgets(makeCtxSessions(), 200_000);
+    const lines = formatContextBudgetTable(allocs, 200_000);
+    // header + 4 session lines
+    assert.equal(lines.length, 5);
+  });
+
+  it("includes session titles", () => {
+    const allocs = computeContextBudgets(makeCtxSessions(), 200_000);
+    const lines = formatContextBudgetTable(allocs, 200_000);
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("Alpha"));
+    assert.ok(plain.includes("Bravo"));
+    assert.ok(plain.includes("Charlie"));
+    assert.ok(plain.includes("Delta"));
   });
 });
 
