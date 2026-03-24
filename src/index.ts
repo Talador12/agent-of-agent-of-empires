@@ -18,6 +18,7 @@ import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, h
 import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks, saveTaskDefinitions } from "./task-manager.js";
 import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
+import { parsePaneMilestones } from "./task-parser.js";
 import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
@@ -2268,6 +2269,26 @@ async function daemonTick(
       outputs.set(snap.session.id, snap.output);
     }
     tui.setSessionOutputs(outputs);
+
+    // background progress digestion: parse milestones from new pane output
+    // and auto-update task progress for matching sessions.
+    if (taskManager && observation.changes.length > 0) {
+      for (const change of observation.changes) {
+        if (!change.newLines) continue;
+        const newLines = change.newLines.split("\n");
+        const milestones = parsePaneMilestones(newLines);
+        if (milestones.length > 0) {
+          // deduplicate: only report milestones not already in recent progress
+          const recentProgress = (taskManager.getTaskForSession(change.title)?.progress ?? []).slice(-10);
+          const recentSummaries = new Set(recentProgress.map((p) => p.summary));
+          for (const m of milestones) {
+            if (!recentSummaries.has(m.summary)) {
+              taskManager.reportProgress(change.title, m.summary);
+            }
+          }
+        }
+      }
+    }
   }
 
   const noStats = {

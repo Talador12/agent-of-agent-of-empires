@@ -8,11 +8,11 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.168.0
+## Version: v0.169.0
 
 ## Current Focus
 
-Trust ladder shipped. Ready for next backlog item.
+Background progress digestion shipped. Ready for next backlog item.
 
 ### Open Items
 - Backlog continues below — all recent items shipped.
@@ -22,7 +22,23 @@ Trust ladder shipped. Ready for next backlog item.
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Smart session context budget** — dynamic context allocation based on session activity
 - **Task intake UX** — guided `/task new` flow in TUI (prompt for repo/mode/goal)
-- **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
+
+### What shipped in v0.169.0
+
+**v0.169.0 — Background Progress Digestion**:
+- `parsePaneMilestones(lines)` — pure fn in `task-parser.ts` that detects significant events from tmux pane output. Recognizes 5 milestone types:
+  - **commit**: `[main abc1234] message` — git commit with branch + short hash + message
+  - **push**: `abc1234..def5678 main -> main` — git push output
+  - **test**: `ℹ tests N`, `Tests: N passed, M total`, `N tests passed` — test suite results
+  - **version**: `v0.N.N` — standalone version bump output
+  - **build**: `Build completed`, `✓ built in Ns` — build success indicators
+- Strips ANSI before matching. Truncates long commit messages to 80 chars.
+- Wired in `index.ts` after `setSessionOutputs`: on each poll, parses `observation.changes[].newLines` for milestones, deduplicates against recent progress entries, calls `taskManager.reportProgress(title, summary)`.
+- Zero overhead when no sessions changed or no milestones detected.
+- 15 new tests: empty input, no milestones, git commit (basic + branch), git push, node:test, jest, N-passing, version bump, version-in-text rejection, build completed, vite build, ANSI stripping, multi-milestone batch, long message truncation.
+
+Modified: `src/task-parser.ts`, `src/task-parser.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +15, net 2302 tests across 35 files.
 
 ### What shipped in v0.168.0
 

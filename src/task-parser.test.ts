@@ -7,7 +7,9 @@ import {
   parseCost,
   parseLastLine,
   formatTaskList,
+  parsePaneMilestones,
 } from "./task-parser.js";
+import type { PaneMilestone } from "./task-parser.js";
 
 describe("parseTasks", () => {
   it("parses OpenCode-style checkmarks", () => {
@@ -170,5 +172,111 @@ describe("formatTaskList", () => {
 
   it("returns placeholder for empty list", () => {
     assert.equal(formatTaskList([]), "  (no tasks detected)");
+  });
+});
+
+// ── parsePaneMilestones ─────────────────────────────────────────────────────
+
+describe("parsePaneMilestones", () => {
+  it("returns empty for empty input", () => {
+    assert.deepEqual(parsePaneMilestones([]), []);
+  });
+
+  it("returns empty for lines with no milestones", () => {
+    assert.deepEqual(parsePaneMilestones(["hello world", "just some text"]), []);
+  });
+
+  it("detects git commit", () => {
+    const ms = parsePaneMilestones(["[main abc1234] v0.168.0: trust ladder"]);
+    assert.equal(ms.length, 1);
+    assert.equal(ms[0].type, "commit");
+    assert.ok(ms[0].summary.includes("abc1234"));
+    assert.ok(ms[0].summary.includes("trust ladder"));
+  });
+
+  it("detects git commit with branch name", () => {
+    const ms = parsePaneMilestones(["[feature/foo 1234567] add new widget"]);
+    assert.equal(ms.length, 1);
+    assert.equal(ms[0].type, "commit");
+    assert.ok(ms[0].summary.includes("feature/foo"));
+  });
+
+  it("detects git push", () => {
+    const ms = parsePaneMilestones(["   abc1234..def5678  main -> main"]);
+    assert.equal(ms.length, 1);
+    assert.equal(ms[0].type, "push");
+    assert.ok(ms[0].summary.includes("main"));
+  });
+
+  it("detects node:test results", () => {
+    const ms = parsePaneMilestones(["ℹ tests 2287"]);
+    assert.equal(ms.length, 1);
+    assert.equal(ms[0].type, "test");
+    assert.ok(ms[0].summary.includes("2287"));
+  });
+
+  it("detects jest-style test results", () => {
+    const ms = parsePaneMilestones(["Tests:  104 passed, 104 total"]);
+    assert.equal(ms.length, 1);
+    assert.equal(ms[0].type, "test");
+    assert.ok(ms[0].summary.includes("104/104"));
+  });
+
+  it("detects N passing pattern", () => {
+    const ms = parsePaneMilestones(["42 tests passed"]);
+    assert.equal(ms.length, 1);
+    assert.equal(ms[0].type, "test");
+    assert.ok(ms[0].summary.includes("42"));
+  });
+
+  it("detects version bump", () => {
+    const ms = parsePaneMilestones(["v0.168.0"]);
+    assert.equal(ms.length, 1);
+    assert.equal(ms[0].type, "version");
+    assert.ok(ms[0].summary.includes("v0.168.0"));
+  });
+
+  it("ignores version embedded in other text", () => {
+    const ms = parsePaneMilestones(["upgraded to v0.168.0 successfully"]);
+    assert.equal(ms.length, 0);
+  });
+
+  it("detects build completed", () => {
+    const ms = parsePaneMilestones(["Build completed successfully"]);
+    assert.equal(ms.length, 1);
+    assert.equal(ms[0].type, "build");
+  });
+
+  it("detects vite build", () => {
+    const ms = parsePaneMilestones(["✓ built in 2.3s"]);
+    assert.equal(ms.length, 1);
+    assert.equal(ms[0].type, "build");
+  });
+
+  it("strips ANSI codes before matching", () => {
+    const ms = parsePaneMilestones(["\x1b[32m[main abc1234]\x1b[0m fix bug"]);
+    assert.equal(ms.length, 1);
+    assert.equal(ms[0].type, "commit");
+  });
+
+  it("handles multiple milestones in one batch", () => {
+    const lines = [
+      "[main abc1234] add feature",
+      "ℹ tests 100",
+      "v0.5.0",
+      "   abc1234..def5678  main -> main",
+    ];
+    const ms = parsePaneMilestones(lines);
+    assert.equal(ms.length, 4);
+    assert.equal(ms[0].type, "commit");
+    assert.equal(ms[1].type, "test");
+    assert.equal(ms[2].type, "version");
+    assert.equal(ms[3].type, "push");
+  });
+
+  it("truncates long commit messages", () => {
+    const longMsg = "a".repeat(200);
+    const ms = parsePaneMilestones([`[main abc1234] ${longMsg}`]);
+    assert.ok(ms[0].summary.length <= 100);
   });
 });
