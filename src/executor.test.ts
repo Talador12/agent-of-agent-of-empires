@@ -11,6 +11,7 @@ function makeConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig {
   return {
     reasoner: "opencode",
     pollIntervalMs: 10_000,
+    reasonIntervalMs: 60_000,
     opencode: { port: 4097 },
     claudeCode: { yolo: true, resume: true },
     aoe: { profile: "default" },

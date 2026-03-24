@@ -178,9 +178,14 @@ export class Executor {
       );
     }
 
+    // strip all ANSI escape sequences before sending — raw escapes sent via
+    // tmux send-keys -l get interpreted as literal text and appear as garbage
+    // characters like WD;12L;24D in the target agent's input buffer.
+    const stripped = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b[^[]/g, "");
+
     // safety: cap text length to prevent overwhelming the target agent's input buffer
     const MAX_INPUT_LENGTH = 4096;
-    let sendText = text;
+    let sendText = stripped;
     if (sendText.length > MAX_INPUT_LENGTH) {
       sendText = sendText.slice(0, MAX_INPUT_LENGTH);
       this.log(`truncated send_input text to ${MAX_INPUT_LENGTH} chars for session ${sessionId}`);

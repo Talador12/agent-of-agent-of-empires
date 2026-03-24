@@ -9,6 +9,7 @@ function makeConfig(overrides: Partial<AoaoeConfig["claudeCode"]> = {}): AoaoeCo
   return {
     reasoner: "claude-code",
     pollIntervalMs: 10000,
+    reasonIntervalMs: 60_000,
     opencode: { port: 4097 },
     claudeCode: { yolo: false, resume: false, ...overrides },
     aoe: { profile: "default" },

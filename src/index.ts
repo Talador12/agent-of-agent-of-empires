@@ -1861,39 +1861,64 @@ async function main() {
         }
         // skip the rest — no reasoning, no execution
       } else {
-      // ── normal mode: full tick ─────────────────────────────────────────
+      // ── normal mode: poll every pollIntervalMs, reason only on reasonIntervalMs ──
 
       const activeTaskContext = taskManager ? taskManager.tasks.filter((t) => t.status !== "completed") : undefined;
       if (!reasoner || !executor) throw new Error("reasoner/executor unexpectedly null in normal mode");
-      const {
-        interrupted,
-        decisionsThisTick,
-        actionsOk,
-        actionsFail,
-        reasonerDurationMs,
-        reasonerActionCount,
-        reasonerSummary,
-      } = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager, tui);
-      totalDecisions += decisionsThisTick;
-      totalActionsExecuted += actionsOk;
-      totalActionsFailed += actionsFail;
-      if (reasonerDurationMs !== undefined) {
-        lastReasonerAt = Date.now();
-        lastReasonerDurationMs = reasonerDurationMs;
-        lastReasonerActionCount = reasonerActionCount ?? 0;
-        lastReasonerSummary = reasonerSummary ?? "";
+
+      // Decide whether to call the LLM this tick:
+      // - Always reason if there's a user message (immediate response)
+      // - Always reason if forceDashboard is set
+      // - Otherwise gate on reasonIntervalMs elapsed since last reasoning call
+      const msSinceLastReason = Date.now() - lastReasonerAt;
+      const reasonDue = lastReasonerAt === 0
+        || msSinceLastReason >= config.reasonIntervalMs
+        || !!userMessage
+        || forceDashboard;
+
+      if (!reasonDue) {
+        // Observation-only tick: poll sessions, update TUI state, skip LLM
+        const observation = await poller.poll();
+        const sessionStates = buildSessionStates(observation);
+        if (tui) tui.updateState({ phase: "sleeping", pollCount, sessions: sessionStates });
+        writeState("sleeping", { pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt: Date.now() + config.pollIntervalMs });
+        if (config.verbose && observation.changes.length > 0) {
+          for (const ch of observation.changes) {
+            const preview = ch.newLines.split("\n").filter((l) => l.trim()).slice(-2).join(" | ").slice(0, 80);
+            if (tui) tui.log("observation", `${ch.title}: ${preview}`); else log(`[obs] ${ch.title}: ${preview}`);
+          }
+        }
+        const nextReasonIn = Math.max(0, Math.ceil((config.reasonIntervalMs - msSinceLastReason) / 1000));
+        if (tui) tui.updateState({ nextReasonAt: Date.now() + nextReasonIn * 1000 });
+      } else {
+        // Full reasoning tick
+        const {
+          interrupted,
+          decisionsThisTick,
+          actionsOk,
+          actionsFail,
+          reasonerDurationMs,
+          reasonerActionCount,
+          reasonerSummary,
+        } = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager, tui);
+        totalDecisions += decisionsThisTick;
+        totalActionsExecuted += actionsOk;
+        totalActionsFailed += actionsFail;
+        if (reasonerDurationMs !== undefined) {
+          lastReasonerAt = Date.now();
+          lastReasonerDurationMs = reasonerDurationMs;
+          lastReasonerActionCount = reasonerActionCount ?? 0;
+          lastReasonerSummary = reasonerSummary ?? "";
+        }
+
+        if (interrupted) {
+          writeState("interrupted", { pollCount, pollIntervalMs: config.pollIntervalMs });
+          reasonerConsole.writeSystem("reasoner interrupted -- type a message and it will be picked up immediately");
+          if (tui) tui.log("system", "interrupted -- continuing to next tick"); else log("interrupted -- continuing to next tick (wakeable sleep will pick up input)");
+          clearInterrupt();
+        }
       }
       forceDashboard = false;
-
-      // if the reasoner was interrupted, continue to next tick immediately.
-      // wakeable sleep will pick up the user's follow-up message via fs.watch
-      // instead of blocking for 60s in a busy-poll loop.
-      if (interrupted) {
-        writeState("interrupted", { pollCount, pollIntervalMs: config.pollIntervalMs });
-        reasonerConsole.writeSystem("reasoner interrupted -- type a message and it will be picked up immediately");
-        if (tui) tui.log("system", "interrupted -- continuing to next tick"); else log("interrupted -- continuing to next tick (wakeable sleep will pick up input)");
-        clearInterrupt();
-      }
 
       } // end normal mode else block
     } catch (err) {

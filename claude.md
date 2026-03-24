@@ -5,7 +5,7 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.160.0
+## Version: v0.160.1
 
 ## Current Focus
 

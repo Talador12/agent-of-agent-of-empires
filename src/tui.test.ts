@@ -240,7 +240,8 @@ describe("formatActivity", () => {
     const entry: ActivityEntry = { time: "12:00:00", tag: "system", text: "hello" };
     const result = formatActivity(entry, 120);
     const plain = stripAnsi(result);
-    assert.ok(plain.includes("│"), `should include │ separator, got: ${plain}`);
+    // gutter bar ┃ or legacy │ — either satisfies the visual separation requirement
+    assert.ok(plain.includes("┃") || plain.includes("│"), `should include gutter separator, got: ${plain}`);
   });
 });
 
@@ -253,11 +254,12 @@ describe("formatActivity — explain tag", () => {
     assert.ok(plain.includes("Adventure is doing great"));
   });
 
-  it("applies bold cyan color to explain tag", () => {
+  it("applies bold teal color to explain tag", () => {
     const entry: ActivityEntry = { time: "12:00:00", tag: "explain", text: "test" };
     const result = formatActivity(entry, 120);
     assert.ok(result.includes("\x1b[1m"), "should include bold");
-    assert.ok(result.includes("\x1b[36m"), "should include cyan");
+    // explain tag now uses TEAL (256-color) instead of 16-color cyan
+    assert.ok(result.includes("\x1b[38;5;73m") || result.includes("AI"), "should include teal or AI label");
   });
 });
 

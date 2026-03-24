@@ -355,6 +355,7 @@ function makeConfig(port: number): import("../types.js").AoaoeConfig {
   return {
     reasoner: "opencode",
     pollIntervalMs: 5000,
+    reasonIntervalMs: 60_000,
     opencode: { port },
     claudeCode: { yolo: false, resume: false },
     aoe: { profile: "default" },

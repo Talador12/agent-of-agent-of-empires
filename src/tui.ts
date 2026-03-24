@@ -3,20 +3,27 @@
 // visual hierarchy. no external deps — raw ANSI escape codes only.
 //
 // layout (top to bottom):
-//   ┌─ header bar (1 row, BG_DARK) ─────────────────────────────────────────┐
-//   │ sessions panel (box-drawn, 1 row per session + 2 border rows)         │
-//   ├─ separator with hints ────────────────────────────────────────────────┤
-//   │ activity scroll region (all daemon output scrolls here)               │
-//   └─ input line (phase-aware prompt) ─────────────────────────────────────┘
+//   ╔═ header bar (1 row, BG_DARK) — brand │ poll# │ agents │ phase │ countdown ═╗
+//   ╠═ column headers: NAME │ TASK │ STATUS │ ACTION ═══════════════════════════╣
+//   ║  session rows (one per agent, colored by status)                          ║
+//   ╚══════════════════════════════════════════════════════════════════════════╝
+//   ── ◉ activity ─────────────────────────── sparkline ────── hints ──────────
+//   │  activity scroll region (colored gutter bar per tag)                     │
+//   ╭─ ▸ you ──────────────────────────────────────────────────────────────────╮
+//   │  [pending chips]  input line                                             │
+//   ╰──────────────────────────────────────────────────────────────────────────╯
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { DaemonSessionState, DaemonPhase } from "./types.js";
 import {
   BOLD, DIM, RESET, GREEN, YELLOW, RED, CYAN, WHITE,
-  BG_DARK, BG_HOVER,
+  BG_DARK, BG_HEADER2, BG_HOVER, BG_INPUT, BG_SECTION,
+  BG_INDIGO, BG_SKY, BG_LIME, BG_ROSE, BG_AMBER, BG_TEAL,
   INDIGO, TEAL, AMBER, SLATE, ROSE, LIME, SKY,
-  BOX, SPINNER, DOT,
+  PURPLE, ORANGE, PINK, GOLD, SILVER, STEEL,
+  BOX, SPINNER, DOT, GLYPH,
+  PROGRESS_BLOCKS, PROGRESS_IDLE, PROGRESS_TIP,
 } from "./colors.js";
 import { appendHistoryEntry } from "./tui-history.js";
 import type { HistoryEntry } from "./tui-history.js";
@@ -1458,7 +1465,8 @@ export class TUI {
   private paused = false;
   private version = "";
   private reasonerName = "";
-  private nextTickAt = 0; // epoch ms for countdown display
+  private nextTickAt = 0;    // epoch ms for poll countdown display
+  private nextReasonAt = 0;  // epoch ms for reasoning countdown (separate from poll)
 
   start(version: string): void {
     if (this.active) return;
@@ -2462,6 +2470,7 @@ export class TUI {
     paused?: boolean;
     reasonerName?: string;
     nextTickAt?: number;
+    nextReasonAt?: number;
     pendingCount?: number;
   }): void {
     if (opts.phase !== undefined) this.phase = opts.phase;
@@ -2469,6 +2478,7 @@ export class TUI {
     if (opts.paused !== undefined) this.paused = opts.paused;
     if (opts.reasonerName !== undefined) this.reasonerName = opts.reasonerName;
     if (opts.nextTickAt !== undefined) this.nextTickAt = opts.nextTickAt;
+    if (opts.nextReasonAt !== undefined) this.nextReasonAt = opts.nextReasonAt;
     if (opts.pendingCount !== undefined) this.pendingCount = opts.pendingCount;
     if (opts.sessions !== undefined) {
       // track activity changes for sort-by-activity + first-seen for uptime
@@ -2916,24 +2926,26 @@ export class TUI {
 
   private computeLayout(sessionCount: number): void {
     this.updateDimensions();
+    // inputRow is ALWAYS the last row — nothing writes below it.
+    // scrollBottom is rows-2 to leave the input row fully owned by paintInputLine.
+    // This prevents writeActivityLine's "\n" scroll from clobbering the prompt.
+    this.inputRow = this.rows;
     if (this.viewMode === "drilldown") {
-      // drilldown: header (1) + separator (1) + content + input (1)
       this.sessionRows = 0;
       this.separatorRow = this.headerHeight + 1;
-      this.inputRow = this.rows;
       this.scrollTop = this.separatorRow + 1;
-      this.scrollBottom = this.rows - 1;
+      this.scrollBottom = this.rows - 2; // reserve last row for input
     } else {
-      // overview: header (1) + sessions box + separator + activity + input
+      // overview: header + sessions box (top border + col headers + N rows + bottom border) + separator + activity + input
       const visibleSessions = this.getVisibleSessions();
       const sessBodyRows = this.compactMode
         ? computeCompactRowCount(visibleSessions, this.cols - 2)
         : Math.max(sessionCount, 1);
-      this.sessionRows = sessBodyRows + 2; // + top/bottom borders
+      // +3: top border, column header row, bottom border
+      this.sessionRows = sessBodyRows + 3;
       this.separatorRow = this.headerHeight + this.sessionRows + 1;
-      this.inputRow = this.rows;
       this.scrollTop = this.separatorRow + 1;
-      this.scrollBottom = this.rows - 1;
+      this.scrollBottom = this.rows - 2; // reserve last row for input
     }
 
     if (this.active) {
@@ -2969,36 +2981,47 @@ export class TUI {
     if (this.viewMode === "drilldown" && this.drilldownSessionId) {
       line = formatDrilldownHeader(this.drilldownSessionId, this.sessions, this.phase, this.paused, this.spinnerFrame, this.cols);
     } else {
-      const phaseText = phaseDisplay(this.phase, this.paused, this.spinnerFrame);
+      // ── brand pill ──────────────────────────────────────────────────────────
+      const brand = `${BG_INDIGO}${BOLD} aoaoe ${RESET}${BG_DARK} ${STEEL}${this.version}${RESET}${BG_DARK}`;
+
+      // ── poll counter ────────────────────────────────────────────────────────
+      const poll = `${STEEL}${BOX.v}${RESET}${BG_DARK} ${SLATE}#${this.pollCount}${RESET}${BG_DARK}`;
+
+      // ── agent count ─────────────────────────────────────────────────────────
       const visCount = this.getVisibleCount();
-      const sessCount = this.focusMode
-        ? `${visCount}/${this.sessions.length} agent${this.sessions.length !== 1 ? "s" : ""}`
-        : `${this.sessions.length} agent${this.sessions.length !== 1 ? "s" : ""}`;
+      const sessCountStr = this.focusMode
+        ? `${visCount}/${this.sessions.length}`
+        : `${this.sessions.length}`;
+      const agentLabel = this.sessions.length !== 1 ? "agents" : "agent";
       const activeCount = this.sessions.filter((s) => s.userActive).length;
-      const activeTag = activeCount > 0 ? `  ${SLATE}│${RESET}  ${AMBER}${activeCount} user${RESET}` : "";
+      const activeChip = activeCount > 0 ? ` ${BG_AMBER}${BOLD} ${activeCount} you ${RESET}${BG_DARK}` : "";
+      const agents = `${STEEL}${BOX.v}${RESET}${BG_DARK} ${SILVER}${GLYPH.agent} ${BOLD}${sessCountStr}${RESET}${BG_DARK} ${STEEL}${agentLabel}${RESET}${BG_DARK}${activeChip}`;
 
-      // countdown to next tick (only in sleeping phase)
-      let countdownTag = "";
-      if (this.phase === "sleeping" && this.nextTickAt > 0) {
-        const remaining = Math.max(0, Math.ceil((this.nextTickAt - Date.now()) / 1000));
-        countdownTag = `  ${SLATE}│${RESET}  ${SLATE}${remaining}s${RESET}`;
-      }
+      // ── phase + progress ────────────────────────────────────────────────────
+      const phaseChunk = formatPhaseChunk(this.phase, this.paused, this.spinnerFrame, this.nextTickAt, this.cols);
 
-      // reasoner badge
-      const reasonerTag = this.reasonerName ? `  ${SLATE}│${RESET}  ${TEAL}${this.reasonerName}${RESET}` : "";
+      // ── reasoner badge ──────────────────────────────────────────────────────
+      const reasonerChunk = this.reasonerName
+        ? ` ${STEEL}${BOX.v}${RESET}${BG_DARK} ${TEAL}${this.reasonerName}${RESET}${BG_DARK}`
+        : "";
 
-      // watchdog indicator — show threshold when active
+      // ── watchdog badge ──────────────────────────────────────────────────────
       const wdMin = this.watchdogThresholdMs !== null ? Math.round(this.watchdogThresholdMs / 60_000) : null;
-      const watchdogTag = wdMin !== null ? `  ${SLATE}│${RESET}  ${AMBER}⊛${wdMin}m${RESET}` : "";
+      const watchdogChunk = wdMin !== null
+        ? ` ${STEEL}${BOX.v}${RESET}${BG_DARK} ${AMBER}⊛${wdMin}m${RESET}${BG_DARK}`
+        : "";
 
-      // group filter indicator
-      const groupFilterTag = this.groupFilter ? `  ${SLATE}│${RESET}  ${TEAL}${GROUP_ICON}${this.groupFilter}${RESET}` : "";
+      // ── group filter badge ───────────────────────────────────────────────────
+      const groupFilterChunk = this.groupFilter
+        ? ` ${STEEL}${BOX.v}${RESET}${BG_DARK} ${TEAL}${GROUP_ICON}${this.groupFilter}${RESET}${BG_DARK}`
+        : "";
 
-      line = ` ${INDIGO}${BOLD}aoaoe${RESET} ${SLATE}${this.version}${RESET}  ${SLATE}│${RESET}  #${this.pollCount}  ${SLATE}│${RESET}  ${sessCount}  ${SLATE}│${RESET}  ${phaseText}${activeTag}${countdownTag}${watchdogTag}${groupFilterTag}${reasonerTag}`;
+      line = ` ${brand}  ${poll}  ${agents}  ${phaseChunk}${reasonerChunk}${watchdogChunk}${groupFilterChunk}`;
     }
     process.stderr.write(
       SAVE_CURSOR +
-      moveTo(1, 1) + CLEAR_LINE + BG_DARK + WHITE + truncateAnsi(line, this.cols) + padToWidth(line, this.cols) + RESET +
+      moveTo(1, 1) + CLEAR_LINE + BG_DARK + WHITE +
+      truncateAnsi(line, this.cols) + padToWidth(line, this.cols) + RESET +
       RESTORE_CURSOR
     );
   }
@@ -3009,20 +3032,21 @@ export class TUI {
     const visibleSessions = this.getVisibleSessions();
     const visibleCount = visibleSessions.length;
 
-    // top border with label (includes focus/compact/sort/group filter tags)
+    // ── top border: double-line with colored section label ───────────────────
     const focusTag = this.focusMode ? "focus" : "";
     const sortTag = this.sortMode !== "default" ? this.sortMode : "";
     const compactTag = this.compactMode ? "compact" : "";
     const groupTag = this.groupFilter ? `group:${this.groupFilter}` : "";
     const tagTag = this.tagFilter2 ? `tag:${this.tagFilter2}` : "";
-    const tags = [focusTag, compactTag, sortTag, groupTag, tagTag].filter(Boolean).join(", ");
-    const label = tags ? ` agents (${tags}) ` : " agents ";
-    const borderAfterLabel = Math.max(0, innerWidth - label.length);
-    const topBorder = `${SLATE}${BOX.rtl}${BOX.h}${RESET}${SLATE}${label}${RESET}${SLATE}${BOX.h.repeat(borderAfterLabel)}${BOX.rtr}${RESET}`;
+    const modeTags = [focusTag, compactTag, sortTag, groupTag, tagTag].filter(Boolean).join(", ");
+    const sectionLabel = ` ${GLYPH.agent} AGENTS${modeTags ? ` (${modeTags})` : ""} `;
+    const sectionLabelWidth = stripAnsiForLen(sectionLabel);
+    const borderFill = Math.max(0, this.cols - 2 - sectionLabelWidth);
+    const topBorder = `${STEEL}${BOX.dh}${RESET}${BG_SECTION}${SILVER}${BOLD}${sectionLabel}${RESET}${STEEL}${BOX.dh.repeat(borderFill)}${RESET}`;
     process.stderr.write(SAVE_CURSOR + moveTo(startRow, 1) + CLEAR_LINE + truncateAnsi(topBorder, this.cols));
 
     if (visibleSessions.length === 0) {
-      // empty state — distinguish between filter states
+      // empty state
       let msg: string;
       if (this.tagFilter2 && this.sessions.length > 0) {
         msg = `${DIM}no agents with tag "${this.tagFilter2}" — /tag <N> <tag> to assign, /tag-filter to exit${RESET}`;
@@ -3033,11 +3057,11 @@ export class TUI {
       } else {
         msg = `${DIM}no agents connected${RESET}`;
       }
-      const empty = `${SLATE}${BOX.v}${RESET}  ${msg}`;
+      const empty = `${STEEL}${BOX.v}${RESET}  ${msg}`;
       const padded = padBoxLine(empty, this.cols);
       process.stderr.write(moveTo(startRow + 1, 1) + CLEAR_LINE + padded);
     } else if (this.compactMode) {
-      // compact: inline tokens, multiple per row (with pin indicators + health glyphs)
+      // compact: inline tokens, multiple per row
       const nowMsCompact = Date.now();
       const noteIdSet = new Set(this.sessionNotes.keys());
       const compactHealthScores = new Map<string, number>();
@@ -3064,16 +3088,19 @@ export class TUI {
       }
       const compactRows = formatCompactRows(visibleSessions, innerWidth - 1, this.pinnedIds, this.mutedIds, noteIdSet, compactHealthScores, compactActivityRates);
       for (let r = 0; r < compactRows.length; r++) {
-        const line = `${SLATE}${BOX.v}${RESET} ${compactRows[r]}`;
+        const line = `${STEEL}${BOX.v}${RESET} ${compactRows[r]}`;
         const padded = padBoxLine(line, this.cols);
         process.stderr.write(moveTo(startRow + 1 + r, 1) + CLEAR_LINE + padded);
       }
     } else {
+      // ── column header row ──────────────────────────────────────────────────
+      const colHeaderRow = formatSessionTableHeader(innerWidth);
+      process.stderr.write(moveTo(startRow + 1, 1) + CLEAR_LINE + truncateAnsi(colHeaderRow, this.cols));
+
       const nowMs = Date.now();
       for (let i = 0; i < visibleSessions.length; i++) {
         const s = visibleSessions[i];
-        const isHovered = this.hoverSessionIdx === i + 1; // 1-indexed
-        const bg = isHovered ? BG_HOVER : "";
+        const isHovered = this.hoverSessionIdx === i + 1;
         const pinned = this.pinnedIds.has(s.id);
         const muted = this.mutedIds.has(s.id);
         const noted = this.sessionNotes.has(s.id);
@@ -3082,7 +3109,6 @@ export class TUI {
         const errSparkline = errTs ? formatSessionErrorSparkline(errTs, nowMs) : "";
         const lastChange = this.lastChangeAt.get(s.id);
         const idleSinceMs = lastChange !== undefined ? nowMs - lastChange : undefined;
-        // compute health score
         const ceiling = parseContextCeiling(s.contextTokens);
         const contextFraction = ceiling ? ceiling.current / ceiling.max : null;
         const burnHist = this.sessionContextHistory.get(s.id);
@@ -3094,41 +3120,32 @@ export class TUI {
           idleMs: idleSinceMs ?? null,
           watchdogThresholdMs: this.watchdogThresholdMs,
         });
-        const healthBadge = formatHealthBadge(healthScore);
         const displayName = this.sessionAliases.get(s.id);
+        const colorName = this.sessionColors.get(s.id);
+        const draining = this.drainingIds.has(s.id);
+        const sessionLabel = this.sessionLabels.get(s.id);
         const sTags = this.sessionTags.get(s.id);
-        const tagsBadge = sTags && sTags.size > 0 ? `${formatSessionTagsBadge(sTags)} ` : "";
-        const tagsBadgeWidth = sTags && sTags.size > 0 ? stripAnsiForLen(formatSessionTagsBadge(sTags)) + 1 : 0;
-         const colorName = this.sessionColors.get(s.id);
-         const colorDot = colorName ? formatColorDot(colorName) : "";
-         const colorDotWidth = colorName ? 2 : 0; // dot + space
-         const draining = this.drainingIds.has(s.id);
-         const drainIcon = draining ? `${DIM}${DRAIN_ICON}${RESET} ` : "";
-         const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
-         const muteBadgeWidth = muted ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 2 : 0; // "(N)" visible chars, 0 when count is 0
-         const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0 ? muteBadgeWidth + 1 : 0; // +1 for trailing space
-         const groupBadgeWidth = group ? group.length + 1 + 1 : 0; // icon + name + space
-         const pin = pinned ? `${AMBER}${PIN_ICON}${RESET} ` : "";
-         const mute = muted ? `${DIM}${MUTE_ICON}${RESET} ` : "";
-         const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
-         const groupBadge = group ? `${formatGroupBadge(group)} ` : "";
-        const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
-         const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth + colorDotWidth + (draining ? 2 : 0);
-         const cardWidth = innerWidth - 1 - iconsWidth;
-         const cardAge = s.createdAt ? formatSessionAge(s.createdAt, nowMs) : undefined;
-         const sessionLabel = this.sessionLabels.get(s.id);
-         const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge}${colorDot}${drainIcon}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge || undefined, displayName, cardAge || undefined, sessionLabel)}`;
+        const line = formatSessionTableRow({
+          s, idx: i + 1, innerWidth, isHovered,
+          pinned, muted, noted, group,
+          errSparkline: errSparkline || undefined,
+          idleSinceMs, healthScore, displayName,
+          colorName, draining, sessionLabel, sTags,
+          mutedCount: this.mutedEntryCounts.get(s.id) ?? 0,
+          noteText: this.sessionNotes.get(s.id),
+        });
         const padded = padBoxLineHover(line, this.cols, isHovered);
-        process.stderr.write(moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded);
+        // +2: skip top border row + column header row
+        process.stderr.write(moveTo(startRow + 2 + i, 1) + CLEAR_LINE + padded);
       }
     }
 
-    // bottom border
+    // ── bottom border ─────────────────────────────────────────────────────────
     const bodyRows = this.compactMode
       ? computeCompactRowCount(visibleSessions, innerWidth)
-      : Math.max(visibleCount, 1);
+      : Math.max(visibleCount, 1) + 1; // +1 for column header row
     const bottomRow = startRow + 1 + bodyRows;
-    const bottomBorder = `${SLATE}${BOX.rbl}${BOX.h.repeat(Math.max(0, this.cols - 2))}${BOX.rbr}${RESET}`;
+    const bottomBorder = `${STEEL}${BOX.dh.repeat(Math.max(0, this.cols))}${RESET}`;
     process.stderr.write(moveTo(bottomRow, 1) + CLEAR_LINE + truncateAnsi(bottomBorder, this.cols));
 
     // clear any leftover rows below the box
@@ -3139,105 +3156,98 @@ export class TUI {
     process.stderr.write(RESTORE_CURSOR);
   }
 
-  /** Repaint a single session card by 1-indexed position (for hover updates). */
+  /** Repaint a single session table row by 1-indexed position (for hover updates). */
   private repaintSessionCard(idx: number): void {
     if (!this.active || this.viewMode !== "overview") return;
-    const i = idx - 1; // 0-indexed
+    const i = idx - 1;
     const visibleSessions = this.getVisibleSessions();
     if (i < 0 || i >= visibleSessions.length) return;
+    // +2: skip top border + column header row
     const startRow = this.headerHeight + 1;
     const innerWidth = this.cols - 2;
     const s = visibleSessions[i];
+    const nowMs = Date.now();
     const isHovered = this.hoverSessionIdx === idx;
-    const bg = isHovered ? BG_HOVER : "";
-    const pinned = this.pinnedIds.has(s.id);
-    const muted = this.mutedIds.has(s.id);
-    const noted = this.sessionNotes.has(s.id);
-    const group = this.sessionGroups.get(s.id);
-    const nowMs2 = Date.now();
-    const errTs = this.sessionErrorTimestamps.get(s.id);
-    const errSparkline = errTs ? formatSessionErrorSparkline(errTs, nowMs2) : "";
     const lastChange = this.lastChangeAt.get(s.id);
-    const idleSinceMs = lastChange !== undefined ? nowMs2 - lastChange : undefined;
-    const ceiling2 = parseContextCeiling(s.contextTokens);
-    const contextFraction2 = ceiling2 ? ceiling2.current / ceiling2.max : null;
-    const burnHist2 = this.sessionContextHistory.get(s.id);
-    const burnRate2 = burnHist2 ? computeContextBurnRate(burnHist2, nowMs2) : null;
-    const healthScore2 = computeHealthScore({
+    const idleSinceMs = lastChange !== undefined ? nowMs - lastChange : undefined;
+    const ceiling = parseContextCeiling(s.contextTokens);
+    const contextFraction = ceiling ? ceiling.current / ceiling.max : null;
+    const burnHist = this.sessionContextHistory.get(s.id);
+    const burnRate = burnHist ? computeContextBurnRate(burnHist, nowMs) : null;
+    const healthScore = computeHealthScore({
       errorCount: this.sessionErrorCounts.get(s.id) ?? 0,
-      burnRatePerMin: burnRate2,
-      contextFraction: contextFraction2,
+      burnRatePerMin: burnRate,
+      contextFraction,
       idleMs: idleSinceMs ?? null,
       watchdogThresholdMs: this.watchdogThresholdMs,
     });
-    const healthBadge2 = formatHealthBadge(healthScore2);
-    const displayName2 = this.sessionAliases.get(s.id);
-    const sTags2 = this.sessionTags.get(s.id);
-    const tagsBadge2 = sTags2 && sTags2.size > 0 ? `${formatSessionTagsBadge(sTags2)} ` : "";
-    const tagsBadgeWidth2 = sTags2 && sTags2.size > 0 ? stripAnsiForLen(formatSessionTagsBadge(sTags2)) + 1 : 0;
-    const colorName2 = this.sessionColors.get(s.id);
-    const colorDot2 = colorName2 ? formatColorDot(colorName2) : "";
-    const colorDotWidth2 = colorName2 ? 2 : 0;
-    const muteBadge = muted ? formatMuteBadge(this.mutedEntryCounts.get(s.id) ?? 0) : "";
-    const actualBadgeWidth = (this.mutedEntryCounts.get(s.id) ?? 0) > 0
-      ? String(Math.min(this.mutedEntryCounts.get(s.id) ?? 0, 9999)).length + 3 : 0; // "(N) " visible chars
-    const groupBadgeWidth = group ? group.length + 1 + 1 : 0; // icon + name + space
-    const pin = pinned ? `${AMBER}${PIN_ICON}${RESET} ` : "";
-    const mute = muted ? `${DIM}${MUTE_ICON}${RESET} ` : "";
-    const note = noted ? `${TEAL}${NOTE_ICON}${RESET} ` : "";
-    const groupBadge = group ? `${formatGroupBadge(group)} ` : "";
-    const badgeSuffix = muteBadge ? `${muteBadge} ` : "";
-     const draining2 = this.drainingIds.has(s.id);
-     const drainIcon2 = draining2 ? `${DIM}${DRAIN_ICON}${RESET} ` : "";
-     const iconsWidth = (pinned ? 2 : 0) + (muted ? 2 : 0) + (noted ? 2 : 0) + actualBadgeWidth + groupBadgeWidth + tagsBadgeWidth2 + colorDotWidth2 + (draining2 ? 2 : 0);
-     const cardWidth = innerWidth - 1 - iconsWidth;
-     const cardAge2 = s.createdAt ? formatSessionAge(s.createdAt, nowMs2) : undefined;
-     const sessionLabel2 = this.sessionLabels.get(s.id);
-     const line = `${bg}${SLATE}${BOX.v}${RESET}${bg} ${pin}${mute}${badgeSuffix}${note}${groupBadge}${tagsBadge2}${colorDot2}${drainIcon2}${formatSessionCard(s, cardWidth, errSparkline || undefined, idleSinceMs, healthBadge2 || undefined, displayName2, cardAge2 || undefined, sessionLabel2)}`;
+    const errTs = this.sessionErrorTimestamps.get(s.id);
+    const errSparkline = errTs ? formatSessionErrorSparkline(errTs, nowMs) : "";
+    const line = formatSessionTableRow({
+      s, idx, innerWidth, isHovered,
+      pinned: this.pinnedIds.has(s.id),
+      muted: this.mutedIds.has(s.id),
+      noted: this.sessionNotes.has(s.id),
+      group: this.sessionGroups.get(s.id),
+      errSparkline: errSparkline || undefined,
+      idleSinceMs, healthScore,
+      displayName: this.sessionAliases.get(s.id),
+      colorName: this.sessionColors.get(s.id),
+      draining: this.drainingIds.has(s.id),
+      sessionLabel: this.sessionLabels.get(s.id),
+      sTags: this.sessionTags.get(s.id),
+      mutedCount: this.mutedEntryCounts.get(s.id) ?? 0,
+      noteText: this.sessionNotes.get(s.id),
+    });
     const padded = padBoxLineHover(line, this.cols, isHovered);
-    process.stderr.write(SAVE_CURSOR + moveTo(startRow + 1 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
+    process.stderr.write(SAVE_CURSOR + moveTo(startRow + 2 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
   }
 
   private paintSeparator(): void {
-    const prefix = `${BOX.h}${BOX.h} activity `;
-    let hints: string;
-    // suppressed-errors indicator when active (shown before other filters)
+    // ── left: colored section label ──────────────────────────────────────────
+    const label = ` ${GLYPH.activity} ACTIVITY `;
+    const labelWidth = stripAnsiForLen(label);
+
+    // ── middle: sparkline or filter/scroll info ───────────────────────────────
     const suppressedSuffix = this.suppressedTags.size > 0
       ? `  ${DIM}${MUTE_ICON}errors${RESET}` : "";
+    let hints: string;
     if (this.filterTag) {
-      // tag filter takes precedence in the separator display
       const source = this.applyDisplayFilters(this.activityBuffer.filter((e) => !isSuppressedEntry(e, this.suppressedTags)));
       const matchCount = source.filter((e) => matchesTagFilter(e, this.filterTag!)).length;
-      hints = formatTagFilterIndicator(this.filterTag, matchCount, source.length) + suppressedSuffix;
+      hints = `${AMBER}` + formatTagFilterIndicator(this.filterTag, matchCount, source.length) + `${RESET}` + suppressedSuffix;
     } else if (this.searchPattern) {
       const filtered = this.activityBuffer.filter((e) => matchesSearch(e, this.searchPattern!));
-      hints = formatSearchIndicator(this.searchPattern, filtered.length, this.activityBuffer.length);
+      hints = `${SKY}` + formatSearchIndicator(this.searchPattern, filtered.length, this.activityBuffer.length) + `${RESET}`;
     } else if (this.scrollOffset > 0) {
-      hints = formatScrollIndicator(this.scrollOffset, this.activityBuffer.length, this.scrollBottom - this.scrollTop + 1, this.newWhileScrolled);
+      hints = `${SLATE}` + formatScrollIndicator(this.scrollOffset, this.activityBuffer.length, this.scrollBottom - this.scrollTop + 1, this.newWhileScrolled) + `${RESET}`;
     } else {
-      // live mode: show sparkline + minimal hints
       const spark = formatSparkline(computeSparkline(this.activityTimestamps));
-      hints = spark ? ` ${spark}  /help ` : " click agent to view  esc esc: interrupt  /help ";
+      hints = spark ? ` ${spark} ` : `${STEEL} /help for commands ${RESET}`;
     }
-    const totalLen = prefix.length + hints.length;
-    const fill = Math.max(0, this.cols - totalLen);
-    const left = Math.floor(fill / 2);
-    const right = Math.ceil(fill / 2);
-    const line = `${SLATE}${prefix}${BOX.h.repeat(left)}${DIM}${hints}${RESET}${SLATE}${BOX.h.repeat(right)}${RESET}`;
+    const hintsWidth = stripAnsiForLen(hints);
+
+    // ── fill ─────────────────────────────────────────────────────────────────
+    const fill = Math.max(0, this.cols - labelWidth - hintsWidth);
+    const line = `${STEEL}${BOX.dh}${RESET}${BG_SECTION}${SILVER}${BOLD}${label}${RESET}${STEEL}${BOX.dh.repeat(Math.max(0, fill - 1))}${RESET}${hints}`;
     process.stderr.write(
       SAVE_CURSOR + moveTo(this.separatorRow, 1) + CLEAR_LINE + truncateAnsi(line, this.cols) + RESTORE_CURSOR
     );
   }
 
   private writeActivityLine(entry: ActivityEntry): void {
-    // move cursor to bottom of scroll region, write line (auto-scrolls region)
+    // Write at scrollBottom then newline — this triggers the terminal's scroll
+    // region to scroll up one line within [scrollTop, scrollBottom], which never
+    // touches inputRow (rows) since scrollBottom = rows-2.
     const line = formatActivity(entry, this.cols);
     process.stderr.write(
       SAVE_CURSOR +
       moveTo(this.scrollBottom, 1) + "\n" + line +
       RESTORE_CURSOR
     );
-    // repaint input line since scroll may have pushed it
+    // Always repaint input: the terminal scroll region scroll does not affect
+    // rows outside [scrollTop, scrollBottom], but cursor save/restore can leave
+    // the terminal in an odd state on some emulators.
     this.paintInputLine();
   }
 
@@ -3305,13 +3315,231 @@ export class TUI {
   }
 
   private paintInputLine(): void {
-    const prompt = formatPrompt(this.phase, this.paused, this.pendingCount);
+    const line = formatInputLine(this.phase, this.paused, this.pendingCount, this.cols);
     process.stderr.write(
       SAVE_CURSOR +
-      moveTo(this.inputRow, 1) + CLEAR_LINE + prompt +
+      moveTo(this.inputRow, 1) + CLEAR_LINE + line +
       RESTORE_CURSOR
     );
   }
+}
+
+// ── Phase chunk (header) ────────────────────────────────────────────────────
+
+/**
+ * Format the phase section of the header bar.
+ * - reasoning: OpenCode-style bouncing blue-tip sweep animation over grey blocks
+ * - sleeping:  static left-fill countdown bar (grey → blue as deadline approaches)
+ * - other:     spinner + phase label
+ */
+function formatPhaseChunk(
+  phase: DaemonPhase,
+  paused: boolean,
+  spinnerFrame: number,
+  nextTickAt: number,
+  _cols: number,
+): string {
+  if (paused) {
+    return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${AMBER}${BOLD}⏸ paused${RESET}${BG_DARK}`;
+  }
+
+  if (phase === "reasoning") {
+    // bouncing sweep: tip position cycles through block positions
+    const tip = spinnerFrame % PROGRESS_BLOCKS;
+    const bar = Array.from({ length: PROGRESS_BLOCKS }, (_, i) => {
+      if (i === tip) return `${PROGRESS_TIP}▓${RESET}`;
+      if (i === (tip + 1) % PROGRESS_BLOCKS) return `${PROGRESS_TIP}▒${RESET}`;
+      return `${PROGRESS_IDLE}░${RESET}`;
+    }).join("");
+    return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${SKY}${BOLD}thinking${RESET}${BG_DARK} ${bar}`;
+  }
+
+  if (phase === "sleeping" && nextTickAt > 0) {
+    // fill bar: fraction of interval elapsed
+    const remaining = Math.max(0, nextTickAt - Date.now());
+    // we don't know the full interval here, so use a fixed 60s display window
+    const DISPLAY_WINDOW = 60_000;
+    const elapsed = Math.max(0, DISPLAY_WINDOW - remaining);
+    const filled = Math.min(PROGRESS_BLOCKS, Math.round((elapsed / DISPLAY_WINDOW) * PROGRESS_BLOCKS));
+    const bar = Array.from({ length: PROGRESS_BLOCKS }, (_, i) => {
+      if (i < filled) return `${PROGRESS_TIP}▓${RESET}`;
+      return `${PROGRESS_IDLE}░${RESET}`;
+    }).join("");
+    const secs = Math.ceil(remaining / 1000);
+    return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${STEEL}${GLYPH.clock} ${secs}s${RESET}${BG_DARK} ${bar}`;
+  }
+
+  if (phase === "polling") {
+    return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${TEAL}${SPINNER[spinnerFrame]} polling${RESET}${BG_DARK}`;
+  }
+
+  if (phase === "executing") {
+    return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${AMBER}${SPINNER[spinnerFrame]} executing${RESET}${BG_DARK}`;
+  }
+
+  if (phase === "interrupted") {
+    return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${ROSE}${BOLD}✗ interrupted${RESET}${BG_DARK}`;
+  }
+
+  // fallback
+  const spin = SPINNER[spinnerFrame % SPINNER.length];
+  return `${STEEL}${BOX.v}${RESET}${BG_DARK} ${SLATE}${spin} ${phase}${RESET}${BG_DARK}`;
+}
+
+// ── Session table (overview panel) ──────────────────────────────────────────
+
+// Column widths for NAME | TASK | STATUS | VIBE | ACTION table
+// These are target widths; they flex based on terminal width.
+const COL_NAME_MIN   = 12;
+const COL_TASK_MIN   = 18;
+const COL_STATUS_MIN =  8;
+const COL_VIBE_MIN   =  9;
+const COL_ACTION_MIN = 10;
+const COL_SEP = `${STEEL} ${BOX.v} ${RESET}`; // colored column separator
+const COL_SEP_W = 3; // " │ " = 3 visible chars
+const COL_COUNT = 5; // NAME STATUS TASK VIBE ACTION
+
+/** Compute column widths given total inner width */
+function computeTableCols(innerWidth: number): { name: number; task: number; status: number; vibe: number; action: number } {
+  // Fixed columns
+  const fixed = COL_SEP_W * (COL_COUNT - 1) + COL_STATUS_MIN + COL_VIBE_MIN + COL_ACTION_MIN + 2; // 2 for left border space
+  const flex = Math.max(COL_NAME_MIN + COL_TASK_MIN, innerWidth - fixed);
+  // Name gets 35% of flex, task gets 65%
+  const name = Math.max(COL_NAME_MIN, Math.floor(flex * 0.35));
+  const task = Math.max(COL_TASK_MIN, flex - name);
+  return { name, task, status: COL_STATUS_MIN, vibe: COL_VIBE_MIN, action: COL_ACTION_MIN };
+}
+
+/** Column header row — DIM with double-line separator below */
+function formatSessionTableHeader(innerWidth: number): string {
+  const c = computeTableCols(innerWidth);
+  const h = (label: string, w: number) =>
+    `${STEEL}${BOLD}${label.padEnd(w)}${RESET}`;
+  const divRow =
+    `${STEEL}${BOX.v}${RESET} ` +
+    h("NAME",   c.name)   + COL_SEP +
+    h("TASK",   c.task)   + COL_SEP +
+    h("STATUS", c.status) + COL_SEP +
+    h("VIBE",   c.vibe)   + COL_SEP +
+    h("ACTION", c.action);
+  // pad to full width with right border
+  const padded = padBoxLine(divRow, innerWidth + 2);
+  return padded;
+}
+
+/** Map session status → colored STATUS cell */
+function formatStatusCell(s: DaemonSessionState, idleSinceMs: number | undefined): string {
+  switch (s.status) {
+    case "working":
+    case "running":   return `${BG_LIME}\x1b[38;5;232m working ${RESET}`;
+    case "waiting":   return `${BG_AMBER}\x1b[38;5;232m waiting ${RESET}`;
+    case "error":     return `${BG_ROSE}\x1b[38;5;232m  error  ${RESET}`;
+    case "done":      return `${LIME}done${RESET}    `;
+    case "idle": {
+      const label = idleSinceMs !== undefined ? formatIdleSince(idleSinceMs) : "idle";
+      return `${SLATE}${label.padEnd(COL_STATUS_MIN)}${RESET}`;
+    }
+    case "stopped":   return `${DIM}stopped ${RESET}`;
+    default:          return `${SLATE}${s.status.slice(0, COL_STATUS_MIN).padEnd(COL_STATUS_MIN)}${RESET}`;
+  }
+}
+
+/** Infer vibe from session state heuristics */
+function inferVibe(s: DaemonSessionState, errorCount: number, idleSinceMs: number | undefined): string {
+  if (s.userActive) return `${AMBER}you     ${RESET}`;
+  if (s.status === "error" && errorCount >= 3) return `${ROSE}${BOLD}lost    ${RESET}`;
+  if (s.status === "error") return `${ROSE}fixing  ${RESET}`;
+  if (s.status === "working" || s.status === "running") {
+    if (errorCount > 0) return `${AMBER}focused ${RESET}`;
+    return `${LIME}flowing ${RESET}`;
+  }
+  if (s.status === "waiting") return `${AMBER}needs↑  ${RESET}`;
+  if (s.status === "done") return `${GOLD}done    ${RESET}`;
+  if (idleSinceMs !== undefined && idleSinceMs > 120_000) return `${SLATE}idle    ${RESET}`;
+  return `${SLATE}idle    ${RESET}`;
+}
+
+/** One session row in the NAME | TASK | STATUS | VIBE | ACTION table */
+function formatSessionTableRow(opts: {
+  s: DaemonSessionState;
+  idx: number;
+  innerWidth: number;
+  isHovered: boolean;
+  pinned: boolean;
+  muted: boolean;
+  noted: boolean;
+  group: string | undefined;
+  errSparkline: string | undefined;
+  idleSinceMs: number | undefined;
+  healthScore: number;
+  displayName: string | undefined;
+  colorName: string | undefined;
+  draining: boolean;
+  sessionLabel: string | undefined;
+  sTags: Set<string> | undefined;
+  mutedCount: number;
+  noteText: string | undefined;
+}): string {
+  const { s, idx, innerWidth, isHovered, pinned, muted, noted, group,
+    errSparkline, idleSinceMs, healthScore, displayName, colorName, draining,
+    sessionLabel, sTags, mutedCount } = opts;
+
+  const bg = isHovered ? BG_HOVER : "";
+  const c = computeTableCols(innerWidth);
+
+  // ── NAME column ───────────────────────────────────────────────────────────
+  const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
+  const colorDot = colorName ? `${formatColorDot(colorName)} ` : "";
+  const drainMark = draining ? `${DIM}${DRAIN_ICON}${RESET}` : "";
+  const pinMark   = pinned   ? `${AMBER}${PIN_ICON}${RESET}` : "";
+  const muteMark  = muted    ? `${DIM}${MUTE_ICON}${RESET}` : "";
+  const noteMark  = noted    ? `${TEAL}${NOTE_ICON}${RESET}` : "";
+  const idxStr    = `${SLATE}${String(idx).padStart(2)}${RESET}`;
+  const rawName   = displayName ?? s.title;
+  const nameStr   = displayName
+    ? `${BOLD}${truncatePlain(displayName, c.name - 6)}${RESET}`
+    : `${BOLD}${truncatePlain(s.title, c.name - 6)}${RESET}`;
+  const toolStr   = `${SLATE}${s.tool.slice(0, 6)}${RESET}`;
+  // icons consume space from name column
+  const iconStr   = `${pinMark}${muteMark}${noteMark}${drainMark}${colorDot}`;
+  const nameCell  = `${bg}${idxStr} ${dot} ${iconStr}${nameStr} ${toolStr}`;
+
+  // ── TASK column ───────────────────────────────────────────────────────────
+  const rawTask = s.currentTask ?? s.lastActivity ?? "";
+  // strip opencode UI chrome: lines that are just ctrl hints / tmux helpers
+  const cleanTask = rawTask
+    .replace(/\x1b\[[0-9;]*[mABCDHJKST]/g, "")  // strip ANSI
+    .replace(/\r/g, "")
+    .split("\n")
+    .map(l => l.trim())
+    .filter(l => l && !/^(ctrl\+|─{3,}|Agents|Sessions|Tasks|Commands|\$|>|Press|Type|Use |Tab |Esc)/i.test(l))
+    .join(" ")
+    .slice(0, c.task * 2); // give truncation room
+  const taskStr   = `${DIM}${truncatePlain(cleanTask, c.task)}${RESET}`;
+  // context tokens hint
+  const ctxHint   = s.contextTokens ? `${STEEL} (${s.contextTokens.replace(" tokens", "t")})${RESET}` : "";
+
+  // ── STATUS column ─────────────────────────────────────────────────────────
+  const statusCell = formatStatusCell(s, idleSinceMs);
+
+  // ── VIBE column ───────────────────────────────────────────────────────────
+  const errorCount = healthScore < 60 ? 3 : healthScore < 80 ? 1 : 0; // approximate from health
+  const vibeCell = inferVibe(s, errorCount, idleSinceMs);
+
+  // ── ACTION column ─────────────────────────────────────────────────────────
+  // last meaningful action hint: error sparkline or health badge
+  const hb = formatHealthBadge(healthScore);
+  const spark = errSparkline ? ` ${errSparkline}` : "";
+  const actionCell = `${hb}${spark}`;
+
+  return (
+    `${bg}${STEEL}${BOX.v}${RESET} ` +
+    `${nameCell.slice(0, nameCell.length)}${COL_SEP}` +
+    `${bg}${taskStr}${ctxHint}${COL_SEP}` +
+    `${bg}${statusCell}${COL_SEP}` +
+    `${bg}${vibeCell}${COL_SEP}` +
+    `${bg}${actionCell}`
+  );
 }
 
 // ── Formatting helpers ──────────────────────────────────────────────────────
@@ -3366,25 +3594,44 @@ function formatSessionCard(s: DaemonSessionState, maxWidth: number, errorSparkli
 }
 
 // colorize an activity entry based on its tag
+// Each tag gets a colored left gutter bar (┃) for fast visual scanning
 function formatActivity(entry: ActivityEntry, maxCols: number): string {
   const { time, tag, text } = entry;
-  let color = SLATE;
-  let prefix = tag;
+  let gutterColor = STEEL;
+  let labelColor  = SLATE;
+  let label       = tag;
+  let textColor   = "";
 
   switch (tag) {
-    case "observation": color = SLATE; prefix = "obs"; break;
-    case "reasoner":    color = SKY; break;
-    case "explain":     color = `${BOLD}${CYAN}`; prefix = "AI"; break;
-    case "+ action": case "action": color = AMBER; prefix = "→ action"; break;
-    case "! action": case "error":  color = ROSE; prefix = "✗ error"; break;
-    case "you":         color = LIME; break;
-    case "system":      color = SLATE; break;
-    case "status":      color = SLATE; break;
-    case "config":      color = TEAL; prefix = "⚙ config"; break;
-    default:            color = SLATE; break;
+    case "observation":
+      gutterColor = STEEL; labelColor = STEEL; label = "obs"; break;
+    case "reasoner":
+      gutterColor = SKY;   labelColor = SKY;   label = "reasoner"; textColor = DIM; break;
+    case "explain":
+      gutterColor = TEAL;  labelColor = `${BOLD}${TEAL}`; label = "AI"; textColor = BOLD; break;
+    case "+ action":
+    case "action":
+      gutterColor = LIME;  labelColor = LIME;  label = "→ action"; break;
+    case "! action":
+    case "error":
+      gutterColor = ROSE;  labelColor = ROSE;  label = "✗ error"; textColor = ROSE; break;
+    case "you":
+      gutterColor = LIME;  labelColor = `${BOLD}${LIME}`; label = "you"; textColor = BOLD; break;
+    case "system":
+      gutterColor = SLATE; labelColor = SLATE; label = "sys"; textColor = DIM; break;
+    case "status":
+      gutterColor = SLATE; labelColor = STEEL; label = "status"; textColor = DIM; break;
+    case "config":
+      gutterColor = TEAL;  labelColor = TEAL;  label = "⚙ config"; break;
+    default:
+      gutterColor = STEEL; labelColor = STEEL; break;
   }
 
-  const formatted = `  ${SLATE}${time}${RESET} ${color}${prefix}${RESET} ${DIM}│${RESET} ${text}`;
+  const gutter    = `${gutterColor}${GLYPH.pipe}${RESET}`;
+  const timeStr   = `${STEEL}${time}${RESET}`;
+  const labelStr  = `${labelColor}${label.padEnd(8)}${RESET}`;
+  const textStr   = `${textColor}${text}${textColor ? RESET : ""}`;
+  const formatted = ` ${gutter} ${timeStr} ${labelStr} ${textStr}`;
   return truncateAnsi(formatted, maxCols);
 }
 
@@ -3492,9 +3739,53 @@ function formatDrilldownHeader(
   return ` ${dot} ${name} ${toolBadge}  ${SLATE}│${RESET}  ${statusText}${taskTag}  ${SLATE}│${RESET}  ${phaseText}`;
 }
 
-// ── Prompt helpers (pure, exported for testing) ─────────────────────────────
+// ── Input line (pure, exported for testing) ──────────────────────────────────
 
-// format the input prompt based on phase, pause state, and pending queue count
+/**
+ * Format the full input row.
+ *
+ * Layout:  ╭─ ▸ you ── [pending chips] ────────────────── phase hint ─╮
+ *           the cursor sits after the prompt glyph
+ *
+ * Pending messages are always shown as chips so the user knows their
+ * input is registered even when the reasoner is idle or paused.
+ */
+function formatInputLine(phase: DaemonPhase, paused: boolean, pendingCount: number, cols: number): string {
+  // left accent: colored by phase
+  let accentColor: string;
+  let phaseHint: string;
+  if (paused) {
+    accentColor = AMBER;
+    phaseHint = `${AMBER}paused${RESET}`;
+  } else if (phase === "reasoning") {
+    accentColor = SKY;
+    phaseHint = `${SKY}thinking…${RESET}`;
+  } else if (phase === "polling") {
+    accentColor = TEAL;
+    phaseHint = `${TEAL}polling${RESET}`;
+  } else {
+    accentColor = LIME;
+    phaseHint = "";
+  }
+
+  // pending chips: shown always if there are queued messages
+  const pendingChip = pendingCount > 0
+    ? ` ${BG_AMBER}\x1b[38;5;232m ${pendingCount} queued ${RESET}`
+    : "";
+
+  // left border + prompt glyph
+  const left = `${accentColor}${BOX.v}${RESET}${BG_INPUT} ${accentColor}${BOLD}${GLYPH.input} you${RESET}${BG_INPUT}${pendingChip}${BG_INPUT} `;
+  const leftWidth = stripAnsiForLen(left);
+
+  // right: phase hint
+  const right = phaseHint ? ` ${phaseHint}${BG_INPUT} ${accentColor}${BOX.v}${RESET}` : `${accentColor}${BOX.v}${RESET}`;
+  const rightWidth = stripAnsiForLen(right);
+
+  const fill = Math.max(0, cols - leftWidth - rightWidth);
+  return left + " ".repeat(fill) + right;
+}
+
+// keep formatPrompt for backward compat with tests
 function formatPrompt(phase: DaemonPhase, paused: boolean, pendingCount: number): string {
   const queueTag = pendingCount > 0 ? `${AMBER}${pendingCount} queued${RESET} ` : "";
   if (paused) return `${queueTag}${AMBER}${BOLD}paused >${RESET} `;

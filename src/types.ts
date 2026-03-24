@@ -137,6 +137,7 @@ export interface AoaoeConfig {
   sessionDirs: Record<string, string>; // explicit session title -> project directory mapping (absolute or relative to cwd)
   protectedSessions: string[]; // session titles that are observe-only (no actions allowed, case-insensitive)
   captureLinesCount: number; // how many lines to capture from each tmux pane
+  reasonIntervalMs: number; // minimum ms between LLM reasoning calls (default: 60000); observation polls still run every pollIntervalMs
   verbose: boolean;
   dryRun: boolean; // observe + reason but don't execute; log what would happen
   observe: boolean; // observe only — no LLM, no execution, zero cost

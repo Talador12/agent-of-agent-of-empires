@@ -17,6 +17,7 @@ const CONFIG_SEARCH_DIRS = [AOAOE_DIR, process.cwd()];
 export const DEFAULTS: AoaoeConfig = {
   reasoner: "opencode",
   pollIntervalMs: 10_000,
+  reasonIntervalMs: 60_000,
   opencode: {
     port: 4097,
   },
@@ -94,7 +95,7 @@ export function loadConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig & { _c
 
 // known top-level and nested config keys — used to warn on typos
 const KNOWN_KEYS: Record<string, Set<string> | true> = {
-  reasoner: true, pollIntervalMs: true, captureLinesCount: true,
+  reasoner: true, pollIntervalMs: true, reasonIntervalMs: true, captureLinesCount: true,
   verbose: true, dryRun: true, observe: true, confirm: true,
   contextFiles: true, sessionDirs: true, protectedSessions: true, healthPort: true, tuiHistoryRetentionDays: true,
   opencode: new Set(["port", "model"]),
@@ -136,6 +137,9 @@ export function validateConfig(config: AoaoeConfig): void {
   }
   if (typeof config.pollIntervalMs !== "number" || config.pollIntervalMs < 1000 || !isFinite(config.pollIntervalMs)) {
     errors.push(`pollIntervalMs must be a number >= 1000, got ${config.pollIntervalMs}`);
+  }
+  if (typeof config.reasonIntervalMs !== "number" || config.reasonIntervalMs < config.pollIntervalMs || !isFinite(config.reasonIntervalMs)) {
+    errors.push(`reasonIntervalMs must be a number >= pollIntervalMs (${config.pollIntervalMs}), got ${config.reasonIntervalMs}`);
   }
   if (typeof config.captureLinesCount !== "number" || config.captureLinesCount < 1 || !isFinite(config.captureLinesCount)) {
     errors.push(`captureLinesCount must be a positive number, got ${config.captureLinesCount}`);
@@ -521,7 +525,7 @@ export function parseCliArgs(argv: string[]): {
   };
 
   const knownFlags = new Set([
-    "--reasoner", "--poll-interval", "--port", "--model", "--profile", "--health-port",
+    "--reasoner", "--poll-interval", "--reason-interval", "--port", "--model", "--profile", "--health-port",
     "--verbose", "-v", "--dry-run", "--observe", "--confirm", "--help", "-h", "--version",
   ]);
 
@@ -536,6 +540,13 @@ export function parseCliArgs(argv: string[]): {
         const val = parseInt(nextArg(i, arg), 10);
         if (isNaN(val)) throw new Error(`--poll-interval value '${argv[i + 1]}' is not a valid number`);
         overrides.pollIntervalMs = val;
+        i++;
+        break;
+      }
+      case "--reason-interval": {
+        const val = parseInt(nextArg(i, arg), 10);
+        if (isNaN(val)) throw new Error(`--reason-interval value '${argv[i + 1]}' is not a valid number`);
+        overrides.reasonIntervalMs = val;
         i++;
         break;
       }
@@ -644,7 +655,8 @@ commands:
 
 options:
   --reasoner <opencode|claude-code>  reasoning backend (default: opencode)
-  --poll-interval <ms>               poll interval in ms (default: 10000)
+  --poll-interval <ms>               tmux observation poll interval in ms (default: 10000)
+  --reason-interval <ms>             minimum ms between LLM reasoning calls (default: 60000)
   --port <number>                    opencode server port (default: 4097)
   --health-port <number>             start HTTP health check server on this port
   --model <model>                    model to use

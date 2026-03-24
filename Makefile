@@ -1,14 +1,61 @@
-.PHONY: help setup build dev lint test test-integration test-all clean start daemon check release self self-dry demo demo-setup demo-dry
+# aoaoe Makefile
+# Run `make help` to see commands grouped by audience.
+# Requires: Node.js >= 20  |  aoe  |  tmux  |  opencode or claude-code
 
-help: ## show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+.PHONY: help setup build dev lint check test test-integration test-all clean \
+        start daemon self self-dry watch \
+        demo demo-setup demo-dry \
+        release
 
-setup: ## install deps, build, and ensure the AoE session for this repo exists
+# =============================================================================
+# [WATCH]  See it work. No setup. Just run.
+# =============================================================================
+
+# Start the supervisor — polls your AoE sessions, reasons, and acts autonomously.
+# Creates the AoE session for this repo if it doesn't exist.
+self: build
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════╗"
+	@echo "║                  aoaoe  self-improvement                    ║"
+	@echo "║                                                              ║"
+	@echo "║  aoaoe supervises its own AoE session. It reads the         ║"
+	@echo "║  roadmap in aoaoe.tasks.json, picks the next item,          ║"
+	@echo "║  implements it with tests, commits, and pushes —            ║"
+	@echo "║  updating itself in real time.                              ║"
+	@echo "║                                                              ║"
+	@echo "║  ESC ESC  interrupt    /help  all commands                  ║"
+	@echo "╚══════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@if ! aoe list --json 2>/dev/null | python3 -c \
+		"import sys,json; sessions=json.load(sys.stdin); exit(0 if any(s['title']=='aoaoe' for s in sessions) else 1)" \
+		2>/dev/null; then \
+		echo "  no 'aoaoe' AoE session found — creating one..."; \
+		aoe add "$(PWD)" -t "aoaoe" -c opencode -y; \
+		echo ""; \
+	fi
+	node dist/index.js
+
+# Watch mode — aoaoe observes and plans but never acts. Safe to run alongside live sessions.
+self-dry: build
+	@echo ""
+	@echo "  aoaoe dry-run: observing + planning, no actions executed."
+	@echo "  Safe alongside any live AoE sessions. Ctrl+C to stop."
+	@echo ""
+	node dist/index.js --dry-run
+
+# =============================================================================
+# [RUN]  Use aoaoe on your own projects. First time? Start here.
+# =============================================================================
+
+# First-time setup: install deps, build, create the AoE session for this repo.
+setup:
 	npm install
 	npm run build
 	@echo ""
 	@echo "  checking for 'aoaoe' AoE session..."
-	@if aoe list --json 2>/dev/null | python3 -c "import sys,json; sessions=json.load(sys.stdin); print('ok' if any(s['title']=='aoaoe' for s in sessions) else 'missing')" 2>/dev/null | grep -q ok; then \
+	@if aoe list --json 2>/dev/null | python3 -c \
+		"import sys,json; sessions=json.load(sys.stdin); print('ok' if any(s['title']=='aoaoe' for s in sessions) else 'missing')" \
+		2>/dev/null | grep -q ok; then \
 		echo "  ✓ session already exists"; \
 	else \
 		echo "  creating session..."; \
@@ -16,86 +63,131 @@ setup: ## install deps, build, and ensure the AoE session for this repo exists
 		echo "  ✓ session created"; \
 	fi
 	@echo ""
-	@echo "  done. run 'make self' to supervise, or 'make test' to verify."
+	@echo "  Ready."
+	@echo "  make self         supervise this repo (self-improvement mode)"
+	@echo "  make daemon       supervise your own AoE sessions"
+	@echo "  make self-dry     observe + plan, no actions"
+	@echo ""
 
-build: ## compile typescript
-	npm run build
-
-dev: ## watch mode (recompile on save)
-	npm run dev
-
-lint: ## type-check without emitting
-	npm run lint
-
-check: lint ## alias for lint
-
-test: build ## run unit tests (2100+ tests, no external deps)
-	npm test
-
-test-integration: build ## run integration test (creates real aoe sessions, ~30s)
-	node dist/integration-test.js
-
-test-all: test test-integration ## run both unit + integration tests
-
-clean: ## remove build artifacts
-	rm -rf dist
-
-daemon: build ## build and start the supervisor daemon
+# Start the daemon against your own AoE sessions (not self-improvement mode).
+daemon: build
 	@echo ""
 	@echo "  starting aoaoe daemon..."
-	@echo "  press Ctrl+C to stop"
+	@echo "  watching all active AoE sessions. Ctrl+C to stop."
 	@echo ""
 	node dist/index.js
 
-start: daemon ## alias for daemon
+start: daemon  # alias
 
-##
-## ── Self-improvement (aoaoe supervising its own repo) ────────────────────────
-##
+# =============================================================================
+# [BUILD]  Develop aoaoe itself. Tests, build, release.
+# =============================================================================
 
-self: build ## aoaoe supervises itself — reads roadmap, ships features, commits, pushes
-	@echo ""
-	@echo "  ┌──────────────────────────────────────────────────────┐"
-	@echo "  │              aoaoe self-improvement                  │"
-	@echo "  │                                                       │"
-	@echo "  │  aoaoe supervises its own AoE session, picks tasks   │"
-	@echo "  │  from the roadmap in aoaoe.tasks.json, implements,   │"
-	@echo "  │  commits, and pushes — updating itself in real time. │"
-	@echo "  │                                                       │"
-	@echo "  │  ESC ESC to interrupt  •  /help for TUI commands     │"
-	@echo "  └──────────────────────────────────────────────────────┘"
-	@echo ""
-	@if ! aoe list --json 2>/dev/null | python3 -c "import sys,json; sessions=json.load(sys.stdin); exit(0 if any(s['title']=='aoaoe' for s in sessions) else 1)" 2>/dev/null; then \
-		echo "  no 'aoaoe' AoE session found — creating one..."; \
-		aoe add "$(PWD)" -t "aoaoe" -c opencode -y; \
-	fi
-	node dist/index.js
+build:
+	npm run build
 
-self-dry: build ## observe + plan without executing — safe way to watch what aoaoe would do
-	@echo ""
-	@echo "  starting aoaoe in dry-run mode (observe only)..."
-	@echo "  press Ctrl+C to stop"
-	@echo ""
-	node dist/index.js --dry-run
+dev:
+	npm run dev
 
-## kept for backward compat
-demo-setup: setup ## alias for setup
-demo: self ## alias for self
-demo-dry: self-dry ## alias for self-dry
+lint:
+	npm run lint
 
-##
-## ── Release ───────────────────────────────────────────────────────────────────
-##
+check: lint
 
-release: test-all ## cut a release: run tests, tag, push (usage: make release v=0.29.0)
-	@if [ -z "$(v)" ]; then echo "  usage: make release v=0.29.0"; exit 1; fi
-	@if ! git diff --quiet HEAD; then echo "  error: uncommitted changes"; exit 1; fi
+# Unit tests — 2100+ tests, zero external deps, runs in seconds.
+test: build
+	npm test
+
+# Integration test — creates real AoE sessions, runs the full loop, cleans up (~30s).
+# Requires: aoe, opencode (or claude-code), and tmux on PATH.
+test-integration: build
+	node dist/integration-test.js
+
+test-all: test test-integration
+
+clean:
+	rm -rf dist
+
+# Watch mode for development — recompiles on every save.
+watch:
+	npm run dev
+
+# Cut a release: runs all tests, bumps version, tags, and pushes.
+# CI handles npm publish + GitHub Release automatically.
+# Usage: make release v=0.30.0
+release: test-all
+	@if [ -z "$(v)" ]; then echo "  usage: make release v=0.30.0"; exit 1; fi
+	@if ! git diff --quiet HEAD; then echo "  error: uncommitted changes — commit or stash first"; exit 1; fi
 	@echo ""
 	@echo "  releasing v$(v)..."
 	npm version $(v) --no-git-tag-version
 	git add package.json
-	git commit -m "v$(v): $$(git log -1 --format='%s' | sed 's/^v[0-9]*\.[0-9]*\.[0-9]*: //')"
+	git commit -m "v$(v)"
 	git tag "v$(v)"
 	git push origin main --tags
 	@echo ""
-	@echo "  v$(v) pushed. CI will npm publish + GitHub Release."
+	@echo "  v$(v) tagged and pushed. CI will publish to npm + create GitHub Release."
+
+# =============================================================================
+# HELP
+# =============================================================================
+
+help:
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║                           aoaoe                                 ║"
+	@echo "║   Autonomous supervisor for Agent of Empires sessions.          ║"
+	@echo "║   Watches agents, reasons about what to do, and acts.           ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@echo "  New here?  →  make setup   then   make self"
+	@echo ""
+	@echo "┌─ [WATCH]  See it work ────────────────────────────────────────────"
+	@echo "│"
+	@echo "│  make self              aoaoe supervises itself in real time"
+	@echo "│                         reads roadmap → implements → commits → pushes"
+	@echo "│"
+	@echo "│  make self-dry          observe + plan only, no actions executed"
+	@echo "│                         safe to run alongside any live sessions"
+	@echo "│"
+	@echo "├─ [RUN]  Supervise your own projects ─────────────────────────────"
+	@echo "│"
+	@echo "│  make setup             install deps, build, create AoE session"
+	@echo "│                         run this once before anything else"
+	@echo "│"
+	@echo "│  make daemon            supervise your AoE sessions"
+	@echo "│                         polls all active sessions, reasons, acts"
+	@echo "│"
+	@echo "│  The daemon TUI:"
+	@echo "│    ESC ESC              interrupt the current reasoning cycle"
+	@echo "│    /help                show all slash commands"
+	@echo "│    /pause / /resume     pause and resume the supervisor"
+	@echo "│    /mode dry-run        switch to observe-only at runtime"
+	@echo "│    /view N              drill into session N"
+	@echo "│    /pin N               pin session N to the top"
+	@echo "│    /note N <text>       attach a note to a session"
+	@echo "│    /task                manage task goals per session"
+	@echo "│"
+	@echo "├─ [BUILD]  Develop aoaoe itself ──────────────────────────────────"
+	@echo "│"
+	@echo "│  make build             compile TypeScript → dist/"
+	@echo "│  make watch             watch mode — recompile on save"
+	@echo "│  make lint              type-check without emitting"
+	@echo "│  make test              unit tests (2100+, no external deps)"
+	@echo "│  make test-integration  end-to-end test (real aoe + tmux, ~30s)"
+	@echo "│  make test-all          unit + integration"
+	@echo "│  make clean             remove dist/"
+	@echo "│"
+	@echo "│  make release v=0.30.0  tag + push (CI publishes to npm)"
+	@echo "│"
+	@echo "│  Docs:   README.md"
+	@echo "│  State:  claude.md  (roadmap, current work, version)"
+	@echo "│  Arch:   AGENTS.md  (source layout, conventions, testing)"
+	@echo "│"
+	@echo "└───────────────────────────────────────────────────────────────────"
+	@echo ""
+
+# kept for backward compat
+demo-setup: setup
+demo: self
+demo-dry: self-dry
