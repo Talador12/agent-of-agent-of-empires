@@ -3108,6 +3108,19 @@ export class TUI {
       // ── poll counter ────────────────────────────────────────────────────────
       const poll = `${STEEL}${BOX.v}${RESET}${BG_DARK} ${SLATE}#${this.pollCount}${RESET}${BG_DARK}`;
 
+      // ── fleet health dot ────────────────────────────────────────────────────
+      // Single composited health indicator (opencode StatusPopover pattern):
+      // one dot summarising the entire fleet — any error = rose, any waiting = amber,
+      // all working/done = lime, empty or all idle = steel.
+      const fleetDot = (() => {
+        if (this.sessions.length === 0) return `${STEEL}${DOT.hollow}${RESET}`;
+        const statuses = this.sessions.map((s) => s.status);
+        if (statuses.some((st) => st === "error"))   return `${ROSE}${DOT.filled}${RESET}`;
+        if (statuses.some((st) => st === "waiting")) return `${AMBER}${DOT.filled}${RESET}`;
+        if (statuses.some((st) => st === "working" || st === "running")) return `${LIME}${DOT.filled}${RESET}`;
+        return `${STEEL}${DOT.hollow}${RESET}`;
+      })();
+
       // ── agent count ─────────────────────────────────────────────────────────
       const visCount = this.getVisibleCount();
       const sessCountStr = this.focusMode
@@ -3116,7 +3129,7 @@ export class TUI {
       const agentLabel = this.sessions.length !== 1 ? "agents" : "agent";
       const activeCount = this.sessions.filter((s) => s.userActive).length;
       const activeChip = activeCount > 0 ? ` ${BG_AMBER}${BOLD} ${activeCount} you ${RESET}${BG_DARK}` : "";
-      const agents = `${STEEL}${BOX.v}${RESET}${BG_DARK} ${SILVER}${GLYPH.agent} ${BOLD}${sessCountStr}${RESET}${BG_DARK} ${STEEL}${agentLabel}${RESET}${BG_DARK}${activeChip}`;
+      const agents = `${STEEL}${BOX.v}${RESET}${BG_DARK} ${fleetDot} ${BOLD}${sessCountStr}${RESET}${BG_DARK} ${STEEL}${agentLabel}${RESET}${BG_DARK}${activeChip}`;
 
       // ── phase + progress ────────────────────────────────────────────────────
       const phaseChunk = formatPhaseChunk(this.phase, this.paused, this.spinnerFrame, this.nextTickAt, this.nextReasonAt, this.cols);
@@ -3267,6 +3280,8 @@ export class TUI {
           noteText: this.sessionNotes.get(s.id),
           icon: this.sessionIcons.get(s.id),
           vibeCell: this.sessionVibes.get(s.id),
+          burnRate,
+          budgetUSD: this.sessionBudgets.get(s.id) ?? this.globalBudget ?? null,
         });
         const padded = padBoxLineHover(line, this.cols, isHovered);
         process.stderr.write(moveTo(startRow + 2 + i, 1) + CLEAR_LINE + padded);
@@ -3334,6 +3349,8 @@ export class TUI {
       noteText: this.sessionNotes.get(s.id),
       icon: this.sessionIcons.get(s.id),
       vibeCell: this.sessionVibes.get(s.id),
+      burnRate,
+      budgetUSD: this.sessionBudgets.get(s.id) ?? this.globalBudget ?? null,
     });
     const padded = padBoxLineHover(line, this.cols, isHovered);
     process.stderr.write(SAVE_CURSOR + moveTo(startRow + 2 + i, 1) + CLEAR_LINE + padded + RESTORE_CURSOR);
@@ -3642,17 +3659,23 @@ function formatSessionTableRow(opts: {
   noteText: string | undefined;
   icon?: string | undefined;
   vibeCell?: string | undefined; // pre-computed from vibe.ts (kept for compat; unused in table)
+  burnRate?: number | null;      // tokens/min from context history — for CTX direction arrow
+  budgetUSD?: number | null;     // session budget — for COST threshold coloring
 }): string {
   const { s, idx, innerWidth, isHovered, pinned, muted, noted, group,
     errSparkline, idleSinceMs, healthScore, displayName, colorName, draining,
-    sessionLabel, sTags, mutedCount, icon } = opts;
+    sessionLabel, sTags, mutedCount, icon, burnRate, budgetUSD } = opts;
 
   const bg = isHovered ? BG_HOVER : "";
   const c = computeTableCols(innerWidth);
 
   // ── NAME column ───────────────────────────────────────────────────────────
-  const dot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
-  const colorDot = colorName ? `${formatColorDot(colorName)} ` : "";
+  // Tint the status dot with the session's assigned accent color (opencode tint pattern):
+  // each agent gets a unique color, applied to the primary indicator dot so agents
+  // are visually distinct at a glance without needing a separate color-dot glyph.
+  const baseDot = STATUS_DOT[s.status] ?? `${AMBER}${DOT.filled}${RESET}`;
+  const dot = colorName ? `${formatColorDot(colorName)}${RESET}` : baseDot;
+  const colorDot = "";
   const drainMark = draining ? `${DIM}${DRAIN_ICON}${RESET}` : "";
   const pinMark   = pinned   ? `${AMBER}${PIN_ICON}${RESET}` : "";
   const muteMark  = muted    ? `${DIM}${MUTE_ICON}${RESET}` : "";
@@ -3692,35 +3715,47 @@ function formatSessionTableRow(opts: {
   const healthCell  = `${healthColor}${HEALTH_ICON}${healthScore}${RESET}`;
 
   // ── CTX column ────────────────────────────────────────────────────────────
-  // Prefer percentage fill from parseContextCeiling (opencode-style progress),
-  // fall back to raw token count when no ceiling info is available.
+  // Percentage fill from parseContextCeiling (opencode ProgressCircle equivalent).
+  // Appends a ↑ direction arrow when burn rate exceeds threshold — opencode's
+  // DebugBar "bad" threshold pattern: value exceeds limit → go red.
   const ceiling = parseContextCeiling(s.contextTokens);
+  const burning = burnRate !== null && burnRate !== undefined && burnRate > CONTEXT_BURN_THRESHOLD;
+  const burnArrow = burning ? `${ROSE}↑${RESET}` : "";
   let ctxCell: string;
   if (ceiling) {
     const pct = Math.round((ceiling.current / ceiling.max) * 100);
-    // color ramp: green < 70%, amber 70-89%, rose ≥ 90%
+    // color ramp: slate <70%, amber 70–89%, rose ≥90%
     const ctxColor = pct >= 90 ? ROSE : pct >= 70 ? AMBER : SLATE;
-    ctxCell = `${ctxColor}${pct}%${RESET}`;
+    ctxCell = `${ctxColor}${pct}%${RESET}${burnArrow}`;
   } else if (s.contextTokens) {
-    // raw token count, no ceiling — show compact "137kt"
     const raw = s.contextTokens.replace(/,/g, "").replace(/\s*tokens?.*$/i, "").trim();
     const n   = parseInt(raw, 10);
-    ctxCell = isNaN(n)
+    const base = isNaN(n)
       ? `${DIM}${truncatePlain(raw, c.ctx)}${RESET}`
       : n >= 1_000_000
         ? `${ROSE}${(n / 1_000_000).toFixed(1)}Mt${RESET}`
         : n >= 1_000
           ? `${n >= 100_000 ? AMBER : SLATE}${Math.round(n / 1_000)}kt${RESET}`
           : `${SLATE}${n}t${RESET}`;
+    ctxCell = `${base}${burnArrow}`;
   } else {
     ctxCell = `${DIM}—${RESET}`;
   }
 
   // ── COST column ───────────────────────────────────────────────────────────
-  const costRaw  = s.costStr ?? "";
-  const costCell = costRaw
-    ? `${TEAL}${truncatePlain(costRaw, c.cost)}${RESET}`
-    : `${DIM}—${RESET}`;
+  // Budget-aware coloring (opencode DebugBar "bad" threshold pattern):
+  // over budget → rose, under budget → lime, no budget set → teal, no data → dim dash.
+  const costRaw = s.costStr ?? "";
+  let costCell: string;
+  if (costRaw) {
+    const costVal = parseCostValue(costRaw);
+    const overBudget = budgetUSD != null && costVal !== null && costVal >= budgetUSD;
+    const underBudget = budgetUSD != null && costVal !== null && costVal < budgetUSD;
+    const costColor = overBudget ? ROSE : underBudget ? LIME : TEAL;
+    costCell = `${costColor}${truncatePlain(costRaw, c.cost)}${RESET}`;
+  } else {
+    costCell = `${DIM}—${RESET}`;
+  }
 
   return (
     `${bg}${STEEL}${BOX.v}${RESET} ` +
