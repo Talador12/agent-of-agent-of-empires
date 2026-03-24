@@ -1,30 +1,30 @@
 [
   {
-    "repo": ".",
-    "sessionTitle": "agent-of-agent-of-empires",
-    "sessionMode": "existing",
-    "tool": "opencode",
-    "goal": "- Keep implementing and iterating improvements on the roadmap in claude.md\n- Pick the next batch of features from the Ideas Backlog, implement them with full tests\n- Commit and push after each version — small, self-contained improvements only\n- Add new ideas you come up with to the roadmap backlog\n- Cut a release tag when there are meaningful updates"
-  },
-  {
-    "repo": "/Users/kadler/Documents/repos",
-    "sessionTitle": "aoaoe",
-    "sessionMode": "existing",
-    "tool": "opencode",
-    "goal": "Continue the roadmap in claude.md"
-  },
-  {
     "repo": "/Users/kadler/Documents/repos/github/adventure",
     "sessionTitle": "adventure",
     "sessionMode": "existing",
     "tool": "opencode",
-    "goal": "Continue the roadmap in claude.md — ship the next feature, commit, push. Current version v9.5.0. Fix the blocked portrait assets if possible or pick the next unblocked item."
+    "goal": "Find the roadmap (check claude.md, README.md, AGENTS.md). Pick the next item and implement it. Add new ideas to the roadmap as you or the human think of them. Commit and push after each self-contained improvement."
+  },
+  {
+    "repo": "/Users/kadler/Documents/repos/github/agent-of-agent-of-empires",
+    "sessionTitle": "aoaoe",
+    "sessionMode": "existing",
+    "tool": "opencode",
+    "goal": "Find the roadmap (check claude.md, README.md, AGENTS.md). Pick the next item and implement it with full tests. Add new ideas to the roadmap as you or the human think of them. Commit and push after each self-contained improvement."
   },
   {
     "repo": "/Users/kadler/Documents/repos/github/code-music",
     "sessionTitle": "code-music",
     "sessionMode": "existing",
     "tool": "opencode",
-    "goal": "Continue the roadmap in claude.md — implement the next feature or song, run tests, commit, push. Currently at v0.17.0 with 55 songs and 269 tests."
+    "goal": "Find the roadmap (check claude.md, README.md, AGENTS.md). Pick the next item and implement it. Add new ideas to the roadmap as you or the human think of them. Commit and push after each self-contained improvement."
+  },
+  {
+    "repo": "/Users/kadler/Documents/repos",
+    "sessionTitle": "cloudchamber",
+    "sessionMode": "existing",
+    "tool": "opencode",
+    "goal": "Continue the roadmap in claude.md"
   }
 ]

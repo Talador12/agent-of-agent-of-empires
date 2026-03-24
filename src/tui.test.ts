@@ -58,6 +58,7 @@ import {
   resolveAlias, validateAliasName, MAX_ALIASES, BUILTIN_COMMANDS,
   validateGroupName, formatGroupBadge, GROUP_ICON, MAX_GROUP_NAME_LEN,
   formatConfidenceBadge,
+  STATS_REFRESH_INTERVAL_MS,
   TUI,
 } from "./tui.js";
 import type { ActivityEntry, SortMode, TuiPrefs, SnapshotData, SnapshotSession, TopSortMode, SessionReportData } from "./tui.js";
@@ -3294,6 +3295,72 @@ describe("TUI confidence tracking", () => {
       tui.setLastConfidence(level);
       assert.equal(tui.getLastConfidence(), level);
     }
+  });
+});
+
+// ── STATS_REFRESH_INTERVAL_MS ─────────────────────────────────────────────
+
+describe("STATS_REFRESH_INTERVAL_MS", () => {
+  it("is 5000ms", () => {
+    assert.equal(STATS_REFRESH_INTERVAL_MS, 5000);
+  });
+});
+
+// ── TUI stats-live (startStatsRefresh / stopStatsRefresh / isStatsRefreshing) ─
+
+describe("TUI stats-live", () => {
+  it("isStatsRefreshing is false initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.isStatsRefreshing(), false);
+  });
+
+  it("startStatsRefresh fires callback immediately", () => {
+    const tui = new TUI();
+    let calls = 0;
+    tui.startStatsRefresh(() => { calls++; });
+    assert.equal(calls, 1, "callback should fire immediately");
+    tui.stopStatsRefresh(); // cleanup
+  });
+
+  it("isStatsRefreshing is true after start", () => {
+    const tui = new TUI();
+    tui.startStatsRefresh(() => {});
+    assert.equal(tui.isStatsRefreshing(), true);
+    tui.stopStatsRefresh(); // cleanup
+  });
+
+  it("stopStatsRefresh clears the timer", () => {
+    const tui = new TUI();
+    tui.startStatsRefresh(() => {});
+    tui.stopStatsRefresh();
+    assert.equal(tui.isStatsRefreshing(), false);
+  });
+
+  it("double start is a no-op (does not double-fire)", () => {
+    const tui = new TUI();
+    let calls = 0;
+    tui.startStatsRefresh(() => { calls++; });
+    const callsAfterFirst = calls;
+    tui.startStatsRefresh(() => { calls += 100; }); // second start should be ignored
+    assert.equal(calls, callsAfterFirst, "second startStatsRefresh should be no-op");
+    tui.stopStatsRefresh();
+  });
+
+  it("stopStatsRefresh is safe when not refreshing", () => {
+    const tui = new TUI();
+    assert.doesNotThrow(() => tui.stopStatsRefresh());
+  });
+
+  it("can restart after stop", () => {
+    const tui = new TUI();
+    let calls = 0;
+    tui.startStatsRefresh(() => { calls++; });
+    tui.stopStatsRefresh();
+    assert.equal(tui.isStatsRefreshing(), false);
+    tui.startStatsRefresh(() => { calls += 10; });
+    assert.equal(tui.isStatsRefreshing(), true);
+    assert.ok(calls >= 11, "restart should fire callback again");
+    tui.stopStatsRefresh();
   });
 });
 

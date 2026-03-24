@@ -238,6 +238,9 @@ function computeCompactRowCount(sessions: DaemonSessionState[], maxWidth: number
 /** Window for computing per-session activity rate (5 minutes). */
 export const ACTIVITY_RATE_WINDOW_MS = 5 * 60_000;
 
+/** How often /stats-live refreshes (ms). */
+export const STATS_REFRESH_INTERVAL_MS = 5_000;
+
 /**
  * Compute messages-per-minute for a session from the activity buffer.
  * Only counts entries within the last ACTIVITY_RATE_WINDOW_MS.
@@ -1496,9 +1499,13 @@ export class TUI {
   private drainingIds = new Set<string>(); // session IDs marked as draining (skip by reasoner)
   private sessionIcons = new Map<string, string>(); // session ID → single emoji icon
   private sessionVibes = new Map<string, string>(); // session ID → pre-computed formatted vibe cell
-  private flapLog: { sessionId: string; title: string; ts: number; count: number }[] = []; // recent flap events
+   private flapLog: { sessionId: string; title: string; ts: number; count: number }[] = []; // recent flap events
 
-  // drill-down mode: show a single session's full output
+   // /stats-live: periodic auto-refresh of per-session stats
+   private statsRefreshTimer: ReturnType<typeof setInterval> | null = null;
+   private statsRefreshCallback: (() => void) | null = null;
+
+   // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
   private drilldownSessionId: string | null = null;
   private sessionOutputs = new Map<string, string[]>(); // full output lines per session
@@ -2154,6 +2161,35 @@ export class TUI {
   /** Return the most recent reasoner confidence level, or null if none recorded yet. */
   getLastConfidence(): ConfidenceLevel | null {
     return this.lastConfidence;
+  }
+
+  // ── /stats-live: periodic auto-refresh ──────────────────────────────────
+
+  /**
+   * Start auto-refreshing stats every STATS_REFRESH_INTERVAL_MS.
+   * The callback should gather + log stats (same logic as /stats handler).
+   * Calling this while already refreshing is a no-op — use stopStatsRefresh first.
+   */
+  startStatsRefresh(callback: () => void): void {
+    if (this.statsRefreshTimer) return; // already running
+    this.statsRefreshCallback = callback;
+    // fire once immediately, then repeat
+    callback();
+    this.statsRefreshTimer = setInterval(callback, STATS_REFRESH_INTERVAL_MS);
+  }
+
+  /** Stop the auto-refresh timer. */
+  stopStatsRefresh(): void {
+    if (this.statsRefreshTimer) {
+      clearInterval(this.statsRefreshTimer);
+      this.statsRefreshTimer = null;
+    }
+    this.statsRefreshCallback = null;
+  }
+
+  /** Whether /stats-live is currently running. */
+  isStatsRefreshing(): boolean {
+    return this.statsRefreshTimer !== null;
   }
 
   /** Return health history for a session (for sparkline). */

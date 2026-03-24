@@ -49,6 +49,7 @@ export type CeilingHandler = () => void; // show context ceiling for all session
 export type RenameHandler = (target: string, name: string) => void; // rename a session display name
 export type CopySessionHandler = (target: string | null) => void; // copy session pane output (null = current drilldown)
 export type StatsHandler = () => void; // show per-session stats summary
+export type StatsLiveHandler = () => void; // toggle auto-refreshing stats every N seconds
 export type RecallHandler = (keyword: string, maxResults: number) => void; // search history
 export type PinAllErrorsHandler = () => void; // pin all sessions currently in error
 export type ExportStatsHandler = () => void; // export /stats to JSON file
@@ -249,6 +250,7 @@ export class InputReader {
   private renameHandler: RenameHandler | null = null;
   private copySessionHandler: CopySessionHandler | null = null;
   private statsHandler: StatsHandler | null = null;
+  private statsLiveHandler: StatsLiveHandler | null = null;
   private recallHandler: RecallHandler | null = null;
   private pinAllErrorsHandler: PinAllErrorsHandler | null = null;
   private exportStatsHandler: ExportStatsHandler | null = null;
@@ -477,6 +479,11 @@ export class InputReader {
   // register a callback for /stats — per-session stats summary
   onStats(handler: StatsHandler): void {
     this.statsHandler = handler;
+  }
+
+  // register a callback for /stats-live — toggle periodic stats refresh
+  onStatsLive(handler: StatsLiveHandler): void {
+    this.statsLiveHandler = handler;
   }
 
   // register a callback for /recall <keyword> [N] — search history
@@ -861,7 +868,8 @@ ${BOLD}navigation:${RESET}
   /rename N|name [display] set custom display name in TUI (no display = clear)
   /copy [N|name]     copy session's current pane output to clipboard (default: current drill-down)
   /stats             show per-session health, errors, burn rate, context %, uptime
-  /recall <keyword>  search persisted activity history (last 7 days) for keyword
+   /stats-live        toggle auto-refresh of /stats every 5 seconds (like top)
+   /recall <keyword>  search persisted activity history (last 7 days) for keyword
    /pin-all-errors    pin every session currently in error status
    /pin-draining      pin all draining sessions to the top
    /labels            list all active session labels
@@ -1700,6 +1708,14 @@ ${BOLD}other:${RESET}
           this.statsHandler();
         } else {
           console.error(`${DIM}stats not available (no TUI)${RESET}`);
+        }
+        break;
+
+      case "/stats-live":
+        if (this.statsLiveHandler) {
+          this.statsLiveHandler();
+        } else {
+          console.error(`${DIM}stats-live not available (no TUI)${RESET}`);
         }
         break;
 

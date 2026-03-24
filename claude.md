@@ -5,11 +5,14 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Rules
 - Update this file with every commit.
 
-## Version: v0.165.0
+## Supervisor Notes
+- When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
+
+## Version: v0.166.0
 
 ## Current Focus
 
-Confidence badge shipped. Ready for next backlog item.
+Stats-live + natural task intent shipped. Ready for next backlog item.
 
 ### Open Items
 - Backlog continues below — all recent items shipped.
@@ -21,11 +24,24 @@ Confidence badge shipped. Ready for next backlog item.
 - **Trust ladder mode** — auto-escalate observe -> dry-run -> confirm -> autopilot from stable behavior
 - **Task fan-out templates** — generate a starter task list from currently active/inactive AoE sessions
 - **Task intake UX** — guided `/task new` flow in TUI (prompt for repo/mode/goal)
-- **Natural language task intent** — infer task updates from plain lines like "task for adventure: ..."
 - **Background progress digestion** — parse AoE pane milestones and auto-update task progress timeline
-- **Parallel `/stats` refresh** — auto-refresh `/stats` output every N seconds in TUI drill-down
-- **Compact mode health glyph color-coding** — use accent color from `/color` in compact tokens
-- **`/diff-sessions <A> <B>`** — compare two sessions' latest pane output line-by-line
+
+### What shipped in v0.166.0
+
+**v0.166.0 — /stats-live + Natural Language Task Intent**:
+- `/stats-live` — toggle auto-refresh of per-session stats every 5 seconds (like `top`). Uses `"stats"` tag so entries are filterable with `/filter stats`.
+- `TUI.startStatsRefresh(callback)` — fires callback immediately then every `STATS_REFRESH_INTERVAL_MS` (5s). Double-start is a no-op.
+- `TUI.stopStatsRefresh()` + `TUI.isStatsRefreshing()` — control + query.
+- `parseNaturalTaskIntent(line)` pure fn — matches "task for <s>: <goal>", "task <s>: <goal>", "<s>: <goal>" (single-word session). Rejects bare numbers, URL schemes, single-char prefixes.
+- Natural intent fires in overview mode (not drill-down), emits `__CMD_NATURALTASK__` to queue, routes through `quickTaskUpdate`.
+- `formatConfidenceBadge(confidence)` — lime ▲ high | rose ▼ low | silent for medium/null. Header bar shows confidence badge.
+- `TUI.setLastConfidence/getLastConfidence` — tracks last reasoning cycle signal. Wired in index.ts.
+- `aoaoe.tasks.json` — added adventure + code-music sessions with goals.
+- `aoaoe.config.json` — added code-music to sessionDirs.
+- 25 new tests: /stats-live TUI (7), STATS_REFRESH_INTERVAL_MS (1), onStatsLive input (3), parseNaturalTaskIntent (14), formatConfidenceBadge (4), TUI confidence (6)
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `aoaoe.tasks.json`, `package.json`, `claude.md`
+Test changes: +25, net 2246 tests across 35 files.
 
 ### What shipped in v0.165.0
 

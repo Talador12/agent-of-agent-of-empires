@@ -1364,6 +1364,38 @@ async function main() {
         tui!.log("system", line);
       }
     });
+    // wire /stats-live — toggle periodic auto-refresh of per-session stats
+    input.onStatsLive(() => {
+      if (tui!.isStatsRefreshing()) {
+        tui!.stopStatsRefresh();
+        tui!.log("system", "stats-live: off");
+      } else {
+        const refreshFn = () => {
+          const sessions = tui!.getSessions();
+          if (sessions.length === 0) return;
+          const now = Date.now();
+          const entries = buildSessionStats(
+            sessions,
+            tui!.getSessionErrorCounts(),
+            tui!.getAllBurnRates(now),
+            tui!.getAllFirstSeen(),
+            tui!.getAllLastChangeAt(),
+            tui!.getAllHealthScores(now),
+            tui!.getAllSessionAliases(),
+            now,
+            new Map(sessions.map((s) => [s.id, tui!.getSessionErrorTimestamps(s.id)])),
+            tui!.getAllSessionCosts(),
+            new Map(sessions.map((s) => [s.id, tui!.getSessionHealthHistory(s.id)])),
+          );
+          tui!.log("stats", `/stats — ${entries.length} session${entries.length !== 1 ? "s" : ""}:`);
+          for (const line of formatSessionStatsLines(entries)) {
+            tui!.log("stats", line);
+          }
+        };
+        tui!.startStatsRefresh(refreshFn);
+        tui!.log("system", "stats-live: on (every 5s) — /stats-live again to stop");
+      }
+    });
     // wire /copy session pane output to clipboard
     input.onCopySession((target) => {
       // resolve target: null = current drill-down session

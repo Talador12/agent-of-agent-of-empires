@@ -1825,3 +1825,29 @@ describe("parseNaturalTaskIntent", () => {
     assert.deepEqual(r, { session: "cloud-hypervisor", goal: "fix sev-snp" });
   });
 });
+
+// ── onStatsLive ─────────────────────────────────────────────────────────
+
+describe("onStatsLive", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let called = false;
+    reader.onStatsLive(() => { called = true; });
+    reader["statsLiveHandler"]!();
+    assert.equal(called, true);
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["statsLiveHandler"]?.(); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onStatsLive(() => { calls++; });
+    reader.onStatsLive(() => { calls += 10; });
+    reader["statsLiveHandler"]!();
+    assert.equal(calls, 10);
+  });
+});
