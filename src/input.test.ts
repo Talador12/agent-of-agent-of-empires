@@ -222,8 +222,13 @@ describe("parseMouseEvent", () => {
     assert.equal(parseMouseEvent("\x1b[<0;15"), null);
   });
 
-  it("returns null for legacy X10 mouse (non-SGR)", () => {
-    assert.equal(parseMouseEvent("\x1b[M !!"), null);
+  it("parses legacy X10 mouse format (\\x1b[M + 3 bytes)", () => {
+    // X10: \x1b[M then btn+32, col+32, row+32 — space(32)=0, !(33)=1
+    const evt = parseMouseEvent("\x1b[M !!"); // btn=0, col=1, row=1
+    assert.ok(evt !== null);
+    assert.equal(evt!.button, 0);
+    assert.equal(evt!.col, 1);
+    assert.equal(evt!.row, 1);
   });
 
   it("handles mouse data embedded in larger string", () => {

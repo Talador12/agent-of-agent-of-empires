@@ -103,16 +103,54 @@ export type MouseMoveHandler = (row: number, col: number) => void;
 // SGR extended mouse format: \x1b[<btn;col;rowM (press) or \x1b[<btn;col;rowm (release)
 const SGR_MOUSE_RE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/;
 
+// X10/normal mouse format: \x1b[M followed by 3 raw bytes (btn+32, col+32, row+32)
+// Matches the 3-byte payload after \x1b[M
+const X10_MOUSE_PREFIX = "\x1b[M";
+
 /** Parse an SGR extended mouse event from raw terminal data. Returns null if not a mouse event. */
 export function parseMouseEvent(data: string): MouseEvent | null {
+  // SGR format: \x1b[<btn;col;rowM
   const m = SGR_MOUSE_RE.exec(data);
-  if (!m) return null;
-  return {
-    button: parseInt(m[1], 10),
-    col: parseInt(m[2], 10),
-    row: parseInt(m[3], 10),
-    press: m[4] === "M",
-  };
+  if (m) {
+    return {
+      button: parseInt(m[1], 10),
+      col: parseInt(m[2], 10),
+      row: parseInt(m[3], 10),
+      press: m[4] === "M",
+    };
+  }
+  // X10/normal format: \x1b[M + 3 raw bytes
+  if (data.startsWith(X10_MOUSE_PREFIX) && data.length >= X10_MOUSE_PREFIX.length + 3) {
+    const btn = data.charCodeAt(X10_MOUSE_PREFIX.length) - 32;
+    const col = data.charCodeAt(X10_MOUSE_PREFIX.length + 1) - 32;
+    const row = data.charCodeAt(X10_MOUSE_PREFIX.length + 2) - 32;
+    return { button: btn, col, row, press: true };
+  }
+  return null;
+}
+
+/**
+ * Returns true if the string looks like raw terminal mouse/escape data that
+ * should never reach the reasoner queue.
+ * Covers:
+ *   - Sequences starting with ESC (any ANSI/VT control sequence)
+ *   - Bare mouse sequence payloads that leaked after readline consumed the ESC:
+ *     e.g. "35;127;16M", "[<35;127;16M", "M" alone, etc.
+ */
+export function isMouseOrEscapeSequence(line: string): boolean {
+  if (!line) return false;
+  // starts with ESC byte — any ANSI control sequence
+  if (line.charCodeAt(0) === 0x1b) return true;
+  // bare SGR mouse payload: digits + semicolons + [MmCDA] (leaked after ESC stripped)
+  // e.g. "35;127;16M", "[<35;127;16M", "<35;127;16M"
+  if (/^[\[<]?\d+;\d+;\d+[MmCDA]/.test(line)) return true;
+  // X10 mouse without ESC prefix: "M" + two non-printable chars
+  if (line.startsWith("M") && line.length === 3 &&
+      line.charCodeAt(1) > 31 && line.charCodeAt(1) < 128 &&
+      line.charCodeAt(2) > 31 && line.charCodeAt(2) < 128) return true;
+  // lines consisting entirely of non-printable/control characters
+  if (line.length > 0 && /^[\x00-\x1f\x7f-\x9f]+$/.test(line)) return true;
+  return false;
 }
 
 export class InputReader {
@@ -506,24 +544,18 @@ export class InputReader {
     this.queueChangeHandler?.(this.queue.length);
   }
 
-  start(): void {
+   start(): void {
     // only works if stdin is a TTY (not piped)
     if (!process.stdin.isTTY) return;
 
-    this.rl = createInterface({
-      input: process.stdin,
-      output: process.stderr, // prompt goes to stderr so stdout stays clean
-      prompt: `${GREEN}you >${RESET} `,
-      terminal: true,
-    });
-
-    this.rl.on("line", (line) => this.handleLine(line.trim()));
-    this.rl.on("close", () => { this.rl = null; });
-
-    // ESC-ESC interrupt detection (same as chat.ts)
+    // ESC-ESC interrupt detection — must be set up before readline so
+    // emitKeypressEvents doesn't interfere with our raw data listener order
     emitKeypressEvents(process.stdin);
 
-    // intercept raw SGR mouse sequences before keypress parsing
+    // Register the mouse data listener with prependListener so it fires
+    // BEFORE readline's internal data handler. This ensures we see the
+    // full \x1b[<btn;col;rowM sequence intact before readline has a chance
+    // to split or consume escape bytes.
     this.mouseDataListener = (data: Buffer) => {
       const str = data.toString("utf8");
       const evt = parseMouseEvent(str);
@@ -546,7 +578,19 @@ export class InputReader {
         }
       }
     };
-    process.stdin.on("data", this.mouseDataListener);
+    // prependListener: fires before readline's internal data handler so we
+    // see intact sequences first
+    process.stdin.prependListener("data", this.mouseDataListener);
+
+    this.rl = createInterface({
+      input: process.stdin,
+      output: process.stderr, // prompt goes to stderr so stdout stays clean
+      prompt: `${GREEN}you >${RESET} `,
+      terminal: true,
+    });
+
+    this.rl.on("line", (line) => this.handleLine(line.trim()));
+    this.rl.on("close", () => { this.rl = null; });
 
     process.stdin.on("keypress", (_ch: string | undefined, key: { name?: string; sequence?: string }) => {
       if (key?.name === "escape" || key?.sequence === "\x1b") {
@@ -632,8 +676,18 @@ export class InputReader {
     console.error(`${RED}${BOLD}!${RESET} ${GREEN}insist${RESET} ${DIM}— interrupting + delivering your message immediately${RESET}`);
   }
 
-  private handleLine(line: string): void {
+   private handleLine(line: string): void {
     if (!line) {
+      this.rl?.prompt();
+      return;
+    }
+
+    // Safety net: drop any line that looks like raw terminal mouse tracking data
+    // or ANSI escape sequences. These can leak into the readline buffer when
+    // tmux mouse tracking is active and the terminal sends sequences like
+    // \x1b[<35;127;16M that readline partially consumes, leaving "35;127;16M"
+    // as a bare "line". Never send these to the reasoner.
+    if (isMouseOrEscapeSequence(line)) {
       this.rl?.prompt();
       return;
     }

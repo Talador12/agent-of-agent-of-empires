@@ -1518,9 +1518,14 @@ export class TUI {
     this.countdownTimer = setInterval(() => {
       if (!this.active) return;
       this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER.length;
-      // repaint header for countdown and spinner
+      // repaint header (countdown + spinner animation)
       if (this.phase !== "sleeping" || this.nextTickAt > 0) {
         this.paintHeader();
+      }
+      // repaint session panel every 1s (4 ticks) so vibe/idle/health
+      // update live without waiting for a state-change event
+      if (this.spinnerFrame % 4 === 0 && this.viewMode === "overview") {
+        this.paintSessions();
       }
     }, 250);
     // initial layout
@@ -3023,24 +3028,44 @@ export class TUI {
     this.updateDimensions();
     // inputRow is ALWAYS the last row — nothing writes below it.
     // scrollBottom is rows-2 to leave the input row fully owned by paintInputLine.
-    // This prevents writeActivityLine's "\n" scroll from clobbering the prompt.
     this.inputRow = this.rows;
+
     if (this.viewMode === "drilldown") {
       this.sessionRows = 0;
       this.separatorRow = this.headerHeight + 1;
       this.scrollTop = this.separatorRow + 1;
-      this.scrollBottom = this.rows - 2; // reserve last row for input
+      this.scrollBottom = this.rows - 2;
     } else {
-      // overview: header + sessions box (top border + col headers + N rows + bottom border) + separator + activity + input
+      // Reserve at least MIN_ACTIVITY_ROWS rows for the activity log.
+      // header(1) + separator(1) + input(1) + MIN_ACTIVITY_ROWS = fixed overhead.
+      const MIN_ACTIVITY_ROWS = 8;
+      const fixedOverhead = this.headerHeight + 1 /* separator */ + 1 /* input reserve */ + MIN_ACTIVITY_ROWS;
+      const maxSessionRows = Math.max(2, this.rows - fixedOverhead);
+
       const visibleSessions = this.getVisibleSessions();
-      const sessBodyRows = this.compactMode
+
+      // auto-compact if sessions won't fit at full height
+      let useCompact = this.compactMode;
+      if (!useCompact) {
+        // full mode: top border + col header + N session rows + bottom border = N+3
+        const fullRows = Math.max(sessionCount, 1) + 3;
+        if (fullRows > maxSessionRows) useCompact = true;
+      }
+
+      const sessBodyRows = useCompact
         ? computeCompactRowCount(visibleSessions, this.cols - 2)
         : Math.max(sessionCount, 1);
-      // +3: top border, column header row, bottom border
-      this.sessionRows = sessBodyRows + 3;
+
+      // full mode: +3 (top border, col header row, bottom border)
+      // compact mode: +2 (section label row, bottom border only)
+      const chromRows = useCompact ? 2 : 3;
+      const rawSessionRows = sessBodyRows + chromRows;
+
+      // clamp to available space
+      this.sessionRows = Math.min(rawSessionRows, maxSessionRows);
       this.separatorRow = this.headerHeight + this.sessionRows + 1;
       this.scrollTop = this.separatorRow + 1;
-      this.scrollBottom = this.rows - 2; // reserve last row for input
+      this.scrollBottom = this.rows - 2;
     }
 
     if (this.active) {
@@ -3123,25 +3148,38 @@ export class TUI {
 
   private paintSessions(): void {
     const startRow = this.headerHeight + 1;
-    const innerWidth = this.cols - 2; // inside the box borders
+    const innerWidth = this.cols - 2;
     const visibleSessions = this.getVisibleSessions();
     const visibleCount = visibleSessions.length;
 
-    // ── top border: double-line with colored section label ───────────────────
+    // Determine if we are forced into compact due to screen size.
+    // computeLayout already set sessionRows to the clamped value — use
+    // that to decide: if sessionRows < sessions+3 we must be compact.
+    const MIN_ACTIVITY_ROWS = 8;
+    const fixedOverhead = this.headerHeight + 1 + 1 + MIN_ACTIVITY_ROWS;
+    const maxSessionRows = Math.max(2, this.rows - fixedOverhead);
+    const fullRowsNeeded = Math.max(visibleCount, 1) + 3; // +3: top border, col header, bottom border
+    const forceCompact = !this.compactMode && fullRowsNeeded > maxSessionRows;
+    const useCompact = this.compactMode || forceCompact;
+
+    // ── top border: rounded box art ──────────────────────────────────────────
     const focusTag = this.focusMode ? "focus" : "";
     const sortTag = this.sortMode !== "default" ? this.sortMode : "";
-    const compactTag = this.compactMode ? "compact" : "";
+    const compactTag = (useCompact && this.compactMode) ? "compact" : "";
+    const autoTag = forceCompact ? "auto-compact" : "";
     const groupTag = this.groupFilter ? `group:${this.groupFilter}` : "";
     const tagTag = this.tagFilter2 ? `tag:${this.tagFilter2}` : "";
-    const modeTags = [focusTag, compactTag, sortTag, groupTag, tagTag].filter(Boolean).join(", ");
-    const sectionLabel = ` ${GLYPH.agent} AGENTS${modeTags ? ` (${modeTags})` : ""} `;
+    const modeTags = [focusTag, compactTag, autoTag, sortTag, groupTag, tagTag].filter(Boolean).join(", ");
+    const sectionLabel = `${SILVER}${BOLD} ${GLYPH.agent} AGENTS${modeTags ? ` ${STEEL}(${SLATE}${modeTags}${STEEL})` : ""} ${RESET}`;
     const sectionLabelWidth = stripAnsiForLen(sectionLabel);
-    const borderFill = Math.max(0, this.cols - 2 - sectionLabelWidth);
-    const topBorder = `${STEEL}${BOX.dh}${RESET}${BG_SECTION}${SILVER}${BOLD}${sectionLabel}${RESET}${STEEL}${BOX.dh.repeat(borderFill)}${RESET}`;
+    const borderFill = Math.max(0, this.cols - sectionLabelWidth - 2); // -2 for ╭ and ╮
+    const topBorder =
+      `${STEEL}${BOX.rtl}${BOX.h}${RESET}` +
+      `${BG_SECTION}${sectionLabel}${RESET}` +
+      `${STEEL}${BOX.h.repeat(borderFill)}${BOX.rtr}${RESET}`;
     process.stderr.write(SAVE_CURSOR + moveTo(startRow, 1) + CLEAR_LINE + truncateAnsi(topBorder, this.cols));
 
     if (visibleSessions.length === 0) {
-      // empty state
       let msg: string;
       if (this.tagFilter2 && this.sessions.length > 0) {
         msg = `${DIM}no agents with tag "${this.tagFilter2}" — /tag <N> <tag> to assign, /tag-filter to exit${RESET}`;
@@ -3152,11 +3190,10 @@ export class TUI {
       } else {
         msg = `${DIM}no agents connected${RESET}`;
       }
-      const empty = `${STEEL}${BOX.v}${RESET}  ${msg}`;
-      const padded = padBoxLine(empty, this.cols);
-      process.stderr.write(moveTo(startRow + 1, 1) + CLEAR_LINE + padded);
-    } else if (this.compactMode) {
-      // compact: inline tokens, multiple per row
+      process.stderr.write(moveTo(startRow + 1, 1) + CLEAR_LINE +
+        `${STEEL}${BOX.v}${RESET}  ${msg}`);
+    } else if (useCompact) {
+      // compact: inline tokens with left border gutter
       const nowMsCompact = Date.now();
       const noteIdSet = new Set(this.sessionNotes.keys());
       const compactHealthScores = new Map<string, number>();
@@ -3181,14 +3218,13 @@ export class TUI {
           this.activityBuffer, this.activityTimestamps, s.id, nowMsCompact
         ));
       }
-      const compactRows = formatCompactRows(visibleSessions, innerWidth - 1, this.pinnedIds, this.mutedIds, noteIdSet, compactHealthScores, compactActivityRates, this.sessionColors);
+      const compactRows = formatCompactRows(visibleSessions, this.cols - 3, this.pinnedIds, this.mutedIds, noteIdSet, compactHealthScores, compactActivityRates, this.sessionColors);
       for (let r = 0; r < compactRows.length; r++) {
-        const line = `${STEEL}${BOX.v}${RESET} ${compactRows[r]}`;
-        const padded = padBoxLine(line, this.cols);
-        process.stderr.write(moveTo(startRow + 1 + r, 1) + CLEAR_LINE + padded);
+        process.stderr.write(moveTo(startRow + 1 + r, 1) + CLEAR_LINE +
+          `${STEEL}${BOX.v}${RESET} ${compactRows[r]}`);
       }
     } else {
-      // ── column header row ──────────────────────────────────────────────────
+      // full table mode — column header only when there's room
       const colHeaderRow = formatSessionTableHeader(innerWidth);
       process.stderr.write(moveTo(startRow + 1, 1) + CLEAR_LINE + truncateAnsi(colHeaderRow, this.cols));
 
@@ -3220,32 +3256,32 @@ export class TUI {
         const draining = this.drainingIds.has(s.id);
         const sessionLabel = this.sessionLabels.get(s.id);
         const sTags = this.sessionTags.get(s.id);
-          const line = formatSessionTableRow({
-           s, idx: i + 1, innerWidth, isHovered,
-           pinned, muted, noted, group,
-           errSparkline: errSparkline || undefined,
-           idleSinceMs, healthScore, displayName,
-           colorName, draining, sessionLabel, sTags,
-           mutedCount: this.mutedEntryCounts.get(s.id) ?? 0,
-           noteText: this.sessionNotes.get(s.id),
-           icon: this.sessionIcons.get(s.id),
-           vibeCell: this.sessionVibes.get(s.id),
-         });
+        const line = formatSessionTableRow({
+          s, idx: i + 1, innerWidth, isHovered,
+          pinned, muted, noted, group,
+          errSparkline: errSparkline || undefined,
+          idleSinceMs, healthScore, displayName,
+          colorName, draining, sessionLabel, sTags,
+          mutedCount: this.mutedEntryCounts.get(s.id) ?? 0,
+          noteText: this.sessionNotes.get(s.id),
+          icon: this.sessionIcons.get(s.id),
+          vibeCell: this.sessionVibes.get(s.id),
+        });
         const padded = padBoxLineHover(line, this.cols, isHovered);
-        // +2: skip top border row + column header row
         process.stderr.write(moveTo(startRow + 2 + i, 1) + CLEAR_LINE + padded);
       }
     }
 
-    // ── bottom border ─────────────────────────────────────────────────────────
-    const bodyRows = this.compactMode
-      ? computeCompactRowCount(visibleSessions, innerWidth)
+    // ── bottom border: matching rounded corners ───────────────────────────────
+    const bodyRows = useCompact
+      ? computeCompactRowCount(visibleSessions, this.cols - 3)
       : Math.max(visibleCount, 1) + 1; // +1 for column header row
     const bottomRow = startRow + 1 + bodyRows;
-    const bottomBorder = `${STEEL}${BOX.dh.repeat(Math.max(0, this.cols))}${RESET}`;
+    const bottomBorder =
+      `${STEEL}${BOX.rbl}${BOX.h.repeat(Math.max(0, this.cols - 2))}${BOX.rbr}${RESET}`;
     process.stderr.write(moveTo(bottomRow, 1) + CLEAR_LINE + truncateAnsi(bottomBorder, this.cols));
 
-    // clear any leftover rows below the box
+    // clear leftover rows between box bottom and separator
     for (let r = bottomRow + 1; r < this.separatorRow; r++) {
       process.stderr.write(moveTo(r, 1) + CLEAR_LINE);
     }
@@ -3326,9 +3362,9 @@ export class TUI {
     }
     const hintsWidth = stripAnsiForLen(hints);
 
-    // ── fill ─────────────────────────────────────────────────────────────────
+    // ── fill: single-line rule keeps hierarchy clear below the agents box ────
     const fill = Math.max(0, this.cols - labelWidth - hintsWidth);
-    const line = `${STEEL}${BOX.dh}${RESET}${BG_SECTION}${SILVER}${BOLD}${label}${RESET}${STEEL}${BOX.dh.repeat(Math.max(0, fill - 1))}${RESET}${hints}`;
+    const line = `${STEEL}${BOX.h}${RESET}${BG_SECTION}${SILVER}${BOLD}${label}${RESET}${STEEL}${BOX.h.repeat(Math.max(0, fill - 1))}${RESET}${hints}`;
     process.stderr.write(
       SAVE_CURSOR + moveTo(this.separatorRow, 1) + CLEAR_LINE + truncateAnsi(line, this.cols) + RESTORE_CURSOR
     );
