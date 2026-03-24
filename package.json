@@ -1,6 +1,6 @@
 {
   "name": "aoaoe",
-  "version": "0.179.0",
+  "version": "0.180.0",
   "description": "Autonomous supervisor for agent-of-empires sessions using OpenCode or Claude Code",
   "type": "module",
   "main": "dist/index.js",

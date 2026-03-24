@@ -94,6 +94,7 @@ export type ProfileHandler = () => void; // show active profiles summary
 export type ReplayHandler = (target: string, speed: number | null) => void; // replay session output
 export type NotifyFilterHandler = (sessionTitle: string | null, events: string[]) => void; // per-session notification filter
 export type DepsHandler = () => void; // show session dependency graph
+export type FullSearchHandler = (query: string) => void; // ranked full-text search across session outputs
 export type RelayHandler = (args: string) => void; // cross-session relay management
 
 // ── Mouse event types ───────────────────────────────────────────────────────
@@ -303,6 +304,7 @@ export class InputReader {
   private replayHandler: ReplayHandler | null = null;
   private notifyFilterHandler: NotifyFilterHandler | null = null;
   private depsHandler: DepsHandler | null = null;
+  private fullSearchHandler: FullSearchHandler | null = null;
   private relayHandler: RelayHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
@@ -598,6 +600,7 @@ export class InputReader {
   onReplay(handler: ReplayHandler): void { this.replayHandler = handler; }
   onNotifyFilter(handler: NotifyFilterHandler): void { this.notifyFilterHandler = handler; }
   onDeps(handler: DepsHandler): void { this.depsHandler = handler; }
+  onFullSearch(handler: FullSearchHandler): void { this.fullSearchHandler = handler; }
   onRelay(handler: RelayHandler): void { this.relayHandler = handler; }
 
   /** Set aliases from persisted prefs. */
@@ -913,6 +916,7 @@ ${BOLD}navigation:${RESET}
   /tags              list all session tags
   /tag-filter [tag]  show only sessions with given freeform tag (no arg = clear)
   /find <text>       search session pane outputs for text
+   /search-all <q>    ranked full-text search across all session outputs (multi-word)
   /reset-health N    clear error counts + context history for a session
   /timeline N [n]    show last n activity entries for session N (default 30)
   /color N [color]   set accent color for session (lime/amber/rose/teal/sky/slate; no color = clear)
@@ -1454,6 +1458,17 @@ ${BOLD}other:${RESET}
         } else {
           console.error(`${DIM}find not available (no TUI)${RESET}`);
         }
+        break;
+      }
+
+      case "/search-all": {
+        const saQuery = line.slice("/search-all".length).trim();
+        if (!saQuery) {
+          console.error(`${DIM}usage: /search-all <query> — ranked full-text search across session outputs${RESET}`);
+          break;
+        }
+        if (this.fullSearchHandler) this.fullSearchHandler(saQuery);
+        else console.error(`${DIM}search-all not available (no TUI)${RESET}`);
         break;
       }
 

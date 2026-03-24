@@ -5070,6 +5070,99 @@ export function formatOOMAlert(title: string, matchedLine: string, restarting: b
   return `${title}: OOM detected — "${snippet}" — ${action}`;
 }
 
+// ── Session output search index ─────────────────────────────────────────────
+
+export interface SearchResult {
+  sessionTitle: string;
+  sessionId: string;
+  score: number;         // higher = more relevant
+  matchCount: number;    // total keyword hits in this session
+  snippets: string[];    // up to 3 matching lines with context
+}
+
+/** Max snippets per session in search results. */
+export const SEARCH_MAX_SNIPPETS = 3;
+
+/**
+ * Search across all session outputs for a query string.
+ * Supports multi-word queries (all terms must appear, scored by frequency).
+ * Returns results ranked by match score (descending).
+ */
+export function searchSessionOutputs(
+  outputs: ReadonlyMap<string, string[]>,
+  sessionMeta: ReadonlyMap<string, { id: string }>,
+  query: string,
+): SearchResult[] {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return [];
+
+  const results: SearchResult[] = [];
+
+  for (const [title, lines] of outputs) {
+    const meta = sessionMeta.get(title);
+    if (!meta) continue;
+
+    let matchCount = 0;
+    const matchingLines: { lineNum: number; line: string; hits: number }[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const lower = lines[i].replace(/\x1b\[[0-9;]*[mABCDHJKST]/g, "").toLowerCase();
+      let lineHits = 0;
+      for (const term of terms) {
+        // count occurrences of this term in the line
+        let idx = 0;
+        while ((idx = lower.indexOf(term, idx)) !== -1) {
+          lineHits++;
+          idx += term.length;
+        }
+      }
+      if (lineHits > 0) {
+        matchCount += lineHits;
+        matchingLines.push({ lineNum: i + 1, line: lines[i], hits: lineHits });
+      }
+    }
+
+    if (matchCount === 0) continue;
+
+    // check that all terms appear at least once across all matching lines
+    const allText = matchingLines.map((m) => m.line.replace(/\x1b\[[0-9;]*[mABCDHJKST]/g, "").toLowerCase()).join(" ");
+    const allTermsPresent = terms.every((t) => allText.includes(t));
+    if (!allTermsPresent) continue;
+
+    // score: match count * inverse doc length (shorter docs with more hits rank higher)
+    const docLen = Math.max(1, lines.length);
+    const score = Math.round((matchCount / Math.sqrt(docLen)) * 1000);
+
+    // top snippets by hit count
+    const sorted = matchingLines.sort((a, b) => b.hits - a.hits).slice(0, SEARCH_MAX_SNIPPETS);
+    const snippets = sorted.map((m) => {
+      const clean = m.line.replace(/\x1b\[[0-9;]*[mABCDHJKST]/g, "").trim().slice(0, 120);
+      return `L${m.lineNum}: ${clean}`;
+    });
+
+    results.push({ sessionTitle: title, sessionId: meta.id, score, matchCount, snippets });
+  }
+
+  return results.sort((a, b) => b.score - a.score);
+}
+
+/**
+ * Format search results for TUI display.
+ */
+export function formatSearchResults(results: readonly SearchResult[], query: string): string[] {
+  if (results.length === 0) return [`no results for "${query}"`];
+  const total = results.reduce((sum, r) => sum + r.matchCount, 0);
+  const lines: string[] = [];
+  lines.push(`search "${query}": ${total} hits across ${results.length} session${results.length !== 1 ? "s" : ""}`);
+  for (const r of results) {
+    lines.push(`  ${BOLD}${r.sessionTitle}${RESET} ${DIM}(${r.matchCount} hits, score ${r.score})${RESET}`);
+    for (const s of r.snippets) {
+      lines.push(`    ${DIM}${s}${RESET}`);
+    }
+  }
+  return lines;
+}
+
 // ── Exported pure helpers (for testing) ─────────────────────────────────────
 
 export { formatActivity, formatSessionCard, truncateAnsi, truncatePlain, padBoxLine, padBoxLineHover, padToWidth, stripAnsiForLen, phaseDisplay, computeScrollSlice, formatScrollIndicator, formatDrilldownScrollIndicator, formatPrompt, formatDrilldownHeader, matchesSearch, formatSearchIndicator, computeSparkline, formatSparkline, sortSessions, nextSortMode, SORT_MODES, formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN, PIN_ICON, MUTE_ICON, NOTE_ICON };

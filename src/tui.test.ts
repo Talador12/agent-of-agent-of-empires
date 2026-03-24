@@ -72,6 +72,7 @@ import {
   createRelayRule, matchRelayRules, formatRelayRules, resetRelayIdCounter,
   detectOOM, shouldRestartOnOOM, formatOOMAlert,
   OOM_RESTART_COOLDOWN_MS, OOM_MAX_RESTARTS,
+  searchSessionOutputs, formatSearchResults, SEARCH_MAX_SNIPPETS,
   TUI,
 } from "./tui.js";
 import type { RelayRule } from "./tui.js";
@@ -4515,6 +4516,106 @@ describe("TUI OOM restart tracking", () => {
     tui.recordOOMRestart("s1", 100);
     tui.resetOOMCounter("s1");
     assert.equal(tui.getOOMRestartInfo("s1"), undefined);
+  });
+});
+
+// ── Session output search index ──────────────────────────────────────────
+
+describe("SEARCH_MAX_SNIPPETS", () => {
+  it("is 3", () => { assert.equal(SEARCH_MAX_SNIPPETS, 3); });
+});
+
+describe("searchSessionOutputs", () => {
+  function makeOutputs() {
+    const outputs = new Map<string, string[]>();
+    outputs.set("Alpha", ["building project", "error: file not found", "build complete", "tests passed"]);
+    outputs.set("Bravo", ["starting server", "listening on port 3000", "error: timeout"]);
+    outputs.set("Charlie", ["idle session", "no activity"]);
+    const meta = new Map<string, { id: string }>();
+    meta.set("Alpha", { id: "s1" });
+    meta.set("Bravo", { id: "s2" });
+    meta.set("Charlie", { id: "s3" });
+    return { outputs, meta };
+  }
+
+  it("returns empty for empty query", () => {
+    const { outputs, meta } = makeOutputs();
+    assert.deepEqual(searchSessionOutputs(outputs, meta, ""), []);
+  });
+
+  it("returns empty when no matches", () => {
+    const { outputs, meta } = makeOutputs();
+    assert.deepEqual(searchSessionOutputs(outputs, meta, "xyznonexistent"), []);
+  });
+
+  it("finds single-term matches across sessions", () => {
+    const { outputs, meta } = makeOutputs();
+    const results = searchSessionOutputs(outputs, meta, "error");
+    assert.equal(results.length, 2); // Alpha and Bravo both have "error"
+  });
+
+  it("ranks by score (more hits = higher)", () => {
+    const { outputs, meta } = makeOutputs();
+    const results = searchSessionOutputs(outputs, meta, "error");
+    assert.ok(results[0].score >= results[1].score);
+  });
+
+  it("supports multi-word queries (all terms required)", () => {
+    const { outputs, meta } = makeOutputs();
+    const results = searchSessionOutputs(outputs, meta, "error timeout");
+    assert.equal(results.length, 1); // only Bravo has both
+    assert.equal(results[0].sessionTitle, "Bravo");
+  });
+
+  it("includes snippets with line numbers", () => {
+    const { outputs, meta } = makeOutputs();
+    const results = searchSessionOutputs(outputs, meta, "error");
+    assert.ok(results[0].snippets.length > 0);
+    assert.ok(results[0].snippets[0].startsWith("L"));
+  });
+
+  it("is case-insensitive", () => {
+    const { outputs, meta } = makeOutputs();
+    const results = searchSessionOutputs(outputs, meta, "ERROR");
+    assert.ok(results.length >= 1);
+  });
+
+  it("strips ANSI from output before matching", () => {
+    const outputs = new Map<string, string[]>();
+    outputs.set("X", ["\x1b[31merror: oops\x1b[0m"]);
+    const meta = new Map([["X", { id: "sx" }]]);
+    const results = searchSessionOutputs(outputs, meta, "error");
+    assert.equal(results.length, 1);
+  });
+
+  it("limits snippets to SEARCH_MAX_SNIPPETS", () => {
+    const lines = Array.from({ length: 20 }, (_, i) => `line ${i} error here`);
+    const outputs = new Map([["Big", lines]]);
+    const meta = new Map([["Big", { id: "sb" }]]);
+    const results = searchSessionOutputs(outputs, meta, "error");
+    assert.ok(results[0].snippets.length <= SEARCH_MAX_SNIPPETS);
+  });
+});
+
+describe("formatSearchResults", () => {
+  it("returns no-results message for empty", () => {
+    const lines = formatSearchResults([], "test");
+    assert.ok(lines[0].includes("no results"));
+  });
+
+  it("shows hit count and session count in header", () => {
+    const results = [{ sessionTitle: "A", sessionId: "s1", score: 100, matchCount: 5, snippets: ["L1: foo"] }];
+    const lines = formatSearchResults(results, "foo");
+    assert.ok(lines[0].includes("5 hits"));
+    assert.ok(lines[0].includes("1 session"));
+  });
+
+  it("includes session title and snippets", () => {
+    const results = [{ sessionTitle: "Alpha", sessionId: "s1", score: 100, matchCount: 3, snippets: ["L2: error here"] }];
+    const lines = formatSearchResults(results, "error");
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("Alpha"));
+    assert.ok(plain.includes("error here"));
   });
 });
 

@@ -2061,3 +2061,29 @@ describe("onRelay", () => {
     assert.equal(calls, 10);
   });
 });
+
+// ── onFullSearch ─────────────────────────────────────────────────────────
+
+describe("onFullSearch", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let received = "";
+    reader.onFullSearch((q) => { received = q; });
+    reader["fullSearchHandler"]!("error timeout");
+    assert.equal(received, "error timeout");
+  });
+
+  it("is safe without handler registered", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["fullSearchHandler"]?.("x"); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onFullSearch(() => { calls++; });
+    reader.onFullSearch(() => { calls += 10; });
+    reader["fullSearchHandler"]!("q");
+    assert.equal(calls, 10);
+  });
+});

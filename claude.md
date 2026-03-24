@@ -8,20 +8,32 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.179.0
+## Version: v0.180.0
 
 ## Current Focus
 
-OOM auto-restart shipped. Backlog continuing.
+Session output search index shipped. Backlog continuing.
 
 ### Open Items
 - Backlog continues below.
 
 ### Ideas Backlog
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- **Session output search index** — full-text search across all session outputs with ranked results
 - **Session output diffing** — diff two snapshots of the same session's output to see what changed
 - **Configurable action throttle per session** — different sessions get different action rate limits
+
+### What shipped in v0.180.0
+
+**v0.180.0 — Session Output Search Index**:
+- `/search-all <query>` — ranked full-text search across all session outputs. Multi-word queries require all terms to appear. Results ranked by TF/sqrt(doclen) score (more hits in shorter output = higher rank).
+- `searchSessionOutputs(outputs, meta, query)` — pure fn: splits query into terms, counts occurrences per line, verifies all terms present, computes score, returns `SearchResult[]` sorted by score desc. Up to `SEARCH_MAX_SNIPPETS` (3) matching lines per session with line numbers.
+- `formatSearchResults(results, query)` — display with hit counts, scores, and context snippets.
+- `SearchResult` interface: sessionTitle, sessionId, score, matchCount, snippets.
+- Strips ANSI before matching, case-insensitive.
+- 16 new tests: SEARCH_MAX_SNIPPETS (1), searchSessionOutputs (9 — empty query, no match, single-term, ranking, multi-word, snippets, case-insensitive, ANSI strip, snippet limit), formatSearchResults (3 — empty, header, content), onFullSearch handler (3).
+
+Modified: `src/tui.ts`, `src/tui.test.ts`, `src/input.ts`, `src/input.test.ts`, `src/index.ts`, `package.json`, `claude.md`
+Test changes: +16, net 2498 tests across 35 files.
 
 ### What shipped in v0.179.0
 
