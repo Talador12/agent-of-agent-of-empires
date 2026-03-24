@@ -3677,34 +3677,44 @@ function formatSessionTableRow(opts: {
     .filter(l => l && !/^(ctrl\+|─{3,}|Agents|Sessions|Tasks|Commands|\$|>|Press|Type|Use |Tab |Esc)/i.test(l))
     .join(" ")
     .slice(0, c.task * 2);
-  const taskStr   = `${DIM}${truncatePlain(cleanTask, c.task)}${RESET}`;
+  // error sparkline trails the task text when there are recent errors
+  const spark    = errSparkline ?? "";
+  // reserve space for sparkline (5 chars + 1 space) when present
+  const taskMax  = spark ? Math.max(4, c.task - 7) : c.task;
+  const taskStr  = `${DIM}${truncatePlain(cleanTask, taskMax)}${RESET}${spark ? `  ${spark}` : ""}`;
 
   // ── STATUS column ─────────────────────────────────────────────────────────
   const statusCell = formatStatusCell(s, idleSinceMs);
 
   // ── HEALTH column ─────────────────────────────────────────────────────────
-  // Health score (0–100) colored by severity + error sparkline when present
+  // Compact health score: ⬡100 colored by severity. Fits in 4 visible chars.
   const healthColor = healthScore >= HEALTH_GOOD ? LIME : healthScore >= HEALTH_WARN ? AMBER : ROSE;
-  const spark       = errSparkline ?? "";
-  const healthCell  = `${healthColor}${HEALTH_ICON}${healthScore}${RESET}${spark ? ` ${spark}` : ""}`;
+  const healthCell  = `${healthColor}${HEALTH_ICON}${healthScore}${RESET}`;
 
   // ── CTX column ────────────────────────────────────────────────────────────
-  // Context token usage — compact: "137kt" or "—"
-  const ctxRaw  = s.contextTokens
-    ? s.contextTokens
-        .replace(/,/g, "")
-        .replace(/\s*tokens?.*$/i, "")
-        .trim()
-    : "";
-  const ctxNum  = ctxRaw ? parseInt(ctxRaw, 10) : NaN;
-  const ctxFmt  = isNaN(ctxNum)
-    ? (ctxRaw ? truncatePlain(ctxRaw, c.ctx) : `${DIM}—${RESET}`)
-    : ctxNum >= 1_000_000
-      ? `${ROSE}${(ctxNum / 1_000_000).toFixed(1)}Mt${RESET}`
-      : ctxNum >= 1_000
-        ? `${ctxNum >= 100_000 ? AMBER : SLATE}${Math.round(ctxNum / 1_000)}kt${RESET}`
-        : `${SLATE}${ctxNum}t${RESET}`;
-  const ctxCell = ctxFmt;
+  // Prefer percentage fill from parseContextCeiling (opencode-style progress),
+  // fall back to raw token count when no ceiling info is available.
+  const ceiling = parseContextCeiling(s.contextTokens);
+  let ctxCell: string;
+  if (ceiling) {
+    const pct = Math.round((ceiling.current / ceiling.max) * 100);
+    // color ramp: green < 70%, amber 70-89%, rose ≥ 90%
+    const ctxColor = pct >= 90 ? ROSE : pct >= 70 ? AMBER : SLATE;
+    ctxCell = `${ctxColor}${pct}%${RESET}`;
+  } else if (s.contextTokens) {
+    // raw token count, no ceiling — show compact "137kt"
+    const raw = s.contextTokens.replace(/,/g, "").replace(/\s*tokens?.*$/i, "").trim();
+    const n   = parseInt(raw, 10);
+    ctxCell = isNaN(n)
+      ? `${DIM}${truncatePlain(raw, c.ctx)}${RESET}`
+      : n >= 1_000_000
+        ? `${ROSE}${(n / 1_000_000).toFixed(1)}Mt${RESET}`
+        : n >= 1_000
+          ? `${n >= 100_000 ? AMBER : SLATE}${Math.round(n / 1_000)}kt${RESET}`
+          : `${SLATE}${n}t${RESET}`;
+  } else {
+    ctxCell = `${DIM}—${RESET}`;
+  }
 
   // ── COST column ───────────────────────────────────────────────────────────
   const costRaw  = s.costStr ?? "";
