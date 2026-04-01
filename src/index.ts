@@ -49,7 +49,7 @@ const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.t
 const TASK_RECONCILE_EVERY_POLLS = 6;
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, runAdopt, adoptTemplate, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runBackup, backupOutput, runRestore, restoreInput, runSync, syncAction, syncRemote, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, runAdopt, adoptTemplate, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runBackup, backupOutput, runRestore, restoreInput, runSync, syncAction, syncRemote, runWeb, webPort, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -168,6 +168,15 @@ async function main() {
   }
 
   // `aoaoe doctor` -- comprehensive health check
+  if (runWeb) {
+    setWebResolveProfiles(resolveProfiles);
+    const port = webPort ?? 4099;
+    startWebServer(port);
+    // keep process alive until Ctrl+C
+    process.on("SIGINT", () => process.exit(0));
+    return;
+  }
+
   if (runSync) {
     process.env.AOAOE_QUIET = "1";
     try {
@@ -4246,6 +4255,7 @@ async function showProgressDigest(since?: string, asJson = false): Promise<void>
 import { resolveTemplate } from "./task-templates.js";
 import { createBackup, restoreBackup, formatBackupResult, formatRestoreResult } from "./backup.js";
 import { syncInit, syncPush, syncPull, syncDiff, syncStatus } from "./sync.js";
+import { startWebServer, setResolveProfiles as setWebResolveProfiles } from "./web.js";
 
 // adopt untracked live AoE sessions as tasks with optional template goal.
 async function adoptUntrackedSessions(templateName?: string): Promise<void> {
