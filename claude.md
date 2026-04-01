@@ -36,7 +36,7 @@ North-star goal: aoaoe should let one reasoner run AoE for any number of session
 - **Session pinning presets** — save/restore sets of pinned sessions by name
 - **Reasoner prompt templates** — swap system prompt strategies at runtime
 - ~~**Task dependency graph**~~ — shipped in v0.186.0
-- **Task templates** — reusable task definitions for common workflows (e.g. "PR review cycle", "roadmap grind")
+- ~~**Task templates**~~ — shipped: 6 built-in templates (roadmap, roadmap-strict, pr-review, bugfix, explore, ci-fix) + user-extensible via `~/.aoaoe/templates.json`
 
 ### What shipped in v0.186.0
 

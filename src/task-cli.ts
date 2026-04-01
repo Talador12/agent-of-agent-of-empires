@@ -9,6 +9,7 @@ import { resolveProfiles } from "./tui.js";
 import { loadTaskState, saveTaskState, formatTaskTable, syncTaskDefinitionsFromState, taskStateKey, resolveTaskRepoPath, TaskManager, loadTaskDefinitions, injectGoalToSession } from "./task-manager.js";
 import { goalToList } from "./types.js";
 import type { TaskState, TaskSessionMode } from "./types.js";
+import { resolveTemplate, formatTemplateList } from "./task-templates.js";
 
 import { BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET } from "./colors.js";
 
@@ -37,8 +38,10 @@ function getTaskProfiles(): string[] {
 function taskCommandHelp(prefix = "aoaoe task"): string {
   return [
     `${prefix} list                     show tracked tasks`,
+    `${prefix} templates                show available task templates`,
     `${prefix} reconcile                link/create sessions now`,
     `${prefix} new <title> <path>       create task + session`,
+    `${prefix} new <t> <p> --template roadmap  create with template goal`,
     `${prefix} start|stop <task>         control task session`,
     `${prefix} edit <task> <goal>        update task goal`,
     `${prefix} rm <task>                 remove task + session`,
@@ -378,7 +381,7 @@ export async function runTaskCli(argv: string[]): Promise<void> {
     case "new":
     case "create":
     case "add": {
-      if (!args[0] || !args[1]) { console.error(`usage: aoaoe task new <title> <path> [--tool opencode] [--mode new|existing|auto]`); return; }
+      if (!args[0] || !args[1]) { console.error(`usage: aoaoe task new <title> <path> [--template roadmap] [--tool opencode] [--mode new|existing|auto]`); return; }
       const title = args[0];
       const path = args[1];
       let tool = "opencode";
@@ -390,7 +393,29 @@ export async function runTaskCli(argv: string[]): Promise<void> {
       let profile = "default";
       const profileIdx = args.indexOf("--profile");
       if (profileIdx !== -1 && args[profileIdx + 1]) profile = args[profileIdx + 1];
-      await taskNew(title, path, tool, mode, profile);
+      // apply template if specified
+      const templateIdx = args.indexOf("--template");
+      let templateGoal: string | undefined;
+      if (templateIdx !== -1 && args[templateIdx + 1]) {
+        const tmpl = resolveTemplate(args[templateIdx + 1]);
+        if (!tmpl) {
+          console.error(`${RED}unknown template: ${args[templateIdx + 1]}${RESET}`);
+          console.log(formatTemplateList());
+          return;
+        }
+        templateGoal = tmpl.goal;
+        if (tmpl.tool) tool = tmpl.tool;
+        console.log(`${DIM}using template: ${tmpl.name}${RESET}`);
+      }
+      const ok = await taskNew(title, path, tool, mode, profile);
+      if (ok && templateGoal) {
+        await taskEdit(title, templateGoal);
+      }
+      return;
+    }
+    case "templates":
+    case "template": {
+      console.log(formatTemplateList());
       return;
     }
     case "reconcile": {
@@ -410,7 +435,7 @@ export async function runTaskCli(argv: string[]): Promise<void> {
     }
     default:
       console.error(`unknown task subcommand: ${sub}`);
-      console.error(`usage: aoaoe task [list|start|stop|edit|new|rm|reconcile|help]`);
+      console.error(`usage: aoaoe task [list|start|stop|edit|new|rm|reconcile|templates|help]`);
   }
 }
 
@@ -585,5 +610,9 @@ export async function handleTaskSlashCommand(args: string): Promise<string> {
     return `reconciled tasks: +${created.length} created, +${linked.length} linked, +${goalsInjected.length} goals injected`;
   }
 
-  return "usage: /task [list|start|stop|edit|new|rm|reconcile|help] [args]";
+  if (sub === "templates" || sub === "template") {
+    return formatTemplateList();
+  }
+
+  return "usage: /task [list|start|stop|edit|new|rm|reconcile|templates|help] [args]";
 }
