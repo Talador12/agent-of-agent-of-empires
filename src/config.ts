@@ -369,6 +369,8 @@ export function parseCliArgs(argv: string[]): {
   runHealth: boolean;
   healthJson: boolean;
   runSummary: boolean;
+  runAdopt: boolean;
+  adoptTemplate?: string;
   progressSince?: string;
   progressJson: boolean;
   showHistory: boolean;
@@ -433,7 +435,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showTasksJson: false, runProgress: false, progressSince: undefined as string | undefined, progressJson: false, runHealth: false, healthJson: false, runSummary: false, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined as string | undefined, runIncident: false, incidentSince: undefined as string | undefined, incidentLimit: undefined as number | undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined as number | undefined, incidentIntervalMs: undefined as number | undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined as string | undefined, supervisorLimit: undefined as number | undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined as number | undefined, supervisorIntervalMs: undefined as number | undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined as number | undefined, runStats: false, statsLast: undefined as string | undefined, runReplay: false, replaySpeed: undefined as number | undefined, replayLast: undefined as string | undefined };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showTasksJson: false, runProgress: false, progressSince: undefined as string | undefined, progressJson: false, runHealth: false, healthJson: false, runSummary: false, runAdopt: false, adoptTemplate: undefined as string | undefined, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined as string | undefined, runIncident: false, incidentSince: undefined as string | undefined, incidentLimit: undefined as number | undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined as number | undefined, incidentIntervalMs: undefined as number | undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined as string | undefined, supervisorLimit: undefined as number | undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined as number | undefined, supervisorIntervalMs: undefined as number | undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined as number | undefined, runStats: false, statsLast: undefined as string | undefined, runReplay: false, replaySpeed: undefined as number | undefined, replayLast: undefined as string | undefined };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "test-context") {
@@ -463,6 +465,13 @@ export function parseCliArgs(argv: string[]): {
   }
   if (argv[2] === "summary") {
     return { ...defaults, runSummary: true };
+  }
+  if (argv[2] === "adopt") {
+    let template: string | undefined;
+    for (let i = 3; i < argv.length; i++) {
+      if ((argv[i] === "--template" || argv[i] === "-t") && argv[i + 1]) template = argv[++i];
+    }
+    return { ...defaults, runAdopt: true, adoptTemplate: template };
   }
   if (argv[2] === "history") {
     return { ...defaults, showHistory: true };
@@ -768,7 +777,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showTasksJson: false, runProgress: false, progressSince: undefined, progressJson: false, runHealth: false, healthJson: false, runSummary: false, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined, runIncident: false, incidentSince: undefined, incidentLimit: undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined, incidentIntervalMs: undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined, supervisorLimit: undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined, supervisorIntervalMs: undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runExport: false, exportFormat: undefined, exportOutput: undefined, exportLast: undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined, runStats: false, statsLast: undefined, runReplay: false, replaySpeed: undefined, replayLast: undefined };
+  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showTasksJson: false, runProgress: false, progressSince: undefined, progressJson: false, runHealth: false, healthJson: false, runSummary: false, runAdopt: false, adoptTemplate: undefined, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined, runIncident: false, incidentSince: undefined, incidentLimit: undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined, incidentIntervalMs: undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined, supervisorLimit: undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined, supervisorIntervalMs: undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runExport: false, exportFormat: undefined, exportOutput: undefined, exportLast: undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined, runStats: false, statsLast: undefined, runReplay: false, replaySpeed: undefined, replayLast: undefined };
 }
 
 export function printHelp() {
@@ -840,6 +849,8 @@ commands:
   health         per-session health scores (0-100, fleet average)
   health --json  machine-readable health output
   summary        one-line fleet status (for shell prompts, tmux status bars)
+  adopt          import all untracked live AoE sessions as tasks
+  adopt --template roadmap  apply a template goal to adopted sessions
   history        review recent actions (from ~/.aoaoe/actions.log)
   test           run integration test (creates sessions, tests, cleans up)
   test-context   scan sessions + context files (read-only, no LLM, safe)

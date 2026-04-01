@@ -15,7 +15,7 @@ import { tick as loopTick } from "./loop.js";
 import { exec as shellExec } from "./shell.js";
 import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
-import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, formatProgressDigest, formatAgo, importAoeSessionsToTasks, saveTaskDefinitions, shouldReconcileTasks } from "./task-manager.js";
+import { TaskManager, loadTaskDefinitions, loadTaskState, saveTaskState, formatTaskTable, formatProgressDigest, formatAgo, importAoeSessionsToTasks, saveTaskDefinitions, syncTaskDefinitionsFromState, taskStateKey, resolveTaskRepoPath, shouldReconcileTasks } from "./task-manager.js";
 import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
 import { parsePaneMilestones } from "./task-parser.js";
@@ -49,7 +49,7 @@ const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.t
 const TASK_RECONCILE_EVERY_POLLS = 6;
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, runAdopt, adoptTemplate, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -85,7 +85,7 @@ async function main() {
   }
 
   // suppress noisy [tasks] [config] log lines in one-shot CLI commands
-  if (showTasks || runProgress || runHealth || runSummary || showStatus || runRunbook || runIncident || runSupervisor) {
+  if (showTasks || runProgress || runHealth || runSummary || runAdopt || showStatus || runRunbook || runIncident || runSupervisor) {
     process.env.AOAOE_QUIET = "1";
   }
 
@@ -110,6 +110,12 @@ async function main() {
   // `aoaoe summary` -- one-liner fleet status
   if (runSummary) {
     showFleetSummary();
+    return;
+  }
+
+  // `aoaoe adopt` -- import untracked sessions as tasks
+  if (runAdopt) {
+    await adoptUntrackedSessions(adoptTemplate);
     return;
   }
 
@@ -366,12 +372,15 @@ async function main() {
 
   if (taskDefs.length > 0) {
     taskManager = new TaskManager(basePath, taskDefs, taskProfiles);
-    console.error(`  tasks: ${taskDefs.length} defined`);
+    const active = taskManager.tasks.filter((t) => t.status === "active").length;
+    const pending = taskManager.tasks.filter((t) => t.status === "pending").length;
+    const paused = taskManager.tasks.filter((t) => t.status === "paused").length;
+    console.error(`  tasks: ${taskManager.tasks.length} (${active} active, ${pending} pending, ${paused} paused)`);
     for (const t of taskManager.tasks) {
-      const icon = t.status === "active" ? "~" : t.status === "completed" ? "+" : ".";
-      const goalItems = goalToList(t.goal);
-      console.error(`    [${icon}] ${t.repo}:`);
-      for (const item of goalItems) console.error(`          - ${item}`);
+      const icon = t.status === "active" ? "●" : t.status === "completed" ? "✓" : t.status === "paused" ? "◎" : "○";
+      const goalPreview = t.goal.length > 60 ? t.goal.slice(0, 57) + "..." : t.goal;
+      const depsTag = t.dependsOn?.length ? ` [waits on: ${t.dependsOn.join(", ")}]` : "";
+      console.error(`    ${icon} ${t.sessionTitle}: ${goalPreview}${depsTag}`);
     }
     console.error("");
 
@@ -4110,6 +4119,63 @@ async function showProgressDigest(since?: string, asJson = false): Promise<void>
     console.log("");
   }
   console.log(formatProgressDigest(tasks, maxAgeMs));
+}
+
+import { resolveTemplate } from "./task-templates.js";
+
+// adopt untracked live AoE sessions as tasks with optional template goal.
+async function adoptUntrackedSessions(templateName?: string): Promise<void> {
+  const basePath = process.cwd();
+  const config = loadConfig();
+  const taskProfiles = resolveProfiles(config);
+  const defs = loadTaskDefinitions(basePath);
+  const tm = defs.length > 0 ? new TaskManager(basePath, defs, taskProfiles) : undefined;
+  const trackedTitles = new Set((tm?.tasks ?? []).map((t) => t.sessionTitle.toLowerCase()));
+
+  const liveStatus = await probeLiveSessionStatus();
+  const untracked = [...liveStatus.keys()].filter((t) => !trackedTitles.has(t));
+
+  if (untracked.length === 0) {
+    console.log("all live sessions are already tracked — nothing to adopt");
+    return;
+  }
+
+  let goal = "Continue the roadmap in claude.md";
+  if (templateName) {
+    const tmpl = resolveTemplate(templateName);
+    if (!tmpl) {
+      console.error(`unknown template: ${templateName}`);
+      return;
+    }
+    goal = tmpl.goal;
+    console.log(`using template: ${tmpl.name}`);
+  }
+
+  const states = loadTaskState();
+  let adopted = 0;
+  for (const title of untracked) {
+    // find session details from aoe list
+    const sessions = await probeLiveSessionStatus();
+    const repo = resolveTaskRepoPath(basePath, basePath, title);
+    const relRepo = repo.startsWith(basePath) ? repo.slice(basePath.length + 1) : repo;
+    const task: TaskState = {
+      repo: relRepo || basePath,
+      sessionTitle: title,
+      profile: "default",
+      sessionMode: "existing",
+      tool: "opencode",
+      goal,
+      status: "active",
+      progress: [],
+    };
+    states.set(taskStateKey(relRepo || basePath, title), task);
+    adopted++;
+    console.log(`  adopted: ${title} (${relRepo || basePath})`);
+  }
+
+  saveTaskState(states);
+  syncTaskDefinitionsFromState(basePath, states);
+  console.log(`\nadopted ${adopted} session(s). run 'aoaoe tasks' to verify.`);
 }
 
 // one-liner fleet summary for shell prompts / tmux status bars.
