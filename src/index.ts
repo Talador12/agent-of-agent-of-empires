@@ -49,7 +49,7 @@ const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.t
 const TASK_RECONCILE_EVERY_POLLS = 6;
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, runAdopt, adoptTemplate, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runBackup, backupOutput, runRestore, restoreInput, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, runAdopt, adoptTemplate, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runBackup, backupOutput, runRestore, restoreInput, runSync, syncAction, syncRemote, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -168,6 +168,36 @@ async function main() {
   }
 
   // `aoaoe doctor` -- comprehensive health check
+  if (runSync) {
+    process.env.AOAOE_QUIET = "1";
+    try {
+      switch (syncAction) {
+        case "init":
+          console.log(await syncInit(syncRemote ?? ""));
+          break;
+        case "push":
+          console.log(await syncPush());
+          break;
+        case "pull":
+          console.log(await syncPull());
+          break;
+        case "status":
+          console.log(await syncStatus());
+          break;
+        case "diff":
+          console.log(await syncDiff());
+          break;
+        default:
+          console.error("usage: aoaoe sync [init <url>|push|pull|diff|status]");
+          process.exitCode = 1;
+      }
+    } catch (err) {
+      console.error(`sync failed: ${err instanceof Error ? err.message : err}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   if (runDoctor) {
     await runDoctorCheck();
     return;
@@ -4215,6 +4245,7 @@ async function showProgressDigest(since?: string, asJson = false): Promise<void>
 
 import { resolveTemplate } from "./task-templates.js";
 import { createBackup, restoreBackup, formatBackupResult, formatRestoreResult } from "./backup.js";
+import { syncInit, syncPush, syncPull, syncDiff, syncStatus } from "./sync.js";
 
 // adopt untracked live AoE sessions as tasks with optional template goal.
 async function adoptUntrackedSessions(templateName?: string): Promise<void> {

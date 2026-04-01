@@ -13,13 +13,14 @@ export async function exec(
   cmd: string,
   args: string[],
   timeoutMs = 30_000,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  cwd?: string
 ): Promise<ExecResult> {
   return new Promise((resolve) => {
     const child: ChildProcess = execFileCb(
       cmd,
       args,
-      { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 },
+      { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024, cwd },
       (err, stdout, stderr) => {
         cleanup();
         if (signal?.aborted) {

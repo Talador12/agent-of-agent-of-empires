@@ -483,6 +483,17 @@ commands:
   progress --since <dur> --json  filter window + machine-readable output
   health         per-session health scores (0-100, fleet average)
   health --json  machine-readable health output
+  adopt          import all untracked live AoE sessions as tasks
+  adopt --template roadmap  apply a template goal to adopted sessions
+  backup [path]  backup ~/.aoaoe/ state + config to tarball
+  restore <path> restore from backup tarball or directory
+  sync init <url> set up git-based state sharing with remote repo
+  sync push       push local state to sync remote
+  sync pull       pull remote state and restore locally
+  sync diff       show changes since last push
+  sync status     show sync repo status
+  export --tasks  export task history as JSON or markdown
+  export --tasks --format md  markdown format with progress timelines
   history        review recent actions (from ~/.aoaoe/actions.log)
   test-context   scan sessions + context files (read-only, no LLM, safe)
   test           run integration tests (requires aoe, opencode, tmux)

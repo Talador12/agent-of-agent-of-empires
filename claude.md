@@ -8,7 +8,7 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.192.0
+## Version: v0.193.0
 
 ## Current Focus
 
@@ -33,9 +33,9 @@ North-star goal: aoaoe should let one reasoner run AoE for any number of session
 - Quick step-in: `/task <session> :: <goal>` with immediate goal injection
 
 ### What's next
-The orchestration loop is complete and battle-tested. Remaining big-ticket items:
+The orchestration loop is complete. Only remaining big-ticket item:
 - **Web dashboard** — browser UI for visual fleet monitoring (not started, large effort)
-- **Multi-machine coordination** — share task state across machines via git or cloud storage
+- ~~**Multi-machine coordination**~~ — shipped: `aoaoe sync init/push/pull/diff/status`
 
 ### What shipped in v0.186.0
 
