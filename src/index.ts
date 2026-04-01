@@ -5046,13 +5046,14 @@ async function runDoctorCheck(): Promise<void> {
   }
 
   // ── summary ────────────────────────────────────────────────────────────
-  const failed = checks - passed - warnings;
+  // warnings are informational sub-checks, not counted against the main tally
+  const failed = Math.max(0, checks - passed);
   console.log("");
   console.log(`  ${"─".repeat(50)}`);
   if (failed === 0 && warnings === 0) {
     console.log(`  ${GREEN}${BOLD}all ${checks} checks passed${RESET} — looking healthy`);
   } else if (failed === 0) {
-    console.log(`  ${passed}/${checks} passed, ${YELLOW}${warnings} warning(s)${RESET}`);
+    console.log(`  ${GREEN}${passed}/${checks} passed${RESET}${warnings > 0 ? `, ${YELLOW}${warnings} warning(s)${RESET}` : ""}`);
   } else {
     console.log(`  ${passed}/${checks} passed, ${RED}${failed} failed${RESET}${warnings > 0 ? `, ${YELLOW}${warnings} warning(s)${RESET}` : ""}`);
   }

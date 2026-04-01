@@ -393,9 +393,15 @@ The chat UI (`aoaoe-chat`) runs inside an AoE tmux pane. Register it with `aoaoe
 | `/overview` | Show all AoE sessions with tasks, model, tokens, cost. **Works without the daemon.** |
 | `/tasks` | Alias for `/overview` |
 | `/status` | Daemon connection status + countdown to next reasoning cycle |
-| `/incident [opts]` | Incident quick view: response-flow runbook + recent supervisor activity (`--since`, `--limit`, `--json`, `--ndjson`, `--follow`) |
+| `/progress [--since --json]` | What each session accomplished recently |
+| `/health` | Per-session health scores (0-100) with fleet average |
+| `/incident [opts]` | Incident quick view: response-flow runbook + recent events (`--since`, `--limit`, `--json`, `--ndjson`, `--follow`) |
 | `/runbook [section] [--json]` | Print operator playbook slice (`quickstart`, `response-flow`/`incident`, `all`) |
 | `/supervisor [opts]` | Judge/orchestrator status across tasks/sessions (`--all`, `--since`, `--limit`, `--json`) |
+| `/prompt-template [name]` | Set/show reasoner strategy (`default`, `hands-off`, `aggressive`, `review-focused`, `shipping`) |
+| `/pin-save <name>` | Save current pinned sessions as a named preset |
+| `/pin-load <name>` | Restore a saved pin preset |
+| `/pin-presets` | List saved pin presets |
 | `/interrupt` | Interrupt the current reasoner call |
 | `/dashboard` | Request full dashboard output from daemon |
 | `/pause` | Pause the daemon (stops reasoning) |
@@ -468,7 +474,15 @@ commands:
   export --output <file>           write to file (default: stdout)
   export --last <duration>         time window: 1h, 6h, 24h, 7d (default: 24h)
   task           manage tasks and sessions (list, reconcile, start, stop, new, rm, edit, help)
+  task templates show available task templates (roadmap, pr-review, bugfix, etc.)
+  task new <t> <p> --template roadmap  create task with template goal
+  task start-all|stop-all|pause-all|resume-all  batch fleet management
   tasks          show task progress (from aoaoe.tasks.json)
+  tasks --json   machine-readable task state with live session status
+  progress       per-session accomplishment digest (last 24h)
+  progress --since <dur> --json  filter window + machine-readable output
+  health         per-session health scores (0-100, fleet average)
+  health --json  machine-readable health output
   history        review recent actions (from ~/.aoaoe/actions.log)
   test-context   scan sessions + context files (read-only, no LLM, safe)
   test           run integration tests (requires aoe, opencode, tmux)
@@ -554,6 +568,42 @@ Recommended response flow:
 - stalled task (pending/paused too long): run `aoaoe task reconcile`, then nudge via `/task ... :: ...`
 - noisy but unchanged systems: keep `--changes-only --heartbeat 30` so monitors still get liveness
 
+### Task Templates
+
+Create tasks with built-in goal presets instead of writing JSON by hand:
+
+```bash
+aoaoe task templates                       # list available templates
+aoaoe task new my-project ./path --template roadmap
+aoaoe task new bugfix-auth ./path --template bugfix
+```
+
+Built-in templates: `roadmap`, `roadmap-strict`, `pr-review`, `bugfix`, `explore`, `ci-fix`
+
+Custom templates: add to `~/.aoaoe/templates.json`
+
+### Prompt Templates
+
+Switch the reasoner's supervision strategy at runtime:
+
+```bash
+/prompt-template hands-off    # minimal intervention
+/prompt-template aggressive   # proactive nudging
+/prompt-template shipping     # focus on commits and pushes
+```
+
+Or set in config: `"promptTemplate": "hands-off"`
+
+### Pin Presets
+
+Save and restore named sets of pinned sessions:
+
+```bash
+/pin-save work              # save current pins
+/pin-load work              # restore later
+/pin-presets                # list all saved presets
+```
+
 ## Configuration
 
 Config lives at `~/.aoaoe/aoaoe.config.json` (canonical, written by `aoaoe init`). A local `aoaoe.config.json` in cwd overrides for development. Defaults work fine without a config file:
@@ -606,6 +656,8 @@ Config lives at `~/.aoaoe/aoaoe.config.json` (canonical, written by `aoaoe init`
 | `policies.maxErrorsBeforeRestart` | Restart after N consecutive errors | `3` |
 | `policies.autoAnswerPermissions` | Auto-approve permission prompts | `true` |
 | `policies.allowDestructive` | Allow `remove_agent` and `stop_session` actions | `false` |
+| `policies.maxStuckNudgesBeforePause` | Auto-pause task after N nudges with no progress (0 = disabled) | `0` |
+| `promptTemplate` | Reasoner prompt strategy: `default`, `hands-off`, `aggressive`, `review-focused`, `shipping` | `"default"` |
 | `policies.userActivityThresholdMs` | Ignore sessions with recent human keystrokes | `30000` |
 | `policies.actionCooldownMs` | Minimum ms between actions on the same session | `30000` |
 | `protectedSessions` | Session titles that are observe-only (no actions) | `[]` |
