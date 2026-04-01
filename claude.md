@@ -8,43 +8,25 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.184.0
+## Version: v0.185.0
 
 ## Current Focus
 
-Closing the loop: reasoner now has task context (goals + progress), goal injection sends goals to sessions on reconcile + edit, and task lifecycle (report_progress, complete_task) already works end-to-end.
+North-star goal: aoaoe should let one reasoner run AoE for any number of sessions/tasks, make its actions obvious, and make it trivial for a human to step in with new info or new tasks at any time.
 
-- North-star goal: aoaoe should let one reasoner run AoE for any number of sessions/tasks, make its actions obvious, and make it trivial for a human to step in with new info or new tasks at any time.
-- Goal injection: when tasks are linked/created via reconcile, or updated via `/task edit`, the goal is now sent directly to the session via tmux so agents know what to work on immediately.
-- In-progress UX: surface live supervisor/task orchestration status in the TUI header, add `/supervisor` status reporting, and keep `/task` commands step-in friendly (`/task help`, `/task reconcile`, quick override syntax).
-- Added supervisor event history in runtime state so `/supervisor` now shows recent orchestration actions (imports, reconciles, and human step-ins) with relative timestamps.
-- Supervisor events now persist to `~/.aoaoe/supervisor-history.jsonl`, so `/supervisor` can show recent judge activity across restarts.
-- `/supervisor` now supports `--all`, `--since <dur>`, and `--limit N` to inspect orchestration history without digging through files.
-- `/supervisor --json` now emits machine-readable supervisor/task/session state for automation and external dashboards.
-- Added top-level `aoaoe supervisor` subcommand (with `--all`, `--since`, `--limit`, `--json`) for non-interactive automation and cron usage.
-- Added `aoaoe supervisor --watch` (plus `--interval <ms>`) for continuous judge-status streaming in a dedicated terminal/tmux pane.
-- Added `aoaoe supervisor --ndjson` for compact line-delimited JSON snapshots (pairs cleanly with `--watch` for pipes and dashboards).
-- Added `aoaoe supervisor --watch --changes-only` to reduce stream noise by emitting only on meaningful supervisor-state changes.
-- Added `--heartbeat <sec>` support for `aoaoe supervisor --watch --changes-only`, so streams can still emit periodic keepalives for monitors.
-- Supervisor JSON/NDJSON payloads now include `emitReason` (`snapshot`, `interval`, `change`, `heartbeat`) so downstream consumers can distinguish why each snapshot was emitted.
-- README docs updated with supervisor command surface (`--watch`, `--changes-only`, `--heartbeat`, `--ndjson`) and streaming examples for human + automation workflows.
-- Added README operator playbook for day-2 supervision: low-noise stream setup, task reconcile workflow, and human step-in patterns with `/task <session> :: <goal>`.
-- Added `aoaoe runbook` CLI subcommand to print the operator playbook directly in terminal during incidents.
-- Added `aoaoe runbook --json` for machine-readable incident playbook/checklist output.
-- Added `aoaoe runbook --section <quickstart|response-flow|all>` so operators can print only the needed runbook slice during incidents.
-- Added interactive `/runbook [section]` command in `aoaoe-chat` so on-call users can pull the same playbook slices without leaving the TUI.
-- `/runbook` in chat now supports `--json` and `--section` parsing, sharing the same runbook payload builder as top-level `aoaoe runbook`.
-- Added `incident` as a runbook section alias for `response-flow` across CLI/chat help and parsing for faster on-call usage.
-- Added `/incident` interactive shortcut to print an incident-focused view (response-flow runbook + recent supervisor events + immediate step-in path).
-- `/incident` now supports `--since`, `--limit`, and `--json` for focused or machine-readable incident snapshots directly from chat.
-- Added top-level `aoaoe incident` subcommand with `--since`, `--limit`, and `--json` for non-interactive incident tooling.
-- Extended `aoaoe incident` with streaming flags (`--watch`, `--ndjson`, `--changes-only`, `--heartbeat`, `--interval`) and incident `emitReason` semantics for low-noise monitors.
-- Interactive `/incident` now supports `--ndjson` output and gives a clear handoff message to top-level `aoaoe incident --watch` when watch is requested in-chat.
-- `/incident` chat parser now accepts incident watch flags (`--changes-only`, `--heartbeat`, `--interval`) and prints a copy-paste CLI handoff command instead of throwing unknown-option errors.
-- Added `--follow` alias for incident workflows (maps to `--watch --changes-only`) across CLI parsing, help text, and interactive `/incident` guidance.
-- Added README incident streaming example for `aoaoe incident --follow` so on-call users can jump to low-noise monitoring quickly.
-- Tightened `incident --follow` behavior: now defaults heartbeat keepalive to 30s, and chat handoff recommends NDJSON follow command for monitor-friendly output.
-- Extended top-level `aoaoe incident` with streaming flags (`--watch`, `--ndjson`, `--changes-only`, `--heartbeat`, `--interval`) for incident-focused dashboards.
+### What's working end-to-end now
+- Task definitions (`aoaoe.tasks.json`) → session reconcile → goal injection → reasoner monitoring → progress/completion lifecycle
+- Profile-aware session discovery and lifecycle (start/stop/remove) across multiple AoE profiles
+- Periodic reconcile in daemon loop (every ~6 polls) auto-adopts new sessions and creates missing ones
+- Stuck-task detection: reasoner sees ⚠ POSSIBLY STUCK on tasks idle >30 minutes
+- Goal injection: `/task edit`, `/task <session> :: <goal>`, and reconcile all send goals directly to agents via tmux
+- Supervisor event history persists to `~/.aoaoe/supervisor-history.jsonl` across restarts
+
+### Operator commands
+- `/supervisor`, `/incident`, `/runbook` — interactive (TUI) and CLI (`aoaoe supervisor/incident/runbook`)
+- All support `--json`, `--ndjson`, `--watch`, `--changes-only`, `--heartbeat`, `--follow`, `--since`, `--limit`
+- `/task reconcile` — force immediate session adoption/creation
+- `/task <session> :: <goal>` — fast human step-in with goal injection
 
 ### Open Items
 - Backlog continues below.
@@ -53,6 +35,25 @@ Closing the loop: reasoner now has task context (goals + progress), goal injecti
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session pinning presets** — save/restore sets of pinned sessions by name
 - **Reasoner prompt templates** — swap system prompt strategies at runtime
+- **Task dependency graph** — declare task ordering so completed tasks auto-trigger next ones
+
+### What shipped in v0.185.0
+
+**v0.185.0 — Multi-Session Orchestration + Goal Injection**:
+- Task state keyed by `repo+sessionTitle` — meta-mode sessions no longer collide
+- Profile-aware session discovery/lifecycle across multiple AoE profiles
+- Periodic task/session reconcile in daemon loop (every ~6 polls)
+- Goal injection on reconcile: newly linked/created sessions get their goal sent via tmux
+- Goal injection on edit: `/task edit` and `/task <session> :: <goal>` inject immediately
+- Stuck-task detection in reasoner prompt (⚠ POSSIBLY STUCK after 30min idle)
+- Supervisor event history with persistent JSONL storage (`~/.aoaoe/supervisor-history.jsonl`)
+- New commands: `/supervisor`, `/incident`, `/runbook` (interactive + CLI)
+- All support `--json`, `--ndjson`, `--watch`, `--changes-only`, `--heartbeat`, `--follow`
+- `aoaoe supervisor`, `aoaoe incident`, `aoaoe runbook` top-level CLI subcommands
+- README operator playbook + incident streaming examples
+
+Modified: `src/task-manager.ts`, `src/task-cli.ts`, `src/executor.ts`, `src/index.ts`, `src/config.ts`, `src/input.ts`, `src/tui.ts`, `src/poller.ts`, `src/types.ts`, `src/reasoner/prompt.ts`, `src/supervisor-history.ts`, `README.md`, `claude.md`
+Test changes: +47 new tests, net 2613 tests across 37 files.
 
 ### What shipped in v0.183.0
 
