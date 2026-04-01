@@ -154,6 +154,23 @@ export class OpencodeReasoner implements Reasoner {
         if (errMsg.includes("401") || errMsg.includes("Unauthorized")) {
           this.log("hint: auth token may be expired — run `opencode auth login` to re-authenticate");
         }
+        // auto-restart opencode server on persistent 500s (likely stale state)
+        if (errMsg.includes("500") || errMsg.includes("ECONNREFUSED")) {
+          this.log("opencode server appears unhealthy — attempting restart");
+          this.killOrphanedServer();
+          try {
+            await this.startServer(this.config.opencode.port);
+            for (let i = 0; i < 15; i++) {
+              if (await this.tryConnect(this.config.opencode.port)) {
+                this.log("opencode server restarted successfully");
+                break;
+              }
+              await sleep(1000);
+            }
+          } catch (restartErr) {
+            this.log(`opencode server restart failed: ${restartErr}`);
+          }
+        }
         this.sessionId = null;
         this.messageCount = 0;
         return { actions: [{ action: "wait", reason: "SDK session error" }] };
@@ -277,7 +294,10 @@ class OpencodeClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title }),
     });
-    if (!res.ok) throw new Error(`create session failed: ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "(no body)");
+      throw new Error(`create session failed: ${res.status} ${res.statusText} — ${body.slice(0, 200)}`);
+    }
     return (await res.json()) as { id: string };
   }
 
@@ -291,7 +311,10 @@ class OpencodeClient {
       }),
       signal,
     });
-    if (!res.ok) throw new Error(`send message failed: ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "(no body)");
+      throw new Error(`send message failed: ${res.status} ${res.statusText} — ${body.slice(0, 200)}`);
+    }
     if (noReply) return "";
 
     const data = (await res.json()) as {

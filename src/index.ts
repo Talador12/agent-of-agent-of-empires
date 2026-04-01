@@ -5006,6 +5006,45 @@ async function runDoctorCheck(): Promise<void> {
     console.log(`  ${RED}✗${RESET} could not run 'aoe list --json'`);
   }
 
+  // ── 7. tasks ────────────────────────────────────────────────────────────
+  console.log(`\n  ${BOLD}tasks${RESET}`);
+  checks++;
+  try {
+    const defs = loadTaskDefinitions(process.cwd());
+    const taskProfiles = resolveProfiles(config);
+    if (defs.length === 0) {
+      console.log(`  ${DIM}○${RESET} no task definitions (create aoaoe.tasks.json or run 'aoaoe init')`);
+      passed++;
+    } else {
+      const tm = new TaskManager(process.cwd(), defs, taskProfiles);
+      const tasks = tm.tasks;
+      const active = tasks.filter((t) => t.status === "active").length;
+      const pending = tasks.filter((t) => t.status === "pending").length;
+      const paused = tasks.filter((t) => t.status === "paused").length;
+      const completed = tasks.filter((t) => t.status === "completed").length;
+      const stuck = tasks.filter((t) => t.status === "active" && t.lastProgressAt && (Date.now() - t.lastProgressAt > 30 * 60_000)).length;
+      console.log(`  ${GREEN}✓${RESET} ${tasks.length} task(s): ${active} active, ${pending} pending, ${paused} paused, ${completed} completed`);
+      if (stuck > 0) {
+        console.log(`  ${YELLOW}!${RESET} ${stuck} task(s) possibly stuck (no progress >30min)`);
+        warnings++;
+      }
+      // check for untracked sessions
+      try {
+        const liveStatus = await probeLiveSessionStatus();
+        const trackedTitles = new Set(tasks.map((t) => t.sessionTitle.toLowerCase()));
+        const untracked = [...liveStatus.keys()].filter((t) => !trackedTitles.has(t));
+        if (untracked.length > 0) {
+          console.log(`  ${YELLOW}!${RESET} ${untracked.length} untracked session(s): ${untracked.join(", ")}`);
+          console.log(`    ${DIM}adopt with: /task <name> :: <goal>${RESET}`);
+          warnings++;
+        }
+      } catch { /* aoe not available */ }
+      passed++;
+    }
+  } catch (err) {
+    console.log(`  ${RED}✗${RESET} task check failed: ${err instanceof Error ? err.message : err}`);
+  }
+
   // ── summary ────────────────────────────────────────────────────────────
   const failed = checks - passed - warnings;
   console.log("");
