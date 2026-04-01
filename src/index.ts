@@ -19,7 +19,7 @@ import { TaskManager, loadTaskDefinitions, loadTaskState, saveTaskState, formatT
 import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
 import { parsePaneMilestones } from "./task-parser.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph, formatRelayRules, matchRelayRules, detectOOM, shouldRestartOnOOM, formatOOMAlert, searchSessionOutputs, formatSearchResults, formatThrottleConfig, diffSessionOutput, formatSessionDiff, formatAlertPatterns, matchAlertPatterns, formatLifecycleHooks, matchLifecycleHooks, buildHookEnv } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, isQuietHour, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph, formatRelayRules, matchRelayRules, detectOOM, shouldRestartOnOOM, formatOOMAlert, searchSessionOutputs, formatSearchResults, formatThrottleConfig, diffSessionOutput, formatSessionDiff, formatAlertPatterns, matchAlertPatterns, formatLifecycleHooks, matchLifecycleHooks, buildHookEnv } from "./tui.js";
 import type { LifecycleEvent } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
@@ -2875,11 +2875,20 @@ async function main() {
       // - Always reason if there's a user message (immediate response)
       // - Always reason if forceDashboard is set
       // - Otherwise gate on reasonIntervalMs elapsed since last reasoning call
+      // - Skip if in quiet hours (unless user message forces it)
       const msSinceLastReason = Date.now() - lastReasonerAt;
-      const reasonDue = lastReasonerAt === 0
+      const quietSpec = config.policies.quietHours;
+      const inQuietHours = quietSpec ? isQuietHour(new Date().getHours(), [parseQuietHoursRange(quietSpec)].filter(Boolean) as Array<[number, number]>) : false;
+      const reasonDue = (lastReasonerAt === 0
         || msSinceLastReason >= config.reasonIntervalMs
         || !!userMessage
-        || forceDashboard;
+        || forceDashboard)
+        && (!inQuietHours || !!userMessage); // user messages always get through even in quiet hours
+
+      if (inQuietHours && !userMessage && pollCount % 30 === 1) {
+        const msg = `quiet hours active (${quietSpec}) — polling only, no reasoning`;
+        if (tui) tui.log("status", msg); else log(msg);
+      }
 
       if (!reasonDue) {
         // Observation-only tick: poll sessions, update TUI state, skip LLM
@@ -3419,6 +3428,18 @@ async function daemonTick(
         });
       }
     }
+    // notify: task lifecycle events
+    if (entry.success && entry.action.action === "complete_task" && sessionTitle) {
+      const nFilters = tui ? tui.getAllSessionNotifyFilters() : new Map();
+      if (shouldNotifySession("task_completed", sessionTitle, nFilters, config.notifications?.events)) {
+        sendNotification(config, {
+          event: "task_completed",
+          timestamp: Date.now(),
+          session: sessionTitle,
+          detail: `completed: ${actionText ?? "task finished"}`,
+        });
+      }
+    }
   }
   // auto-pause tracking: record stuck nudges for send_input actions targeting stuck sessions.
   // a "stuck nudge" = send_input to a session that hasn't had progress in >30 min.
@@ -3440,6 +3461,15 @@ async function daemonTick(
           const msg = `auto-paused '${title}' after ${task.stuckNudgeCount} stuck nudges`;
           if (tui) tui.log("system", msg); else log(msg);
           appendSupervisorEvent({ at: Date.now(), detail: `auto-pause: ${title}` });
+          const nFilters = tui ? tui.getAllSessionNotifyFilters() : new Map();
+          if (shouldNotifySession("task_stuck", title, nFilters, config.notifications?.events)) {
+            sendNotification(config, {
+              event: "task_stuck",
+              timestamp: Date.now(),
+              session: title,
+              detail: `auto-paused after ${task.stuckNudgeCount} stuck nudges with no progress`,
+            });
+          }
         }
       }
     }

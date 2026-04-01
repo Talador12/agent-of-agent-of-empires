@@ -223,6 +223,9 @@ function eventTitle(event: NotificationEvent): string {
     case "action_failed": return "Action Failed";
     case "daemon_started": return "Daemon Started";
     case "daemon_stopped": return "Daemon Stopped";
+    case "task_completed": return "Task Completed";
+    case "task_stuck": return "Task Stuck";
+    case "task_unblocked": return "Task Unblocked";
   }
 }
 
@@ -286,6 +289,7 @@ export function formatNotifyFilters(
  */
 export const VALID_NOTIFY_EVENTS: readonly NotificationEvent[] = [
   "session_error", "session_done", "action_executed", "action_failed", "daemon_started", "daemon_stopped",
+  "task_completed", "task_stuck", "task_unblocked",
 ];
 
 export function parseNotifyEvents(eventNames: readonly string[]): SessionNotifyFilter {
@@ -306,5 +310,8 @@ function eventIcon(event: NotificationEvent): string {
     case "action_failed": return "\u274C";         // ❌
     case "daemon_started": return "\u{1F680}";     // 🚀
     case "daemon_stopped": return "\u{1F6D1}";     // 🛑
+    case "task_completed": return "\u{1F3C6}";     // 🏆
+    case "task_stuck": return "\u26A0\uFE0F";       // ⚠️
+    case "task_unblocked": return "\u{1F513}";      // 🔓
   }
 }

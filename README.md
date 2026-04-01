@@ -657,6 +657,7 @@ Config lives at `~/.aoaoe/aoaoe.config.json` (canonical, written by `aoaoe init`
 | `policies.autoAnswerPermissions` | Auto-approve permission prompts | `true` |
 | `policies.allowDestructive` | Allow `remove_agent` and `stop_session` actions | `false` |
 | `policies.maxStuckNudgesBeforePause` | Auto-pause task after N nudges with no progress (0 = disabled) | `0` |
+| `policies.quietHours` | Skip reasoning during these hours, e.g. `"01:00-06:00"` (polling continues) | (none) |
 | `promptTemplate` | Reasoner prompt strategy: `default`, `hands-off`, `aggressive`, `review-focused`, `shipping` | `"default"` |
 | `policies.userActivityThresholdMs` | Ignore sessions with recent human keystrokes | `30000` |
 | `policies.actionCooldownMs` | Minimum ms between actions on the same session | `30000` |

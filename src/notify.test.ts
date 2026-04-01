@@ -459,12 +459,15 @@ describe("parseNotifyEvents", () => {
 // ── VALID_NOTIFY_EVENTS ──────────────────────────────────────────────────
 
 describe("VALID_NOTIFY_EVENTS", () => {
-  it("has 6 event types", () => {
-    assert.equal(VALID_NOTIFY_EVENTS.length, 6);
+  it("has 9 event types", () => {
+    assert.equal(VALID_NOTIFY_EVENTS.length, 9);
   });
 
   it("includes session_error and action_executed", () => {
     assert.ok(VALID_NOTIFY_EVENTS.includes("session_error"));
+    assert.ok(VALID_NOTIFY_EVENTS.includes("task_completed"));
+    assert.ok(VALID_NOTIFY_EVENTS.includes("task_stuck"));
+    assert.ok(VALID_NOTIFY_EVENTS.includes("task_unblocked"));
     assert.ok(VALID_NOTIFY_EVENTS.includes("action_executed"));
   });
 });

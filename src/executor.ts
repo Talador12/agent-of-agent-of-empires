@@ -344,11 +344,14 @@ export class Executor {
     }
     const snap = this.resolveSession(sessionId, snapshots);
     const title = snap?.session.title ?? sessionId;
-    await this.taskManager.completeTask(title, summary);
+    const unblockedTitles = await this.taskManager.completeTask(title, summary);
+    const detail = unblockedTitles.length > 0
+      ? `task completed for ${title}: ${summary} (unblocked: ${unblockedTitles.join(", ")})`
+      : `task completed for ${title}: ${summary}`;
     return this.logAction(
       { action: "complete_task", session: sessionId, summary },
       true,
-      `task completed for ${title}: ${summary}`
+      detail
     );
   }
 

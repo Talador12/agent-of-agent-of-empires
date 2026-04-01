@@ -518,9 +518,9 @@ export class TaskManager {
 
   // mark a task as completed, optionally clean up its session.
   // if the task definition has continueOnRoadmap:true, resets with next backlog items instead.
-  async completeTask(sessionTitle: string, summary: string, cleanupSession = true): Promise<void> {
+  async completeTask(sessionTitle: string, summary: string, cleanupSession = true): Promise<string[]> {
     const task = this.getTaskForSession(sessionTitle);
-    if (!task) return;
+    if (!task) return [];
 
     // find original definition to check continueOnRoadmap
     const def = this.definitions.find(
@@ -536,7 +536,7 @@ export class TaskManager {
       task.lastProgressAt = Date.now();
       log(`continueOnRoadmap: recycled task '${sessionTitle}' with fresh roadmap goal`);
       this.save();
-      return;
+      return [];
     }
 
     task.status = "completed";
@@ -557,6 +557,7 @@ export class TaskManager {
     }
 
     this.save();
+    return unblocked.map((t) => t.sessionTitle);
   }
 
   private save(): void {

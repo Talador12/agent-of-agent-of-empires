@@ -138,6 +138,7 @@ export interface AoaoeConfig {
     userActivityThresholdMs?: number; // skip send_input when user was active within this window (default: 30000)
     allowDestructive?: boolean; // allow remove_agent and stop_session (default: false — blocked unless explicitly enabled)
     maxStuckNudgesBeforePause?: number; // auto-pause task after N stuck nudges with no progress (default: 0 = disabled)
+    quietHours?: string; // "HH:MM-HH:MM" range when reasoner skips reasoning but still polls (e.g. "01:00-06:00")
   };
   contextFiles: string[]; // extra AI instruction file paths to load (relative to project root)
   sessionDirs: Record<string, string>; // explicit session title -> project directory mapping (absolute or relative to cwd)
@@ -159,7 +160,7 @@ export interface AoaoeConfig {
   tuiHistoryRetentionDays?: number; // how many days of TUI history to keep on startup replay (default: 7)
 }
 
-export type NotificationEvent = "session_error" | "session_done" | "action_executed" | "action_failed" | "daemon_started" | "daemon_stopped";
+export type NotificationEvent = "session_error" | "session_done" | "action_executed" | "action_failed" | "daemon_started" | "daemon_stopped" | "task_completed" | "task_stuck" | "task_unblocked";
 
 // daemon state written to ~/.aoaoe/daemon-state.json for chat UI IPC
 export type DaemonPhase = "sleeping" | "polling" | "reasoning" | "executing" | "interrupted";
