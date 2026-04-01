@@ -35,7 +35,8 @@ North-star goal: aoaoe should let one reasoner run AoE for any number of session
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session pinning presets** — save/restore sets of pinned sessions by name
 - **Reasoner prompt templates** — swap system prompt strategies at runtime
-- **Task dependency graph** — declare task ordering so completed tasks auto-trigger next ones
+- ~~**Task dependency graph**~~ — shipped in v0.185.0
+- **Task templates** — reusable task definitions for common workflows (e.g. "PR review cycle", "roadmap grind")
 
 ### What shipped in v0.185.0
 

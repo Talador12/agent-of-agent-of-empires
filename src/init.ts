@@ -15,7 +15,7 @@ import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 import { exec } from "./shell.js";
 import { resolveProjectDirWithSource, type ResolutionSource } from "./context.js";
-import { saveTaskState, loadTaskState } from "./task-manager.js";
+import { saveTaskState, loadTaskState, syncTaskDefinitionsFromState, taskStateKey } from "./task-manager.js";
 import { toSessionStatus, toAoeSessionList, type AoeSession, type AoeSessionStatus, type TaskState } from "./types.js";
 import { createServer } from "node:net";
 
@@ -276,7 +276,7 @@ export async function runInit(forceOverwrite = false): Promise<InitResult> {
         progress: [],
       };
 
-      existing.set(repo, task);
+      existing.set(taskStateKey(repo, s.title), task);
       imported++;
 
       const statusLabel = isActive ? `${GREEN}active${RESET}` : `${DIM}${status}${RESET}`;
@@ -285,7 +285,9 @@ export async function runInit(forceOverwrite = false): Promise<InitResult> {
 
     if (imported > 0) {
       saveTaskState(existing);
+      syncTaskDefinitionsFromState(process.cwd(), existing);
       console.log(`  ${GREEN}✓${RESET} imported ${imported} session${imported !== 1 ? "s" : ""} as tasks`);
+      console.log(`  ${GREEN}✓${RESET} wrote aoaoe.tasks.json`);
     } else {
       console.log(`  ${DIM}all sessions already tracked${RESET}`);
     }
