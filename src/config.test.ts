@@ -258,6 +258,18 @@ describe("parseCliArgs", () => {
     assert.equal(result.progressJson, true);
   });
 
+  it("parses health subcommand", () => {
+    const result = parseCliArgs(argv("health"));
+    assert.equal(result.runHealth, true);
+    assert.equal(result.healthJson, false);
+  });
+
+  it("parses health --json", () => {
+    const result = parseCliArgs(argv("health", "--json"));
+    assert.equal(result.runHealth, true);
+    assert.equal(result.healthJson, true);
+  });
+
   it("parses runbook subcommand", () => {
     const result = parseCliArgs(argv("runbook"));
     assert.equal(result.runRunbook, true);

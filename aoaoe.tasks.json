@@ -2,6 +2,7 @@
   {
     "repo": "/Users/kadler/Documents/repos/github/adventure",
     "sessionTitle": "adventure",
+    "profile": "default",
     "sessionMode": "existing",
     "tool": "opencode",
     "goal": "Find the roadmap (check claude.md, README.md, AGENTS.md). Pick the next item and implement it. Add new ideas to the roadmap as you or the human think of them. Commit and push after each self-contained improvement."
@@ -9,6 +10,7 @@
   {
     "repo": "/Users/kadler/Documents/repos/github/agent-of-agent-of-empires",
     "sessionTitle": "aoaoe",
+    "profile": "default",
     "sessionMode": "existing",
     "tool": "opencode",
     "goal": "Find the roadmap (check claude.md, README.md, AGENTS.md). Pick the next item and implement it with full tests. Add new ideas to the roadmap as you or the human think of them. Commit and push after each self-contained improvement."
@@ -16,6 +18,7 @@
   {
     "repo": "/Users/kadler/Documents/repos/github/code-music",
     "sessionTitle": "code-music",
+    "profile": "default",
     "sessionMode": "existing",
     "tool": "opencode",
     "goal": "Find the roadmap (check claude.md, README.md, AGENTS.md). Pick the next item and implement it. Add new ideas to the roadmap as you or the human think of them. Commit and push after each self-contained improvement."
@@ -23,6 +26,15 @@
   {
     "repo": "/Users/kadler/Documents/repos",
     "sessionTitle": "cloudchamber",
+    "profile": "default",
+    "sessionMode": "existing",
+    "tool": "opencode",
+    "goal": "Continue the roadmap in claude.md"
+  },
+  {
+    "repo": "/Users/kadler/Documents/repos/github/cloud-hypervisor",
+    "sessionTitle": "cloud-hypervisor",
+    "profile": "default",
     "sessionMode": "existing",
     "tool": "opencode",
     "goal": "Continue the roadmap in claude.md"

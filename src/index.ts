@@ -32,7 +32,7 @@ import { loadTuiHistory, searchHistory, TUI_HISTORY_FILE, computeHistoryStats } 
 import { appendSupervisorEvent, loadSupervisorEvents } from "./supervisor-history.js";
 import { savePreset, deletePreset, getPreset, formatPresetList } from "./pin-presets.js";
 import { resolvePromptTemplate, formatPromptTemplateList } from "./reasoner/prompt-templates.js";
-import { formatHealthReport } from "./health-score.js";
+import { formatHealthReport, computeAllHealth } from "./health-score.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState, ActionLogEntry } from "./types.js";
@@ -49,7 +49,7 @@ const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.t
 const TASK_RECONCILE_EVERY_POLLS = 6;
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -93,6 +93,12 @@ async function main() {
   // `aoaoe progress` -- per-session accomplishment digest
   if (runProgress) {
     await showProgressDigest(progressSince, progressJson);
+    return;
+  }
+
+  // `aoaoe health` -- per-session health scores
+  if (runHealth) {
+    showHealthStatus(healthJson);
     return;
   }
 
@@ -4093,6 +4099,30 @@ async function showProgressDigest(since?: string, asJson = false): Promise<void>
     console.log("");
   }
   console.log(formatProgressDigest(tasks, maxAgeMs));
+}
+
+function showHealthStatus(asJson = false): void {
+  const basePath = process.cwd();
+  const defs = loadTaskDefinitions(basePath);
+  const taskProfiles = resolveProfiles(loadConfig());
+  const tm = defs.length > 0 ? new TaskManager(basePath, defs, taskProfiles) : undefined;
+  const tasks = tm?.tasks ?? [];
+
+  if (tasks.length === 0) {
+    if (asJson) { console.log("[]"); return; }
+    console.log("no tasks defined.");
+    return;
+  }
+
+  if (asJson) {
+    const healths = computeAllHealth(tasks);
+    console.log(JSON.stringify(healths, null, 2));
+    return;
+  }
+
+  console.log("");
+  console.log(formatHealthReport(tasks));
+  console.log("");
 }
 
 // `aoaoe history` -- review recent actions from the persistent action log

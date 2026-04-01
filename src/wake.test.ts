@@ -61,14 +61,23 @@ describe("wakeableSleep — wake on file change", () => {
     assert.ok(result.elapsed < 1000);
   });
 
-  it("wakes on any file, not just known names", async () => {
+  it("wakes on pending-input.txt file creation", async () => {
     setTimeout(() => {
-      writeFileSync(join(dir, "something-random.txt"), "data");
+      writeFileSync(join(dir, "pending-input.txt"), "data");
     }, 50);
 
     const result = await wakeableSleep(5000, dir);
     assert.equal(result.reason, "wake");
     assert.ok(result.elapsed < 1000);
+  });
+
+  it("ignores non-wake files like daemon-state.json", async () => {
+    setTimeout(() => {
+      writeFileSync(join(dir, "daemon-state.json"), "{}");
+    }, 50);
+
+    const result = await wakeableSleep(500, dir);
+    assert.equal(result.reason, "timeout");
   });
 });
 
@@ -107,7 +116,7 @@ describe("wakeableSleep — cleanup", () => {
 
   it("does not leak timers or watchers on wake", async () => {
     setTimeout(() => {
-      writeFileSync(join(dir, "test.txt"), "x");
+      writeFileSync(join(dir, "pending-input.txt"), "x");
     }, 20);
 
     const result = await wakeableSleep(5000, dir);
@@ -129,8 +138,8 @@ describe("wakeableSleep — sequential calls", () => {
     const r1 = await wakeableSleep(50, dir);
     assert.equal(r1.reason, "timeout");
 
-    // second call: wake
-    setTimeout(() => writeFileSync(join(dir, "msg.txt"), "hi"), 30);
+    // second call: wake (use a wake-eligible filename)
+    setTimeout(() => writeFileSync(join(dir, "interrupt"), ""), 30);
     const r2 = await wakeableSleep(5000, dir);
     assert.equal(r2.reason, "wake");
 

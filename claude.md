@@ -39,7 +39,8 @@ North-star goal: aoaoe should let one reasoner run AoE for any number of session
 - ~~**Task templates**~~ — shipped
 - ~~**Task auto-pause**~~ — shipped: `maxStuckNudgesBeforePause` policy + `stuckNudgeCount` tracking
 - ~~**Batch task operations**~~ — shipped: `start-all`, `stop-all`, `pause-all`, `resume-all`
-- ~~**Session health scores**~~ — shipped: `/health` command with per-session 0-100 scores, health bars, fleet average
+- ~~**Session health scores**~~ — shipped: `/health` + `aoaoe health` with per-session 0-100 scores, health bars, fleet average
+- ~~**Wake storm fix**~~ — shipped: wakeableSleep now filters by filename (only pending-input.txt, interrupt) and debounces to prevent daemon-state.json write storms
 
 ### What shipped in v0.186.0
 
