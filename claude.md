@@ -8,7 +8,7 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.185.0
+## Version: v0.186.0
 
 ## Current Focus
 
@@ -35,8 +35,20 @@ North-star goal: aoaoe should let one reasoner run AoE for any number of session
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
 - **Session pinning presets** — save/restore sets of pinned sessions by name
 - **Reasoner prompt templates** — swap system prompt strategies at runtime
-- ~~**Task dependency graph**~~ — shipped in v0.185.0
+- ~~**Task dependency graph**~~ — shipped in v0.186.0
 - **Task templates** — reusable task definitions for common workflows (e.g. "PR review cycle", "roadmap grind")
+
+### What shipped in v0.186.0
+
+**v0.186.0 — Task Dependencies + Progress Digest + CLI Enrichment**:
+- Task dependency graph: `dependsOn` field in task definitions, cascading activation on completion
+- Init now generates `aoaoe.tasks.json` from imported sessions (+ fixed state key bug)
+- `/progress` interactive command + `aoaoe progress` CLI for per-session accomplishment digest
+- `aoaoe tasks --json` and `aoaoe progress --json` with live AoE session status enrichment
+- All JSON outputs include `liveStatus` from real-time `aoe list` probe
+
+Modified: `src/types.ts`, `src/task-manager.ts`, `src/task-manager.test.ts`, `src/reasoner/prompt.ts`, `src/reasoner/prompt.test.ts`, `src/config.ts`, `src/config.test.ts`, `src/index.ts`, `src/input.ts`, `src/tui.ts`, `src/init.ts`, `claude.md`
+Test changes: +22 new tests, net 2635 tests across 37 files.
 
 ### What shipped in v0.185.0
 
