@@ -51,8 +51,8 @@ export function computeHealth(task: TaskState): SessionHealth {
       factors.push(`progress ${Math.round(ageMs / 3_600_000)}h ago`);
     }
   } else {
-    score -= 30;
-    factors.push("no progress recorded");
+    score -= 60;
+    factors.push("no progress ever recorded");
   }
 
   // stuck nudge count

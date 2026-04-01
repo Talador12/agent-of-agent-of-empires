@@ -49,7 +49,7 @@ const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.t
 const TASK_RECONCILE_EVERY_POLLS = 6;
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -84,6 +84,11 @@ async function main() {
     return;
   }
 
+  // suppress noisy [tasks] [config] log lines in one-shot CLI commands
+  if (showTasks || runProgress || runHealth || runSummary || showStatus || runRunbook || runIncident || runSupervisor) {
+    process.env.AOAOE_QUIET = "1";
+  }
+
   // `aoaoe tasks` -- show current task state
   if (showTasks) {
     await showTaskStatus(showTasksJson);
@@ -99,6 +104,12 @@ async function main() {
   // `aoaoe health` -- per-session health scores
   if (runHealth) {
     showHealthStatus(healthJson);
+    return;
+  }
+
+  // `aoaoe summary` -- one-liner fleet status
+  if (runSummary) {
+    showFleetSummary();
     return;
   }
 
@@ -4099,6 +4110,39 @@ async function showProgressDigest(since?: string, asJson = false): Promise<void>
     console.log("");
   }
   console.log(formatProgressDigest(tasks, maxAgeMs));
+}
+
+// one-liner fleet summary for shell prompts / tmux status bars.
+// outputs plain text with no ANSI so it works in PS1/tmux.
+function showFleetSummary(): void {
+  const basePath = process.cwd();
+  const defs = loadTaskDefinitions(basePath);
+  const taskProfiles = resolveProfiles(loadConfig());
+  const tm = defs.length > 0 ? new TaskManager(basePath, defs, taskProfiles) : undefined;
+  const tasks = tm?.tasks ?? [];
+
+  if (tasks.length === 0) {
+    console.log("aoaoe: no tasks");
+    return;
+  }
+
+  const active = tasks.filter((t) => t.status === "active").length;
+  const pending = tasks.filter((t) => t.status === "pending").length;
+  const paused = tasks.filter((t) => t.status === "paused").length;
+  const completed = tasks.filter((t) => t.status === "completed").length;
+  const stuck = tasks.filter((t) => t.status === "active" && t.lastProgressAt && (Date.now() - t.lastProgressAt > 30 * 60_000)).length;
+  const healths = computeAllHealth(tasks);
+  const avg = Math.round(healths.reduce((sum, h) => sum + h.score, 0) / healths.length);
+
+  const parts = [`${tasks.length}t`];
+  if (active > 0) parts.push(`${active}a`);
+  if (pending > 0) parts.push(`${pending}p`);
+  if (paused > 0) parts.push(`${paused}z`);
+  if (completed > 0) parts.push(`${completed}✓`);
+  if (stuck > 0) parts.push(`${stuck}!`);
+  parts.push(`h:${avg}`);
+
+  console.log(`aoaoe[${parts.join(" ")}]`);
 }
 
 function showHealthStatus(asJson = false): void {

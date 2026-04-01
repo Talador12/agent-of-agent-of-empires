@@ -614,6 +614,7 @@ function parseSessionMode(raw: unknown): TaskSessionMode | undefined {
 }
 
 function log(msg: string): void {
+  if (process.env.AOAOE_QUIET === "1") return;
   console.error(`[tasks] ${msg}`);
 }
 

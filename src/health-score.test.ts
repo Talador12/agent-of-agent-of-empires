@@ -72,6 +72,13 @@ describe("computeHealth", () => {
     assert.ok(h.factors.length > 0);
     assert.ok(h.factors.some((f) => f.includes("stuck")));
   });
+
+  it("scores 'no progress ever' worse than 'old progress'", () => {
+    const neverProgressed = computeHealth(makeTask({ lastProgressAt: undefined, progress: [] }));
+    const oldProgress = computeHealth(makeTask({ lastProgressAt: Date.now() - 8 * 60 * 60_000 }));
+    assert.ok(neverProgressed.score <= oldProgress.score,
+      `never (${neverProgressed.score}) should be <= old (${oldProgress.score})`);
+  });
 });
 
 describe("computeAllHealth", () => {
