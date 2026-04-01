@@ -8,39 +8,32 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.189.0
+## Version: v0.190.0
 
 ## Current Focus
 
 North-star goal: aoaoe should let one reasoner run AoE for any number of sessions/tasks, make its actions obvious, and make it trivial for a human to step in with new info or new tasks at any time.
 
 ### What's working end-to-end now
-- Task definitions (`aoaoe.tasks.json`) → session reconcile → goal injection → reasoner monitoring → progress/completion lifecycle
-- Profile-aware session discovery and lifecycle (start/stop/remove) across multiple AoE profiles
-- Periodic reconcile in daemon loop (every ~6 polls) auto-adopts new sessions and creates missing ones
-- Stuck-task detection: reasoner sees ⚠ POSSIBLY STUCK on tasks idle >30 minutes
-- Goal injection: `/task edit`, `/task <session> :: <goal>`, and reconcile all send goals directly to agents via tmux
-- Supervisor event history persists to `~/.aoaoe/supervisor-history.jsonl` across restarts
+- Task definitions → session reconcile → goal injection → reasoner monitoring → progress/completion lifecycle
+- Profile-aware session discovery and lifecycle across multiple AoE profiles
+- Periodic reconcile in daemon loop (every ~6 polls) auto-adopts new sessions
+- Stuck-task detection (⚠ POSSIBLY STUCK after 30min) + auto-pause after N nudges
+- Goal injection on reconcile, edit, and quick step-in via tmux send-keys
+- Task dependency graph: `dependsOn` with cascading activation
+- Supervisor event history persists across restarts
+- Health scoring (0-100 per session) with fleet average
 
-### Operator commands
-- `/supervisor`, `/incident`, `/runbook` — interactive (TUI) and CLI (`aoaoe supervisor/incident/runbook`)
-- All support `--json`, `--ndjson`, `--watch`, `--changes-only`, `--heartbeat`, `--follow`, `--since`, `--limit`
-- `/task reconcile` — force immediate session adoption/creation
-- `/task <session> :: <goal>` — fast human step-in with goal injection
-
-### Open Items
-- Backlog continues below.
+### Operator surface
+- Interactive: `/supervisor`, `/incident`, `/runbook`, `/progress`, `/health`, `/prompt-template`, `/pin-save/load/presets`
+- CLI: `aoaoe tasks/progress/health/summary/supervisor/incident/runbook/adopt/doctor`
+- All JSON-capable: `--json`, `--ndjson`, `--watch`, `--changes-only`, `--heartbeat`, `--follow`
+- Fleet management: `task start-all/stop-all/pause-all/resume-all`
+- Templates: 6 task templates, 5 prompt templates, user-extensible
+- Quick step-in: `/task <session> :: <goal>` with immediate goal injection
 
 ### Ideas Backlog
-- **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- ~~**Session pinning presets**~~ — shipped
-- ~~**Reasoner prompt templates**~~ — shipped
-- ~~**Task dependency graph**~~ — shipped
-- ~~**Task templates**~~ — shipped
-- ~~**Task auto-pause**~~ — shipped: `maxStuckNudgesBeforePause` policy + `stuckNudgeCount` tracking
-- ~~**Batch task operations**~~ — shipped: `start-all`, `stop-all`, `pause-all`, `resume-all`
-- ~~**Session health scores**~~ — shipped: `/health` + `aoaoe health` with per-session 0-100 scores, health bars, fleet average
-- ~~**Wake storm fix**~~ — shipped: wakeableSleep now filters by filename (only pending-input.txt, interrupt) and debounces to prevent daemon-state.json write storms
+- **Web dashboard** — browser UI (not started)
 
 ### What shipped in v0.186.0
 

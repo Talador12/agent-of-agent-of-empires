@@ -35,7 +35,7 @@ import { resolvePromptTemplate, formatPromptTemplateList } from "./reasoner/prom
 import { formatHealthReport, computeAllHealth } from "./health-score.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown } from "./export.js";
-import type { AoaoeConfig, Observation, ReasonerResult, TaskState, ActionLogEntry } from "./types.js";
+import type { AoaoeConfig, Observation, TaskState } from "./types.js";
 import { actionSession, actionDetail, toActionLogEntry } from "./types.js";
 import { YELLOW, GREEN, DIM, BOLD, RED, RESET } from "./colors.js";
 import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
@@ -4154,8 +4154,6 @@ async function adoptUntrackedSessions(templateName?: string): Promise<void> {
   const states = loadTaskState();
   let adopted = 0;
   for (const title of untracked) {
-    // find session details from aoe list
-    const sessions = await probeLiveSessionStatus();
     const repo = resolveTaskRepoPath(basePath, basePath, title);
     const relRepo = repo.startsWith(basePath) ? repo.slice(basePath.length + 1) : repo;
     const task: TaskState = {

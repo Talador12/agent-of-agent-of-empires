@@ -11,12 +11,12 @@
 // non-interactive — prints what it found, writes config, done.
 
 import { existsSync, writeFileSync, mkdirSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { exec } from "./shell.js";
 import { resolveProjectDirWithSource, type ResolutionSource } from "./context.js";
 import { saveTaskState, loadTaskState, syncTaskDefinitionsFromState, taskStateKey } from "./task-manager.js";
-import { toSessionStatus, toAoeSessionList, type AoeSession, type AoeSessionStatus, type TaskState } from "./types.js";
+import { toSessionStatus, type AoeSession, type AoeSessionStatus, type TaskState } from "./types.js";
 import { createServer } from "node:net";
 
 import { BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET } from "./colors.js";
