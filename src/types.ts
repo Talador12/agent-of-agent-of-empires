@@ -203,6 +203,7 @@ export interface TaskDefinition {
   sessionMode?: TaskSessionMode; // auto=link-or-create, existing=link-only, new=create-only
   tool?: string;         // AoE tool name (default: "opencode")
   goal?: string | string[]; // what to accomplish — string or list of directives (joined with newlines)
+  dependsOn?: string[];  // session titles that must complete before this task activates
   continueOnRoadmap?: boolean; // when true, read Ideas Backlog from claude.md and continue indefinitely after goal completes
 }
 
@@ -250,6 +251,7 @@ export interface TaskState {
   sessionMode: TaskSessionMode;
   tool: string;
   goal: string;
+  dependsOn?: string[];   // session titles that must complete before this task activates
   status: TaskStatus;
   sessionId?: string;     // AoE session ID (set when session is created)
   createdAt?: number;
@@ -276,6 +278,7 @@ export function toTaskState(raw: unknown): TaskState | null {
     tool: r.tool,
     goal: r.goal,
     status: r.status as TaskStatus,
+    dependsOn: Array.isArray(r.dependsOn) ? r.dependsOn.filter((d: unknown): d is string => typeof d === "string" && d.length > 0) : undefined,
     sessionId: typeof r.sessionId === "string" ? r.sessionId : undefined,
     createdAt: typeof r.createdAt === "number" ? r.createdAt : undefined,
     lastProgressAt: typeof r.lastProgressAt === "number" ? r.lastProgressAt : undefined,

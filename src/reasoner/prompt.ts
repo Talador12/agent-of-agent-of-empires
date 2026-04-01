@@ -122,7 +122,13 @@ export function formatTaskContext(tasks: TaskState[], stuckThresholdMs = STUCK_T
     const lastProgressMs = t.lastProgressAt ? now - t.lastProgressAt : Infinity;
     const isStuck = t.status === "active" && lastProgressMs > stuckThresholdMs;
     const stuckTag = isStuck ? " ⚠ POSSIBLY STUCK" : "";
-    parts.push(`  [${statusTag}${stuckTag}] "${t.sessionTitle}" (${t.repo})`);
+    const depsTag = t.dependsOn && t.dependsOn.length > 0
+      ? ` [depends on: ${t.dependsOn.join(", ")}]`
+      : "";
+    const blockedTag = t.status === "pending" && t.dependsOn && t.dependsOn.length > 0
+      ? " ⏳ BLOCKED"
+      : "";
+    parts.push(`  [${statusTag}${stuckTag}${blockedTag}] "${t.sessionTitle}" (${t.repo})${depsTag}`);
     const goalItems = goalToList(t.goal);
     parts.push(`    Goal:`);
     for (const item of goalItems) parts.push(`      - ${item}`);

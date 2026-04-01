@@ -622,4 +622,19 @@ describe("formatTaskContext", () => {
     })], 30 * 60 * 1000);
     assert.ok(result.includes("send_input"), "should suggest sending input to stuck sessions");
   });
+
+  it("shows dependency info for tasks with dependsOn", () => {
+    const result = formatTaskContext([makeTask({ dependsOn: ["cloud-hypervisor", "code-music"] })]);
+    assert.ok(result.includes("depends on: cloud-hypervisor, code-music"));
+  });
+
+  it("shows BLOCKED tag for pending tasks with unmet dependencies", () => {
+    const result = formatTaskContext([makeTask({ status: "pending", dependsOn: ["upstream"] })]);
+    assert.ok(result.includes("BLOCKED"), "pending task with deps should show BLOCKED");
+  });
+
+  it("does not show BLOCKED for active tasks", () => {
+    const result = formatTaskContext([makeTask({ status: "active", dependsOn: ["upstream"], lastProgressAt: Date.now() })]);
+    assert.ok(!result.includes("BLOCKED"), "active task should not show BLOCKED");
+  });
 });

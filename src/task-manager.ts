@@ -87,6 +87,27 @@ export async function injectGoalToSession(
   return true;
 }
 
+// check whether all of a task's dependencies are satisfied (completed).
+// returns true if the task has no deps or all deps are completed.
+export function areDependenciesMet(task: TaskState, allTasks: TaskState[]): boolean {
+  if (!task.dependsOn || task.dependsOn.length === 0) return true;
+  for (const dep of task.dependsOn) {
+    const depTask = allTasks.find((t) => t.sessionTitle.toLowerCase() === dep.toLowerCase());
+    if (!depTask || depTask.status !== "completed") return false;
+  }
+  return true;
+}
+
+// find tasks that were blocked on the given completed task and are now unblocked.
+export function findNewlyUnblockedTasks(completedTitle: string, allTasks: TaskState[]): TaskState[] {
+  return allTasks.filter((t) => {
+    if (t.status !== "pending") return false;
+    if (!t.dependsOn || t.dependsOn.length === 0) return false;
+    const dependsOnCompleted = t.dependsOn.some((d) => d.toLowerCase() === completedTitle.toLowerCase());
+    return dependsOnCompleted && areDependenciesMet(t, allTasks);
+  });
+}
+
 async function listSessionsAcrossProfiles(profiles: string[]): Promise<ListedSession[]> {
   const out: ListedSession[] = [];
   const seenIds = new Set<string>();
@@ -179,6 +200,7 @@ function taskStateToDefinition(t: TaskState): TaskDefinition {
     sessionMode: t.sessionMode,
     tool: t.tool,
     goal: t.goal,
+    dependsOn: t.dependsOn && t.dependsOn.length > 0 ? t.dependsOn : undefined,
   };
 }
 
@@ -252,6 +274,7 @@ function validateDefinitions(raw: unknown[], basePath: string): TaskDefinition[]
       sessionMode: parseSessionMode(t.sessionMode),
       tool: typeof t.tool === "string" ? t.tool : "opencode",
       goal: (typeof t.goal === "string" || Array.isArray(t.goal)) ? t.goal : undefined,
+      dependsOn: Array.isArray(t.dependsOn) ? t.dependsOn.filter((d: unknown): d is string => typeof d === "string") : undefined,
       continueOnRoadmap: t.continueOnRoadmap === true,
     });
   }
@@ -322,6 +345,7 @@ export class TaskManager {
       const sessionTitle = def.sessionTitle || deriveTitle(def.repo);
       const key = taskStateKey(def.repo, sessionTitle);
       if (!this.states.has(key)) {
+        const hasDeps = def.dependsOn && def.dependsOn.length > 0;
         this.states.set(key, {
           repo: def.repo,
           sessionTitle,
@@ -329,7 +353,8 @@ export class TaskManager {
           sessionMode: def.sessionMode ?? "auto",
           tool: def.tool ?? "opencode",
           goal: normalizeGoal(def.goal),
-          status: "pending",
+          dependsOn: def.dependsOn,
+          status: hasDeps ? "pending" : "pending", // pending regardless; reconcile activates when deps met
           progress: [],
         });
       } else {
@@ -383,6 +408,15 @@ export class TaskManager {
 
     for (const task of this.tasks) {
       if (task.status === "completed") continue;
+
+      // skip tasks whose dependencies haven't been met yet
+      if (!areDependenciesMet(task, this.tasks)) {
+        if (task.status === "active") {
+          task.status = "pending";
+          log(`task '${task.sessionTitle}' waiting on dependencies: ${task.dependsOn?.join(", ")}`);
+        }
+        continue;
+      }
 
       // check if a session already exists for this task
       const existing = sessions.find(
@@ -497,6 +531,13 @@ export class TaskManager {
       await exec("aoe", buildProfileAwareAoeArgs(task.profile, ["session", "stop", task.sessionId]));
       await exec("aoe", buildProfileAwareAoeArgs(task.profile, ["remove", task.sessionId, "-y"]));
       log(`cleaned up session ${task.sessionTitle} (${task.sessionId})`);
+    }
+
+    // activate downstream tasks whose dependencies are now met
+    const unblocked = findNewlyUnblockedTasks(task.sessionTitle, this.tasks);
+    for (const downstream of unblocked) {
+      downstream.status = "active";
+      log(`dependency met: activated '${downstream.sessionTitle}' (was waiting on '${task.sessionTitle}')`);
     }
 
     this.save();

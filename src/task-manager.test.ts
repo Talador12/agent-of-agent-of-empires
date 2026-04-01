@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { deriveTitle, formatAgo, formatTaskTable, readNextRoadmapItems, taskStateKey, resolveTaskRepoPath, shouldReconcileTasks, injectGoalToSession } from "./task-manager.js";
+import { deriveTitle, formatAgo, formatTaskTable, readNextRoadmapItems, taskStateKey, resolveTaskRepoPath, shouldReconcileTasks, injectGoalToSession, areDependenciesMet, findNewlyUnblockedTasks } from "./task-manager.js";
 import { normalizeGoal, goalToList } from "./types.js";
 import type { TaskState } from "./types.js";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
@@ -416,5 +416,103 @@ describe("injectGoalToSession", () => {
   it("returns false for whitespace-only goal", async () => {
     const ok = await injectGoalToSession("abc12345", "test-session", "   ");
     assert.equal(ok, false);
+  });
+});
+
+// ── areDependenciesMet ─────────────────────────────────────────────────────
+
+describe("areDependenciesMet", () => {
+  it("returns true when no dependencies", () => {
+    const task = makeTask({ dependsOn: undefined });
+    assert.equal(areDependenciesMet(task, []), true);
+  });
+
+  it("returns true when empty deps array", () => {
+    const task = makeTask({ dependsOn: [] });
+    assert.equal(areDependenciesMet(task, []), true);
+  });
+
+  it("returns true when all deps completed", () => {
+    const task = makeTask({ dependsOn: ["dep-a", "dep-b"] });
+    const allTasks = [
+      task,
+      makeTask({ sessionTitle: "dep-a", status: "completed" }),
+      makeTask({ sessionTitle: "dep-b", status: "completed" }),
+    ];
+    assert.equal(areDependenciesMet(task, allTasks), true);
+  });
+
+  it("returns false when a dep is still active", () => {
+    const task = makeTask({ dependsOn: ["dep-a"] });
+    const allTasks = [
+      task,
+      makeTask({ sessionTitle: "dep-a", status: "active" }),
+    ];
+    assert.equal(areDependenciesMet(task, allTasks), false);
+  });
+
+  it("returns false when a dep doesn't exist", () => {
+    const task = makeTask({ dependsOn: ["nonexistent"] });
+    assert.equal(areDependenciesMet(task, [task]), false);
+  });
+
+  it("matches dep titles case-insensitively", () => {
+    const task = makeTask({ dependsOn: ["DEP-A"] });
+    const allTasks = [
+      task,
+      makeTask({ sessionTitle: "dep-a", status: "completed" }),
+    ];
+    assert.equal(areDependenciesMet(task, allTasks), true);
+  });
+});
+
+// ── findNewlyUnblockedTasks ────────────────────────────────────────────────
+
+describe("findNewlyUnblockedTasks", () => {
+  it("returns empty when no tasks depend on completed title", () => {
+    const tasks = [
+      makeTask({ sessionTitle: "a", status: "active" }),
+      makeTask({ sessionTitle: "b", status: "pending" }),
+    ];
+    assert.deepEqual(findNewlyUnblockedTasks("c", tasks), []);
+  });
+
+  it("returns pending tasks whose deps are now fully met", () => {
+    const tasks = [
+      makeTask({ sessionTitle: "upstream", status: "completed" }),
+      makeTask({ sessionTitle: "downstream", status: "pending", dependsOn: ["upstream"] }),
+    ];
+    const unblocked = findNewlyUnblockedTasks("upstream", tasks);
+    assert.equal(unblocked.length, 1);
+    assert.equal(unblocked[0].sessionTitle, "downstream");
+  });
+
+  it("does not return tasks with partially met deps", () => {
+    const tasks = [
+      makeTask({ sessionTitle: "a", status: "completed" }),
+      makeTask({ sessionTitle: "b", status: "active" }),
+      makeTask({ sessionTitle: "c", status: "pending", dependsOn: ["a", "b"] }),
+    ];
+    const unblocked = findNewlyUnblockedTasks("a", tasks);
+    assert.equal(unblocked.length, 0);
+  });
+
+  it("does not return already-active tasks", () => {
+    const tasks = [
+      makeTask({ sessionTitle: "upstream", status: "completed" }),
+      makeTask({ sessionTitle: "downstream", status: "active", dependsOn: ["upstream"] }),
+    ];
+    assert.deepEqual(findNewlyUnblockedTasks("upstream", tasks), []);
+  });
+
+  it("handles diamond dependencies correctly", () => {
+    const tasks = [
+      makeTask({ sessionTitle: "a", status: "completed" }),
+      makeTask({ sessionTitle: "b", status: "completed" }),
+      makeTask({ sessionTitle: "c", status: "pending", dependsOn: ["a", "b"] }),
+    ];
+    const unblocked = findNewlyUnblockedTasks("b", tasks);
+    assert.equal(unblocked.length, 1);
+    assert.equal(unblocked[0].sessionTitle, "c");
   });
 });
