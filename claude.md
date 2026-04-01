@@ -12,9 +12,10 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 
 ## Current Focus
 
-Runtime multi-session orchestration hardening: periodic task/session reconcile while daemon runs, plus profile-aware lifecycle actions.
+Closing the loop: reasoner now has task context (goals + progress), goal injection sends goals to sessions on reconcile + edit, and task lifecycle (report_progress, complete_task) already works end-to-end.
 
 - North-star goal: aoaoe should let one reasoner run AoE for any number of sessions/tasks, make its actions obvious, and make it trivial for a human to step in with new info or new tasks at any time.
+- Goal injection: when tasks are linked/created via reconcile, or updated via `/task edit`, the goal is now sent directly to the session via tmux so agents know what to work on immediately.
 - In-progress UX: surface live supervisor/task orchestration status in the TUI header, add `/supervisor` status reporting, and keep `/task` commands step-in friendly (`/task help`, `/task reconcile`, quick override syntax).
 - Added supervisor event history in runtime state so `/supervisor` now shows recent orchestration actions (imports, reconciles, and human step-ins) with relative timestamps.
 - Supervisor events now persist to `~/.aoaoe/supervisor-history.jsonl`, so `/supervisor` can show recent judge activity across restarts.

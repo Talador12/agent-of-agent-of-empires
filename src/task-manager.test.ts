@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { deriveTitle, formatAgo, formatTaskTable, readNextRoadmapItems, taskStateKey, resolveTaskRepoPath, shouldReconcileTasks } from "./task-manager.js";
+import { deriveTitle, formatAgo, formatTaskTable, readNextRoadmapItems, taskStateKey, resolveTaskRepoPath, shouldReconcileTasks, injectGoalToSession } from "./task-manager.js";
 import { normalizeGoal, goalToList } from "./types.js";
 import type { TaskState } from "./types.js";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
@@ -402,5 +402,19 @@ describe("readNextRoadmapItems", () => {
       const result = readNextRoadmapItems(dir, 1);
       assert.ok(result.includes("Feature X"), `should include Feature X, got: ${result}`);
     } finally { cleanup(dir); }
+  });
+});
+
+// ── injectGoalToSession ────────────────────────────────────────────────────
+
+describe("injectGoalToSession", () => {
+  it("returns false for empty goal", async () => {
+    const ok = await injectGoalToSession("abc12345", "test-session", "");
+    assert.equal(ok, false);
+  });
+
+  it("returns false for whitespace-only goal", async () => {
+    const ok = await injectGoalToSession("abc12345", "test-session", "   ");
+    assert.equal(ok, false);
   });
 });

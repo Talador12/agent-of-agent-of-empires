@@ -6,7 +6,7 @@ import { join, resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import { exec } from "./shell.js";
 import { resolveProjectDir } from "./context.js";
-import { buildProfileListArgs } from "./poller.js";
+import { buildProfileListArgs, computeTmuxName } from "./poller.js";
 import { toTaskState, normalizeGoal, goalToList } from "./types.js";
 import type { TaskDefinition, TaskState, TaskProgress, TaskStatus, TaskSessionMode } from "./types.js";
 import { RESET, BOLD, DIM, GREEN, YELLOW, RED, CYAN } from "./colors.js";
@@ -61,6 +61,30 @@ interface ListedSession {
 function buildProfileAwareAoeArgs(profile: string | undefined, tailArgs: string[]): string[] {
   if (!profile || profile === "default") return tailArgs;
   return ["-p", profile, ...tailArgs];
+}
+
+// send a task goal to a session via tmux send-keys.
+// strips ANSI, escapes for tmux literal mode (-l), keeps it concise.
+export async function injectGoalToSession(
+  sessionId: string,
+  sessionTitle: string,
+  goal: string,
+): Promise<boolean> {
+  if (!goal.trim()) return false;
+  const tmuxName = computeTmuxName(sessionId, sessionTitle);
+  const goalLines = goalToList(goal);
+  const prompt = goalLines.length === 1
+    ? goalLines[0]
+    : goalLines.map((g, i) => `${i + 1}. ${g}`).join("\n");
+  const result = await exec("tmux", ["send-keys", "-t", tmuxName, "-l", prompt]);
+  if (result.exitCode !== 0) {
+    log(`goal injection failed for ${sessionTitle}: ${result.stderr.trim()}`);
+    return false;
+  }
+  // press enter to submit
+  await exec("tmux", ["send-keys", "-t", tmuxName, "Enter"]);
+  log(`injected goal into ${sessionTitle}: ${prompt.slice(0, 80)}`);
+  return true;
 }
 
 async function listSessionsAcrossProfiles(profiles: string[]): Promise<ListedSession[]> {
@@ -346,12 +370,16 @@ export class TaskManager {
   }
 
   // reconcile tasks with live AoE sessions: create missing sessions, link existing ones
-  async reconcileSessions(): Promise<{ created: string[]; linked: string[] }> {
+  async reconcileSessions(): Promise<{ created: string[]; linked: string[]; goalsInjected: string[] }> {
     const created: string[] = [];
     const linked: string[] = [];
+    const goalsInjected: string[] = [];
 
     // get current AoE sessions
     const sessions = await listSessionsAcrossProfiles(this.profiles);
+
+    // track which tasks are newly linked/created so we can inject goals after startup
+    const newlyActivated: TaskState[] = [];
 
     for (const task of this.tasks) {
       if (task.status === "completed") continue;
@@ -364,10 +392,12 @@ export class TaskManager {
       if (existing) {
         // link existing session
         if (!task.sessionId || task.sessionId !== existing.id) {
+          const wasNew = !task.sessionId;
           task.sessionId = existing.id;
           task.profile = existing.profile || task.profile || "default";
           if (task.status === "pending") task.status = "active";
           linked.push(task.sessionTitle);
+          if (wasNew && task.goal) newlyActivated.push(task);
         }
       } else if (task.sessionMode !== "existing" && (task.status === "pending" || task.status === "active" || task.status === "paused")) {
         // create new session
@@ -387,6 +417,7 @@ export class TaskManager {
             task.status = "active";
             task.createdAt = Date.now();
             created.push(task.sessionTitle);
+            if (task.goal) newlyActivated.push(task);
           }
         } else {
           log(`failed to create session for ${task.repo}: ${result.stderr}`);
@@ -405,8 +436,20 @@ export class TaskManager {
       }
     }
 
+    // inject goals into newly activated sessions (after they've had time to start)
+    if (newlyActivated.length > 0) {
+      // brief delay to let sessions initialize their tmux panes
+      await new Promise((r) => setTimeout(r, 2000));
+      for (const task of newlyActivated) {
+        if (task.sessionId && task.goal) {
+          const ok = await injectGoalToSession(task.sessionId, task.sessionTitle, task.goal);
+          if (ok) goalsInjected.push(task.sessionTitle);
+        }
+      }
+    }
+
     this.save();
-    return { created, linked };
+    return { created, linked, goalsInjected };
   }
 
   // record a progress update from the reasoner

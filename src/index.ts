@@ -351,10 +351,11 @@ async function main() {
 
     // reconcile: create missing AoE sessions, start them
     log("reconciling task sessions...");
-    const { created, linked } = await taskManager.reconcileSessions();
+    const { created, linked, goalsInjected } = await taskManager.reconcileSessions();
     if (created.length > 0) log(`created sessions: ${created.join(", ")}`);
     if (linked.length > 0) log(`linked existing sessions: ${linked.join(", ")}`);
-    pushSupervisorEvent(`startup reconcile: +${created.length} created, +${linked.length} linked`);
+    if (goalsInjected.length > 0) log(`injected goals: ${goalsInjected.join(", ")}`);
+    pushSupervisorEvent(`startup reconcile: +${created.length} created, +${linked.length} linked, +${goalsInjected.length} goals`);
   }
 
   const poller = new Poller(config);
@@ -2652,11 +2653,11 @@ async function main() {
       // keep task/session bindings fresh while daemon runs so newly opened AoE
       // sessions get adopted and missing task sessions are recreated automatically.
       if (taskManager && shouldReconcileTasks(pollCount, TASK_RECONCILE_EVERY_POLLS)) {
-        const { created, linked } = await taskManager.reconcileSessions();
+        const { created, linked, goalsInjected } = await taskManager.reconcileSessions();
         if (tui) tui.updateState({ supervisorStatus: buildTaskSupervisorStatus(taskManager) });
-        if (created.length > 0 || linked.length > 0) {
-          pushSupervisorEvent(`reconcile: +${created.length} created, +${linked.length} linked`);
-          const msg = `tasks reconcile: +${created.length} created, +${linked.length} linked | step-in: /task <session> :: <goal>`;
+        if (created.length > 0 || linked.length > 0 || goalsInjected.length > 0) {
+          pushSupervisorEvent(`reconcile: +${created.length} created, +${linked.length} linked, +${goalsInjected.length} goals`);
+          const msg = `tasks reconcile: +${created.length} created, +${linked.length} linked, +${goalsInjected.length} goals injected`;
           if (tui) tui.log("system", msg); else log(msg);
         } else if (config.verbose) {
           if (tui) tui.log("system", "tasks reconcile: no changes"); else log("tasks reconcile: no changes");

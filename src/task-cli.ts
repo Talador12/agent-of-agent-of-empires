@@ -6,7 +6,7 @@ import { resolve, basename } from "node:path";
 import { buildProfileListArgs } from "./poller.js";
 import { loadConfig } from "./config.js";
 import { resolveProfiles } from "./tui.js";
-import { loadTaskState, saveTaskState, formatTaskTable, syncTaskDefinitionsFromState, taskStateKey, resolveTaskRepoPath, TaskManager, loadTaskDefinitions } from "./task-manager.js";
+import { loadTaskState, saveTaskState, formatTaskTable, syncTaskDefinitionsFromState, taskStateKey, resolveTaskRepoPath, TaskManager, loadTaskDefinitions, injectGoalToSession } from "./task-manager.js";
 import { goalToList } from "./types.js";
 import type { TaskState, TaskSessionMode } from "./types.js";
 
@@ -156,7 +156,7 @@ export async function taskStop(ref: string): Promise<boolean> {
 }
 
 // edit a task's goal text
-export function taskEdit(ref: string, newGoal: string): boolean {
+export async function taskEdit(ref: string, newGoal: string): Promise<boolean> {
   const states = loadTaskState();
   const task = resolveTask(ref, [...states.values()]);
   if (!task) {
@@ -174,6 +174,13 @@ export function taskEdit(ref: string, newGoal: string): boolean {
   for (const item of goalToList(oldGoal)) console.log(`  ${DIM}    - ${item}${RESET}`);
   console.log(`  ${BOLD}now:${RESET}`);
   for (const item of goalToList(newGoal)) console.log(`  ${BOLD}    - ${item}${RESET}`);
+
+  // inject updated goal into the active session so the agent sees it immediately
+  if (task.sessionId) {
+    const ok = await injectGoalToSession(task.sessionId, task.sessionTitle, newGoal);
+    if (ok) console.log(`  ${DIM}goal injected into session${RESET}`);
+  }
+
   return true;
 }
 
@@ -357,7 +364,7 @@ export async function runTaskCli(argv: string[]): Promise<void> {
     }
     case "edit": {
       if (!args[0] || !args[1]) { console.error(`usage: aoaoe task edit <name|id> <new goal text>`); return; }
-      taskEdit(args[0], args.slice(1).join(" "));
+      await taskEdit(args[0], args.slice(1).join(" "));
       return;
     }
     case "new":
@@ -382,8 +389,8 @@ export async function runTaskCli(argv: string[]): Promise<void> {
       const basePath = process.cwd();
       const defs = loadTaskDefinitions(basePath);
       const tm = new TaskManager(basePath, defs, getTaskProfiles());
-      const { created, linked } = await tm.reconcileSessions();
-      console.log(`reconciled tasks: +${created.length} created, +${linked.length} linked`);
+      const { created, linked, goalsInjected } = await tm.reconcileSessions();
+      console.log(`reconciled tasks: +${created.length} created, +${linked.length} linked, +${goalsInjected.length} goals injected`);
       return;
     }
     case "rm":
@@ -489,7 +496,7 @@ export async function handleTaskSlashCommand(args: string): Promise<string> {
       const mode = parseTaskMode(lhsParts[0]);
       const ok = await taskNew(lhsParts[1], lhsParts[2], "opencode", mode);
       if (!ok) return `failed to create ${lhsParts[1]}`;
-      const edited = taskEdit(lhsParts[1], goal);
+      const edited = await taskEdit(lhsParts[1], goal);
       return edited ? `created ${lhsParts[1]} + set goal` : `created ${lhsParts[1]}`;
     }
     return await quickTaskUpdate(lhsParts[0], goal);
@@ -546,7 +553,7 @@ export async function handleTaskSlashCommand(args: string): Promise<string> {
       const ok = await taskNew(intent.title, resolvedPath, intent.tool, intent.mode);
       if (!ok) return `failed to create ${intent.title}`;
     if (intent.goal) {
-      taskEdit(intent.title, intent.goal);
+      await taskEdit(intent.title, intent.goal);
       return `created ${intent.title} + set goal: ${intent.goal}`;
     }
     return `created ${intent.title} (path: ${resolvedPath}, tool: ${intent.tool})`;
@@ -558,7 +565,7 @@ export async function handleTaskSlashCommand(args: string): Promise<string> {
   }
 
   if (sub === "edit" && rest[0] && rest[1]) {
-    const ok = taskEdit(rest[0], rest.slice(1).join(" "));
+    const ok = await taskEdit(rest[0], rest.slice(1).join(" "));
     return ok ? `updated ${rest[0]}` : `failed to update ${rest[0]}`;
   }
 
@@ -566,8 +573,8 @@ export async function handleTaskSlashCommand(args: string): Promise<string> {
     const basePath = process.cwd();
     const defs = loadTaskDefinitions(basePath);
     const tm = new TaskManager(basePath, defs, getTaskProfiles());
-    const { created, linked } = await tm.reconcileSessions();
-    return `reconciled tasks: +${created.length} created, +${linked.length} linked`;
+    const { created, linked, goalsInjected } = await tm.reconcileSessions();
+    return `reconciled tasks: +${created.length} created, +${linked.length} linked, +${goalsInjected.length} goals injected`;
   }
 
   return "usage: /task [list|start|stop|edit|new|rm|reconcile|help] [args]";
