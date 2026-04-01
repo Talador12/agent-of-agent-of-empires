@@ -613,35 +613,47 @@ export function formatTaskTable(states: Map<string, TaskState> | TaskState[]): s
   const statusColor = (s: TaskStatus) =>
     s === "active" ? GREEN : s === "completed" ? CYAN : s === "failed" ? RED : s === "paused" ? YELLOW : DIM;
 
+  const statusIcon = (s: TaskStatus) =>
+    s === "active" ? "●" : s === "completed" ? "✓" : s === "failed" ? "✗" : s === "paused" ? "◎" : "○";
+
   // header
-  lines.push(`  ${BOLD}${"REPO".padEnd(28)} ${"STATUS".padEnd(12)} ${"MODE".padEnd(10)} ${"PROFILE".padEnd(10)} ${"SESSION".padEnd(10)} PROGRESS${RESET}`);
-  lines.push(`  ${"-".repeat(102)}`);
+  lines.push(`  ${BOLD}${"SESSION".padEnd(22)} ${"STATUS".padEnd(12)} ${"SESSION ID".padEnd(10)} LAST PROGRESS${RESET}`);
+  lines.push(`  ${"-".repeat(90)}`);
 
   for (const t of tasks) {
-    const repo = t.repo.length > 27 ? t.repo.slice(-27) : t.repo.padEnd(28);
-    const status = `${statusColor(t.status)}${t.status.padEnd(12)}${RESET}`;
-    const mode = (t.sessionMode ?? "auto").padEnd(10);
-    const profile = (t.profile || "default").slice(0, 10).padEnd(10);
-    const session = t.sessionId ? t.sessionId.slice(0, 8).padEnd(10) : `${DIM}-${RESET}`.padEnd(10 + 9); // +9 for ANSI codes
+    const title = t.sessionTitle.length > 21 ? t.sessionTitle.slice(0, 18) + "..." : t.sessionTitle.padEnd(22);
+    const icon = statusIcon(t.status);
+    const status = `${statusColor(t.status)}${icon} ${t.status.padEnd(10)}${RESET}`;
+    const session = t.sessionId ? t.sessionId.slice(0, 8).padEnd(10) : `${DIM}-${RESET}`.padEnd(10 + 9);
     const lastProgress = t.progress.length > 0 ? t.progress[t.progress.length - 1] : null;
     let progressStr = `${DIM}(not started)${RESET}`;
     if (lastProgress) {
       const ago = formatAgo(Date.now() - lastProgress.at);
-      const summary = lastProgress.summary.length > 40
-        ? lastProgress.summary.slice(0, 37) + "..."
+      const summary = lastProgress.summary.length > 50
+        ? lastProgress.summary.slice(0, 47) + "..."
         : lastProgress.summary;
       progressStr = `${summary} ${DIM}(${ago})${RESET}`;
     }
-    lines.push(`  ${repo} ${status} ${mode} ${profile} ${session} ${progressStr}`);
-    lines.push(`  ${DIM}  context: ${t.sessionTitle} @ ${t.repo} [${t.profile || "default"}]${RESET}`);
+    lines.push(`  ${title} ${status} ${session} ${progressStr}`);
 
-    // always show goal as bulleted list
+    // dependency info
+    if (t.dependsOn && t.dependsOn.length > 0) {
+      lines.push(`  ${DIM}  depends on: ${t.dependsOn.join(", ")}${RESET}`);
+    }
+
+    // goal (only for active/pending)
     if (t.status === "active" || t.status === "pending") {
       const items = goalToList(t.goal);
-      lines.push(`  ${DIM}  goal:${RESET}`);
-      for (const item of items) {
-        const trimmed = item.length > 70 ? item.slice(0, 67) + "..." : item;
-        lines.push(`  ${DIM}    - ${trimmed}${RESET}`);
+      if (items.length === 1) {
+        const trimmed = items[0].length > 76 ? items[0].slice(0, 73) + "..." : items[0];
+        lines.push(`  ${DIM}  goal: ${trimmed}${RESET}`);
+      } else {
+        lines.push(`  ${DIM}  goal:${RESET}`);
+        for (const item of items.slice(0, 3)) {
+          const trimmed = item.length > 72 ? item.slice(0, 69) + "..." : item;
+          lines.push(`  ${DIM}    - ${trimmed}${RESET}`);
+        }
+        if (items.length > 3) lines.push(`  ${DIM}    ... +${items.length - 3} more${RESET}`);
       }
     }
   }

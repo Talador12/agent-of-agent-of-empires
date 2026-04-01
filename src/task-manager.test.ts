@@ -165,7 +165,7 @@ describe("formatTaskTable", () => {
 
   it("renders a single pending task", () => {
     const result = formatTaskTable([makeTask()]);
-    assert.ok(result.includes("github/test-project"));
+    assert.ok(result.includes("test-project"));
     assert.ok(result.includes("pending"));
     assert.ok(result.includes("not started"));
   });
@@ -188,11 +188,10 @@ describe("formatTaskTable", () => {
     assert.ok(result.includes("completed"));
   });
 
-  it("truncates long repo names", () => {
-    const task = makeTask({ repo: "very/deeply/nested/organization/project-name-that-is-very-long" });
+  it("truncates long session titles", () => {
+    const task = makeTask({ sessionTitle: "my-very-long-session-title-that-exceeds-limit" });
     const result = formatTaskTable([task]);
-    // repo column is max 27 chars, should truncate from the left
-    assert.ok(result.includes("project-name-that-is-very-long".slice(-27)));
+    assert.ok(result.includes("..."));
   });
 
   it("truncates long progress summaries", () => {
@@ -204,45 +203,46 @@ describe("formatTaskTable", () => {
     assert.ok(result.includes("..."));
   });
 
-  it("shows goal as bulleted list for active and pending tasks", () => {
+  it("shows single-item goal inline for active tasks", () => {
     const result = formatTaskTable([makeTask({ status: "active", goal: "Build the thing" })]);
-    assert.ok(result.includes("goal:"));
-    assert.ok(result.includes("- Build the thing"));
+    assert.ok(result.includes("goal: Build the thing"));
   });
 
   it("accepts a Map as input", () => {
     const map = new Map<string, TaskState>();
-    map.set("github/foo", makeTask({ repo: "github/foo" }));
+    map.set("github/foo", makeTask({ repo: "github/foo", sessionTitle: "foo" }));
     const result = formatTaskTable(map);
-    assert.ok(result.includes("github/foo"));
+    assert.ok(result.includes("foo"));
   });
 
-  it("renders header with REPO STATUS MODE PROFILE SESSION PROGRESS", () => {
+  it("renders header with SESSION STATUS SESSION ID LAST PROGRESS", () => {
     const result = formatTaskTable([makeTask()]);
-    assert.ok(result.includes("REPO"));
-    assert.ok(result.includes("STATUS"));
-    assert.ok(result.includes("MODE"));
-    assert.ok(result.includes("PROFILE"));
     assert.ok(result.includes("SESSION"));
-    assert.ok(result.includes("PROGRESS"));
+    assert.ok(result.includes("STATUS"));
+    assert.ok(result.includes("SESSION ID"));
+    assert.ok(result.includes("LAST PROGRESS"));
   });
 
-  it("shows context line with session title and repo", () => {
-    const result = formatTaskTable([makeTask({ sessionTitle: "adventure", repo: "github/adventure" })]);
-    assert.ok(result.includes("context: adventure @ github/adventure [default]"));
+  it("shows session title as primary identifier", () => {
+    const result = formatTaskTable([makeTask({ sessionTitle: "adventure" })]);
+    assert.ok(result.includes("adventure"));
   });
 
-  it("shows task profile in context line", () => {
-    const result = formatTaskTable([makeTask({ profile: "work" })]);
-    assert.ok(result.includes("[work]"));
+  it("shows status icons", () => {
+    const active = formatTaskTable([makeTask({ status: "active" })]);
+    assert.ok(active.includes("●"));
+    const completed = formatTaskTable([makeTask({ status: "completed" })]);
+    assert.ok(completed.includes("✓"));
   });
 
-  it("shows single-item goal as a bullet", () => {
+  it("shows dependency info", () => {
+    const result = formatTaskTable([makeTask({ dependsOn: ["upstream"] })]);
+    assert.ok(result.includes("depends on: upstream"));
+  });
+
+  it("shows single-item goal inline", () => {
     const result = formatTaskTable([makeTask({ goal: "do the thing" })]);
-    assert.ok(result.includes("goal:"));
-    assert.ok(result.includes("- do the thing"));
-    // must NOT show flat "goal: do the thing" (no colon-on-same-line)
-    assert.ok(!result.includes("goal: do the thing"));
+    assert.ok(result.includes("goal: do the thing"));
   });
 
   it("shows multi-item goal as bullet list", () => {
