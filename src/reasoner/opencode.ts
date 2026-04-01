@@ -25,7 +25,7 @@ export class OpencodeReasoner implements Reasoner {
 
   constructor(config: AoaoeConfig, globalContext?: string) {
     this.config = config;
-    this.systemPrompt = buildSystemPrompt(globalContext);
+    this.systemPrompt = buildSystemPrompt(globalContext, config.promptTemplate);
   }
 
   async init(): Promise<void> {

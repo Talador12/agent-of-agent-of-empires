@@ -30,6 +30,8 @@ import { sendNotification, sendTestNotification, formatNotifyFilters, parseNotif
 import { startHealthServer } from "./health.js";
 import { loadTuiHistory, searchHistory, TUI_HISTORY_FILE, computeHistoryStats } from "./tui-history.js";
 import { appendSupervisorEvent, loadSupervisorEvents } from "./supervisor-history.js";
+import { savePreset, deletePreset, getPreset, formatPresetList } from "./pin-presets.js";
+import { resolvePromptTemplate, formatPromptTemplateList } from "./reasoner/prompt-templates.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState, ActionLogEntry } from "./types.js";
@@ -2160,6 +2162,100 @@ async function main() {
 
     // handle built-in command markers (from stdin or chat.ts file IPC)
     for (const cmd of commands) {
+      if (cmd.startsWith("__CMD_PIN_SAVE__")) {
+        const name = cmd.slice("__CMD_PIN_SAVE__".length).trim();
+        if (!name) {
+          const msg = "usage: /pin-save <preset-name>";
+          if (tui) tui.log("error", msg); else log(msg);
+          continue;
+        }
+        if (tui) {
+          const titles = tui.getPinnedTitles();
+          if (titles.length === 0) {
+            const msg = "no sessions pinned — /pin a session first";
+            tui.log("status", msg);
+          } else {
+            savePreset(name, titles);
+            const msg = `pin preset saved: ${name} (${titles.join(", ")})`;
+            tui.log("system", msg);
+            pushSupervisorEvent(`pin-save: ${name} [${titles.length} sessions]`);
+          }
+        } else {
+          log("pin presets require TUI mode");
+        }
+        continue;
+      }
+      if (cmd.startsWith("__CMD_PIN_LOAD__")) {
+        const name = cmd.slice("__CMD_PIN_LOAD__".length).trim();
+        if (!name) {
+          const msg = "usage: /pin-load <preset-name>";
+          if (tui) tui.log("error", msg); else log(msg);
+          continue;
+        }
+        const titles = getPreset(name);
+        if (!titles) {
+          const msg = `pin preset not found: ${name}`;
+          if (tui) tui.log("error", msg); else log(msg);
+          continue;
+        }
+        if (tui) {
+          const count = tui.loadPinPreset(titles);
+          const msg = `pin preset loaded: ${name} (${count} sessions pinned)`;
+          tui.log("system", msg);
+          pushSupervisorEvent(`pin-load: ${name} [${count} pinned]`);
+        }
+        continue;
+      }
+      if (cmd.startsWith("__CMD_PIN_DELETE__")) {
+        const name = cmd.slice("__CMD_PIN_DELETE__".length).trim();
+        if (!name) {
+          const msg = "usage: /pin-delete <preset-name>";
+          if (tui) tui.log("error", msg); else log(msg);
+          continue;
+        }
+        const ok = deletePreset(name);
+        const msg = ok ? `pin preset deleted: ${name}` : `pin preset not found: ${name}`;
+        if (tui) tui.log(ok ? "system" : "error", msg); else log(msg);
+        continue;
+      }
+      if (cmd === "__CMD_PIN_PRESETS__") {
+        const msg = formatPresetList();
+        for (const line of msg.split("\n")) {
+          if (tui) tui.log("status", line); else log(line);
+        }
+        continue;
+      }
+      if (cmd.startsWith("__CMD_PROMPT_TEMPLATE__")) {
+        const name = cmd.slice("__CMD_PROMPT_TEMPLATE__".length).trim();
+        if (!name) {
+          const current = config.promptTemplate || "default";
+          const msg = `current prompt template: ${current}`;
+          if (tui) tui.log("status", msg); else log(msg);
+          const list = formatPromptTemplateList();
+          for (const line of list.split("\n")) {
+            if (tui) tui.log("status", line); else log(line);
+          }
+        } else {
+          const tmpl = resolvePromptTemplate(name);
+          if (!tmpl) {
+            const msg = `unknown prompt template: ${name}`;
+            if (tui) tui.log("error", msg); else log(msg);
+            const list = formatPromptTemplateList();
+            for (const line of list.split("\n")) {
+              if (tui) tui.log("status", line); else log(line);
+            }
+          } else {
+            config.promptTemplate = tmpl.name;
+            const msg = `prompt template set to: ${tmpl.name} — ${tmpl.description}`;
+            if (tui) tui.log("system", msg); else log(msg);
+            pushSupervisorEvent(`prompt-template: ${tmpl.name}`);
+            reasonerConsole.writeSystem(msg);
+            // note: takes effect on next reasoner init (next reasoning cycle)
+            if (tui) tui.log("status", `(takes effect on next reasoning cycle)`);
+          }
+        }
+        continue;
+      }
       if (cmd === "__CMD_STATUS__") {
         const isPausedNow = paused || input.isPaused();
         const modeMsg = `status: poll #${pollCount}, mode=${getRunMode()}, reasoner=${getReasonerLabel()}, paused=${isPausedNow}`;
@@ -3946,7 +4042,21 @@ async function showProgressDigest(since?: string, asJson = false): Promise<void>
     return;
   }
 
+  // enrich with live session status
+  const liveStatus = await probeLiveSessionStatus();
+  const liveCount = liveStatus.size;
+  const missingFromTasks = [...liveStatus.keys()].filter(
+    (title) => !tasks.some((t) => t.sessionTitle.toLowerCase() === title)
+  );
+
   console.log("");
+  if (liveCount > 0) {
+    console.log(`  ${DIM}live sessions: ${liveCount} (${[...liveStatus.entries()].map(([t, s]) => `${t}=${s}`).join(", ")})${RESET}`);
+    if (missingFromTasks.length > 0) {
+      console.log(`  ${YELLOW}untracked sessions: ${missingFromTasks.join(", ")} — use /task <name> :: <goal> to adopt${RESET}`);
+    }
+    console.log("");
+  }
   console.log(formatProgressDigest(tasks, maxAgeMs));
 }
 

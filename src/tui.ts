@@ -1233,6 +1233,8 @@ export const BUILTIN_COMMANDS = new Set([
   "/supervisor",
   "/runbook",
   "/incident",
+  "/pin-save", "/pin-load", "/pin-delete", "/pin-presets",
+  "/prompt-template",
   "/explain", "/verbose", "/clear", "/view", "/back", "/sort", "/compact",
   "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
@@ -1793,6 +1795,27 @@ export class TUI {
   /** Return count of pinned sessions. */
   getPinnedCount(): number {
     return this.pinnedIds.size;
+  }
+
+  /** Return titles of all pinned sessions. */
+  getPinnedTitles(): string[] {
+    return this.sessions.filter((s) => this.pinnedIds.has(s.id)).map((s) => s.title);
+  }
+
+  /** Load a pin preset: clear current pins, pin sessions matching given titles. Returns count pinned. */
+  loadPinPreset(titles: string[]): number {
+    this.pinnedIds.clear();
+    const lowerTitles = new Set(titles.map((t) => t.toLowerCase()));
+    let count = 0;
+    for (const s of this.sessions) {
+      if (lowerTitles.has(s.title.toLowerCase())) {
+        this.pinnedIds.add(s.id);
+        count++;
+      }
+    }
+    this.sessions = sortSessions(this.sessions, this.sortMode, this.lastChangeAt, this.pinnedIds);
+    if (this.active) this.paintAll();
+    return count;
   }
 
   /** Enable or disable focus mode. When focused, only pinned sessions are visible. */

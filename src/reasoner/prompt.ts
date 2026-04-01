@@ -1,5 +1,6 @@
 import type { Observation, AoaoeConfig, TaskState, SessionSnapshot } from "../types.js";
 import { goalToList } from "../types.js";
+import { applyPromptTemplate } from "./prompt-templates.js";
 
 // base system prompt -- global context appended at runtime via buildSystemPrompt()
 const BASE_SYSTEM_PROMPT = `You are a supervisor managing multiple AI coding agents in an agent-of-empires (AoE) tmux session.
@@ -46,9 +47,10 @@ Rules:
   This will clean up the session. Only use when truly done, not just idle.`;
 
 // build the full system prompt with global context appended
-export function buildSystemPrompt(globalContext?: string): string {
-  if (!globalContext) return BASE_SYSTEM_PROMPT;
-  return `${BASE_SYSTEM_PROMPT}\n${globalContext}`;
+export function buildSystemPrompt(globalContext?: string, promptTemplate?: string): string {
+  const base = applyPromptTemplate(BASE_SYSTEM_PROMPT, promptTemplate ?? "default");
+  if (!globalContext) return base;
+  return `${base}\n${globalContext}`;
 }
 
 // per-session idle/error tracking for policy enforcement

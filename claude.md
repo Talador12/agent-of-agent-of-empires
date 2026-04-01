@@ -33,8 +33,8 @@ North-star goal: aoaoe should let one reasoner run AoE for any number of session
 
 ### Ideas Backlog
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- **Session pinning presets** — save/restore sets of pinned sessions by name
-- **Reasoner prompt templates** — swap system prompt strategies at runtime
+- ~~**Session pinning presets**~~ — shipped: `/pin-save`, `/pin-load`, `/pin-delete`, `/pin-presets` with persistent storage in `~/.aoaoe/pin-presets.json`
+- ~~**Reasoner prompt templates**~~ — shipped: 5 built-in strategies (default, hands-off, aggressive, review-focused, shipping) via config or `/prompt-template`
 - ~~**Task dependency graph**~~ — shipped in v0.186.0
 - ~~**Task templates**~~ — shipped: 6 built-in templates (roadmap, roadmap-strict, pr-review, bugfix, explore, ci-fix) + user-extensible via `~/.aoaoe/templates.json`
 

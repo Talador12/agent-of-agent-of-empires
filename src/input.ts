@@ -892,6 +892,10 @@ ${BOLD}navigation:${RESET}
   /sort [mode]       sort sessions: status, name, activity, default (or cycle)
   /compact           toggle compact mode (dense session panel)
   /pin [N|name]      pin/unpin a session to the top (toggle)
+  /pin-save <name>   save current pins as a named preset
+  /pin-load <name>   restore a saved pin preset
+  /pin-delete <name> delete a saved preset
+  /pin-presets       list saved pin presets
   /bell              toggle terminal bell on errors/completions
   /focus             toggle focus mode (show only pinned sessions)
   /mute [N|name]     mute/unmute a session's activity entries (toggle)
@@ -980,6 +984,7 @@ ${BOLD}navigation:${RESET}
 ${BOLD}info:${RESET}
   /status            show daemon state
   /progress [opts]   what each session accomplished recently; opts: --since <1h|8h|24h> --json
+  /prompt-template [name] set/show reasoner prompt strategy (default, hands-off, aggressive, review-focused, shipping)
   /incident [opts]   quick incident view; opts: --since <30m|2h|1d> --limit N --json --ndjson --follow (watch via CLI)
   /runbook [section] show operator playbook (opts: quickstart|response-flow|incident|all, --json)
   /supervisor [opts] show judge/orchestrator status; opts: --all --since <1h|30m|2d> --limit N --json
@@ -1178,6 +1183,26 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/pin-save":
+        this.queue.push(`__CMD_PIN_SAVE__${line.slice("/pin-save".length)}`);
+        break;
+
+      case "/pin-load":
+        this.queue.push(`__CMD_PIN_LOAD__${line.slice("/pin-load".length)}`);
+        break;
+
+      case "/pin-delete":
+        this.queue.push(`__CMD_PIN_DELETE__${line.slice("/pin-delete".length)}`);
+        break;
+
+      case "/pin-presets":
+        this.queue.push("__CMD_PIN_PRESETS__");
+        break;
+
+      case "/prompt-template":
+        this.queue.push(`__CMD_PROMPT_TEMPLATE__${line.slice("/prompt-template".length)}`);
+        break;
 
       case "/bell":
         if (this.bellHandler) {
