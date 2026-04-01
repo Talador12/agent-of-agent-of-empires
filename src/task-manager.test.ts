@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { deriveTitle, formatAgo, formatTaskTable, readNextRoadmapItems, taskStateKey, resolveTaskRepoPath, shouldReconcileTasks, injectGoalToSession, areDependenciesMet, findNewlyUnblockedTasks } from "./task-manager.js";
+import { deriveTitle, formatAgo, formatTaskTable, formatProgressDigest, readNextRoadmapItems, taskStateKey, resolveTaskRepoPath, shouldReconcileTasks, injectGoalToSession, areDependenciesMet, findNewlyUnblockedTasks } from "./task-manager.js";
 import { normalizeGoal, goalToList } from "./types.js";
 import type { TaskState } from "./types.js";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
@@ -514,5 +514,39 @@ describe("findNewlyUnblockedTasks", () => {
     const unblocked = findNewlyUnblockedTasks("b", tasks);
     assert.equal(unblocked.length, 1);
     assert.equal(unblocked[0].sessionTitle, "c");
+  });
+});
+
+// ── formatProgressDigest ───────────────────────────────────────────────────
+
+describe("formatProgressDigest", () => {
+  it("returns no-tasks message for empty array", () => {
+    assert.ok(formatProgressDigest([]).includes("no tasks"));
+  });
+
+  it("shows session title and status for each task", () => {
+    const result = formatProgressDigest([makeTask({ sessionTitle: "adventure", status: "active" })]);
+    assert.ok(result.includes("adventure"));
+    assert.ok(result.includes("active"));
+  });
+
+  it("shows recent progress entries within time window", () => {
+    const result = formatProgressDigest([makeTask({
+      progress: [{ at: Date.now() - 5 * 60_000, summary: "shipped auth feature" }],
+    })], 60 * 60 * 1000);
+    assert.ok(result.includes("shipped auth feature"));
+  });
+
+  it("filters out progress older than time window", () => {
+    const result = formatProgressDigest([makeTask({
+      progress: [{ at: Date.now() - 48 * 60 * 60_000, summary: "ancient progress" }],
+    })], 24 * 60 * 60 * 1000);
+    assert.ok(!result.includes("ancient progress"));
+    assert.ok(result.includes("no progress in time window") || result.includes("no recent progress"));
+  });
+
+  it("shows dependency info", () => {
+    const result = formatProgressDigest([makeTask({ dependsOn: ["upstream-task"] })]);
+    assert.ok(result.includes("depends on: upstream-task"));
   });
 });

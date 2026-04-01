@@ -979,6 +979,7 @@ ${BOLD}navigation:${RESET}
 
 ${BOLD}info:${RESET}
   /status            show daemon state
+  /progress [opts]   what each session accomplished recently; opts: --since <1h|8h|24h> --json
   /incident [opts]   quick incident view; opts: --since <30m|2h|1d> --limit N --json --ndjson --follow (watch via CLI)
   /runbook [section] show operator playbook (opts: quickstart|response-flow|incident|all, --json)
   /supervisor [opts] show judge/orchestrator status; opts: --all --since <1h|30m|2d> --limit N --json
@@ -1007,6 +1008,10 @@ ${BOLD}other:${RESET}
 
       case "/status":
         this.queue.push("__CMD_STATUS__");
+        break;
+
+      case "/progress":
+        this.queue.push(`__CMD_PROGRESS__${line.slice("/progress".length)}`);
         break;
 
       case "/runbook":

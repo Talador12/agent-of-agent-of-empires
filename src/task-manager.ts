@@ -655,3 +655,48 @@ export function formatAgo(ms: number): string {
   if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)}h ago`;
   return `${Math.round(ms / 86_400_000)}d ago`;
 }
+
+// format a readable progress digest across all tasks — what happened recently.
+// designed for morning check-ins and human scanning.
+export function formatProgressDigest(tasks: TaskState[], maxAgeMs = 24 * 60 * 60 * 1000): string {
+  if (tasks.length === 0) return "  (no tasks)";
+  const now = Date.now();
+  const cutoff = now - maxAgeMs;
+  const lines: string[] = [];
+
+  for (const t of tasks) {
+    const recentProgress = t.progress.filter((p) => p.at >= cutoff);
+    const statusIcon = t.status === "completed" ? "✓"
+      : t.status === "active" ? "●"
+      : t.status === "paused" ? "◎"
+      : t.status === "failed" ? "✗"
+      : "○";
+    const statusColor = t.status === "active" ? GREEN
+      : t.status === "completed" ? CYAN
+      : t.status === "failed" ? RED
+      : t.status === "paused" ? YELLOW
+      : DIM;
+
+    lines.push(`  ${statusColor}${statusIcon}${RESET} ${BOLD}${t.sessionTitle}${RESET} ${DIM}(${t.status})${RESET}`);
+
+    if (t.dependsOn && t.dependsOn.length > 0) {
+      lines.push(`    ${DIM}depends on: ${t.dependsOn.join(", ")}${RESET}`);
+    }
+
+    if (recentProgress.length === 0) {
+      if (t.status === "active") {
+        const lastAny = t.lastProgressAt ? formatAgo(now - t.lastProgressAt) : "never";
+        lines.push(`    ${DIM}no recent progress (last: ${lastAny})${RESET}`);
+      } else {
+        lines.push(`    ${DIM}no progress in time window${RESET}`);
+      }
+    } else {
+      for (const p of recentProgress) {
+        lines.push(`    ${formatAgo(now - p.at)}: ${p.summary}`);
+      }
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}

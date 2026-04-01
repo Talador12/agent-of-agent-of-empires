@@ -1229,6 +1229,7 @@ export const MAX_ALIASES = 50;
 /** All built-in slash commands that cannot be overridden by aliases. */
 export const BUILTIN_COMMANDS = new Set([
   "/help", "/pause", "/resume", "/interrupt", "/status", "/dashboard",
+  "/progress",
   "/supervisor",
   "/runbook",
   "/incident",

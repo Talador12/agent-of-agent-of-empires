@@ -15,7 +15,7 @@ import { tick as loopTick } from "./loop.js";
 import { exec as shellExec } from "./shell.js";
 import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
-import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks, saveTaskDefinitions, shouldReconcileTasks } from "./task-manager.js";
+import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, formatProgressDigest, formatAgo, importAoeSessionsToTasks, saveTaskDefinitions, shouldReconcileTasks } from "./task-manager.js";
 import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
 import { parsePaneMilestones } from "./task-parser.js";
@@ -2173,6 +2173,45 @@ async function main() {
         reasonerConsole.writeSystem(modeMsg);
         reasonerConsole.writeSystem(totalsMsg);
         reasonerConsole.writeSystem(reasonerMsg);
+      } else if (cmd.startsWith("__CMD_PROGRESS__")) {
+        const args = cmd.slice("__CMD_PROGRESS__".length).trim().split(/\s+/).filter(Boolean);
+        let maxAgeMs = 24 * 60 * 60 * 1000;
+        let outputJson = false;
+        for (let i = 0; i < args.length; i++) {
+          if (args[i] === "--json") {
+            outputJson = true;
+          } else if (args[i] === "--since" && args[i + 1]) {
+            const dur = parseDuration(args[i + 1]);
+            if (dur !== null) maxAgeMs = dur;
+            i++;
+          }
+        }
+        const tasks = taskManager?.tasks ?? [];
+        if (outputJson) {
+          const now = Date.now();
+          const cutoff = now - maxAgeMs;
+          const payload = tasks.map((t) => ({
+            session: t.sessionTitle,
+            status: t.status,
+            dependsOn: t.dependsOn ?? [],
+            recentProgress: t.progress.filter((p) => p.at >= cutoff).map((p) => ({
+              at: p.at,
+              ago: formatAgo(now - p.at),
+              summary: p.summary,
+            })),
+          }));
+          const jsonStr = JSON.stringify(payload, null, 2);
+          for (const line of jsonStr.split("\n")) {
+            if (tui) tui.log("status", line); else log(line);
+            reasonerConsole.writeSystem(line);
+          }
+        } else {
+          const digest = formatProgressDigest(tasks, maxAgeMs);
+          for (const line of digest.split("\n")) {
+            if (tui) tui.log("status", line); else log(line);
+            reasonerConsole.writeSystem(line);
+          }
+        }
       } else if (cmd.startsWith("__CMD_INCIDENT__")) {
         const args = cmd.slice("__CMD_INCIDENT__".length).trim().split(/\s+/).filter(Boolean);
         let maxAgeMs = 30 * 60 * 1000;
