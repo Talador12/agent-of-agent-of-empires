@@ -2,6 +2,7 @@
 // reads actions.log (JSONL) and tui-history.jsonl, merges into a unified timeline
 
 import { toActionLogEntry } from "./types.js";
+import type { TaskState } from "./types.js";
 import type { HistoryEntry } from "./tui-history.js";
 
 // ── types ───────────────────────────────────────────────────────────────────
@@ -146,5 +147,65 @@ export function formatTimelineMarkdown(entries: TimelineEntry[]): string {
   }
 
   lines.push("");
+  return lines.join("\n");
+}
+
+// ── task export ─────────────────────────────────────────────────────────────
+
+export function formatTaskExportJson(tasks: TaskState[]): string {
+  const payload = tasks.map((t) => ({
+    session: t.sessionTitle,
+    repo: t.repo,
+    status: t.status,
+    goal: t.goal,
+    dependsOn: t.dependsOn ?? [],
+    createdAt: t.createdAt ?? null,
+    completedAt: t.completedAt ?? null,
+    lastProgressAt: t.lastProgressAt ?? null,
+    progressCount: t.progress.length,
+    progress: t.progress.map((p) => ({
+      at: p.at,
+      time: new Date(p.at).toISOString(),
+      summary: p.summary,
+    })),
+  }));
+  return JSON.stringify(payload, null, 2);
+}
+
+export function formatTaskExportMarkdown(tasks: TaskState[]): string {
+  const lines: string[] = [];
+  lines.push("# Task History Export");
+  lines.push("");
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push(`Tasks: ${tasks.length}`);
+  lines.push("");
+
+  for (const t of tasks) {
+    const icon = t.status === "completed" ? "✓"
+      : t.status === "active" ? "●"
+      : t.status === "paused" ? "◎"
+      : t.status === "failed" ? "✗"
+      : "○";
+    lines.push(`## ${icon} ${t.sessionTitle} (${t.status})`);
+    lines.push("");
+    lines.push(`- **Goal**: ${t.goal}`);
+    lines.push(`- **Repo**: ${t.repo}`);
+    if (t.dependsOn?.length) lines.push(`- **Depends on**: ${t.dependsOn.join(", ")}`);
+    if (t.createdAt) lines.push(`- **Created**: ${new Date(t.createdAt).toISOString()}`);
+    if (t.completedAt) lines.push(`- **Completed**: ${new Date(t.completedAt).toISOString()}`);
+    lines.push(`- **Progress entries**: ${t.progress.length}`);
+    lines.push("");
+
+    if (t.progress.length > 0) {
+      lines.push("### Progress");
+      lines.push("");
+      for (const p of t.progress) {
+        const time = new Date(p.at).toLocaleString();
+        lines.push(`- **${time}**: ${p.summary}`);
+      }
+      lines.push("");
+    }
+  }
+
   return lines.join("\n");
 }

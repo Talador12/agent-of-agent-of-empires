@@ -8,8 +8,11 @@ import {
   parseDuration,
   formatTimelineJson,
   formatTimelineMarkdown,
+  formatTaskExportJson,
+  formatTaskExportMarkdown,
   type TimelineEntry,
 } from "./export.js";
+import type { TaskState } from "./types.js";
 import type { HistoryEntry } from "./tui-history.js";
 
 // ── parseActionLogEntries ───────────────────────────────────────────────────
@@ -322,5 +325,61 @@ describe("formatTimelineMarkdown", () => {
     const entryLine = result.split("\n").find((l) => l.startsWith("- "));
     assert.ok(entryLine);
     assert.ok(entryLine!.includes("..."));
+  });
+});
+
+// ── task export ─────────────────────────────────────────────────────────────
+
+function makeTask(overrides?: Partial<TaskState>): TaskState {
+  return {
+    repo: "github/test",
+    sessionTitle: "test-session",
+    sessionMode: "auto",
+    tool: "opencode",
+    goal: "build things",
+    status: "active",
+    progress: [],
+    ...overrides,
+  };
+}
+
+describe("formatTaskExportJson", () => {
+  it("returns valid JSON", () => {
+    const result = formatTaskExportJson([makeTask()]);
+    const parsed = JSON.parse(result);
+    assert.ok(Array.isArray(parsed));
+    assert.equal(parsed.length, 1);
+    assert.equal(parsed[0].session, "test-session");
+  });
+
+  it("includes progress entries with ISO timestamps", () => {
+    const result = formatTaskExportJson([makeTask({
+      progress: [{ at: 1700000000000, summary: "shipped it" }],
+    })]);
+    const parsed = JSON.parse(result);
+    assert.equal(parsed[0].progress[0].summary, "shipped it");
+    assert.ok(parsed[0].progress[0].time.includes("2023"));
+  });
+});
+
+describe("formatTaskExportMarkdown", () => {
+  it("includes header and session title", () => {
+    const result = formatTaskExportMarkdown([makeTask({ sessionTitle: "adventure" })]);
+    assert.ok(result.includes("# Task History Export"));
+    assert.ok(result.includes("adventure"));
+  });
+
+  it("includes progress entries", () => {
+    const result = formatTaskExportMarkdown([makeTask({
+      progress: [{ at: Date.now(), summary: "fixed the bug" }],
+    })]);
+    assert.ok(result.includes("fixed the bug"));
+    assert.ok(result.includes("### Progress"));
+  });
+
+  it("shows goal and repo", () => {
+    const result = formatTaskExportMarkdown([makeTask({ goal: "build the spaceship", repo: "github/spaceship" })]);
+    assert.ok(result.includes("build the spaceship"));
+    assert.ok(result.includes("github/spaceship"));
   });
 });

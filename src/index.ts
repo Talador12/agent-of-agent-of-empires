@@ -34,7 +34,7 @@ import { savePreset, deletePreset, getPreset, formatPresetList } from "./pin-pre
 import { resolvePromptTemplate, formatPromptTemplateList } from "./reasoner/prompt-templates.js";
 import { formatHealthReport, computeAllHealth } from "./health-score.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
-import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown } from "./export.js";
+import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown, formatTaskExportJson, formatTaskExportMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
 import { actionSession, actionDetail, toActionLogEntry } from "./types.js";
 import { YELLOW, GREEN, DIM, BOLD, RED, RESET } from "./colors.js";
@@ -49,7 +49,7 @@ const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.t
 const TASK_RECONCILE_EVERY_POLLS = 6;
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, runAdopt, adoptTemplate, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, runAdopt, adoptTemplate, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runBackup, backupOutput, runRestore, restoreInput, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -85,7 +85,7 @@ async function main() {
   }
 
   // suppress noisy [tasks] [config] log lines in one-shot CLI commands
-  if (showTasks || runProgress || runHealth || runSummary || runAdopt || showStatus || runRunbook || runIncident || runSupervisor) {
+  if (showTasks || runProgress || runHealth || runSummary || runAdopt || runBackup || runRestore || runExport || showStatus || runRunbook || runIncident || runSupervisor) {
     process.env.AOAOE_QUIET = "1";
   }
 
@@ -173,6 +173,33 @@ async function main() {
     return;
   }
 
+  if (runBackup) {
+    try {
+      const result = await createBackup(backupOutput);
+      console.log(formatBackupResult(result));
+    } catch (err) {
+      console.error(`backup failed: ${err instanceof Error ? err.message : err}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (runRestore) {
+    if (!restoreInput) {
+      console.error("usage: aoaoe restore <backup-path>");
+      process.exitCode = 1;
+      return;
+    }
+    try {
+      const result = await restoreBackup(restoreInput);
+      console.log(formatRestoreResult(result));
+    } catch (err) {
+      console.error(`restore failed: ${err instanceof Error ? err.message : err}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   // `aoaoe logs` -- show conversation or action log entries
   if (runLogs) {
     await showLogs(logsActions, logsGrep, logsCount);
@@ -181,11 +208,46 @@ async function main() {
 
   // `aoaoe export` -- export session timeline as JSON or Markdown
   if (runExport) {
-    await runTimelineExport(exportFormat, exportOutput, exportLast);
+    const { exportTasks } = parseCliArgs(process.argv);
+    if (exportTasks) {
+      await runTaskExport(exportFormat, exportOutput);
+    } else {
+      await runTimelineExport(exportFormat, exportOutput, exportLast);
+    }
     return;
   }
 
-  // `aoaoe stats` -- show aggregate daemon statistics
+async function runTaskExport(format?: string, output?: string): Promise<void> {
+  const fmt = format ?? "json";
+  if (fmt !== "json" && fmt !== "markdown" && fmt !== "md") {
+    console.error(`error: --format must be "json" or "markdown", got "${fmt}"`);
+    process.exit(1);
+  }
+
+  const basePath = process.cwd();
+  const defs = loadTaskDefinitions(basePath);
+  const taskProfiles = resolveProfiles(loadConfig());
+  const tm = defs.length > 0 ? new TaskManager(basePath, defs, taskProfiles) : undefined;
+  const tasks = tm?.tasks ?? [...loadTaskState().values()];
+
+  if (tasks.length === 0) {
+    console.error("no tasks to export");
+    return;
+  }
+
+  const isMarkdown = fmt === "markdown" || fmt === "md";
+  const content = isMarkdown ? formatTaskExportMarkdown(tasks) : formatTaskExportJson(tasks);
+
+  if (output) {
+    writeFileSync(output, content);
+    console.log(`exported ${tasks.length} task(s) to ${output}`);
+  } else {
+    process.stdout.write(content);
+    if (!content.endsWith("\n")) process.stdout.write("\n");
+  }
+}
+
+// `aoaoe stats` -- show aggregate daemon statistics
   if (isStats) {
     await runStatsCommand(statsLast);
     return;
@@ -4152,6 +4214,7 @@ async function showProgressDigest(since?: string, asJson = false): Promise<void>
 }
 
 import { resolveTemplate } from "./task-templates.js";
+import { createBackup, restoreBackup, formatBackupResult, formatRestoreResult } from "./backup.js";
 
 // adopt untracked live AoE sessions as tasks with optional template goal.
 async function adoptUntrackedSessions(templateName?: string): Promise<void> {

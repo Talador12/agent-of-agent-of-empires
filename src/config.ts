@@ -402,6 +402,10 @@ export function parseCliArgs(argv: string[]): {
   configDiff: boolean;
   notifyTest: boolean;
   runDoctor: boolean;
+  runBackup: boolean;
+  backupOutput?: string;
+  runRestore: boolean;
+  restoreInput?: string;
   runLogs: boolean;
   logsActions: boolean;
   logsGrep?: string;
@@ -410,6 +414,7 @@ export function parseCliArgs(argv: string[]): {
   exportFormat?: string;
   exportOutput?: string;
   exportLast?: string;
+  exportTasks: boolean;
   runInit: boolean;
   initForce: boolean;
   runTaskCli: boolean;
@@ -435,7 +440,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showTasksJson: false, runProgress: false, progressSince: undefined as string | undefined, progressJson: false, runHealth: false, healthJson: false, runSummary: false, runAdopt: false, adoptTemplate: undefined as string | undefined, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined as string | undefined, runIncident: false, incidentSince: undefined as string | undefined, incidentLimit: undefined as number | undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined as number | undefined, incidentIntervalMs: undefined as number | undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined as string | undefined, supervisorLimit: undefined as number | undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined as number | undefined, supervisorIntervalMs: undefined as number | undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined as number | undefined, runStats: false, statsLast: undefined as string | undefined, runReplay: false, replaySpeed: undefined as number | undefined, replayLast: undefined as string | undefined };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showTasksJson: false, runProgress: false, progressSince: undefined as string | undefined, progressJson: false, runHealth: false, healthJson: false, runSummary: false, runAdopt: false, adoptTemplate: undefined as string | undefined, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined as string | undefined, runIncident: false, incidentSince: undefined as string | undefined, incidentLimit: undefined as number | undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined as number | undefined, incidentIntervalMs: undefined as number | undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined as string | undefined, supervisorLimit: undefined as number | undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined as number | undefined, supervisorIntervalMs: undefined as number | undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runBackup: false, backupOutput: undefined as string | undefined, runRestore: false, restoreInput: undefined as string | undefined, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, exportTasks: false, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined as number | undefined, runStats: false, statsLast: undefined as string | undefined, runReplay: false, replaySpeed: undefined as number | undefined, replayLast: undefined as string | undefined };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "test-context") {
@@ -600,6 +605,14 @@ export function parseCliArgs(argv: string[]): {
   if (argv[2] === "doctor") {
     return { ...defaults, runDoctor: true };
   }
+  if (argv[2] === "backup") {
+    const output = argv[3] && !argv[3].startsWith("-") ? argv[3] : undefined;
+    return { ...defaults, runBackup: true, backupOutput: output };
+  }
+  if (argv[2] === "restore") {
+    const input = argv[3] && !argv[3].startsWith("-") ? argv[3] : undefined;
+    return { ...defaults, runRestore: true, restoreInput: input };
+  }
   if (argv[2] === "logs") {
     const actions = argv.includes("--actions") || argv.includes("-a");
     let grep: string | undefined;
@@ -618,7 +631,9 @@ export function parseCliArgs(argv: string[]): {
     let format: string | undefined;
     let output: string | undefined;
     let last: string | undefined;
+    const exportTasks = argv.includes("--tasks");
     for (let i = 3; i < argv.length; i++) {
+      if (argv[i] === "--tasks") continue;
       if ((argv[i] === "--format" || argv[i] === "-f") && argv[i + 1]) {
         format = argv[++i];
       } else if ((argv[i] === "--output" || argv[i] === "-o") && argv[i + 1]) {
@@ -627,7 +642,7 @@ export function parseCliArgs(argv: string[]): {
         last = argv[++i];
       }
     }
-    return { ...defaults, runExport: true, exportFormat: format, exportOutput: output, exportLast: last };
+    return { ...defaults, runExport: true, exportFormat: format, exportOutput: output, exportLast: last, exportTasks };
   }
   if (argv[2] === "init") {
     const force = argv.includes("--force") || argv.includes("-f");
@@ -777,7 +792,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showTasksJson: false, runProgress: false, progressSince: undefined, progressJson: false, runHealth: false, healthJson: false, runSummary: false, runAdopt: false, adoptTemplate: undefined, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined, runIncident: false, incidentSince: undefined, incidentLimit: undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined, incidentIntervalMs: undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined, supervisorLimit: undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined, supervisorIntervalMs: undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runExport: false, exportFormat: undefined, exportOutput: undefined, exportLast: undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined, runStats: false, statsLast: undefined, runReplay: false, replaySpeed: undefined, replayLast: undefined };
+  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showTasksJson: false, runProgress: false, progressSince: undefined, progressJson: false, runHealth: false, healthJson: false, runSummary: false, runAdopt: false, adoptTemplate: undefined, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined, runIncident: false, incidentSince: undefined, incidentLimit: undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined, incidentIntervalMs: undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined, supervisorLimit: undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined, supervisorIntervalMs: undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runBackup: false, backupOutput: undefined as string | undefined, runRestore: false, restoreInput: undefined as string | undefined, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runExport: false, exportFormat: undefined, exportOutput: undefined, exportLast: undefined, exportTasks: false, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined, runStats: false, statsLast: undefined, runReplay: false, replaySpeed: undefined, replayLast: undefined };
 }
 
 export function printHelp() {
@@ -822,6 +837,8 @@ commands:
   config --validate  validate config + check tool availability
   config --diff  show only fields that differ from defaults
   notify-test    send a test notification to configured webhooks
+  backup [path]  backup ~/.aoaoe/ state + config to tarball
+  restore <path> restore from backup tarball or directory
   doctor         comprehensive health check (config, tools, daemon, disk)
   logs           show recent conversation log entries (last 50)
   logs --actions show action log entries (from ~/.aoaoe/actions.log)
@@ -831,6 +848,8 @@ commands:
   export --format <json|markdown>  output format (default: json)
   export --output <file>           write to file (default: stdout)
   export --last <duration>         time window: 1h, 6h, 24h, 7d (default: 24h)
+  export --tasks                   export task history instead of timeline
+  export --tasks --format md       export task history as markdown
   stats          show aggregate daemon statistics (actions, sessions, activity)
   stats --last <duration>  time window: 1h, 6h, 24h, 7d (default: all time)
   replay         play back tui-history.jsonl like a movie with simulated timing
