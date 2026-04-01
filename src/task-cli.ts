@@ -6,7 +6,7 @@ import { resolve, basename } from "node:path";
 import { buildProfileListArgs } from "./poller.js";
 import { loadConfig } from "./config.js";
 import { resolveProfiles } from "./tui.js";
-import { loadTaskState, saveTaskState, formatTaskTable, syncTaskDefinitionsFromState, taskStateKey, resolveTaskRepoPath, TaskManager, loadTaskDefinitions, injectGoalToSession } from "./task-manager.js";
+import { loadTaskState, saveTaskState, formatTaskTable, formatTaskHistory, syncTaskDefinitionsFromState, taskStateKey, resolveTaskRepoPath, TaskManager, loadTaskDefinitions, injectGoalToSession } from "./task-manager.js";
 import { goalToList } from "./types.js";
 import type { TaskState, TaskSessionMode } from "./types.js";
 import { resolveTemplate, formatTemplateList } from "./task-templates.js";
@@ -38,6 +38,7 @@ function getTaskProfiles(): string[] {
 function taskCommandHelp(prefix = "aoaoe task"): string {
   return [
     `${prefix} list                     show tracked tasks`,
+    `${prefix} history [session]         show progress history (all or one session)`,
     `${prefix} templates                show available task templates`,
     `${prefix} reconcile                link/create sessions now`,
     `${prefix} new <title> <path>       create task + session`,
@@ -469,6 +470,13 @@ export async function runTaskCli(argv: string[]): Promise<void> {
       console.log(formatTemplateList());
       return;
     }
+    case "history": {
+      const states = loadTaskState();
+      const tasks = [...states.values()];
+      const sessionFilter = args[0] || undefined;
+      console.log(formatTaskHistory(tasks, sessionFilter));
+      return;
+    }
     case "reconcile": {
       const basePath = process.cwd();
       const defs = loadTaskDefinitions(basePath);
@@ -665,5 +673,12 @@ export async function handleTaskSlashCommand(args: string): Promise<string> {
     return formatTemplateList();
   }
 
-  return "usage: /task [list|start|stop|edit|new|rm|reconcile|templates|help] [args]";
+  if (sub === "history") {
+    const states = loadTaskState();
+    const tasks = [...states.values()];
+    const sessionFilter = rest[0] || undefined;
+    return formatTaskHistory(tasks, sessionFilter);
+  }
+
+  return "usage: /task [list|start|stop|edit|new|rm|reconcile|templates|history|help] [args]";
 }

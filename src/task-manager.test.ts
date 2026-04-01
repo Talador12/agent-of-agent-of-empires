@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { deriveTitle, formatAgo, formatTaskTable, formatProgressDigest, readNextRoadmapItems, taskStateKey, resolveTaskRepoPath, shouldReconcileTasks, injectGoalToSession, areDependenciesMet, findNewlyUnblockedTasks } from "./task-manager.js";
+import { deriveTitle, formatAgo, formatTaskTable, formatProgressDigest, formatTaskHistory, readNextRoadmapItems, taskStateKey, resolveTaskRepoPath, shouldReconcileTasks, injectGoalToSession, areDependenciesMet, findNewlyUnblockedTasks } from "./task-manager.js";
 import { normalizeGoal, goalToList } from "./types.js";
 import type { TaskState } from "./types.js";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
@@ -548,5 +548,50 @@ describe("formatProgressDigest", () => {
   it("shows dependency info", () => {
     const result = formatProgressDigest([makeTask({ dependsOn: ["upstream-task"] })]);
     assert.ok(result.includes("depends on: upstream-task"));
+  });
+});
+
+// ── formatTaskHistory ──────────────────────────────────────────────────────
+
+describe("formatTaskHistory", () => {
+  it("returns no-tasks message for empty array", () => {
+    assert.ok(formatTaskHistory([]).includes("no tasks"));
+  });
+
+  it("shows session title and status for each task", () => {
+    const result = formatTaskHistory([makeTask({ sessionTitle: "adventure", status: "active" })]);
+    assert.ok(result.includes("adventure"));
+    assert.ok(result.includes("active"));
+  });
+
+  it("shows progress entries with timestamps", () => {
+    const result = formatTaskHistory([makeTask({
+      progress: [
+        { at: Date.now() - 60_000, summary: "shipped auth feature" },
+        { at: Date.now() - 30_000, summary: "pushed to main" },
+      ],
+    })]);
+    assert.ok(result.includes("shipped auth feature"));
+    assert.ok(result.includes("pushed to main"));
+  });
+
+  it("filters by session name", () => {
+    const tasks = [
+      makeTask({ sessionTitle: "adventure" }),
+      makeTask({ sessionTitle: "code-music" }),
+    ];
+    const result = formatTaskHistory(tasks, "adventure");
+    assert.ok(result.includes("adventure"));
+    assert.ok(!result.includes("code-music"));
+  });
+
+  it("returns not-found for non-matching filter", () => {
+    const result = formatTaskHistory([makeTask()], "nonexistent");
+    assert.ok(result.includes("no task found"));
+  });
+
+  it("shows goal for each task", () => {
+    const result = formatTaskHistory([makeTask({ goal: "build the spaceship" })]);
+    assert.ok(result.includes("build the spaceship"));
   });
 });

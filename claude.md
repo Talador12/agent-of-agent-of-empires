@@ -34,7 +34,9 @@ North-star goal: aoaoe should let one reasoner run AoE for any number of session
 
 ### Ideas Backlog
 - **Web dashboard** — browser UI (not started)
-- **Per-session cost tracking** — parse reasoner output for token/cost data
+- ~~**Per-session cost tracking**~~ — already implemented via parseCost() + TUI display
+- **Task history export** — `aoaoe export --tasks` for completed task summaries over time
+- **Multi-machine coordination** — share task state across machines via git or cloud storage
 
 ### What shipped in v0.186.0
 

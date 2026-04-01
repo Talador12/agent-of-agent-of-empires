@@ -679,6 +679,40 @@ export function formatTaskTable(states: Map<string, TaskState> | TaskState[]): s
   return lines.join("\n");
 }
 
+// format detailed progress history for one or all tasks.
+export function formatTaskHistory(tasks: TaskState[], sessionFilter?: string): string {
+  const filtered = sessionFilter
+    ? tasks.filter((t) => t.sessionTitle.toLowerCase() === sessionFilter.toLowerCase()
+        || t.sessionTitle.toLowerCase().includes(sessionFilter.toLowerCase()))
+    : tasks;
+
+  if (filtered.length === 0) {
+    return sessionFilter ? `  no task found matching "${sessionFilter}"` : "  (no tasks)";
+  }
+
+  const lines: string[] = [];
+  for (const t of filtered) {
+    const statusIcon = t.status === "completed" ? "✓"
+      : t.status === "active" ? "●"
+      : t.status === "paused" ? "◎"
+      : t.status === "failed" ? "✗"
+      : "○";
+    lines.push(`  ${statusIcon} ${BOLD}${t.sessionTitle}${RESET} ${DIM}(${t.status})${RESET}`);
+    lines.push(`    ${DIM}goal: ${t.goal.length > 80 ? t.goal.slice(0, 77) + "..." : t.goal}${RESET}`);
+
+    if (t.progress.length === 0) {
+      lines.push(`    ${DIM}(no progress entries)${RESET}`);
+    } else {
+      for (const p of t.progress) {
+        const ts = new Date(p.at).toLocaleString();
+        lines.push(`    ${DIM}${ts}${RESET}  ${p.summary}`);
+      }
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
 export function formatAgo(ms: number): string {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s ago`;
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m ago`;
