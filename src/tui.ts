@@ -1234,7 +1234,7 @@ export const BUILTIN_COMMANDS = new Set([
   "/runbook",
   "/incident",
   "/pin-save", "/pin-load", "/pin-delete", "/pin-presets",
-  "/prompt-template",
+  "/prompt-template", "/health",
   "/explain", "/verbose", "/clear", "/view", "/back", "/sort", "/compact",
   "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",

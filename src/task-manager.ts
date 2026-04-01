@@ -493,11 +493,27 @@ export class TaskManager {
     const entry: TaskProgress = { at: Date.now(), summary };
     task.progress.push(entry);
     task.lastProgressAt = Date.now();
+    task.stuckNudgeCount = 0; // progress means it's not stuck anymore
     // keep progress bounded (last 50 entries)
     if (task.progress.length > 50) {
       task.progress = task.progress.slice(-50);
     }
     this.save();
+  }
+
+  // record that the reasoner nudged a stuck session. returns true if the task should be auto-paused.
+  recordStuckNudge(sessionTitle: string, maxNudges: number): boolean {
+    const task = this.getTaskForSession(sessionTitle);
+    if (!task || task.status !== "active") return false;
+    task.stuckNudgeCount = (task.stuckNudgeCount ?? 0) + 1;
+    if (maxNudges > 0 && task.stuckNudgeCount >= maxNudges) {
+      task.status = "paused";
+      log(`auto-paused '${sessionTitle}' after ${task.stuckNudgeCount} stuck nudges (threshold: ${maxNudges})`);
+      this.save();
+      return true;
+    }
+    this.save();
+    return false;
   }
 
   // mark a task as completed, optionally clean up its session.

@@ -8,7 +8,7 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.186.0
+## Version: v0.187.0
 
 ## Current Focus
 
@@ -33,10 +33,13 @@ North-star goal: aoaoe should let one reasoner run AoE for any number of session
 
 ### Ideas Backlog
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- ~~**Session pinning presets**~~ — shipped: `/pin-save`, `/pin-load`, `/pin-delete`, `/pin-presets` with persistent storage in `~/.aoaoe/pin-presets.json`
-- ~~**Reasoner prompt templates**~~ — shipped: 5 built-in strategies (default, hands-off, aggressive, review-focused, shipping) via config or `/prompt-template`
-- ~~**Task dependency graph**~~ — shipped in v0.186.0
-- ~~**Task templates**~~ — shipped: 6 built-in templates (roadmap, roadmap-strict, pr-review, bugfix, explore, ci-fix) + user-extensible via `~/.aoaoe/templates.json`
+- ~~**Session pinning presets**~~ — shipped
+- ~~**Reasoner prompt templates**~~ — shipped
+- ~~**Task dependency graph**~~ — shipped
+- ~~**Task templates**~~ — shipped
+- ~~**Task auto-pause**~~ — shipped: `maxStuckNudgesBeforePause` policy + `stuckNudgeCount` tracking
+- ~~**Batch task operations**~~ — shipped: `start-all`, `stop-all`, `pause-all`, `resume-all`
+- ~~**Session health scores**~~ — shipped: `/health` command with per-session 0-100 scores, health bars, fleet average
 
 ### What shipped in v0.186.0
 

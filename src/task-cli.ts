@@ -43,6 +43,10 @@ function taskCommandHelp(prefix = "aoaoe task"): string {
     `${prefix} new <title> <path>       create task + session`,
     `${prefix} new <t> <p> --template roadmap  create with template goal`,
     `${prefix} start|stop <task>         control task session`,
+    `${prefix} start-all                 start all paused/pending tasks`,
+    `${prefix} stop-all                  stop all active tasks`,
+    `${prefix} pause-all                 pause all active tasks (no session stop)`,
+    `${prefix} resume-all                resume all paused tasks`,
     `${prefix} edit <task> <goal>        update task goal`,
     `${prefix} rm <task>                 remove task + session`,
     "step-in quick path: /task <session> :: <new instructions>",
@@ -371,6 +375,53 @@ export async function runTaskCli(argv: string[]): Promise<void> {
     case "stop": {
       if (!args[0]) { console.error(`usage: aoaoe task stop <name|id>`); return; }
       await taskStop(args[0]);
+      return;
+    }
+    case "start-all": {
+      const states = loadTaskState();
+      const tasks = [...states.values()].filter((t) => t.status === "paused" || t.status === "pending");
+      if (tasks.length === 0) { console.log(`${DIM}no paused/pending tasks to start${RESET}`); return; }
+      for (const t of tasks) await taskStart(t.sessionTitle);
+      console.log(`${GREEN}started ${tasks.length} task(s)${RESET}`);
+      return;
+    }
+    case "stop-all": {
+      const states = loadTaskState();
+      const tasks = [...states.values()].filter((t) => t.status === "active");
+      if (tasks.length === 0) { console.log(`${DIM}no active tasks to stop${RESET}`); return; }
+      for (const t of tasks) await taskStop(t.sessionTitle);
+      console.log(`${YELLOW}stopped ${tasks.length} task(s)${RESET}`);
+      return;
+    }
+    case "pause-all": {
+      const states = loadTaskState();
+      let count = 0;
+      for (const [key, t] of states) {
+        if (t.status === "active") {
+          t.status = "paused";
+          states.set(key, t);
+          count++;
+        }
+      }
+      if (count === 0) { console.log(`${DIM}no active tasks to pause${RESET}`); return; }
+      saveTaskState(states);
+      console.log(`${YELLOW}paused ${count} task(s)${RESET}`);
+      return;
+    }
+    case "resume-all": {
+      const states = loadTaskState();
+      let count = 0;
+      for (const [key, t] of states) {
+        if (t.status === "paused") {
+          t.status = "active";
+          t.stuckNudgeCount = 0;
+          states.set(key, t);
+          count++;
+        }
+      }
+      if (count === 0) { console.log(`${DIM}no paused tasks to resume${RESET}`); return; }
+      saveTaskState(states);
+      console.log(`${GREEN}resumed ${count} task(s)${RESET}`);
       return;
     }
     case "edit": {

@@ -32,6 +32,7 @@ import { loadTuiHistory, searchHistory, TUI_HISTORY_FILE, computeHistoryStats } 
 import { appendSupervisorEvent, loadSupervisorEvents } from "./supervisor-history.js";
 import { savePreset, deletePreset, getPreset, formatPresetList } from "./pin-presets.js";
 import { resolvePromptTemplate, formatPromptTemplateList } from "./reasoner/prompt-templates.js";
+import { formatHealthReport } from "./health-score.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState, ActionLogEntry } from "./types.js";
@@ -2256,6 +2257,15 @@ async function main() {
         }
         continue;
       }
+      if (cmd === "__CMD_HEALTH__") {
+        const tasks = taskManager?.tasks ?? [];
+        const report = formatHealthReport(tasks);
+        for (const line of report.split("\n")) {
+          if (tui) tui.log("status", line); else log(line);
+          reasonerConsole.writeSystem(line);
+        }
+        continue;
+      }
       if (cmd === "__CMD_STATUS__") {
         const isPausedNow = paused || input.isPaused();
         const modeMsg = `status: poll #${pollCount}, mode=${getRunMode()}, reasoner=${getReasonerLabel()}, paused=${isPausedNow}`;
@@ -3384,6 +3394,31 @@ async function daemonTick(
       }
     }
   }
+  // auto-pause tracking: record stuck nudges for send_input actions targeting stuck sessions.
+  // a "stuck nudge" = send_input to a session that hasn't had progress in >30 min.
+  if (taskManager) {
+    const maxNudges = config.policies.maxStuckNudgesBeforePause ?? 0;
+    const stuckThresholdMs = 30 * 60 * 1000;
+    const now = Date.now();
+    for (const entry of executed) {
+      if (entry.action.action !== "send_input" || !entry.success) continue;
+      const sid = actionSession(entry.action);
+      const title = sid ? (sessionTitleMap.get(sid) ?? sid) : undefined;
+      if (!title) continue;
+      const task = taskManager.getTaskForSession(title);
+      if (!task || task.status !== "active") continue;
+      const lastProgress = task.lastProgressAt ?? 0;
+      if (lastProgress > 0 && (now - lastProgress) > stuckThresholdMs) {
+        const paused = taskManager.recordStuckNudge(title, maxNudges);
+        if (paused) {
+          const msg = `auto-paused '${title}' after ${task.stuckNudgeCount} stuck nudges`;
+          if (tui) tui.log("system", msg); else log(msg);
+          appendSupervisorEvent({ at: Date.now(), detail: `auto-pause: ${title}` });
+        }
+      }
+    }
+  }
+
   // fire lifecycle hooks for completed actions
   if (tui) {
     const hooks = tui.getLifecycleHooks();

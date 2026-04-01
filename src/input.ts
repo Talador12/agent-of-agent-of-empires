@@ -984,6 +984,7 @@ ${BOLD}navigation:${RESET}
 ${BOLD}info:${RESET}
   /status            show daemon state
   /progress [opts]   what each session accomplished recently; opts: --since <1h|8h|24h> --json
+  /health            session health scores (0-100 per task, fleet average)
   /prompt-template [name] set/show reasoner prompt strategy (default, hands-off, aggressive, review-focused, shipping)
   /incident [opts]   quick incident view; opts: --since <30m|2h|1d> --limit N --json --ndjson --follow (watch via CLI)
   /runbook [section] show operator playbook (opts: quickstart|response-flow|incident|all, --json)
@@ -1202,6 +1203,10 @@ ${BOLD}other:${RESET}
 
       case "/prompt-template":
         this.queue.push(`__CMD_PROMPT_TEMPLATE__${line.slice("/prompt-template".length)}`);
+        break;
+
+      case "/health":
+        this.queue.push("__CMD_HEALTH__");
         break;
 
       case "/bell":

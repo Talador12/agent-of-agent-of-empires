@@ -137,6 +137,7 @@ export interface AoaoeConfig {
     actionCooldownMs?: number; // rate limit cooldown per session (default: 30000)
     userActivityThresholdMs?: number; // skip send_input when user was active within this window (default: 30000)
     allowDestructive?: boolean; // allow remove_agent and stop_session (default: false — blocked unless explicitly enabled)
+    maxStuckNudgesBeforePause?: number; // auto-pause task after N stuck nudges with no progress (default: 0 = disabled)
   };
   contextFiles: string[]; // extra AI instruction file paths to load (relative to project root)
   sessionDirs: Record<string, string>; // explicit session title -> project directory mapping (absolute or relative to cwd)
@@ -258,6 +259,7 @@ export interface TaskState {
   createdAt?: number;
   lastProgressAt?: number;
   completedAt?: number;
+  stuckNudgeCount?: number; // how many times the reasoner nudged with no subsequent progress
   progress: TaskProgress[];
 }
 
@@ -280,6 +282,7 @@ export function toTaskState(raw: unknown): TaskState | null {
     goal: r.goal,
     status: r.status as TaskStatus,
     dependsOn: Array.isArray(r.dependsOn) ? r.dependsOn.filter((d: unknown): d is string => typeof d === "string" && d.length > 0) : undefined,
+    stuckNudgeCount: typeof r.stuckNudgeCount === "number" ? r.stuckNudgeCount : undefined,
     sessionId: typeof r.sessionId === "string" ? r.sessionId : undefined,
     createdAt: typeof r.createdAt === "number" ? r.createdAt : undefined,
     lastProgressAt: typeof r.lastProgressAt === "number" ? r.lastProgressAt : undefined,
