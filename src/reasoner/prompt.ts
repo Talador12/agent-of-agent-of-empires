@@ -106,14 +106,23 @@ export function sliceToByteLimit(s: string, maxBytes: number): string {
   return s.slice(0, lo);
 }
 
+// how long without progress before flagging a task as possibly stuck
+const STUCK_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
+
 // format task context for the reasoner — tells it what each session is working on
-export function formatTaskContext(tasks: TaskState[]): string {
+export function formatTaskContext(tasks: TaskState[], stuckThresholdMs = STUCK_THRESHOLD_MS): string {
   if (tasks.length === 0) return "";
+  const now = Date.now();
   const parts: string[] = [];
+  const stuckTasks: string[] = [];
+
   parts.push("Active tasks (each session is working toward a specific goal):");
   for (const t of tasks) {
     const statusTag = t.status === "completed" ? "COMPLETED" : t.status.toUpperCase();
-    parts.push(`  [${statusTag}] "${t.sessionTitle}" (${t.repo})`);
+    const lastProgressMs = t.lastProgressAt ? now - t.lastProgressAt : Infinity;
+    const isStuck = t.status === "active" && lastProgressMs > stuckThresholdMs;
+    const stuckTag = isStuck ? " ⚠ POSSIBLY STUCK" : "";
+    parts.push(`  [${statusTag}${stuckTag}] "${t.sessionTitle}" (${t.repo})`);
     const goalItems = goalToList(t.goal);
     parts.push(`    Goal:`);
     for (const item of goalItems) parts.push(`      - ${item}`);
@@ -121,15 +130,29 @@ export function formatTaskContext(tasks: TaskState[]): string {
       const recent = t.progress.slice(-3);
       parts.push(`    Recent progress:`);
       for (const p of recent) {
-        const ago = Math.round((Date.now() - p.at) / 60_000);
+        const ago = Math.round((now - p.at) / 60_000);
         const agoStr = ago < 1 ? "just now" : ago < 60 ? `${ago}m ago` : `${Math.round(ago / 60)}h ago`;
         parts.push(`      - ${p.summary} (${agoStr})`);
       }
+    } else if (t.status === "active") {
+      parts.push(`    No progress recorded yet.`);
+    }
+    if (isStuck) {
+      const stuckMin = Math.round(lastProgressMs / 60_000);
+      stuckTasks.push(`"${t.sessionTitle}" (no progress for ${stuckMin}m)`);
     }
   }
+
+  if (stuckTasks.length > 0) {
+    parts.push("");
+    parts.push(`⚠ STUCK TASKS: ${stuckTasks.join(", ")}`);
+    parts.push("Consider checking these sessions — they may need a nudge, be waiting for input, or be blocked on an error.");
+  }
+
   parts.push("");
   parts.push("Use report_progress when agents achieve concrete milestones.");
   parts.push("Use complete_task when a task's goal is fully achieved.");
+  parts.push("If a task seems stuck, check the session output and send_input to help it get unstuck.");
   parts.push("");
   return parts.join("\n");
 }

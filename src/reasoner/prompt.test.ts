@@ -530,8 +530,9 @@ describe("formatTaskContext", () => {
   });
 
   it("shows ACTIVE status tag for active tasks", () => {
-    const result = formatTaskContext([makeTask({ status: "active" })]);
+    const result = formatTaskContext([makeTask({ status: "active", lastProgressAt: Date.now() })]);
     assert.ok(result.includes("[ACTIVE]"));
+    assert.ok(!result.includes("STUCK"), "recent progress should not be flagged as stuck");
   });
 
   it("shows COMPLETED status tag", () => {
@@ -582,5 +583,43 @@ describe("formatTaskContext", () => {
     const result = formatTaskContext([makeTask()]);
     assert.ok(result.includes("report_progress"));
     assert.ok(result.includes("complete_task"));
+  });
+
+  it("flags stuck tasks with no recent progress", () => {
+    const result = formatTaskContext([makeTask({
+      status: "active",
+      lastProgressAt: Date.now() - (60 * 60 * 1000), // 1 hour ago
+    })], 30 * 60 * 1000);
+    assert.ok(result.includes("STUCK"), "should contain STUCK warning");
+    assert.ok(result.includes("adventure"), "should name the stuck session");
+  });
+
+  it("does not flag active tasks with recent progress as stuck", () => {
+    const result = formatTaskContext([makeTask({
+      status: "active",
+      lastProgressAt: Date.now() - (5 * 60 * 1000), // 5 min ago
+    })], 30 * 60 * 1000);
+    assert.ok(!result.includes("STUCK"), "should not flag recent progress as stuck");
+  });
+
+  it("does not flag completed tasks as stuck", () => {
+    const result = formatTaskContext([makeTask({
+      status: "completed",
+      lastProgressAt: Date.now() - (120 * 60 * 1000),
+    })], 30 * 60 * 1000);
+    assert.ok(!result.includes("STUCK"), "completed tasks should never be stuck");
+  });
+
+  it("shows no-progress-yet for active tasks without any progress", () => {
+    const result = formatTaskContext([makeTask({ status: "active", progress: [] })]);
+    assert.ok(result.includes("No progress recorded"), "should note absence of progress");
+  });
+
+  it("includes stuck-task guidance for the reasoner", () => {
+    const result = formatTaskContext([makeTask({
+      status: "active",
+      lastProgressAt: Date.now() - (60 * 60 * 1000),
+    })], 30 * 60 * 1000);
+    assert.ok(result.includes("send_input"), "should suggest sending input to stuck sessions");
   });
 });

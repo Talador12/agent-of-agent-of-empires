@@ -287,6 +287,10 @@ export async function quickTaskUpdate(ref: string, goal: string): Promise<string
     states.set(taskStateKey(task.repo, task.sessionTitle), task);
     saveTaskState(states);
     syncTaskDefinitionsFromState(process.cwd(), states);
+    // inject goal into session so the agent sees the new direction immediately
+    if (task.sessionId) {
+      await injectGoalToSession(task.sessionId, task.sessionTitle, goal);
+    }
     return `updated ${task.sessionTitle} goal`; 
   }
 
@@ -309,6 +313,10 @@ export async function quickTaskUpdate(ref: string, goal: string): Promise<string
   states.set(taskStateKey(newTask.repo, newTask.sessionTitle), newTask);
   saveTaskState(states);
   syncTaskDefinitionsFromState(process.cwd(), states);
+  // inject goal into session so the agent gets working right away
+  if (newTask.sessionId) {
+    await injectGoalToSession(newTask.sessionId, newTask.sessionTitle, goal);
+  }
   return `created task for existing session ${session.title}`;
 }
 
