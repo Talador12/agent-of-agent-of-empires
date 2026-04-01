@@ -8,18 +8,50 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.183.0
+## Version: v0.184.0
 
 ## Current Focus
 
-Output pattern alerting shipped. Backlog continuing.
+Runtime multi-session orchestration hardening: periodic task/session reconcile while daemon runs, plus profile-aware lifecycle actions.
+
+- North-star goal: aoaoe should let one reasoner run AoE for any number of sessions/tasks, make its actions obvious, and make it trivial for a human to step in with new info or new tasks at any time.
+- In-progress UX: surface live supervisor/task orchestration status in the TUI header, add `/supervisor` status reporting, and keep `/task` commands step-in friendly (`/task help`, `/task reconcile`, quick override syntax).
+- Added supervisor event history in runtime state so `/supervisor` now shows recent orchestration actions (imports, reconciles, and human step-ins) with relative timestamps.
+- Supervisor events now persist to `~/.aoaoe/supervisor-history.jsonl`, so `/supervisor` can show recent judge activity across restarts.
+- `/supervisor` now supports `--all`, `--since <dur>`, and `--limit N` to inspect orchestration history without digging through files.
+- `/supervisor --json` now emits machine-readable supervisor/task/session state for automation and external dashboards.
+- Added top-level `aoaoe supervisor` subcommand (with `--all`, `--since`, `--limit`, `--json`) for non-interactive automation and cron usage.
+- Added `aoaoe supervisor --watch` (plus `--interval <ms>`) for continuous judge-status streaming in a dedicated terminal/tmux pane.
+- Added `aoaoe supervisor --ndjson` for compact line-delimited JSON snapshots (pairs cleanly with `--watch` for pipes and dashboards).
+- Added `aoaoe supervisor --watch --changes-only` to reduce stream noise by emitting only on meaningful supervisor-state changes.
+- Added `--heartbeat <sec>` support for `aoaoe supervisor --watch --changes-only`, so streams can still emit periodic keepalives for monitors.
+- Supervisor JSON/NDJSON payloads now include `emitReason` (`snapshot`, `interval`, `change`, `heartbeat`) so downstream consumers can distinguish why each snapshot was emitted.
+- README docs updated with supervisor command surface (`--watch`, `--changes-only`, `--heartbeat`, `--ndjson`) and streaming examples for human + automation workflows.
+- Added README operator playbook for day-2 supervision: low-noise stream setup, task reconcile workflow, and human step-in patterns with `/task <session> :: <goal>`.
+- Added `aoaoe runbook` CLI subcommand to print the operator playbook directly in terminal during incidents.
+- Added `aoaoe runbook --json` for machine-readable incident playbook/checklist output.
+- Added `aoaoe runbook --section <quickstart|response-flow|all>` so operators can print only the needed runbook slice during incidents.
+- Added interactive `/runbook [section]` command in `aoaoe-chat` so on-call users can pull the same playbook slices without leaving the TUI.
+- `/runbook` in chat now supports `--json` and `--section` parsing, sharing the same runbook payload builder as top-level `aoaoe runbook`.
+- Added `incident` as a runbook section alias for `response-flow` across CLI/chat help and parsing for faster on-call usage.
+- Added `/incident` interactive shortcut to print an incident-focused view (response-flow runbook + recent supervisor events + immediate step-in path).
+- `/incident` now supports `--since`, `--limit`, and `--json` for focused or machine-readable incident snapshots directly from chat.
+- Added top-level `aoaoe incident` subcommand with `--since`, `--limit`, and `--json` for non-interactive incident tooling.
+- Extended `aoaoe incident` with streaming flags (`--watch`, `--ndjson`, `--changes-only`, `--heartbeat`, `--interval`) and incident `emitReason` semantics for low-noise monitors.
+- Interactive `/incident` now supports `--ndjson` output and gives a clear handoff message to top-level `aoaoe incident --watch` when watch is requested in-chat.
+- `/incident` chat parser now accepts incident watch flags (`--changes-only`, `--heartbeat`, `--interval`) and prints a copy-paste CLI handoff command instead of throwing unknown-option errors.
+- Added `--follow` alias for incident workflows (maps to `--watch --changes-only`) across CLI parsing, help text, and interactive `/incident` guidance.
+- Added README incident streaming example for `aoaoe incident --follow` so on-call users can jump to low-noise monitoring quickly.
+- Tightened `incident --follow` behavior: now defaults heartbeat keepalive to 30s, and chat handoff recommends NDJSON follow command for monitor-friendly output.
+- Extended top-level `aoaoe incident` with streaming flags (`--watch`, `--ndjson`, `--changes-only`, `--heartbeat`, `--interval`) for incident-focused dashboards.
 
 ### Open Items
 - Backlog continues below.
 
 ### Ideas Backlog
 - **Web dashboard** — browser UI via `opencode web` (not wired yet)
-- **Session lifecycle hooks** — pre/post start, stop, restart hooks for custom automation
+- **Session pinning presets** — save/restore sets of pinned sessions by name
+- **Reasoner prompt templates** — swap system prompt strategies at runtime
 
 ### What shipped in v0.183.0
 

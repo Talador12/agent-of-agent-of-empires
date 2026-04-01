@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { deriveTitle, formatAgo, formatTaskTable, readNextRoadmapItems } from "./task-manager.js";
+import { deriveTitle, formatAgo, formatTaskTable, readNextRoadmapItems, taskStateKey, resolveTaskRepoPath, shouldReconcileTasks } from "./task-manager.js";
 import { normalizeGoal, goalToList } from "./types.js";
 import type { TaskState } from "./types.js";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
@@ -36,6 +36,76 @@ describe("deriveTitle", () => {
     const result = deriveTitle("foo/bar/");
     // Node basename("foo/bar/") = "bar"
     assert.equal(result, "bar");
+  });
+});
+
+// ── taskStateKey ───────────────────────────────────────────────────────────
+
+describe("taskStateKey", () => {
+  it("includes repo and normalized title", () => {
+    assert.equal(taskStateKey("/repos", "Cloud-Hypervisor"), "/repos::cloud-hypervisor");
+  });
+
+  it("distinguishes sessions sharing the same repo", () => {
+    const a = taskStateKey("/repos", "cloud-hypervisor");
+    const b = taskStateKey("/repos", "cloudchamber");
+    assert.notEqual(a, b);
+  });
+});
+
+// ── resolveTaskRepoPath ────────────────────────────────────────────────────
+
+describe("resolveTaskRepoPath", () => {
+  function makeTmpDir(): string {
+    const dir = join(tmpdir(), `aoaoe-test-taskrepo-${process.pid}-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  function cleanup(dir: string): void {
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+
+  it("resolves a matching project directory by session title", () => {
+    const dir = makeTmpDir();
+    try {
+      const project = join(dir, "cloud-hypervisor");
+      mkdirSync(project, { recursive: true });
+      const resolved = resolveTaskRepoPath(process.cwd(), dir, "cloud-hypervisor");
+      assert.equal(resolved, project);
+    } finally { cleanup(dir); }
+  });
+
+  it("falls back to session root when no match exists", () => {
+    const dir = makeTmpDir();
+    try {
+      const resolved = resolveTaskRepoPath(process.cwd(), dir, "does-not-exist");
+      assert.equal(resolved, dir);
+    } finally { cleanup(dir); }
+  });
+});
+
+// ── shouldReconcileTasks ───────────────────────────────────────────────────
+
+describe("shouldReconcileTasks", () => {
+  it("runs on first poll", () => {
+    assert.equal(shouldReconcileTasks(1), true);
+  });
+
+  it("runs every 6 polls by default", () => {
+    assert.equal(shouldReconcileTasks(7), true);
+    assert.equal(shouldReconcileTasks(13), true);
+    assert.equal(shouldReconcileTasks(6), false);
+  });
+
+  it("supports custom cadence", () => {
+    assert.equal(shouldReconcileTasks(5, 4), true);
+    assert.equal(shouldReconcileTasks(4, 4), false);
+  });
+
+  it("returns false for invalid inputs", () => {
+    assert.equal(shouldReconcileTasks(0), false);
+    assert.equal(shouldReconcileTasks(1, 0), false);
   });
 });
 
@@ -147,18 +217,24 @@ describe("formatTaskTable", () => {
     assert.ok(result.includes("github/foo"));
   });
 
-  it("renders header with REPO STATUS MODE SESSION PROGRESS", () => {
+  it("renders header with REPO STATUS MODE PROFILE SESSION PROGRESS", () => {
     const result = formatTaskTable([makeTask()]);
     assert.ok(result.includes("REPO"));
     assert.ok(result.includes("STATUS"));
     assert.ok(result.includes("MODE"));
+    assert.ok(result.includes("PROFILE"));
     assert.ok(result.includes("SESSION"));
     assert.ok(result.includes("PROGRESS"));
   });
 
   it("shows context line with session title and repo", () => {
     const result = formatTaskTable([makeTask({ sessionTitle: "adventure", repo: "github/adventure" })]);
-    assert.ok(result.includes("context: adventure @ github/adventure"));
+    assert.ok(result.includes("context: adventure @ github/adventure [default]"));
+  });
+
+  it("shows task profile in context line", () => {
+    const result = formatTaskTable([makeTask({ profile: "work" })]);
+    assert.ok(result.includes("[work]"));
   });
 
   it("shows single-item goal as a bullet", () => {

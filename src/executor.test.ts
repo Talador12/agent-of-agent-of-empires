@@ -28,9 +28,9 @@ function makeConfig(overrides?: Partial<AoaoeConfig>): AoaoeConfig {
   };
 }
 
-function makeSnap(id: string, title: string, tool = "opencode"): SessionSnapshot {
+function makeSnap(id: string, title: string, tool = "opencode", profile?: string): SessionSnapshot {
   return {
-    session: { id, title, path: "/tmp", tool, status: "working", tmux_name: `aoe_${title}_${id.slice(0, 8)}` },
+    session: { id, title, path: "/tmp", tool, profile, status: "working", tmux_name: `aoe_${title}_${id.slice(0, 8)}` },
     output: "",
     outputHash: "abcd",
     capturedAt: Date.now(),
@@ -186,5 +186,21 @@ describe("Executor", () => {
     assert.equal(results.length, 1);
     // the action should reference the resolved session, not return "could not resolve"
     assert.ok(!results[0].detail.includes("could not resolve"));
+  });
+
+  it("builds profile-aware aoe args for non-default profile sessions", () => {
+    const ex = new Executor(makeConfig());
+    const snap = makeSnap("abc12345-1234-5678-9012-123456789abc", "cloud-hypervisor", "opencode", "work");
+    const args = (ex as unknown as { buildProfileAwareAoeArgs: (ref: string, snaps: SessionSnapshot[], tail: string[]) => string[] })
+      .buildProfileAwareAoeArgs("abc12345-1234-5678-9012-123456789abc", [snap], ["session", "start", "abc12345-1234-5678-9012-123456789abc"]);
+    assert.deepEqual(args, ["-p", "work", "session", "start", "abc12345-1234-5678-9012-123456789abc"]);
+  });
+
+  it("keeps default profile args unchanged", () => {
+    const ex = new Executor(makeConfig());
+    const snap = makeSnap("abc12345-1234-5678-9012-123456789abc", "adventure", "opencode", "default");
+    const args = (ex as unknown as { buildProfileAwareAoeArgs: (ref: string, snaps: SessionSnapshot[], tail: string[]) => string[] })
+      .buildProfileAwareAoeArgs("abc12345-1234-5678-9012-123456789abc", [snap], ["remove", "abc12345-1234-5678-9012-123456789abc", "-y"]);
+    assert.deepEqual(args, ["remove", "abc12345-1234-5678-9012-123456789abc", "-y"]);
   });
 });

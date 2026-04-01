@@ -393,6 +393,9 @@ The chat UI (`aoaoe-chat`) runs inside an AoE tmux pane. Register it with `aoaoe
 | `/overview` | Show all AoE sessions with tasks, model, tokens, cost. **Works without the daemon.** |
 | `/tasks` | Alias for `/overview` |
 | `/status` | Daemon connection status + countdown to next reasoning cycle |
+| `/incident [opts]` | Incident quick view: response-flow runbook + recent supervisor activity (`--since`, `--limit`, `--json`, `--ndjson`, `--follow`) |
+| `/runbook [section] [--json]` | Print operator playbook slice (`quickstart`, `response-flow`/`incident`, `all`) |
+| `/supervisor [opts]` | Judge/orchestrator status across tasks/sessions (`--all`, `--since`, `--limit`, `--json`) |
 | `/interrupt` | Interrupt the current reasoner call |
 | `/dashboard` | Request full dashboard output from daemon |
 | `/pause` | Pause the daemon (stops reasoning) |
@@ -428,6 +431,29 @@ commands:
   (none)         start the supervisor daemon (interactive TUI)
   init           detect tools + sessions, import history, generate config
   status         quick daemon health check (is it running? what's it doing?)
+  runbook        print operator quickstart for day-2 supervision
+  runbook --json machine-readable runbook output for tooling
+  runbook --section <quickstart|response-flow|incident|all> print only one runbook section
+  incident       one-shot incident quick view (response-flow + recent activity)
+  incident --since <duration>      filter incident event window (30m, 2h, 1d)
+  incident --limit <N>             cap incident events shown (default: 5)
+  incident --json                  machine-readable incident output
+  incident --ndjson                emit compact one-line JSON snapshots
+  incident --watch                 stream incident snapshots continuously
+  incident --follow                shortcut for --watch --changes-only --heartbeat 30
+  incident --changes-only          emit only when incident state changes (implies --watch)
+  incident --heartbeat <sec>       keepalive interval (implies --changes-only + --watch)
+  incident --interval <ms>         watch refresh interval (default: 5000, min: 500)
+  supervisor     one-shot supervisor/task/session orchestration status
+  supervisor --all                 show full recent supervisor event buffer
+  supervisor --since <duration>    filter events to a time window (30m, 2h, 7d)
+  supervisor --limit <N>           cap number of events shown (default: 5)
+  supervisor --json                machine-readable output for automation
+  supervisor --ndjson              emit compact one-line JSON snapshots
+  supervisor --watch               stream supervisor snapshots continuously
+  supervisor --changes-only        emit only when state changes (implies --watch)
+  supervisor --heartbeat <sec>     keepalive interval (implies --changes-only + --watch)
+  supervisor --interval <ms>       watch refresh interval (default: 5000, min: 500)
   config         show the effective resolved config (defaults + file)
   config --validate  validate config + check tool availability
   config --diff  show only fields that differ from defaults
@@ -441,7 +467,7 @@ commands:
   export --format <json|markdown>  output format (default: json)
   export --output <file>           write to file (default: stdout)
   export --last <duration>         time window: 1h, 6h, 24h, 7d (default: 24h)
-  task           manage tasks and sessions (list, start, stop, new, rm, edit)
+  task           manage tasks and sessions (list, reconcile, start, stop, new, rm, edit, help)
   tasks          show task progress (from aoaoe.tasks.json)
   history        review recent actions (from ~/.aoaoe/actions.log)
   test-context   scan sessions + context files (read-only, no LLM, safe)
@@ -471,6 +497,62 @@ init options:
 register options:
   --title, -t <name>                 session title in AoE (default: aoaoe)
 ```
+
+### Supervisor Streaming Examples
+
+```bash
+# Human-readable watch output (change-only)
+aoaoe supervisor --watch --changes-only --heartbeat 60
+
+# NDJSON stream for pipes/collectors
+aoaoe supervisor --watch --ndjson --changes-only --heartbeat 30
+
+# Filter to the last 2 hours and show only 20 events
+aoaoe supervisor --since 2h --limit 20
+```
+
+JSON/NDJSON payloads include `emitReason` with one of:
+- `snapshot` (one-shot invocation)
+- `interval` (periodic watch tick)
+- `change` (watch emission caused by state change)
+- `heartbeat` (keepalive emission from `--heartbeat`)
+
+### Incident Streaming Examples
+
+```bash
+# One-shot incident snapshot (human readable)
+aoaoe incident --since 30m --limit 10
+
+# Fast follow mode (alias for --watch --changes-only)
+aoaoe incident --follow --heartbeat 30 --ndjson
+
+# NDJSON incident stream for monitors (change-only + keepalive)
+aoaoe incident --watch --ndjson --changes-only --heartbeat 30
+
+# JSON watch stream (compact one object per tick in watch mode)
+aoaoe incident --watch --json --interval 5000
+```
+
+### Operator Playbook
+
+Use this when running aoaoe as a long-lived judge over many AoE sessions.
+
+```bash
+# 1) Start low-noise supervision stream in a side pane
+aoaoe supervisor --watch --ndjson --changes-only --heartbeat 30
+
+# 2) If sessions/tasks drift, force immediate reconciliation
+aoaoe task reconcile
+
+# 3) If a specific session needs new direction, inject a goal quickly
+aoaoe-chat
+# then type: /task <session> :: <new goal>
+```
+
+Recommended response flow:
+- `emitReason=change` spikes: inspect `/supervisor --since 30m --limit 20`
+- stalled task (pending/paused too long): run `aoaoe task reconcile`, then nudge via `/task ... :: ...`
+- noisy but unchanged systems: keep `--changes-only --heartbeat 30` so monitors still get liveness
 
 ## Configuration
 

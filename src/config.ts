@@ -365,6 +365,28 @@ export function parseCliArgs(argv: string[]): {
   showTasks: boolean;
   showHistory: boolean;
   showStatus: boolean;
+  runRunbook: boolean;
+  runbookJson: boolean;
+  runbookSection?: string;
+  runIncident: boolean;
+  incidentSince?: string;
+  incidentLimit?: number;
+  incidentJson: boolean;
+  incidentNdjson: boolean;
+  incidentWatch: boolean;
+  incidentChangesOnly: boolean;
+  incidentHeartbeatSec?: number;
+  incidentIntervalMs?: number;
+  runSupervisor: boolean;
+  supervisorAll: boolean;
+  supervisorSince?: string;
+  supervisorLimit?: number;
+  supervisorJson: boolean;
+  supervisorNdjson: boolean;
+  supervisorWatch: boolean;
+  supervisorChangesOnly: boolean;
+  supervisorHeartbeatSec?: number;
+  supervisorIntervalMs?: number;
   showConfig: boolean;
   configValidate: boolean;
   configDiff: boolean;
@@ -403,7 +425,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined as number | undefined, runStats: false, statsLast: undefined as string | undefined, runReplay: false, replaySpeed: undefined as number | undefined, replayLast: undefined as string | undefined };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined as string | undefined, runIncident: false, incidentSince: undefined as string | undefined, incidentLimit: undefined as number | undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined as number | undefined, incidentIntervalMs: undefined as number | undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined as string | undefined, supervisorLimit: undefined as number | undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined as number | undefined, supervisorIntervalMs: undefined as number | undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined as number | undefined, runStats: false, statsLast: undefined as string | undefined, runReplay: false, replaySpeed: undefined as number | undefined, replayLast: undefined as string | undefined };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "test-context") {
@@ -423,6 +445,116 @@ export function parseCliArgs(argv: string[]): {
   }
   if (argv[2] === "status") {
     return { ...defaults, showStatus: true };
+  }
+  if (argv[2] === "runbook") {
+    const json = argv.includes("--json");
+    let section: string | undefined;
+    for (let i = 3; i < argv.length; i++) {
+      if ((argv[i] === "--section" || argv[i] === "-s") && argv[i + 1]) {
+        section = argv[++i];
+      } else if (!argv[i].startsWith("-") && !section) {
+        section = argv[i];
+      }
+    }
+    return { ...defaults, runRunbook: true, runbookJson: json, runbookSection: section };
+  }
+  if (argv[2] === "incident") {
+    let since: string | undefined;
+    let limit: number | undefined;
+    let json = false;
+    let ndjson = false;
+    let watch = false;
+    let follow = false;
+    let changesOnly = false;
+    let heartbeatSec: number | undefined;
+    let intervalMs: number | undefined;
+    for (let i = 3; i < argv.length; i++) {
+      if (argv[i] === "--json") {
+        json = true;
+      } else if (argv[i] === "--ndjson") {
+        ndjson = true;
+      } else if (argv[i] === "--follow" || argv[i] === "-f") {
+        follow = true;
+      } else if (argv[i] === "--watch" || argv[i] === "-w") {
+        watch = true;
+      } else if (argv[i] === "--changes-only") {
+        changesOnly = true;
+      } else if ((argv[i] === "--heartbeat" || argv[i] === "-H") && argv[i + 1]) {
+        const val = parseInt(argv[++i], 10);
+        if (!isNaN(val) && val >= 1) heartbeatSec = val;
+      } else if ((argv[i] === "--interval" || argv[i] === "-i") && argv[i + 1]) {
+        const val = parseInt(argv[++i], 10);
+        if (!isNaN(val) && val >= 500) intervalMs = val;
+      } else if (argv[i] === "--since" && argv[i + 1]) {
+        since = argv[++i];
+      } else if (argv[i] === "--limit" && argv[i + 1]) {
+        const val = parseInt(argv[++i], 10);
+        if (!isNaN(val) && val > 0) limit = val;
+      }
+    }
+    if (follow) {
+      if (!watch) watch = true;
+      if (!changesOnly) changesOnly = true;
+      if (heartbeatSec === undefined) heartbeatSec = 30;
+    }
+    if (changesOnly && !watch) watch = true;
+    if (heartbeatSec !== undefined) {
+      if (!changesOnly) changesOnly = true;
+      if (!watch) watch = true;
+    }
+    return {
+      ...defaults,
+      runIncident: true,
+      incidentSince: since,
+      incidentLimit: limit,
+      incidentJson: json,
+      incidentNdjson: ndjson,
+      incidentWatch: watch,
+      incidentChangesOnly: changesOnly,
+      incidentHeartbeatSec: heartbeatSec,
+      incidentIntervalMs: intervalMs,
+    };
+  }
+  if (argv[2] === "supervisor") {
+    let all = false;
+    let since: string | undefined;
+    let limit: number | undefined;
+    let json = false;
+    let ndjson = false;
+    let watch = false;
+    let changesOnly = false;
+    let heartbeatSec: number | undefined;
+    let intervalMs: number | undefined;
+    for (let i = 3; i < argv.length; i++) {
+      if (argv[i] === "--all") {
+        all = true;
+      } else if (argv[i] === "--json") {
+        json = true;
+      } else if (argv[i] === "--ndjson") {
+        ndjson = true;
+      } else if (argv[i] === "--watch" || argv[i] === "-w") {
+        watch = true;
+      } else if (argv[i] === "--changes-only") {
+        changesOnly = true;
+      } else if ((argv[i] === "--heartbeat" || argv[i] === "-H") && argv[i + 1]) {
+        const val = parseInt(argv[++i], 10);
+        if (!isNaN(val) && val >= 1) heartbeatSec = val;
+      } else if (argv[i] === "--since" && argv[i + 1]) {
+        since = argv[++i];
+      } else if (argv[i] === "--limit" && argv[i + 1]) {
+        const val = parseInt(argv[++i], 10);
+        if (!isNaN(val) && val > 0) limit = val;
+      } else if ((argv[i] === "--interval" || argv[i] === "-i") && argv[i + 1]) {
+        const val = parseInt(argv[++i], 10);
+        if (!isNaN(val) && val >= 500) intervalMs = val;
+      }
+    }
+    if (changesOnly && !watch) watch = true;
+    if (heartbeatSec !== undefined) {
+      if (!changesOnly) changesOnly = true;
+      if (!watch) watch = true;
+    }
+    return { ...defaults, runSupervisor: true, supervisorAll: all, supervisorSince: since, supervisorLimit: limit, supervisorJson: json, supervisorNdjson: ndjson, supervisorWatch: watch, supervisorChangesOnly: changesOnly, supervisorHeartbeatSec: heartbeatSec, supervisorIntervalMs: intervalMs };
   }
   if (argv[2] === "config") {
     const validate = argv.includes("--validate") || argv.includes("-V");
@@ -612,7 +744,7 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runExport: false, exportFormat: undefined, exportOutput: undefined, exportLast: undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined, runStats: false, statsLast: undefined, runReplay: false, replaySpeed: undefined, replayLast: undefined };
+  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined, runIncident: false, incidentSince: undefined, incidentLimit: undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined, incidentIntervalMs: undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined, supervisorLimit: undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined, supervisorIntervalMs: undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runExport: false, exportFormat: undefined, exportOutput: undefined, exportLast: undefined, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined, runStats: false, statsLast: undefined, runReplay: false, replaySpeed: undefined, replayLast: undefined };
 }
 
 export function printHelp() {
@@ -630,6 +762,29 @@ commands:
   init           detect tools + sessions, import history, generate config
   (none)         start the supervisor daemon (interactive TUI)
   status         quick daemon health check (is it running? what's it doing?)
+  runbook        print operator playbook for day-2 supervision
+  runbook --json machine-readable runbook output
+  runbook --section <quickstart|response-flow|incident|all> print only one runbook section
+  incident       one-shot incident quick view (response-flow + recent activity)
+  incident --since <duration>      filter incident events window (30m, 2h, 1d)
+  incident --limit <N>             cap incident events shown (default: 5)
+  incident --json                  machine-readable incident output
+  incident --ndjson                emit compact one-line JSON snapshots
+  incident --watch                 stream incident snapshots continuously
+  incident --follow                shortcut for --watch --changes-only --heartbeat 30
+  incident --changes-only          emit only when incident state changes (implies --watch)
+  incident --heartbeat <sec>       keepalive interval (implies --changes-only + --watch)
+  incident --interval <ms>         watch refresh interval (default: 5000, min: 500)
+  supervisor     one-shot supervisor/task/session orchestration status
+  supervisor --all                 show full recent supervisor event buffer
+  supervisor --since <duration>    filter events to a time window (30m, 2h, 7d)
+  supervisor --limit <N>           cap number of events shown (default: 5)
+  supervisor --json                machine-readable output for automation
+  supervisor --ndjson              emit one compact JSON object per snapshot
+  supervisor --watch               stream supervisor snapshot continuously
+  supervisor --changes-only        emit only when state changes (implies --watch)
+  supervisor --heartbeat <sec>     keepalive interval (implies --changes-only + --watch)
+  supervisor --interval <ms>       watch refresh interval (default: 5000, min: 500)
   config         show the effective resolved config (defaults + file)
   config --validate  validate config + check tool availability
   config --diff  show only fields that differ from defaults
@@ -652,7 +807,7 @@ commands:
   tail           live-stream daemon activity to a separate terminal
   tail -f        follow mode — keep watching for new entries (Ctrl+C to stop)
   tail -n <N>    number of entries to show (default: 50)
-  task           manage tasks and sessions (list, start, stop, new, rm, edit)
+  task           manage tasks and sessions (list, reconcile, start, stop, new, rm, edit, help)
   tasks          show task progress (from aoaoe.tasks.json)
   history        review recent actions (from ~/.aoaoe/actions.log)
   test           run integration test (creates sessions, tests, cleans up)

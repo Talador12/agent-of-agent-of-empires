@@ -76,6 +76,8 @@ import {
   getEffectiveThrottle, formatThrottleConfig, DEFAULT_ACTION_COOLDOWN_MS,
   diffSessionOutput, summarizeDiff, formatSessionDiff,
   createAlertPattern, matchAlertPatterns, formatAlertPatterns, resetAlertPatternIdCounter,
+  createLifecycleHook, matchLifecycleHooks, buildHookEnv, formatLifecycleHooks,
+  resetHookIdCounter, LIFECYCLE_EVENTS,
   TUI,
 } from "./tui.js";
 import type { RelayRule } from "./tui.js";
@@ -4945,6 +4947,150 @@ describe("TUI alert patterns", () => {
   });
 });
 
+// ── Session lifecycle hooks ──────────────────────────────────────────────
+
+describe("LIFECYCLE_EVENTS", () => {
+  it("has 6 events", () => { assert.equal(LIFECYCLE_EVENTS.length, 6); });
+  it("includes pre_start and post_stop", () => {
+    assert.ok(LIFECYCLE_EVENTS.includes("pre_start"));
+    assert.ok(LIFECYCLE_EVENTS.includes("post_stop"));
+  });
+});
+
+describe("createLifecycleHook", () => {
+  it("creates hook with valid event", () => {
+    resetHookIdCounter();
+    const h = createLifecycleHook("post_start", "*", "echo started");
+    assert.ok(h);
+    assert.equal(h.event, "post_start");
+    assert.equal(h.sessionPattern, "*");
+    assert.equal(h.command, "echo started");
+    assert.equal(h.id, 1);
+  });
+
+  it("auto-increments ID", () => {
+    resetHookIdCounter();
+    const h1 = createLifecycleHook("post_start", "*", "cmd1");
+    const h2 = createLifecycleHook("post_stop", "*", "cmd2");
+    assert.equal(h1!.id, 1);
+    assert.equal(h2!.id, 2);
+  });
+
+  it("returns null for invalid event", () => {
+    resetHookIdCounter();
+    assert.equal(createLifecycleHook("not_real", "*", "echo"), null);
+  });
+
+  it("returns null for empty command", () => {
+    resetHookIdCounter();
+    assert.equal(createLifecycleHook("post_start", "*", "   "), null);
+  });
+
+  it("trims session pattern and command", () => {
+    resetHookIdCounter();
+    const h = createLifecycleHook("post_start", "  alpha  ", "  echo hi  ");
+    assert.equal(h!.sessionPattern, "alpha");
+    assert.equal(h!.command, "echo hi");
+  });
+});
+
+describe("matchLifecycleHooks", () => {
+  it("matches by event and wildcard pattern", () => {
+    resetHookIdCounter();
+    const hooks = [createLifecycleHook("post_start", "*", "cmd")!];
+    const matched = matchLifecycleHooks("post_start", "anything", hooks);
+    assert.equal(matched.length, 1);
+  });
+
+  it("matches by event and exact session title", () => {
+    resetHookIdCounter();
+    const hooks = [createLifecycleHook("post_stop", "Alpha", "cmd")!];
+    assert.equal(matchLifecycleHooks("post_stop", "Alpha", hooks).length, 1);
+  });
+
+  it("is case-insensitive on session title", () => {
+    resetHookIdCounter();
+    const hooks = [createLifecycleHook("post_start", "Alpha", "cmd")!];
+    assert.equal(matchLifecycleHooks("post_start", "ALPHA", hooks).length, 1);
+  });
+
+  it("does not match wrong event", () => {
+    resetHookIdCounter();
+    const hooks = [createLifecycleHook("post_start", "*", "cmd")!];
+    assert.equal(matchLifecycleHooks("post_stop", "anything", hooks).length, 0);
+  });
+
+  it("does not match wrong session", () => {
+    resetHookIdCounter();
+    const hooks = [createLifecycleHook("post_start", "Alpha", "cmd")!];
+    assert.equal(matchLifecycleHooks("post_start", "Bravo", hooks).length, 0);
+  });
+
+  it("returns multiple matching hooks", () => {
+    resetHookIdCounter();
+    const hooks = [
+      createLifecycleHook("post_start", "*", "cmd1")!,
+      createLifecycleHook("post_start", "Alpha", "cmd2")!,
+    ];
+    assert.equal(matchLifecycleHooks("post_start", "Alpha", hooks).length, 2);
+  });
+});
+
+describe("buildHookEnv", () => {
+  it("returns SESSION_TITLE and SESSION_ID", () => {
+    const env = buildHookEnv("Alpha", "s1");
+    assert.equal(env.SESSION_TITLE, "Alpha");
+    assert.equal(env.SESSION_ID, "s1");
+  });
+});
+
+describe("formatLifecycleHooks", () => {
+  it("returns placeholder for empty", () => {
+    assert.ok(formatLifecycleHooks([])[0].includes("no lifecycle hooks"));
+  });
+
+  it("shows count and details", () => {
+    resetHookIdCounter();
+    const hooks = [createLifecycleHook("post_start", "*", "echo hi")!];
+    const lines = formatLifecycleHooks(hooks);
+    assert.ok(lines[0].includes("1"));
+    const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+    assert.ok(plain.includes("post_start"));
+    assert.ok(plain.includes("echo hi"));
+  });
+});
+
+describe("TUI lifecycle hooks", () => {
+  it("getLifecycleHooks empty initially", () => {
+    const tui = new TUI();
+    assert.equal(tui.getLifecycleHooks().length, 0);
+  });
+
+  it("addLifecycleHook adds and returns hook", () => {
+    const tui = new TUI();
+    const h = tui.addLifecycleHook("post_start", "*", "echo");
+    assert.ok(h);
+    assert.equal(tui.getLifecycleHooks().length, 1);
+  });
+
+  it("addLifecycleHook returns null for invalid event", () => {
+    const tui = new TUI();
+    assert.equal(tui.addLifecycleHook("bogus", "*", "echo"), null);
+  });
+
+  it("removeLifecycleHook removes by ID", () => {
+    const tui = new TUI();
+    const h = tui.addLifecycleHook("post_start", "*", "echo")!;
+    assert.equal(tui.removeLifecycleHook(h.id), true);
+    assert.equal(tui.getLifecycleHooks().length, 0);
+  });
+
+  it("removeLifecycleHook returns false for missing", () => {
+    const tui = new TUI();
+    assert.equal(tui.removeLifecycleHook(999), false);
+  });
+});
+
 // ── rankSessions ─────────────────────────────────────────────────────────
 
 function makeRankSessions(): DaemonSessionState[] {
@@ -5229,6 +5375,14 @@ describe("BUILTIN_COMMANDS", () => {
 
   it("contains /group-filter", () => {
     assert.ok(BUILTIN_COMMANDS.has("/group-filter"));
+  });
+
+  it("contains /runbook", () => {
+    assert.ok(BUILTIN_COMMANDS.has("/runbook"));
+  });
+
+  it("contains /incident", () => {
+    assert.ok(BUILTIN_COMMANDS.has("/incident"));
   });
 
   it("does not contain user aliases", () => {
@@ -8232,4 +8386,3 @@ describe("TUI group state", () => {
     });
   });
 });
-

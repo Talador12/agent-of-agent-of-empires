@@ -5,7 +5,9 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "
 import { join, resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import { exec } from "./shell.js";
-import { toTaskState, toAoeSessionList, normalizeGoal, goalToList } from "./types.js";
+import { resolveProjectDir } from "./context.js";
+import { buildProfileListArgs } from "./poller.js";
+import { toTaskState, normalizeGoal, goalToList } from "./types.js";
 import type { TaskDefinition, TaskState, TaskProgress, TaskStatus, TaskSessionMode } from "./types.js";
 import { RESET, BOLD, DIM, GREEN, YELLOW, RED, CYAN } from "./colors.js";
 
@@ -22,6 +24,74 @@ function resolveTaskFilePath(basePath: string): string {
     if (existsSync(p)) return p;
   }
   return resolve(basePath, TASK_FILE_NAMES[0]);
+}
+
+// stable key for persistent task-state map entries.
+// repo alone is not unique in meta AoE mode where many sessions share the same root path.
+export function taskStateKey(repo: string, sessionTitle: string): string {
+  return `${repo}::${sessionTitle.trim().toLowerCase()}`;
+}
+
+// resolve a task's effective repo path from AoE session metadata.
+// prefers title-based project resolution and falls back to the session's root path.
+export function resolveTaskRepoPath(basePath: string, sessionPath: string | undefined, sessionTitle: string): string {
+  const root = resolve(sessionPath || basePath);
+  const projectDir = resolveProjectDir(root, sessionTitle);
+  return projectDir ?? root;
+}
+
+// run periodic task/session reconciliation in the daemon loop.
+// default cadence: once every 6 polls (about 1 minute at 10s poll interval).
+export function shouldReconcileTasks(pollCount: number, everyPolls = 6): boolean {
+  if (!Number.isFinite(pollCount) || pollCount < 1) return false;
+  if (!Number.isFinite(everyPolls) || everyPolls < 1) return false;
+  return pollCount === 1 || pollCount % everyPolls === 1;
+}
+
+interface ListedSession {
+  id: string;
+  title: string;
+  path: string;
+  tool?: string;
+  status?: string;
+  created_at?: string;
+  profile: string;
+}
+
+function buildProfileAwareAoeArgs(profile: string | undefined, tailArgs: string[]): string[] {
+  if (!profile || profile === "default") return tailArgs;
+  return ["-p", profile, ...tailArgs];
+}
+
+async function listSessionsAcrossProfiles(profiles: string[]): Promise<ListedSession[]> {
+  const out: ListedSession[] = [];
+  const seenIds = new Set<string>();
+  for (const profile of profiles) {
+    const result = await exec("aoe", buildProfileListArgs(profile));
+    if (result.exitCode !== 0) continue;
+    try {
+      const parsed = JSON.parse(result.stdout);
+      const items = Array.isArray(parsed) ? parsed : [];
+      for (const item of items) {
+        const id = String(item.id ?? "");
+        const title = String(item.title ?? "");
+        if (!id || !title || seenIds.has(id)) continue;
+        seenIds.add(id);
+        out.push({
+          id,
+          title,
+          path: String(item.path ?? ""),
+          tool: typeof item.tool === "string" ? item.tool : undefined,
+          status: typeof item.status === "string" ? item.status : undefined,
+          created_at: typeof item.created_at === "string" ? item.created_at : undefined,
+          profile,
+        });
+      }
+    } catch {
+      // ignore bad profile payloads and keep going
+    }
+  }
+  return out;
 }
 
 // ── Task definition loading ─────────────────────────────────────────────────
@@ -81,6 +151,7 @@ function taskStateToDefinition(t: TaskState): TaskDefinition {
   return {
     repo: t.repo,
     sessionTitle: t.sessionTitle,
+    profile: t.profile,
     sessionMode: t.sessionMode,
     tool: t.tool,
     goal: t.goal,
@@ -92,17 +163,10 @@ export function syncTaskDefinitionsFromState(basePath: string, states: Map<strin
   saveTaskDefinitions(basePath, defs);
 }
 
-export async function importAoeSessionsToTasks(basePath: string): Promise<{ imported: string[] }> {
+export async function importAoeSessionsToTasks(basePath: string, profiles: string[] = ["default"]): Promise<{ imported: string[] }> {
   const imported: string[] = [];
-  const result = await exec("aoe", ["list", "--json"]);
-  if (result.exitCode !== 0) return { imported };
-
-  let sessions: Array<{ id: string; title: string; path: string; tool?: string; status?: string; created_at?: string }> = [];
-  try {
-    sessions = JSON.parse(result.stdout);
-  } catch {
-    return { imported };
-  }
+  const sessions = await listSessionsAcrossProfiles(profiles);
+  if (sessions.length === 0) return { imported };
 
   const states = loadTaskState();
   for (const s of sessions) {
@@ -111,7 +175,7 @@ export async function importAoeSessionsToTasks(basePath: string): Promise<{ impo
     );
     if (alreadyTracked) continue;
 
-    const repoAbs = resolve(s.path || basePath);
+    const repoAbs = resolveTaskRepoPath(basePath, s.path, s.title);
     const repo = repoAbs.startsWith(basePath) ? repoAbs.slice(basePath.length + 1) : repoAbs;
     const status: TaskStatus = s.status === "stopped"
       ? "paused"
@@ -119,9 +183,10 @@ export async function importAoeSessionsToTasks(basePath: string): Promise<{ impo
         ? "failed"
         : "active";
 
-    states.set(repo, {
+    states.set(taskStateKey(repo, s.title), {
       repo,
       sessionTitle: s.title,
+      profile: s.profile,
       sessionMode: "existing",
       tool: s.tool || "opencode",
       goal: "Continue the roadmap in claude.md",
@@ -159,6 +224,7 @@ function validateDefinitions(raw: unknown[], basePath: string): TaskDefinition[]
     tasks.push({
       repo: t.repo,
       sessionTitle: typeof t.sessionTitle === "string" ? t.sessionTitle : undefined,
+      profile: typeof t.profile === "string" && t.profile ? t.profile : undefined,
       sessionMode: parseSessionMode(t.sessionMode),
       tool: typeof t.tool === "string" ? t.tool : "opencode",
       goal: (typeof t.goal === "string" || Array.isArray(t.goal)) ? t.goal : undefined,
@@ -176,10 +242,16 @@ export function loadTaskState(): Map<string, TaskState> {
     if (!existsSync(STATE_FILE)) return map;
     const raw = JSON.parse(readFileSync(STATE_FILE, "utf-8"));
     if (raw && typeof raw.tasks === "object") {
-      for (const [repo, state] of Object.entries(raw.tasks)) {
+      for (const [, state] of Object.entries(raw.tasks)) {
         const validated = toTaskState(state);
         if (validated) {
-          map.set(repo, validated);
+          const key = taskStateKey(validated.repo, validated.sessionTitle);
+          // migration safety: if duplicate keys are present, keep the one with
+          // more recent progress so we don't lose the latest state.
+          const existing = map.get(key);
+          if (!existing || (validated.lastProgressAt ?? 0) >= (existing.lastProgressAt ?? 0)) {
+            map.set(key, validated);
+          }
         }
       }
     }
@@ -213,18 +285,23 @@ export class TaskManager {
   private basePath: string;
   private definitions: TaskDefinition[];
   private states: Map<string, TaskState>;
+  private profiles: string[];
 
-  constructor(basePath: string, definitions: TaskDefinition[]) {
+  constructor(basePath: string, definitions: TaskDefinition[], profiles: string[] = ["default"]) {
     this.basePath = basePath;
     this.definitions = definitions;
+    this.profiles = profiles.length > 0 ? profiles : ["default"];
     this.states = loadTaskState();
 
     // reconcile state with definitions: add new tasks, keep completed ones
     for (const def of definitions) {
-      if (!this.states.has(def.repo)) {
-        this.states.set(def.repo, {
+      const sessionTitle = def.sessionTitle || deriveTitle(def.repo);
+      const key = taskStateKey(def.repo, sessionTitle);
+      if (!this.states.has(key)) {
+        this.states.set(key, {
           repo: def.repo,
-          sessionTitle: def.sessionTitle || deriveTitle(def.repo),
+          sessionTitle,
+          profile: def.profile || "default",
           sessionMode: def.sessionMode ?? "auto",
           tool: def.tool ?? "opencode",
           goal: normalizeGoal(def.goal),
@@ -233,11 +310,12 @@ export class TaskManager {
         });
       } else {
         // update goal/tool if definition changed (don't reset progress)
-        const existing = this.states.get(def.repo);
+        const existing = this.states.get(key);
         if (existing) {
           if (def.goal) existing.goal = normalizeGoal(def.goal);
           if (def.tool) existing.tool = def.tool;
           if (def.sessionTitle) existing.sessionTitle = def.sessionTitle;
+          if (def.profile) existing.profile = def.profile;
           if (def.sessionMode) existing.sessionMode = def.sessionMode;
         }
       }
@@ -264,7 +342,7 @@ export class TaskManager {
   }
 
   getTaskByRepo(repo: string): TaskState | undefined {
-    return this.states.get(repo);
+    return this.tasks.find((t) => t.repo === repo);
   }
 
   // reconcile tasks with live AoE sessions: create missing sessions, link existing ones
@@ -273,13 +351,7 @@ export class TaskManager {
     const linked: string[] = [];
 
     // get current AoE sessions
-    const listResult = await exec("aoe", ["list", "--json"]);
-    let sessions: Array<{ id: string; title: string; path: string }> = [];
-    if (listResult.exitCode === 0) {
-      try { sessions = JSON.parse(listResult.stdout); } catch (e) {
-        console.error(`[tasks] failed to parse aoe list output: ${e}`);
-      }
-    }
+    const sessions = await listSessionsAcrossProfiles(this.profiles);
 
     for (const task of this.tasks) {
       if (task.status === "completed") continue;
@@ -293,33 +365,28 @@ export class TaskManager {
         // link existing session
         if (!task.sessionId || task.sessionId !== existing.id) {
           task.sessionId = existing.id;
+          task.profile = existing.profile || task.profile || "default";
           if (task.status === "pending") task.status = "active";
           linked.push(task.sessionTitle);
         }
       } else if (task.sessionMode !== "existing" && (task.status === "pending" || task.status === "active" || task.status === "paused")) {
         // create new session
         const repoPath = resolve(this.basePath, task.repo);
-        const result = await exec("aoe", [
+        const result = await exec("aoe", buildProfileAwareAoeArgs(task.profile, [
           "add", repoPath, "-t", task.sessionTitle, "-c", task.tool, "-y",
-        ]);
+        ]));
         if (result.exitCode === 0) {
           // get the new session ID
-          const refreshResult = await exec("aoe", ["list", "--json"]);
-          if (refreshResult.exitCode === 0) {
-            try {
-              const refreshed = toAoeSessionList(JSON.parse(refreshResult.stdout));
-              const newSession = refreshed.find(
-                (s) => s.title.toLowerCase() === task.sessionTitle.toLowerCase()
-              );
-              if (newSession) {
-                task.sessionId = newSession.id;
-                task.status = "active";
-                task.createdAt = Date.now();
-                created.push(task.sessionTitle);
-              }
-            } catch (e) {
-              console.error(`[tasks] failed to parse refreshed session list: ${e}`);
-            }
+          const refreshed = await listSessionsAcrossProfiles(this.profiles);
+          const newSession = refreshed.find(
+            (s) => s.title.toLowerCase() === task.sessionTitle.toLowerCase()
+          );
+          if (newSession) {
+            task.sessionId = newSession.id;
+            task.profile = newSession.profile || task.profile || "default";
+            task.status = "active";
+            task.createdAt = Date.now();
+            created.push(task.sessionTitle);
           }
         } else {
           log(`failed to create session for ${task.repo}: ${result.stderr}`);
@@ -334,7 +401,7 @@ export class TaskManager {
     // start any sessions that aren't running
     for (const task of this.activeTasks) {
       if (task.sessionId) {
-        await exec("aoe", ["session", "start", task.sessionId]);
+        await exec("aoe", buildProfileAwareAoeArgs(task.profile, ["session", "start", task.sessionId]));
       }
     }
 
@@ -384,8 +451,8 @@ export class TaskManager {
     task.progress.push({ at: Date.now(), summary: `COMPLETED: ${summary}` });
 
     if (cleanupSession && task.sessionId) {
-      await exec("aoe", ["session", "stop", task.sessionId]);
-      await exec("aoe", ["remove", task.sessionId, "-y"]);
+      await exec("aoe", buildProfileAwareAoeArgs(task.profile, ["session", "stop", task.sessionId]));
+      await exec("aoe", buildProfileAwareAoeArgs(task.profile, ["remove", task.sessionId, "-y"]));
       log(`cleaned up session ${task.sessionTitle} (${task.sessionId})`);
     }
 
@@ -463,13 +530,14 @@ export function formatTaskTable(states: Map<string, TaskState> | TaskState[]): s
     s === "active" ? GREEN : s === "completed" ? CYAN : s === "failed" ? RED : s === "paused" ? YELLOW : DIM;
 
   // header
-  lines.push(`  ${BOLD}${"REPO".padEnd(28)} ${"STATUS".padEnd(12)} ${"MODE".padEnd(10)} ${"SESSION".padEnd(10)} PROGRESS${RESET}`);
-  lines.push(`  ${"-".repeat(90)}`);
+  lines.push(`  ${BOLD}${"REPO".padEnd(28)} ${"STATUS".padEnd(12)} ${"MODE".padEnd(10)} ${"PROFILE".padEnd(10)} ${"SESSION".padEnd(10)} PROGRESS${RESET}`);
+  lines.push(`  ${"-".repeat(102)}`);
 
   for (const t of tasks) {
     const repo = t.repo.length > 27 ? t.repo.slice(-27) : t.repo.padEnd(28);
     const status = `${statusColor(t.status)}${t.status.padEnd(12)}${RESET}`;
     const mode = (t.sessionMode ?? "auto").padEnd(10);
+    const profile = (t.profile || "default").slice(0, 10).padEnd(10);
     const session = t.sessionId ? t.sessionId.slice(0, 8).padEnd(10) : `${DIM}-${RESET}`.padEnd(10 + 9); // +9 for ANSI codes
     const lastProgress = t.progress.length > 0 ? t.progress[t.progress.length - 1] : null;
     let progressStr = `${DIM}(not started)${RESET}`;
@@ -480,8 +548,8 @@ export function formatTaskTable(states: Map<string, TaskState> | TaskState[]): s
         : lastProgress.summary;
       progressStr = `${summary} ${DIM}(${ago})${RESET}`;
     }
-    lines.push(`  ${repo} ${status} ${mode} ${session} ${progressStr}`);
-    lines.push(`  ${DIM}  context: ${t.sessionTitle} @ ${t.repo}${RESET}`);
+    lines.push(`  ${repo} ${status} ${mode} ${profile} ${session} ${progressStr}`);
+    lines.push(`  ${DIM}  context: ${t.sessionTitle} @ ${t.repo} [${t.profile || "default"}]${RESET}`);
 
     // always show goal as bulleted list
     if (t.status === "active" || t.status === "pending") {

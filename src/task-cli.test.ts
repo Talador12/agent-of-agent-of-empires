@@ -81,6 +81,12 @@ describe("handleTaskSlashCommand", () => {
     const result = await handleTaskSlashCommand("list");
     assert.ok(typeof result === "string");
   });
+
+  it("returns command help for 'help'", async () => {
+    const result = await handleTaskSlashCommand("help");
+    assert.ok(result.includes("/task reconcile"));
+    assert.ok(result.includes("step-in quick path"));
+  });
 });
 
 // ── parseTaskNewIntent ──────────────────────────────────────────────────────

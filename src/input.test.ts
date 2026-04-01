@@ -2171,3 +2171,29 @@ describe("onAlertPattern", () => {
     assert.equal(calls, 10);
   });
 });
+
+// ── onHook ───────────────────────────────────────────────────────────────
+
+describe("onHook", () => {
+  it("register handler", () => {
+    const reader = new InputReader();
+    let received = "";
+    reader.onHook((a) => { received = a; });
+    reader["hookHandler"]!("post_start * echo hi");
+    assert.equal(received, "post_start * echo hi");
+  });
+
+  it("is safe without handler", () => {
+    const reader = new InputReader();
+    assert.doesNotThrow(() => { reader["hookHandler"]?.("x"); });
+  });
+
+  it("handler replacement works", () => {
+    const reader = new InputReader();
+    let calls = 0;
+    reader.onHook(() => { calls++; });
+    reader.onHook(() => { calls += 10; });
+    reader["hookHandler"]!("");
+    assert.equal(calls, 10);
+  });
+});

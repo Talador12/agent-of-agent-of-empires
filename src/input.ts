@@ -100,6 +100,7 @@ export type ThrottleHandler = (args: string) => void; // per-session action thro
 export type SnapHandler = (target: string) => void; // save output snapshot
 export type SnapDiffHandler = (target: string) => void; // diff current output vs snapshot
 export type AlertPatternHandler = (args: string) => void; // output pattern alerting management
+export type HookHandler = (args: string) => void; // session lifecycle hook management
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -314,6 +315,7 @@ export class InputReader {
   private snapHandler: SnapHandler | null = null;
   private snapDiffHandler: SnapDiffHandler | null = null;
   private alertPatternHandler: AlertPatternHandler | null = null;
+  private hookHandler: HookHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
 
@@ -614,6 +616,7 @@ export class InputReader {
   onSnap(handler: SnapHandler): void { this.snapHandler = handler; }
   onSnapDiff(handler: SnapDiffHandler): void { this.snapDiffHandler = handler; }
   onAlertPattern(handler: AlertPatternHandler): void { this.alertPatternHandler = handler; }
+  onHook(handler: HookHandler): void { this.hookHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -917,6 +920,7 @@ ${BOLD}navigation:${RESET}
    /snap <N|name>     save a snapshot of session output for later diffing
    /snap-diff <N|name> diff current output against last /snap snapshot
    /alert-pattern [args] output alerting: no args=list, <regex> [label]=add, rm <id>=remove
+   /hook [args]        lifecycle hooks: no args=list, <event> <session|*> <cmd>=add, rm <id>=remove
    /stats             show per-session health, errors, burn rate, context %, uptime
    /stats-live        toggle auto-refresh of /stats every 5 seconds (like top)
    /recall <keyword>  search persisted activity history (last 7 days) for keyword
@@ -975,9 +979,12 @@ ${BOLD}navigation:${RESET}
 
 ${BOLD}info:${RESET}
   /status            show daemon state
+  /incident [opts]   quick incident view; opts: --since <30m|2h|1d> --limit N --json --ndjson --follow (watch via CLI)
+  /runbook [section] show operator playbook (opts: quickstart|response-flow|incident|all, --json)
+  /supervisor [opts] show judge/orchestrator status; opts: --all --since <1h|30m|2d> --limit N --json
   /dashboard         show full dashboard
   /tasks             show task progress table
-  /task [sub] [args] task management (list, start, stop, edit, new, rm)
+  /task [sub] [args] task management (list, reconcile, start, stop, edit, new, rm, help)
   /task <s> :: <g>   quick update goal <g> for session/task <s>
   :<goal>            fastest path: set goal for current drill-down session
 
@@ -1000,6 +1007,18 @@ ${BOLD}other:${RESET}
 
       case "/status":
         this.queue.push("__CMD_STATUS__");
+        break;
+
+      case "/runbook":
+        this.queue.push(`__CMD_RUNBOOK__${line.slice("/runbook".length)}`);
+        break;
+
+      case "/incident":
+        this.queue.push(`__CMD_INCIDENT__${line.slice("/incident".length)}`);
+        break;
+
+      case "/supervisor":
+        this.queue.push(`__CMD_SUPERVISOR__${line.slice("/supervisor".length)}`);
         break;
 
       case "/mode": {
@@ -1861,6 +1880,13 @@ ${BOLD}other:${RESET}
         const apArgs = line.slice("/alert-pattern".length).trim();
         if (this.alertPatternHandler) this.alertPatternHandler(apArgs);
         else console.error(`${DIM}alert-pattern not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/hook": {
+        const hookArgs = line.slice("/hook".length).trim();
+        if (this.hookHandler) this.hookHandler(hookArgs);
+        else console.error(`${DIM}hook not available (no TUI)${RESET}`);
         break;
       }
 

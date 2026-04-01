@@ -15,11 +15,12 @@ import { tick as loopTick } from "./loop.js";
 import { exec as shellExec } from "./shell.js";
 import { wakeableSleep } from "./wake.js";
 import { classifyMessages, formatUserMessages, buildReceipts, shouldSkipSleep, hasPendingFile, isInsistMessage, stripInsistPrefix } from "./message.js";
-import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks, saveTaskDefinitions } from "./task-manager.js";
+import { TaskManager, loadTaskDefinitions, loadTaskState, formatTaskTable, importAoeSessionsToTasks, saveTaskDefinitions, shouldReconcileTasks } from "./task-manager.js";
 import { goalToList } from "./types.js";
 import { runTaskCli, handleTaskSlashCommand, quickTaskUpdate } from "./task-cli.js";
 import { parsePaneMilestones } from "./task-parser.js";
-import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph, formatRelayRules, matchRelayRules, detectOOM, shouldRestartOnOOM, formatOOMAlert, searchSessionOutputs, formatSearchResults, formatThrottleConfig, diffSessionOutput, formatSessionDiff, formatAlertPatterns, matchAlertPatterns } from "./tui.js";
+import { TUI, hitTestSession, nextSortMode, SORT_MODES, formatUptime, formatClipText, CLIP_DEFAULT_COUNT, loadTuiPrefs, saveTuiPrefs, BUILTIN_COMMANDS, validateGroupName, CONTEXT_BURN_THRESHOLD, buildSnapshotData, formatSnapshotJson, formatSnapshotMarkdown, formatBroadcastSummary, WATCHDOG_DEFAULT_MINUTES, rankSessions, TOP_SORT_MODES, formatIdleSince, CONTEXT_CEILING_THRESHOLD, buildSessionStats, formatSessionStatsLines, formatStatsJson, validateSessionTag, validateColorName, SESSION_COLOR_NAMES, TIMELINE_DEFAULT_COUNT, computeErrorTrend, parseQuietHoursRange, computeCostSummary, formatSessionReport, formatQuietStatus, formatSessionAge, formatHealthTrendChart, isOverBudget, DRAIN_ICON, formatSessionsTable, buildFanOutTemplate, TRUST_LEVELS, TRUST_STABLE_TICKS_TO_ESCALATE, formatTrustLadderStatus, computeContextBudgets, formatContextBudgetTable, CTX_BUDGET_DEFAULT_GLOBAL, resolveProfiles, formatProfileSummary, parseContextCeiling, shouldCompactContext, formatCompactionNudge, formatCompactionAlert, buildSessionDependencyGraph, formatDependencyGraph, formatRelayRules, matchRelayRules, detectOOM, shouldRestartOnOOM, formatOOMAlert, searchSessionOutputs, formatSearchResults, formatThrottleConfig, diffSessionOutput, formatSessionDiff, formatAlertPatterns, matchAlertPatterns, formatLifecycleHooks, matchLifecycleHooks, buildHookEnv } from "./tui.js";
+import type { LifecycleEvent } from "./tui.js";
 import type { TrustLevel } from "./tui.js";
 import type { SessionReportData } from "./tui.js";
 import type { TopSortMode } from "./tui.js";
@@ -28,6 +29,7 @@ import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification, formatNotifyFilters, parseNotifyEvents, shouldNotifySession } from "./notify.js";
 import { startHealthServer } from "./health.js";
 import { loadTuiHistory, searchHistory, TUI_HISTORY_FILE, computeHistoryStats } from "./tui-history.js";
+import { appendSupervisorEvent, loadSupervisorEvents } from "./supervisor-history.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, ReasonerResult, TaskState, ActionLogEntry } from "./types.js";
@@ -41,9 +43,10 @@ import { homedir } from "node:os";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
+const TASK_RECONCILE_EVERY_POLLS = 6;
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -93,6 +96,24 @@ async function main() {
   // `aoaoe status` -- quick one-shot daemon health check
   if (showStatus) {
     showDaemonStatus();
+    return;
+  }
+
+  // `aoaoe runbook` -- operator quickstart and incident flow
+  if (runRunbook) {
+    showRunbook(runbookJson, runbookSection);
+    return;
+  }
+
+  // `aoaoe incident` -- one-shot incident quick view
+  if (runIncident) {
+    await showIncidentStatus({ since: incidentSince, limit: incidentLimit, json: incidentJson, ndjson: incidentNdjson, watch: incidentWatch, changesOnly: incidentChangesOnly, heartbeatSec: incidentHeartbeatSec, intervalMs: incidentIntervalMs });
+    return;
+  }
+
+  // `aoaoe supervisor` -- one-shot supervisor orchestration report
+  if (runSupervisor) {
+    await showSupervisorStatus({ all: supervisorAll, since: supervisorSince, limit: supervisorLimit, json: supervisorJson, ndjson: supervisorNdjson, watch: supervisorWatch, changesOnly: supervisorChangesOnly, heartbeatSec: supervisorHeartbeatSec, intervalMs: supervisorIntervalMs });
     return;
   }
 
@@ -293,15 +314,32 @@ async function main() {
 
   // load tasks from aoaoe.tasks.json or config
   const basePath = process.cwd();
-  const importedTasks = await importAoeSessionsToTasks(basePath);
+  const taskProfiles = resolveProfiles(config);
+  const supervisorEvents: Array<{ at: number; detail: string }> = [];
+  const MAX_SUPERVISOR_EVENTS = 20;
+
+  const pushSupervisorEvent = (detail: string, opts?: { at?: number; persist?: boolean }): void => {
+    const at = opts?.at ?? Date.now();
+    supervisorEvents.push({ at, detail });
+    if (supervisorEvents.length > MAX_SUPERVISOR_EVENTS) supervisorEvents.shift();
+    if (opts?.persist !== false) appendSupervisorEvent({ at, detail });
+  };
+
+  for (const evt of loadSupervisorEvents(MAX_SUPERVISOR_EVENTS)) {
+    pushSupervisorEvent(evt.detail, { at: evt.at, persist: false });
+  }
+
+  const importedTasks = await importAoeSessionsToTasks(basePath, taskProfiles);
   if (importedTasks.imported.length > 0) {
     console.error(`  tasks: imported ${importedTasks.imported.length} AoE session(s) into task list`);
+    pushSupervisorEvent(`imported ${importedTasks.imported.length} session(s) from aoe`);
   }
+
   const taskDefs = loadTaskDefinitions(basePath);
   let taskManager: TaskManager | undefined;
 
   if (taskDefs.length > 0) {
-    taskManager = new TaskManager(basePath, taskDefs);
+    taskManager = new TaskManager(basePath, taskDefs, taskProfiles);
     console.error(`  tasks: ${taskDefs.length} defined`);
     for (const t of taskManager.tasks) {
       const icon = t.status === "active" ? "~" : t.status === "completed" ? "+" : ".";
@@ -316,12 +354,26 @@ async function main() {
     const { created, linked } = await taskManager.reconcileSessions();
     if (created.length > 0) log(`created sessions: ${created.join(", ")}`);
     if (linked.length > 0) log(`linked existing sessions: ${linked.join(", ")}`);
+    pushSupervisorEvent(`startup reconcile: +${created.length} created, +${linked.length} linked`);
   }
 
   const poller = new Poller(config);
   const reasoner = config.observe ? null : createReasoner(config, globalContext || undefined);
   const executor = config.observe ? null : new Executor(config);
   if (taskManager && executor) executor.setTaskManager(taskManager);
+
+  const refreshTaskSupervisorState = (reason?: string): void => {
+    if (!taskManager) {
+      if (tui) tui.updateState({ supervisorStatus: "" });
+      return;
+    }
+    const defs = loadTaskDefinitions(basePath);
+    taskManager = new TaskManager(basePath, defs, taskProfiles);
+    if (executor) executor.setTaskManager(taskManager);
+    if (tui) tui.updateState({ supervisorStatus: buildTaskSupervisorStatus(taskManager) });
+    if (reason) pushSupervisorEvent(reason);
+  };
+
   const input = new InputReader();
   const reasonerConsole = new ReasonerConsole();
 
@@ -1226,6 +1278,35 @@ async function main() {
     // wire /throttle — per-session action cooldown override
     // wire /snap — save output snapshot for later diffing
     // wire /alert-pattern — output pattern alerting
+    // wire /hook — session lifecycle hooks
+    input.onHook((args) => {
+      if (!args) {
+        const lines = formatLifecycleHooks(tui!.getLifecycleHooks());
+        for (const line of lines) tui!.log("system", line);
+        return;
+      }
+      const parts = args.split(/\s+/);
+      if (parts[0] === "rm" && parts[1]) {
+        const id = parseInt(parts[1], 10);
+        if (isNaN(id)) { tui!.log("system", `hook: invalid ID '${parts[1]}'`); return; }
+        const ok = tui!.removeLifecycleHook(id);
+        tui!.log("system", ok ? `hook: removed #${id}` : `hook: #${id} not found`);
+        return;
+      }
+      // add: <event> <session|*> <command...>
+      if (parts.length < 3) {
+        tui!.log("system", "usage: /hook <event> <session|*> <command> — events: pre_start, post_start, pre_stop, post_stop, pre_restart, post_restart");
+        return;
+      }
+      const [event, sessionPattern, ...cmdParts] = parts;
+      const command = cmdParts.join(" ");
+      const hook = tui!.addLifecycleHook(event, sessionPattern, command);
+      if (hook) {
+        tui!.log("system", `hook: added #${hook.id} ${hook.event} [${hook.sessionPattern}] → ${hook.command}`);
+      } else {
+        tui!.log("system", `hook: invalid event '${event}' — valid: pre_start, post_start, pre_stop, post_stop, pre_restart, post_restart`);
+      }
+    });
     input.onAlertPattern((args) => {
       if (!args) {
         const lines = formatAlertPatterns(tui!.getAlertPatterns());
@@ -1861,7 +1942,7 @@ async function main() {
     if (history.length > 0) tui.replayHistory(history);
 
     tui.start(pkg || "dev");
-    tui.updateState({ reasonerName: getReasonerLabel() });
+    tui.updateState({ reasonerName: getReasonerLabel(), supervisorStatus: buildTaskSupervisorStatus(taskManager) });
 
     // welcome banner — plain-English explanation of what's happening
     tui.log("system", "");
@@ -2091,6 +2172,361 @@ async function main() {
         reasonerConsole.writeSystem(modeMsg);
         reasonerConsole.writeSystem(totalsMsg);
         reasonerConsole.writeSystem(reasonerMsg);
+      } else if (cmd.startsWith("__CMD_INCIDENT__")) {
+        const args = cmd.slice("__CMD_INCIDENT__".length).trim().split(/\s+/).filter(Boolean);
+        let maxAgeMs = 30 * 60 * 1000;
+        let limit = 5;
+        let outputJson = false;
+        let outputNdjson = false;
+        let watchRequested = false;
+        let followRequested = false;
+        let changesOnlyRequested = false;
+        let heartbeatSec: number | undefined;
+        let intervalMs: number | undefined;
+        let parseError: string | null = null;
+        for (let i = 0; i < args.length; i++) {
+          const a = args[i];
+          if (a === "--json") {
+            outputJson = true;
+          } else if (a === "--ndjson") {
+            outputNdjson = true;
+          } else if (a === "--follow" || a === "-f") {
+            followRequested = true;
+          } else if (a === "--watch" || a === "-w") {
+            watchRequested = true;
+          } else if (a === "--changes-only") {
+            changesOnlyRequested = true;
+          } else if ((a === "--heartbeat" || a === "-H")) {
+            const raw = args[i + 1];
+            if (!raw) { parseError = "missing value for --heartbeat"; break; }
+            const n = parseInt(raw, 10);
+            if (!Number.isFinite(n) || n < 1) { parseError = `invalid --heartbeat '${raw}'`; break; }
+            heartbeatSec = n;
+            i++;
+          } else if ((a === "--interval" || a === "-i")) {
+            const raw = args[i + 1];
+            if (!raw) { parseError = "missing value for --interval"; break; }
+            const n = parseInt(raw, 10);
+            if (!Number.isFinite(n) || n < 500) { parseError = `invalid --interval '${raw}'`; break; }
+            intervalMs = n;
+            i++;
+          } else if (a === "--since") {
+            const raw = args[i + 1];
+            if (!raw) { parseError = "missing value for --since"; break; }
+            const dur = parseDuration(raw);
+            if (dur === null) { parseError = `invalid --since '${raw}' (examples: 30m, 2h, 1d)`; break; }
+            maxAgeMs = dur;
+            i++;
+          } else if (a === "--limit") {
+            const raw = args[i + 1];
+            if (!raw) { parseError = "missing value for --limit"; break; }
+            const n = parseInt(raw, 10);
+            if (!Number.isFinite(n) || n < 1) { parseError = `invalid --limit '${raw}'`; break; }
+            limit = n;
+            i++;
+          } else {
+            parseError = `unknown incident option '${a}'`;
+            break;
+          }
+        }
+
+        if (followRequested) {
+          watchRequested = true;
+          changesOnlyRequested = true;
+          if (heartbeatSec === undefined) heartbeatSec = 30;
+          if (!outputJson && !outputNdjson) outputNdjson = true;
+        }
+
+        if (watchRequested || changesOnlyRequested || heartbeatSec !== undefined || intervalMs !== undefined) {
+          const watchArgs: string[] = ["--watch"];
+          if (changesOnlyRequested) watchArgs.push("--changes-only");
+          if (heartbeatSec !== undefined) watchArgs.push("--heartbeat", String(heartbeatSec));
+          if (intervalMs !== undefined) watchArgs.push("--interval", String(intervalMs));
+          if (args.includes("--since")) {
+            const idx = args.indexOf("--since");
+            if (idx !== -1 && args[idx + 1]) watchArgs.push("--since", args[idx + 1]);
+          }
+          if (args.includes("--limit")) {
+            const idx = args.indexOf("--limit");
+            if (idx !== -1 && args[idx + 1]) watchArgs.push("--limit", args[idx + 1]);
+          }
+          if (outputJson) watchArgs.push("--json");
+          if (outputNdjson) watchArgs.push("--ndjson");
+          const msg = `incident: watch mode is CLI-only; run ${BOLD}aoaoe incident ${watchArgs.join(" ")}${RESET} in another terminal`;
+          if (tui) tui.log("status", msg); else log(msg);
+          reasonerConsole.writeSystem(msg);
+        }
+
+        if (parseError) {
+          const msg = `incident: ${parseError}`;
+          const usage = "incident usage: /incident [--since <30m|2h|1d>] [--limit N] [--json|--ndjson] [--watch|--follow]";
+          if (tui) {
+            tui.log("error", msg);
+            tui.log("status", usage);
+          } else {
+            log(msg);
+            log(usage);
+          }
+          reasonerConsole.writeSystem(msg);
+          reasonerConsole.writeSystem(usage);
+          continue;
+        }
+
+        const runbook = buildRunbookPayload("incident");
+        const tasks = taskManager?.tasks ?? [];
+        const status = buildTaskSupervisorStatus(taskManager) || "supervisor: no task manager active";
+        const active = tasks.filter((t) => t.status === "active").length;
+        const pending = tasks.filter((t) => t.status === "pending").length;
+        const pausedTasks = tasks.filter((t) => t.status === "paused").length;
+        const now = Date.now();
+        const recent = supervisorEvents.filter((evt) => evt.at >= (now - maxAgeMs)).slice(-limit).reverse();
+        const formatAgoShort = (at: number): string => {
+          const ms = Math.max(0, Date.now() - at);
+          if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`;
+          if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+          return `${Math.floor(ms / 3_600_000)}h ago`;
+        };
+
+        const incidentPayload = {
+          emitReason: "snapshot",
+          incident: {
+            supervisor: status,
+            summary: { active, pending, paused: pausedTasks },
+            options: { sinceMs: maxAgeMs, limit },
+            responseFlow: runbook.payload.responseFlow,
+            recentEvents: recent.map((evt) => ({ at: evt.at, ago: formatAgoShort(evt.at), detail: evt.detail })),
+            stepIn: "/task <session> :: <goal>",
+          },
+        };
+
+        if (outputJson || outputNdjson) {
+          const encoded = outputNdjson ? JSON.stringify(incidentPayload) : JSON.stringify(incidentPayload, null, 2);
+          const jsonLines = outputNdjson ? [encoded] : encoded.split("\n");
+          for (const line of jsonLines) {
+            if (tui) tui.log("status", line); else log(line);
+            reasonerConsole.writeSystem(line);
+          }
+          continue;
+        }
+
+        const lines: string[] = [
+          "incident quick view:",
+          `supervisor: ${status}`,
+          `incident focus: ${active} active | ${pending} pending | ${pausedTasks} paused | events(window): ${recent.length}`,
+          "runbook response-flow:",
+        ];
+
+        for (const step of runbook.payload.responseFlow) {
+          lines.push(`- ${step.when} -> ${step.action}${step.command ? ` (${step.command})` : ""}`);
+        }
+
+        if (recent.length > 0) {
+          lines.push("recent supervisor events:");
+          for (const evt of recent) lines.push(`- ${evt.detail} (${formatAgoShort(evt.at)})`);
+        } else {
+          lines.push("recent supervisor events: none in current window");
+        }
+
+        lines.push("step-in now: /task <session> :: <goal>");
+
+        for (const line of lines) {
+          if (tui) tui.log("status", line); else log(line);
+          reasonerConsole.writeSystem(line);
+        }
+      } else if (cmd.startsWith("__CMD_RUNBOOK__")) {
+        const args = cmd.slice("__CMD_RUNBOOK__".length).trim().split(/\s+/).filter(Boolean);
+        let section: string | undefined;
+        let outputJson = false;
+        let parseError: string | null = null;
+        for (let i = 0; i < args.length; i++) {
+          const a = args[i];
+          if (a === "--json") {
+            outputJson = true;
+          } else if (a === "--section" || a === "-s") {
+            const raw = args[i + 1];
+            if (!raw) { parseError = "missing value for --section"; break; }
+            section = raw;
+            i++;
+          } else if (!a.startsWith("-") && !section) {
+            section = a;
+          } else {
+            parseError = `unknown runbook option '${a}'`;
+            break;
+          }
+        }
+
+        if (parseError) {
+          const msg = `runbook: ${parseError}`;
+          if (tui) tui.log("error", msg); else log(msg);
+          reasonerConsole.writeSystem(msg);
+          const usage = "runbook usage: /runbook [quickstart|response-flow|incident|all] [--section <name>] [--json]";
+          if (tui) tui.log("status", usage); else log(usage);
+          reasonerConsole.writeSystem(usage);
+          continue;
+        }
+
+        const runbook = buildRunbookPayload(section);
+        if (runbook.error) {
+          const msg = `runbook: ${runbook.error}`;
+          if (tui) tui.log("error", msg); else log(msg);
+          reasonerConsole.writeSystem(msg);
+          continue;
+        }
+
+        if (outputJson) {
+          const jsonLines = JSON.stringify(runbook.payload, null, 2).split("\n");
+          for (const line of jsonLines) {
+            if (tui) tui.log("status", line); else log(line);
+            reasonerConsole.writeSystem(line);
+          }
+          continue;
+        }
+
+        const lines: string[] = [];
+        if (runbook.includeQuickstart) {
+          lines.push("runbook quickstart:");
+          lines.push("1) aoaoe supervisor --watch --ndjson --changes-only --heartbeat 30");
+          lines.push("2) aoaoe task reconcile");
+          lines.push("3) aoaoe-chat  then: /task <session> :: <new goal>");
+        }
+        if (runbook.includeResponseFlow) {
+          if (lines.length > 0) lines.push("");
+          lines.push("runbook response-flow:");
+          lines.push("- emitReason=change spikes -> aoaoe supervisor --since 30m --limit 20");
+          lines.push("- pending/paused too long -> aoaoe task reconcile, then /task nudge");
+          lines.push("- noisy but stable -> keep --changes-only + --heartbeat");
+        }
+        for (const line of lines) {
+          if (tui) tui.log("status", line); else log(line);
+          reasonerConsole.writeSystem(line);
+        }
+      } else if (cmd.startsWith("__CMD_SUPERVISOR__")) {
+        const rawArgs = cmd.slice("__CMD_SUPERVISOR__".length).trim();
+        const args = rawArgs ? rawArgs.split(/\s+/).filter(Boolean) : [];
+        let showAll = false;
+        let limit = 5;
+        let maxAgeMs: number | null = null;
+        let outputJson = false;
+        let parseError: string | null = null;
+        for (let i = 0; i < args.length; i++) {
+          const a = args[i];
+          if (a === "--all") {
+            showAll = true;
+          } else if (a === "--limit") {
+            const raw = args[i + 1];
+            if (!raw) { parseError = "missing value for --limit"; break; }
+            const n = parseInt(raw, 10);
+            if (!Number.isFinite(n) || n < 1) { parseError = `invalid --limit '${raw}'`; break; }
+            limit = n;
+            i++;
+          } else if (a === "--since") {
+            const raw = args[i + 1];
+            if (!raw) { parseError = "missing value for --since"; break; }
+            const dur = parseDuration(raw);
+            if (dur === null) { parseError = `invalid --since '${raw}' (examples: 30m, 2h, 7d)`; break; }
+            maxAgeMs = dur;
+            i++;
+          } else if (a === "--json") {
+            outputJson = true;
+          } else {
+            parseError = `unknown supervisor option '${a}'`;
+            break;
+          }
+        }
+
+        if (parseError) {
+          const usage = `supervisor usage: /supervisor [--all] [--since <30m|2h|7d>] [--limit N] [--json]`;
+          if (tui) {
+            tui.log("error", `supervisor: ${parseError}`);
+            tui.log("status", usage);
+          } else {
+            log(`supervisor: ${parseError}`);
+            log(usage);
+          }
+          reasonerConsole.writeSystem(`supervisor: ${parseError}`);
+          reasonerConsole.writeSystem(usage);
+          continue;
+        }
+
+        const status = buildTaskSupervisorStatus(taskManager) || "supervisor: no task manager active";
+        const tasks = taskManager?.tasks ?? [];
+        const active = tasks.filter((t) => t.status === "active");
+        const pending = tasks.filter((t) => t.status === "pending");
+        const pausedTasks = tasks.filter((t) => t.status === "paused");
+        const linked = tasks.filter((t) => !!t.sessionId);
+        const topActive = active.slice(0, 4).map((t) => `${t.sessionTitle}${t.profile && t.profile !== "default" ? `@${t.profile}` : ""}`);
+        const pendingPreview = pending.slice(0, 3).map((t) => t.sessionTitle);
+        const pausedPreview = pausedTasks.slice(0, 3).map((t) => t.sessionTitle);
+        const formatAgoShort = (at: number): string => {
+          const ms = Math.max(0, Date.now() - at);
+          if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`;
+          if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+          return `${Math.floor(ms / 3_600_000)}h ago`;
+        };
+        const now = Date.now();
+        const filteredEvents = maxAgeMs === null
+          ? supervisorEvents
+          : supervisorEvents.filter((evt) => evt.at >= (now - maxAgeMs));
+        const eventLimit = showAll ? filteredEvents.length : limit;
+        const recentEvents = filteredEvents.slice(-eventLimit).reverse();
+
+        const lines = [
+          `supervisor: ${status}`,
+          `supervisor detail: ${active.length} active | ${pending.length} pending | ${pausedTasks.length} paused | ${linked.length} linked sessions`,
+          topActive.length > 0 ? `active now: ${topActive.join(", ")}` : "active now: none",
+          pendingPreview.length > 0 ? `needs kickoff: ${pendingPreview.join(", ")}${pending.length > pendingPreview.length ? " ..." : ""}` : "needs kickoff: none",
+          pausedPreview.length > 0 ? `paused tasks: ${pausedPreview.join(", ")}${pausedTasks.length > pausedPreview.length ? " ..." : ""}` : "paused tasks: none",
+          `step-in paths: /task <session> :: <goal>  |  /task new <title> <path> :: <goal>  |  :<goal> in drill-down`,
+        ];
+
+        if (recentEvents.length > 0) {
+          lines.push(`supervisor recent (${recentEvents.length}/${filteredEvents.length} shown):`);
+          for (const evt of recentEvents) {
+            lines.push(`- ${evt.detail} (${formatAgoShort(evt.at)})`);
+          }
+        } else {
+          lines.push("supervisor recent: none (use /supervisor --all to inspect full buffer)");
+        }
+
+        if (outputJson) {
+          const payload = {
+            supervisor: status,
+            summary: {
+              total: tasks.length,
+              active: active.length,
+              pending: pending.length,
+              paused: pausedTasks.length,
+              linkedSessions: linked.length,
+            },
+            activeNow: topActive,
+            needsKickoff: pendingPreview,
+            pausedTasks: pausedPreview,
+            options: {
+              showAll,
+              limit,
+              sinceMs: maxAgeMs,
+              eventsShown: recentEvents.length,
+              eventsAvailable: filteredEvents.length,
+            },
+            recentEvents: recentEvents.map((evt) => ({ at: evt.at, ago: formatAgoShort(evt.at), detail: evt.detail })),
+            stepIn: [
+              "/task <session> :: <goal>",
+              "/task new <title> <path> :: <goal>",
+              ":<goal> in drill-down",
+            ],
+          };
+          const jsonLines = JSON.stringify(payload, null, 2).split("\n");
+          for (const line of jsonLines) {
+            if (tui) tui.log("status", line); else log(line);
+            reasonerConsole.writeSystem(line);
+          }
+          continue;
+        }
+
+        for (const line of lines) {
+          if (tui) tui.log("status", line); else log(line);
+          reasonerConsole.writeSystem(line);
+        }
       } else if (cmd.startsWith("__CMD_MODE__")) {
         const modeArg = cmd.slice("__CMD_MODE__".length).trim().toLowerCase();
         if (!modeArg) {
@@ -2149,6 +2585,7 @@ async function main() {
         const taskArgs = cmd.slice("__CMD_TASK__".length);
         try {
           const output = await handleTaskSlashCommand(taskArgs);
+          refreshTaskSupervisorState(`task command: ${taskArgs.trim() || "list"}`);
           if (tui) tui.log("system", output); else log(output);
           reasonerConsole.writeSystem(output);
         } catch (err) {
@@ -2165,10 +2602,11 @@ async function main() {
            reasonerConsole.writeSystem(msg);
            continue;
          }
-         try {
-           const output = await quickTaskUpdate(sessionId, goal);
-           if (tui) tui.log("system", output); else log(output);
-           reasonerConsole.writeSystem(output);
+          try {
+            const output = await quickTaskUpdate(sessionId, goal);
+            refreshTaskSupervisorState(`quick step-in: ${sessionId.slice(0, 8)} goal updated`);
+            if (tui) tui.log("system", output); else log(output);
+            reasonerConsole.writeSystem(output);
          } catch (err) {
            const msg = `quick task error: ${err}`;
            if (tui) tui.log("error", msg); else log(msg);
@@ -2182,10 +2620,11 @@ async function main() {
          const sessionRef = payload.slice(0, tabIdx).trim();
          const goal = payload.slice(tabIdx + 1).trim();
          if (!sessionRef || !goal) continue;
-         try {
-           const output = await quickTaskUpdate(sessionRef, goal);
-           if (tui) tui.log("system", `task intent: ${output}`); else log(`task intent: ${output}`);
-           reasonerConsole.writeSystem(`task intent: ${output}`);
+          try {
+            const output = await quickTaskUpdate(sessionRef, goal);
+            refreshTaskSupervisorState(`natural task intent: ${sessionRef}`);
+            if (tui) tui.log("system", `task intent: ${output}`); else log(`task intent: ${output}`);
+            reasonerConsole.writeSystem(`task intent: ${output}`);
          } catch (err) {
            const msg = `task intent error: ${err}`;
            if (tui) tui.log("error", msg); else log(msg);
@@ -2209,6 +2648,20 @@ async function main() {
     try {
       totalPolls++;
       if (tui) tui.updateState({ phase: "polling", pollCount, paused: false });
+
+      // keep task/session bindings fresh while daemon runs so newly opened AoE
+      // sessions get adopted and missing task sessions are recreated automatically.
+      if (taskManager && shouldReconcileTasks(pollCount, TASK_RECONCILE_EVERY_POLLS)) {
+        const { created, linked } = await taskManager.reconcileSessions();
+        if (tui) tui.updateState({ supervisorStatus: buildTaskSupervisorStatus(taskManager) });
+        if (created.length > 0 || linked.length > 0) {
+          pushSupervisorEvent(`reconcile: +${created.length} created, +${linked.length} linked`);
+          const msg = `tasks reconcile: +${created.length} created, +${linked.length} linked | step-in: /task <session> :: <goal>`;
+          if (tui) tui.log("system", msg); else log(msg);
+        } else if (config.verbose) {
+          if (tui) tui.log("system", "tasks reconcile: no changes"); else log("tasks reconcile: no changes");
+        }
+      }
 
       // ── observe mode: poll + display, skip reasoning + execution ──────
       if (config.observe) {
@@ -2254,7 +2707,7 @@ async function main() {
         // Observation-only tick: poll sessions, update TUI state, skip LLM
         const observation = await poller.poll();
         const sessionStates = buildSessionStates(observation);
-        if (tui) tui.updateState({ phase: "sleeping", pollCount, sessions: sessionStates });
+        if (tui) tui.updateState({ phase: "sleeping", pollCount, sessions: sessionStates, supervisorStatus: buildTaskSupervisorStatus(taskManager) });
         writeState("sleeping", { pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt: Date.now() + config.pollIntervalMs });
         if (config.verbose && observation.changes.length > 0) {
           for (const ch of observation.changes) {
@@ -2313,6 +2766,8 @@ async function main() {
           if (tui) tui.log("system", "interrupted -- continuing to next tick"); else log("interrupted -- continuing to next tick (wakeable sleep will pick up input)");
           clearInterrupt();
         }
+
+        if (tui) tui.updateState({ supervisorStatus: buildTaskSupervisorStatus(taskManager) });
       }
       forceDashboard = false;
 
@@ -2787,6 +3242,36 @@ async function daemonTick(
       }
     }
   }
+  // fire lifecycle hooks for completed actions
+  if (tui) {
+    const hooks = tui.getLifecycleHooks();
+    if (hooks.length > 0) {
+      for (const entry of executed) {
+        if (entry.action.action === "wait" || !entry.success) continue;
+        const sid = actionSession(entry.action);
+        const title = sid ? (sessionTitleMap.get(sid) ?? sid) : undefined;
+        if (!title || !sid) continue;
+        // map action type → lifecycle event
+        const eventMap: Record<string, LifecycleEvent> = {
+          start_session: "post_start",
+          stop_session: "post_stop",
+          restart_session: "post_restart",
+        };
+        const event = eventMap[entry.action.action];
+        if (!event) continue;
+        const matched = matchLifecycleHooks(event, title, hooks);
+        for (const hook of matched) {
+          const env = buildHookEnv(title, sid);
+          // inject session info as env vars by prefixing the command
+          const wrappedCmd = `SESSION_TITLE='${title.replace(/'/g, "\\'")}' SESSION_ID='${sid}' ${hook.command}`;
+          shellExec("sh", ["-c", wrappedCmd])
+            .then(() => tui.log("system", `hook #${hook.id} (${event}): ${hook.command}`))
+            .catch((err: unknown) => tui.log("! action", `hook #${hook.id} failed: ${err}`));
+        }
+      }
+    }
+  }
+
   const actionsOk = executed.filter((e) => e.success && e.action.action !== "wait").length;
   const actionsFail = executed.filter((e) => !e.success && e.action.action !== "wait").length;
   return {
@@ -3167,6 +3652,151 @@ function readPkgVersion(): string | null {
   }
 }
 
+function buildTaskSupervisorStatus(taskManager?: TaskManager): string {
+  if (!taskManager) return "";
+  const tasks = taskManager.tasks;
+  const total = tasks.length;
+  const active = tasks.filter((t) => t.status === "active").length;
+  const pending = tasks.filter((t) => t.status === "pending").length;
+  const paused = tasks.filter((t) => t.status === "paused").length;
+  const linked = tasks.filter((t) => !!t.sessionId).length;
+  return `supervising ${total} tasks (${active} active, ${pending} pending, ${paused} paused) | ${linked} sessions linked | step-in: /task <session> :: <goal>`;
+}
+
+async function showSupervisorStatus(opts: { all?: boolean; since?: string; limit?: number; json?: boolean; ndjson?: boolean; watch?: boolean; changesOnly?: boolean; heartbeatSec?: number; intervalMs?: number }): Promise<void> {
+  const basePath = process.cwd();
+  const pollMs = opts.intervalMs && opts.intervalMs >= 500 ? opts.intervalMs : 5000;
+  const heartbeatMs = opts.heartbeatSec && opts.heartbeatSec >= 1 ? opts.heartbeatSec * 1000 : 0;
+
+  let maxAgeMs = 7 * 24 * 60 * 60 * 1000;
+  if (opts.since) {
+    const parsed = parseDuration(opts.since);
+    if (parsed === null) throw new Error(`invalid --since '${opts.since}' (examples: 30m, 2h, 7d)`);
+    maxAgeMs = parsed;
+  }
+
+  const requestedLimit = opts.limit && opts.limit > 0 ? opts.limit : 5;
+  const loadLimit = opts.all ? 1000 : Math.max(requestedLimit, 5);
+
+  const formatAgoShort = (at: number): string => {
+    const ms = Math.max(0, Date.now() - at);
+    if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`;
+    if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+    return `${Math.floor(ms / 3_600_000)}h ago`;
+  };
+
+  const buildPayload = (emitReason: "snapshot" | "interval" | "change" | "heartbeat") => {
+    const config = loadConfig();
+    const taskProfiles = resolveProfiles(config);
+    const defs = loadTaskDefinitions(basePath);
+    const tm = defs.length > 0 ? new TaskManager(basePath, defs, taskProfiles) : undefined;
+    const tasks = tm?.tasks ?? [];
+    const eventsNewestFirst = loadSupervisorEvents(loadLimit, undefined, maxAgeMs).slice().reverse();
+
+    const active = tasks.filter((t) => t.status === "active");
+    const pending = tasks.filter((t) => t.status === "pending");
+    const paused = tasks.filter((t) => t.status === "paused");
+    const linked = tasks.filter((t) => !!t.sessionId);
+    const topActive = active.slice(0, 4).map((t) => `${t.sessionTitle}${t.profile && t.profile !== "default" ? `@${t.profile}` : ""}`);
+    const pendingPreview = pending.slice(0, 3).map((t) => t.sessionTitle);
+    const pausedPreview = paused.slice(0, 3).map((t) => t.sessionTitle);
+    const status = buildTaskSupervisorStatus(tm) || "supervisor: no task manager active";
+
+    return {
+      observedAt: Date.now(),
+      emitReason,
+      supervisor: status,
+      summary: {
+        total: tasks.length,
+        active: active.length,
+        pending: pending.length,
+        paused: paused.length,
+        linkedSessions: linked.length,
+      },
+      activeNow: topActive,
+      needsKickoff: pendingPreview,
+      pausedTasks: pausedPreview,
+      options: {
+        all: !!opts.all,
+        limit: requestedLimit,
+        since: opts.since ?? null,
+        sinceMs: maxAgeMs,
+        watch: !!opts.watch,
+        intervalMs: pollMs,
+      },
+      recentEvents: eventsNewestFirst.map((evt) => ({ at: evt.at, ago: formatAgoShort(evt.at), detail: evt.detail })),
+      stepIn: [
+        "/task <session> :: <goal>",
+        "/task new <title> <path> :: <goal>",
+        ":<goal> in drill-down",
+      ],
+    };
+  };
+
+  const printPayload = (payload: ReturnType<typeof buildPayload>) => {
+    if (opts.json || opts.ndjson) {
+      const compact = !!opts.ndjson || !!opts.watch;
+      console.log(compact ? JSON.stringify(payload) : JSON.stringify(payload, null, 2));
+      return;
+    }
+    console.log(`supervisor: ${payload.supervisor}`);
+    console.log(`supervisor detail: ${payload.summary.active} active | ${payload.summary.pending} pending | ${payload.summary.paused} paused | ${payload.summary.linkedSessions} linked sessions`);
+    console.log(payload.activeNow.length > 0 ? `active now: ${payload.activeNow.join(", ")}` : "active now: none");
+    console.log(payload.needsKickoff.length > 0 ? `needs kickoff: ${payload.needsKickoff.join(", ")}${payload.summary.pending > payload.needsKickoff.length ? " ..." : ""}` : "needs kickoff: none");
+    console.log(payload.pausedTasks.length > 0 ? `paused tasks: ${payload.pausedTasks.join(", ")}${payload.summary.paused > payload.pausedTasks.length ? " ..." : ""}` : "paused tasks: none");
+    console.log("step-in paths: /task <session> :: <goal>  |  /task new <title> <path> :: <goal>  |  :<goal> in drill-down");
+    if (payload.recentEvents.length > 0) {
+      console.log(`supervisor recent (${payload.recentEvents.length} shown):`);
+      for (const evt of payload.recentEvents) {
+        console.log(`- ${evt.detail} (${evt.ago})`);
+      }
+    } else {
+      console.log("supervisor recent: none");
+    }
+  };
+
+  if (!opts.watch) {
+    printPayload(buildPayload("snapshot"));
+    return;
+  }
+
+  let lastFingerprint = "";
+  let lastEmitAt = 0;
+  if (!opts.json && !opts.ndjson) {
+    console.log(`watching supervisor status every ${pollMs}ms (Ctrl+C to stop)`);
+  }
+
+  while (true) {
+    let payloadReason: "interval" | "change" | "heartbeat" = "interval";
+    const payload = buildPayload(payloadReason);
+    const fingerprint = JSON.stringify({
+      supervisor: payload.supervisor,
+      summary: payload.summary,
+      activeNow: payload.activeNow,
+      needsKickoff: payload.needsKickoff,
+      pausedTasks: payload.pausedTasks,
+      recentEvents: payload.recentEvents.map((e) => ({ at: e.at, detail: e.detail })),
+    });
+    const changed = fingerprint !== lastFingerprint;
+    lastFingerprint = fingerprint;
+    const now = Date.now();
+    const heartbeatDue = opts.changesOnly && heartbeatMs > 0 && (now - lastEmitAt) >= heartbeatMs;
+    if (opts.changesOnly && !changed && !heartbeatDue) {
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+      continue;
+    }
+    if (changed) payloadReason = "change";
+    else if (heartbeatDue) payloadReason = "heartbeat";
+    const emitPayload = payloadReason === "interval" ? payload : buildPayload(payloadReason);
+    lastEmitAt = now;
+    if (!opts.json && !opts.ndjson) {
+      console.log(`\n${DIM}--- supervisor tick ${new Date(emitPayload.observedAt).toLocaleTimeString()} (${payloadReason}) ---${RESET}`);
+    }
+    printPayload(emitPayload);
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
+
 // `aoaoe tasks` -- show current task progress
 async function showTaskStatus(): Promise<void> {
   const basePath = process.cwd();
@@ -3182,7 +3812,8 @@ async function showTaskStatus(): Promise<void> {
   }
 
   // merge definitions into state for display
-  const tm = new TaskManager(basePath, defs);
+  const taskProfiles = resolveProfiles(loadConfig());
+  const tm = new TaskManager(basePath, defs, taskProfiles);
   console.log("");
   console.log(formatTaskTable(tm.tasks));
   console.log("");
@@ -3454,6 +4085,227 @@ async function runIntegrationTest(): Promise<void> {
   }
   // the integration test is a self-contained script that runs main() on import
   await import(testModule);
+}
+
+// `aoaoe runbook` -- quick operator playbook for multi-session supervision.
+function buildRunbookPayload(section?: string): {
+  payload: {
+    title: string;
+    section: string;
+    quickstart: Array<{ step: string; command: string }>;
+    responseFlow: Array<{ when: string; action: string; command?: string }>;
+  };
+  includeQuickstart: boolean;
+  includeResponseFlow: boolean;
+  error?: string;
+} {
+  const rawSection = (section || "all").toLowerCase();
+  const normalizedSection = rawSection === "incident" ? "response-flow" : rawSection;
+  if (!["all", "quickstart", "response-flow"].includes(normalizedSection)) {
+    return {
+      payload: { title: "aoaoe operator playbook", section: normalizedSection, quickstart: [], responseFlow: [] },
+      includeQuickstart: false,
+      includeResponseFlow: false,
+      error: `invalid --section '${section}' (use: quickstart, response-flow, incident, all)`,
+    };
+  }
+
+  const includeQuickstart = normalizedSection === "all" || normalizedSection === "quickstart";
+  const includeResponseFlow = normalizedSection === "all" || normalizedSection === "response-flow";
+
+  return {
+    payload: {
+      title: "aoaoe operator playbook",
+      section: normalizedSection,
+      quickstart: includeQuickstart ? [
+        {
+          step: "start low-noise supervision stream",
+          command: "aoaoe supervisor --watch --ndjson --changes-only --heartbeat 30",
+        },
+        {
+          step: "force immediate task/session reconcile",
+          command: "aoaoe task reconcile",
+        },
+        {
+          step: "step in with new direction",
+          command: "aoaoe-chat  # then: /task <session> :: <new goal>",
+        },
+      ] : [],
+      responseFlow: includeResponseFlow ? [
+        {
+          when: "emitReason=change spikes",
+          action: "inspect recent supervisor history",
+          command: "aoaoe supervisor --since 30m --limit 20",
+        },
+        {
+          when: "tasks are pending/paused too long",
+          action: "reconcile then nudge via /task",
+        },
+        {
+          when: "system is noisy but stable",
+          action: "keep --changes-only + --heartbeat",
+        },
+      ] : [],
+    },
+    includeQuickstart,
+    includeResponseFlow,
+  };
+}
+
+function showRunbook(asJson = false, section?: string): void {
+  const runbook = buildRunbookPayload(section);
+  if (runbook.error) {
+    console.error(`runbook: ${runbook.error}`);
+    process.exitCode = 2;
+    return;
+  }
+
+  if (asJson) {
+    console.log(JSON.stringify(runbook.payload, null, 2));
+    return;
+  }
+
+  console.log("");
+  console.log(`  ${BOLD}aoaoe operator playbook${RESET}`);
+  console.log("  ─────────────────────────────────────────────");
+  if (runbook.includeQuickstart) {
+    console.log("  1) start low-noise supervision stream:");
+    console.log(`     ${DIM}aoaoe supervisor --watch --ndjson --changes-only --heartbeat 30${RESET}`);
+    console.log("  2) if tasks/sessions drift, force reconcile:");
+    console.log(`     ${DIM}aoaoe task reconcile${RESET}`);
+    console.log("  3) step in with new direction:");
+    console.log(`     ${DIM}aoaoe-chat${RESET}`);
+    console.log(`     ${DIM}/task <session> :: <new goal>${RESET}`);
+  }
+  if (runbook.includeResponseFlow) {
+    if (runbook.includeQuickstart) console.log("");
+    console.log("  recommended response flow:");
+    console.log("    - emitReason=change spikes -> inspect recent supervisor history");
+    console.log(`      ${DIM}aoaoe supervisor --since 30m --limit 20${RESET}`);
+    console.log("    - pending/paused tasks too long -> reconcile then nudge via /task");
+    console.log("    - noisy stable systems -> keep --changes-only + --heartbeat");
+  }
+  console.log("");
+}
+
+async function showIncidentStatus(opts: { since?: string; limit?: number; json?: boolean; ndjson?: boolean; watch?: boolean; changesOnly?: boolean; heartbeatSec?: number; intervalMs?: number }): Promise<void> {
+  const basePath = process.cwd();
+  const pollMs = opts.intervalMs && opts.intervalMs >= 500 ? opts.intervalMs : 5000;
+  const heartbeatMs = opts.heartbeatSec && opts.heartbeatSec >= 1 ? opts.heartbeatSec * 1000 : 0;
+
+  let maxAgeMs = 30 * 60 * 1000;
+  if (opts.since) {
+    const parsed = parseDuration(opts.since);
+    if (parsed === null) throw new Error(`invalid --since '${opts.since}' (examples: 30m, 2h, 1d)`);
+    maxAgeMs = parsed;
+  }
+  const limit = opts.limit && opts.limit > 0 ? opts.limit : 5;
+
+  const formatAgoShort = (at: number): string => {
+    const ms = Math.max(0, Date.now() - at);
+    if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`;
+    if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+    return `${Math.floor(ms / 3_600_000)}h ago`;
+  };
+
+  const buildPayload = (emitReason: "snapshot" | "interval" | "change" | "heartbeat") => {
+    const config = loadConfig();
+    const taskProfiles = resolveProfiles(config);
+    const defs = loadTaskDefinitions(basePath);
+    const tm = defs.length > 0 ? new TaskManager(basePath, defs, taskProfiles) : undefined;
+
+    const tasks = tm?.tasks ?? [];
+    const status = buildTaskSupervisorStatus(tm) || "supervisor: no task manager active";
+    const active = tasks.filter((t) => t.status === "active").length;
+    const pending = tasks.filter((t) => t.status === "pending").length;
+    const paused = tasks.filter((t) => t.status === "paused").length;
+    const runbook = buildRunbookPayload("incident");
+    const recent = loadSupervisorEvents(limit, undefined, maxAgeMs).slice().reverse();
+
+    return {
+      observedAt: Date.now(),
+      emitReason,
+      incident: {
+        supervisor: status,
+        summary: { active, pending, paused },
+        options: {
+          since: opts.since ?? "30m",
+          sinceMs: maxAgeMs,
+          limit,
+          watch: !!opts.watch,
+          intervalMs: pollMs,
+          changesOnly: !!opts.changesOnly,
+          heartbeatSec: opts.heartbeatSec ?? null,
+        },
+        responseFlow: runbook.payload.responseFlow,
+        recentEvents: recent.map((evt) => ({ at: evt.at, ago: formatAgoShort(evt.at), detail: evt.detail })),
+        stepIn: "/task <session> :: <goal>",
+      },
+    };
+  };
+
+  const printPayload = (payload: ReturnType<typeof buildPayload>) => {
+    if (opts.json || opts.ndjson) {
+      const compact = !!opts.ndjson || !!opts.watch;
+      console.log(compact ? JSON.stringify(payload) : JSON.stringify(payload, null, 2));
+      return;
+    }
+    console.log("incident quick view:");
+    console.log(`supervisor: ${payload.incident.supervisor}`);
+    console.log(`incident focus: ${payload.incident.summary.active} active | ${payload.incident.summary.pending} pending | ${payload.incident.summary.paused} paused | events(window): ${payload.incident.recentEvents.length}`);
+    console.log("runbook response-flow:");
+    for (const step of payload.incident.responseFlow) {
+      console.log(`- ${step.when} -> ${step.action}${step.command ? ` (${step.command})` : ""}`);
+    }
+    if (payload.incident.recentEvents.length > 0) {
+      console.log("recent supervisor events:");
+      for (const evt of payload.incident.recentEvents) {
+        console.log(`- ${evt.detail} (${evt.ago})`);
+      }
+    } else {
+      console.log("recent supervisor events: none in current window");
+    }
+    console.log("step-in now: /task <session> :: <goal>");
+  };
+
+  if (!opts.watch) {
+    printPayload(buildPayload("snapshot"));
+    return;
+  }
+
+  let lastFingerprint = "";
+  let lastEmitAt = 0;
+  if (!opts.json && !opts.ndjson) {
+    console.log(`watching incident status every ${pollMs}ms (Ctrl+C to stop)`);
+  }
+
+  while (true) {
+    let reason: "interval" | "change" | "heartbeat" = "interval";
+    const payload = buildPayload(reason);
+    const fingerprint = JSON.stringify({
+      supervisor: payload.incident.supervisor,
+      summary: payload.incident.summary,
+      responseFlow: payload.incident.responseFlow,
+      recentEvents: payload.incident.recentEvents.map((e) => ({ at: e.at, detail: e.detail })),
+    });
+    const changed = fingerprint !== lastFingerprint;
+    lastFingerprint = fingerprint;
+    const now = Date.now();
+    const heartbeatDue = !!opts.changesOnly && heartbeatMs > 0 && (now - lastEmitAt) >= heartbeatMs;
+    if (opts.changesOnly && !changed && !heartbeatDue) {
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+      continue;
+    }
+    if (changed) reason = "change";
+    else if (heartbeatDue) reason = "heartbeat";
+    const emitPayload = reason === "interval" ? payload : buildPayload(reason);
+    lastEmitAt = now;
+    if (!opts.json && !opts.ndjson) {
+      console.log(`\n${DIM}--- incident tick ${new Date(emitPayload.observedAt).toLocaleTimeString()} (${reason}) ---${RESET}`);
+    }
+    printPayload(emitPayload);
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
 }
 
 // `aoaoe status` -- quick one-shot health check: is the daemon running? what's it doing?

@@ -15,6 +15,7 @@ export interface AoeSession {
   title: string;
   path: string;
   tool: string;
+  profile?: string;
   status: AoeSessionStatus;
   tmux_name: string;
   group?: string;
@@ -198,6 +199,7 @@ export type TaskSessionMode = "auto" | "existing" | "new";
 export interface TaskDefinition {
   repo: string;          // relative path from cwd (e.g. "github/adventure")
   sessionTitle?: string; // optional AoE session title to target (default: derive from repo)
+  profile?: string;      // AoE profile name (default: "default")
   sessionMode?: TaskSessionMode; // auto=link-or-create, existing=link-only, new=create-only
   tool?: string;         // AoE tool name (default: "opencode")
   goal?: string | string[]; // what to accomplish — string or list of directives (joined with newlines)
@@ -244,6 +246,7 @@ const VALID_TASK_STATUSES = new Set<TaskStatus>(["pending", "active", "completed
 export interface TaskState {
   repo: string;
   sessionTitle: string;
+  profile?: string;
   sessionMode: TaskSessionMode;
   tool: string;
   goal: string;
@@ -268,6 +271,7 @@ export function toTaskState(raw: unknown): TaskState | null {
   return {
     repo: r.repo,
     sessionTitle: r.sessionTitle,
+    profile: typeof r.profile === "string" && r.profile ? r.profile : "default",
     sessionMode: r.sessionMode === "existing" || r.sessionMode === "new" ? r.sessionMode : "auto",
     tool: r.tool,
     goal: r.goal,

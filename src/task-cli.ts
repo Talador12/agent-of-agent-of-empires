@@ -3,8 +3,11 @@
 import { exec } from "./shell.js";
 import { existsSync } from "node:fs";
 import { resolve, basename } from "node:path";
-import { loadTaskState, saveTaskState, formatTaskTable, syncTaskDefinitionsFromState } from "./task-manager.js";
-import { toAoeSessionList, goalToList } from "./types.js";
+import { buildProfileListArgs } from "./poller.js";
+import { loadConfig } from "./config.js";
+import { resolveProfiles } from "./tui.js";
+import { loadTaskState, saveTaskState, formatTaskTable, syncTaskDefinitionsFromState, taskStateKey, resolveTaskRepoPath, TaskManager, loadTaskDefinitions } from "./task-manager.js";
+import { goalToList } from "./types.js";
 import type { TaskState, TaskSessionMode } from "./types.js";
 
 import { BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET } from "./colors.js";
@@ -15,6 +18,65 @@ interface AoeSessionLite {
   path?: string;
   tool?: string;
   status?: string;
+  profile?: string;
+}
+
+function buildProfileAwareAoeArgs(profile: string | undefined, tailArgs: string[]): string[] {
+  if (!profile || profile === "default") return tailArgs;
+  return ["-p", profile, ...tailArgs];
+}
+
+function getTaskProfiles(): string[] {
+  try {
+    return resolveProfiles(loadConfig());
+  } catch {
+    return ["default"];
+  }
+}
+
+function taskCommandHelp(prefix = "aoaoe task"): string {
+  return [
+    `${prefix} list                     show tracked tasks`,
+    `${prefix} reconcile                link/create sessions now`,
+    `${prefix} new <title> <path>       create task + session`,
+    `${prefix} start|stop <task>         control task session`,
+    `${prefix} edit <task> <goal>        update task goal`,
+    `${prefix} rm <task>                 remove task + session`,
+    "step-in quick path: /task <session> :: <new instructions>",
+  ].join("\n");
+}
+
+async function listAoeSessionsAcrossProfiles(): Promise<AoeSessionLite[]> {
+  const profiles = getTaskProfiles();
+  const sessions: AoeSessionLite[] = [];
+  const seenIds = new Set<string>();
+
+  for (const profile of profiles) {
+    const listResult = await exec("aoe", buildProfileListArgs(profile));
+    if (listResult.exitCode !== 0) continue;
+    try {
+      const raw = JSON.parse(listResult.stdout);
+      const items = Array.isArray(raw) ? raw : [];
+      for (const item of items) {
+        const id = String(item.id ?? "");
+        const title = String(item.title ?? "");
+        if (!id || !title || seenIds.has(id)) continue;
+        seenIds.add(id);
+        sessions.push({
+          id,
+          title,
+          path: typeof item.path === "string" ? item.path : undefined,
+          tool: typeof item.tool === "string" ? item.tool : undefined,
+          status: typeof item.status === "string" ? item.status : undefined,
+          profile,
+        });
+      }
+    } catch {
+      // ignore malformed output for one profile and keep scanning others
+    }
+  }
+
+  return sessions;
 }
 
 // resolve a fuzzy reference to a task: match by title, repo basename, or session ID prefix
@@ -53,14 +115,14 @@ export async function taskStart(ref: string): Promise<boolean> {
     return false;
   }
 
-  const result = await exec("aoe", ["session", "start", task.sessionId]);
+  const result = await exec("aoe", buildProfileAwareAoeArgs(task.profile, ["session", "start", task.sessionId]));
   if (result.exitCode !== 0) {
     console.error(`${RED}failed to start ${task.sessionTitle}: ${result.stderr.trim()}${RESET}`);
     return false;
   }
 
   task.status = "active";
-  states.set(task.repo, task);
+  states.set(taskStateKey(task.repo, task.sessionTitle), task);
   saveTaskState(states);
   console.log(`${GREEN}started${RESET} ${task.sessionTitle} (${task.sessionId.slice(0, 8)})`);
   return true;
@@ -80,14 +142,14 @@ export async function taskStop(ref: string): Promise<boolean> {
     return false;
   }
 
-  const result = await exec("aoe", ["session", "stop", task.sessionId]);
+  const result = await exec("aoe", buildProfileAwareAoeArgs(task.profile, ["session", "stop", task.sessionId]));
   if (result.exitCode !== 0) {
     console.error(`${RED}failed to stop ${task.sessionTitle}: ${result.stderr.trim()}${RESET}`);
     return false;
   }
 
   task.status = "paused";
-  states.set(task.repo, task);
+  states.set(taskStateKey(task.repo, task.sessionTitle), task);
   saveTaskState(states);
   console.log(`${YELLOW}stopped${RESET} ${task.sessionTitle} (${task.sessionId.slice(0, 8)})`);
   return true;
@@ -104,7 +166,7 @@ export function taskEdit(ref: string, newGoal: string): boolean {
 
   const oldGoal = task.goal;
   task.goal = newGoal;
-  states.set(task.repo, task);
+  states.set(taskStateKey(task.repo, task.sessionTitle), task);
   saveTaskState(states);
   syncTaskDefinitionsFromState(process.cwd(), states);
   console.log(`${GREEN}updated${RESET} ${task.sessionTitle}`);
@@ -116,7 +178,7 @@ export function taskEdit(ref: string, newGoal: string): boolean {
 }
 
 // create a new session + task
-export async function taskNew(title: string, path: string, tool = "opencode", mode: TaskSessionMode = "new"): Promise<boolean> {
+export async function taskNew(title: string, path: string, tool = "opencode", mode: TaskSessionMode = "new", profile = "default"): Promise<boolean> {
   const resolvedPath = resolve(path);
   if (!existsSync(resolvedPath)) {
     console.error(`${RED}path not found: ${resolvedPath}${RESET}`);
@@ -132,33 +194,26 @@ export async function taskNew(title: string, path: string, tool = "opencode", mo
   }
 
   let sessionId: string | undefined;
+  let sessionProfile = profile;
 
   if (mode === "existing" || mode === "auto") {
-    const listResult = await exec("aoe", ["list", "--json"]);
-    if (listResult.exitCode === 0) {
-      try {
-        const sessions = toAoeSessionList(JSON.parse(listResult.stdout));
-        const found = sessions.find((s) => s.title.toLowerCase() === lower);
-        sessionId = found?.id;
-      } catch {}
-    }
+    const sessions = await listAoeSessionsAcrossProfiles();
+    const found = sessions.find((s) => s.title.toLowerCase() === lower);
+    sessionId = found?.id;
+    sessionProfile = found?.profile ?? sessionProfile;
   }
 
   if ((mode === "new" || mode === "auto") && !sessionId) {
     console.log(`${DIM}creating session...${RESET}`);
-    const result = await exec("aoe", ["add", resolvedPath, "-t", title, "-c", tool, "-y"]);
+    const result = await exec("aoe", buildProfileAwareAoeArgs(profile, ["add", resolvedPath, "-t", title, "-c", tool, "-y"]));
     if (result.exitCode !== 0) {
       console.error(`${RED}failed to create session: ${result.stderr.trim()}${RESET}`);
       return false;
     }
-    const listResult = await exec("aoe", ["list", "--json"]);
-    if (listResult.exitCode === 0) {
-      try {
-        const sessions = toAoeSessionList(JSON.parse(listResult.stdout));
-        const found = sessions.find((s) => s.title.toLowerCase() === lower);
-        sessionId = found?.id;
-      } catch {}
-    }
+    const sessions = await listAoeSessionsAcrossProfiles();
+    const found = sessions.find((s) => s.title.toLowerCase() === lower);
+    sessionId = found?.id;
+    sessionProfile = found?.profile ?? profile;
   }
 
   const status = sessionId ? "active" : "pending";
@@ -173,6 +228,7 @@ export async function taskNew(title: string, path: string, tool = "opencode", mo
   const task: TaskState = {
     repo,
     sessionTitle: title,
+    profile: sessionProfile,
     sessionMode: mode,
     tool,
     goal: "Continue the roadmap in claude.md",
@@ -182,7 +238,7 @@ export async function taskNew(title: string, path: string, tool = "opencode", mo
     progress: [],
   };
 
-  states.set(repo, task);
+  states.set(taskStateKey(repo, title), task);
   saveTaskState(states);
   syncTaskDefinitionsFromState(process.cwd(), states);
   console.log(`${GREEN}created${RESET} ${title} → ${resolvedPath}`);
@@ -201,29 +257,17 @@ function parseTaskMode(raw: string | undefined): TaskSessionMode {
 }
 
 async function listAoeSessions(): Promise<AoeSessionLite[]> {
-  const listResult = await exec("aoe", ["list", "--json"]);
-  if (listResult.exitCode !== 0) return [];
-  try {
-    return JSON.parse(listResult.stdout) as AoeSessionLite[];
-  } catch {
-    return [];
-  }
+  return listAoeSessionsAcrossProfiles();
 }
 
 async function findAoeSession(ref: string): Promise<AoeSessionLite | undefined> {
-  const listResult = await exec("aoe", ["list", "--json"]);
-  if (listResult.exitCode !== 0) return undefined;
-  try {
-    const sessions = JSON.parse(listResult.stdout) as AoeSessionLite[];
-    const lower = ref.toLowerCase();
-    return (
-      sessions.find((s) => s.id.startsWith(ref)) ??
-      sessions.find((s) => s.title.toLowerCase() === lower) ??
-      sessions.find((s) => s.title.toLowerCase().includes(lower))
-    );
-  } catch {
-    return undefined;
-  }
+  const sessions = await listAoeSessionsAcrossProfiles();
+  const lower = ref.toLowerCase();
+  return (
+    sessions.find((s) => s.id.startsWith(ref)) ??
+    sessions.find((s) => s.title.toLowerCase() === lower) ??
+    sessions.find((s) => s.title.toLowerCase().includes(lower))
+  );
 }
 
 export async function quickTaskUpdate(ref: string, goal: string): Promise<string> {
@@ -233,7 +277,7 @@ export async function quickTaskUpdate(ref: string, goal: string): Promise<string
   if (task) {
     task.goal = goal;
     if (task.sessionMode !== "existing") task.sessionMode = "existing";
-    states.set(task.repo, task);
+    states.set(taskStateKey(task.repo, task.sessionTitle), task);
     saveTaskState(states);
     syncTaskDefinitionsFromState(process.cwd(), states);
     return `updated ${task.sessionTitle} goal`; 
@@ -241,11 +285,12 @@ export async function quickTaskUpdate(ref: string, goal: string): Promise<string
 
   const session = await findAoeSession(ref);
   if (!session) return `session not found: ${ref}`;
-  const repo = session.path ? resolve(session.path) : session.title;
+  const repo = resolveTaskRepoPath(process.cwd(), session.path, session.title);
   const status: TaskState["status"] = session.status === "stopped" ? "paused" : "active";
   const newTask: TaskState = {
     repo,
     sessionTitle: session.title,
+    profile: session.profile ?? "default",
     sessionMode: "existing",
     tool: session.tool || "opencode",
     goal,
@@ -254,7 +299,7 @@ export async function quickTaskUpdate(ref: string, goal: string): Promise<string
     createdAt: Date.now(),
     progress: [],
   };
-  states.set(newTask.repo, newTask);
+  states.set(taskStateKey(newTask.repo, newTask.sessionTitle), newTask);
   saveTaskState(states);
   syncTaskDefinitionsFromState(process.cwd(), states);
   return `created task for existing session ${session.title}`;
@@ -271,12 +316,12 @@ export async function taskRemove(ref: string): Promise<boolean> {
 
   // stop + remove the AoE session if it exists
   if (task.sessionId) {
-    await exec("aoe", ["session", "stop", task.sessionId]);
-    await exec("aoe", ["remove", task.sessionId, "-y"]);
+    await exec("aoe", buildProfileAwareAoeArgs(task.profile, ["session", "stop", task.sessionId]));
+    await exec("aoe", buildProfileAwareAoeArgs(task.profile, ["remove", task.sessionId, "-y"]));
     console.log(`${DIM}removed session ${task.sessionId.slice(0, 8)}${RESET}`);
   }
 
-  states.delete(task.repo);
+  states.delete(taskStateKey(task.repo, task.sessionTitle));
   saveTaskState(states);
   syncTaskDefinitionsFromState(process.cwd(), states);
   console.log(`${RED}deleted${RESET} task '${task.sessionTitle}' (repo: ${task.repo})`);
@@ -291,6 +336,11 @@ export async function runTaskCli(argv: string[]): Promise<void> {
 
   if (!sub || sub === "list" || sub === "ls") {
     taskList();
+    return;
+  }
+
+  if (sub === "help" || sub === "-h" || sub === "--help") {
+    console.log(taskCommandHelp("aoaoe task"));
     return;
   }
 
@@ -322,7 +372,18 @@ export async function runTaskCli(argv: string[]): Promise<void> {
       let mode: TaskSessionMode = "new";
       const modeIdx = args.indexOf("--mode");
       if (modeIdx !== -1) mode = parseTaskMode(args[modeIdx + 1]);
-      await taskNew(title, path, tool, mode);
+      let profile = "default";
+      const profileIdx = args.indexOf("--profile");
+      if (profileIdx !== -1 && args[profileIdx + 1]) profile = args[profileIdx + 1];
+      await taskNew(title, path, tool, mode, profile);
+      return;
+    }
+    case "reconcile": {
+      const basePath = process.cwd();
+      const defs = loadTaskDefinitions(basePath);
+      const tm = new TaskManager(basePath, defs, getTaskProfiles());
+      const { created, linked } = await tm.reconcileSessions();
+      console.log(`reconciled tasks: +${created.length} created, +${linked.length} linked`);
       return;
     }
     case "rm":
@@ -334,7 +395,7 @@ export async function runTaskCli(argv: string[]): Promise<void> {
     }
     default:
       console.error(`unknown task subcommand: ${sub}`);
-      console.error(`usage: aoaoe task [list|start|stop|edit|new|rm]`);
+      console.error(`usage: aoaoe task [list|start|stop|edit|new|rm|reconcile|help]`);
   }
 }
 
@@ -446,6 +507,10 @@ export async function handleTaskSlashCommand(args: string): Promise<string> {
     return formatTaskTable(states);
   }
 
+  if (sub === "help") {
+    return taskCommandHelp("/task");
+  }
+
   if (sub === "start" && rest[0]) {
     const ok = await taskStart(rest[0]);
     return ok ? `started ${rest[0]}` : `failed to start ${rest[0]}`;
@@ -478,8 +543,8 @@ export async function handleTaskSlashCommand(args: string): Promise<string> {
       const session = await findAoeSession(intent.title);
       resolvedPath = session?.path ?? process.cwd();
     }
-    const ok = await taskNew(intent.title, resolvedPath, intent.tool, intent.mode);
-    if (!ok) return `failed to create ${intent.title}`;
+      const ok = await taskNew(intent.title, resolvedPath, intent.tool, intent.mode);
+      if (!ok) return `failed to create ${intent.title}`;
     if (intent.goal) {
       taskEdit(intent.title, intent.goal);
       return `created ${intent.title} + set goal: ${intent.goal}`;
@@ -497,5 +562,13 @@ export async function handleTaskSlashCommand(args: string): Promise<string> {
     return ok ? `updated ${rest[0]}` : `failed to update ${rest[0]}`;
   }
 
-  return "usage: /task [list|start|stop|edit|new|rm] [args]";
+  if (sub === "reconcile") {
+    const basePath = process.cwd();
+    const defs = loadTaskDefinitions(basePath);
+    const tm = new TaskManager(basePath, defs, getTaskProfiles());
+    const { created, linked } = await tm.reconcileSessions();
+    return `reconciled tasks: +${created.length} created, +${linked.length} linked`;
+  }
+
+  return "usage: /task [list|start|stop|edit|new|rm|reconcile|help] [args]";
 }

@@ -238,6 +238,101 @@ describe("parseCliArgs", () => {
     assert.equal(result.register, false);
   });
 
+  it("parses runbook subcommand", () => {
+    const result = parseCliArgs(argv("runbook"));
+    assert.equal(result.runRunbook, true);
+    assert.equal(result.runbookJson, false);
+    assert.equal(result.runbookSection, undefined);
+    assert.equal(result.showStatus, false);
+    assert.equal(result.runSupervisor, false);
+    assert.equal(result.showConfig, false);
+  });
+
+  it("parses runbook --json", () => {
+    const result = parseCliArgs(argv("runbook", "--json"));
+    assert.equal(result.runRunbook, true);
+    assert.equal(result.runbookJson, true);
+    assert.equal(result.runbookSection, undefined);
+    assert.equal(result.runSupervisor, false);
+    assert.equal(result.showStatus, false);
+  });
+
+  it("parses runbook --section", () => {
+    const result = parseCliArgs(argv("runbook", "--section", "response-flow"));
+    assert.equal(result.runRunbook, true);
+    assert.equal(result.runbookJson, false);
+    assert.equal(result.runbookSection, "response-flow");
+  });
+
+  it("parses runbook incident alias section", () => {
+    const result = parseCliArgs(argv("runbook", "incident"));
+    assert.equal(result.runRunbook, true);
+    assert.equal(result.runbookSection, "incident");
+  });
+
+  it("parses incident subcommand", () => {
+    const result = parseCliArgs(argv("incident"));
+    assert.equal(result.runIncident, true);
+    assert.equal(result.incidentSince, undefined);
+    assert.equal(result.incidentLimit, undefined);
+    assert.equal(result.incidentJson, false);
+    assert.equal(result.incidentNdjson, false);
+    assert.equal(result.incidentWatch, false);
+    assert.equal(result.incidentChangesOnly, false);
+    assert.equal(result.incidentHeartbeatSec, undefined);
+    assert.equal(result.incidentIntervalMs, undefined);
+    assert.equal(result.runSupervisor, false);
+  });
+
+  it("parses incident flags", () => {
+    const result = parseCliArgs(argv("incident", "--since", "2h", "--limit", "7", "--json", "--ndjson", "--watch", "--changes-only", "--heartbeat", "30", "--interval", "1200"));
+    assert.equal(result.runIncident, true);
+    assert.equal(result.incidentSince, "2h");
+    assert.equal(result.incidentLimit, 7);
+    assert.equal(result.incidentJson, true);
+    assert.equal(result.incidentNdjson, true);
+    assert.equal(result.incidentWatch, true);
+    assert.equal(result.incidentChangesOnly, true);
+    assert.equal(result.incidentHeartbeatSec, 30);
+    assert.equal(result.incidentIntervalMs, 1200);
+  });
+
+  it("incident --follow implies watch + changes-only", () => {
+    const result = parseCliArgs(argv("incident", "--follow"));
+    assert.equal(result.runIncident, true);
+    assert.equal(result.incidentWatch, true);
+    assert.equal(result.incidentChangesOnly, true);
+    assert.equal(result.incidentHeartbeatSec, 30);
+  });
+
+  it("parses supervisor subcommand", () => {
+    const result = parseCliArgs(argv("supervisor"));
+    assert.equal(result.runSupervisor, true);
+    assert.equal(result.supervisorAll, false);
+    assert.equal(result.supervisorJson, false);
+    assert.equal(result.supervisorNdjson, false);
+    assert.equal(result.supervisorWatch, false);
+    assert.equal(result.supervisorChangesOnly, false);
+    assert.equal(result.supervisorHeartbeatSec, undefined);
+    assert.equal(result.supervisorIntervalMs, undefined);
+    assert.equal(result.supervisorSince, undefined);
+    assert.equal(result.supervisorLimit, undefined);
+  });
+
+  it("parses supervisor flags", () => {
+    const result = parseCliArgs(argv("supervisor", "--all", "--since", "2h", "--limit", "12", "--json", "--ndjson", "--watch", "--changes-only", "--heartbeat", "45", "--interval", "1500"));
+    assert.equal(result.runSupervisor, true);
+    assert.equal(result.supervisorAll, true);
+    assert.equal(result.supervisorSince, "2h");
+    assert.equal(result.supervisorLimit, 12);
+    assert.equal(result.supervisorJson, true);
+    assert.equal(result.supervisorNdjson, true);
+    assert.equal(result.supervisorWatch, true);
+    assert.equal(result.supervisorChangesOnly, true);
+    assert.equal(result.supervisorHeartbeatSec, 45);
+    assert.equal(result.supervisorIntervalMs, 1500);
+  });
+
   it("parses config subcommand", () => {
     const result = parseCliArgs(argv("config"));
     assert.equal(result.showConfig, true);
@@ -384,6 +479,21 @@ describe("parseCliArgs", () => {
     assert.equal(statusResult.runInit, false);
     assert.equal(statusResult.showConfig, false);
 
+    const runbookResult = parseCliArgs(argv("runbook"));
+    assert.equal(runbookResult.runRunbook, true);
+    assert.equal(runbookResult.runbookJson, false);
+    assert.equal(runbookResult.runbookSection, undefined);
+    assert.equal(runbookResult.showStatus, false);
+    assert.equal(runbookResult.runSupervisor, false);
+    assert.equal(runbookResult.showConfig, false);
+
+    const incidentResult = parseCliArgs(argv("incident"));
+    assert.equal(incidentResult.runIncident, true);
+    assert.equal(incidentResult.runSupervisor, false);
+    assert.equal(incidentResult.runRunbook, false);
+    assert.equal(incidentResult.showStatus, false);
+    assert.equal(incidentResult.showConfig, false);
+
     const configResult = parseCliArgs(argv("config"));
     assert.equal(configResult.showConfig, true);
     assert.equal(configResult.register, false);
@@ -426,6 +536,12 @@ describe("parseCliArgs", () => {
     assert.equal(replayResult.runStats, false);
     assert.equal(replayResult.runTail, false);
     assert.equal(replayResult.runExport, false);
+
+    const supervisorResult = parseCliArgs(argv("supervisor"));
+    assert.equal(supervisorResult.runSupervisor, true);
+    assert.equal(supervisorResult.runReplay, false);
+    assert.equal(supervisorResult.showStatus, false);
+    assert.equal(supervisorResult.showConfig, false);
   });
 
   it("parses export subcommand", () => {

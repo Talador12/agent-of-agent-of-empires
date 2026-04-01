@@ -213,7 +213,8 @@ export class Executor {
 
   private async startSession(sessionId: string, snapshots: SessionSnapshot[] = []): Promise<ActionLogEntry> {
     const resolvedId = this.resolveSessionId(sessionId, snapshots);
-    const result = await exec("aoe", ["session", "start", resolvedId]);
+    const args = this.buildProfileAwareAoeArgs(sessionId, snapshots, ["session", "start", resolvedId]);
+    const result = await exec("aoe", args);
 
     // only mark action (trigger cooldown) on success — failed starts should be retryable
     if (result.exitCode === 0) this.markAction(resolvedId);
@@ -227,7 +228,8 @@ export class Executor {
 
   private async stopSession(sessionId: string, snapshots: SessionSnapshot[] = []): Promise<ActionLogEntry> {
     const resolvedId = this.resolveSessionId(sessionId, snapshots);
-    const result = await exec("aoe", ["session", "stop", resolvedId]);
+    const args = this.buildProfileAwareAoeArgs(sessionId, snapshots, ["session", "stop", resolvedId]);
+    const result = await exec("aoe", args);
 
     // only mark action (trigger cooldown) on success — failed stops should be retryable
     if (result.exitCode === 0) this.markAction(resolvedId);
@@ -293,7 +295,8 @@ export class Executor {
 
   private async removeAgent(sessionId: string, snapshots: SessionSnapshot[] = []): Promise<ActionLogEntry> {
     const resolvedId = this.resolveSessionId(sessionId, snapshots);
-    const result = await exec("aoe", ["remove", resolvedId, "-y"]);
+    const args = this.buildProfileAwareAoeArgs(sessionId, snapshots, ["remove", resolvedId, "-y"]);
+    const result = await exec("aoe", args);
 
     // only mark action (trigger cooldown) on success — failed removes should be retryable
     if (result.exitCode === 0) this.markAction(resolvedId);
@@ -375,6 +378,14 @@ export class Executor {
 
   private resolveSessionId(ref: string, snapshots: SessionSnapshot[]): string {
     return this.resolveSession(ref, snapshots)?.session.id ?? ref;
+  }
+
+  // prefix AoE commands with profile when the resolved session belongs to a non-default profile.
+  // this lets executor lifecycle actions succeed in multi-profile polling mode.
+  private buildProfileAwareAoeArgs(ref: string, snapshots: SessionSnapshot[], tailArgs: string[]): string[] {
+    const profile = this.resolveSession(ref, snapshots)?.session.profile;
+    if (!profile || profile === "default") return tailArgs;
+    return ["-p", profile, ...tailArgs];
   }
 
   // check if a session title is in the protectedSessions list (case-insensitive)

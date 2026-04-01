@@ -1229,6 +1229,9 @@ export const MAX_ALIASES = 50;
 /** All built-in slash commands that cannot be overridden by aliases. */
 export const BUILTIN_COMMANDS = new Set([
   "/help", "/pause", "/resume", "/interrupt", "/status", "/dashboard",
+  "/supervisor",
+  "/runbook",
+  "/incident",
   "/explain", "/verbose", "/clear", "/view", "/back", "/sort", "/compact",
   "/pin", "/bell", "/focus", "/mute", "/unmute-all", "/filter", "/who",
   "/uptime", "/auto-pin", "/note", "/notes", "/clip", "/diff", "/mark",
@@ -1633,6 +1636,9 @@ export class TUI {
    // output pattern alerting
    private alertPatterns: AlertPattern[] = [];
 
+   // session lifecycle hooks
+   private lifecycleHooks: LifecycleHook[] = [];
+
    // drill-down mode: show a single session's full output
   private viewMode: "overview" | "drilldown" = "overview";
   private drilldownSessionId: string | null = null;
@@ -1650,6 +1656,7 @@ export class TUI {
   private reasonerName = "";
   private nextTickAt = 0;    // epoch ms for poll countdown display
   private nextReasonAt = 0;  // epoch ms for reasoning countdown (separate from poll)
+  private supervisorStatus = ""; // short task-supervisor status badge
 
   start(version: string): void {
     if (this.active) return;
@@ -2554,6 +2561,29 @@ export class TUI {
     return this.alertPatterns;
   }
 
+  // ── Session lifecycle hooks ────────────────────────────────────────────
+
+  /** Add a lifecycle hook. Returns null if event is invalid or command empty. */
+  addLifecycleHook(event: string, sessionPattern: string, command: string): LifecycleHook | null {
+    const hook = createLifecycleHook(event, sessionPattern, command);
+    if (!hook) return null;
+    this.lifecycleHooks.push(hook);
+    return hook;
+  }
+
+  /** Remove a lifecycle hook by ID. */
+  removeLifecycleHook(id: number): boolean {
+    const idx = this.lifecycleHooks.findIndex((h) => h.id === id);
+    if (idx < 0) return false;
+    this.lifecycleHooks.splice(idx, 1);
+    return true;
+  }
+
+  /** Get all lifecycle hooks. */
+  getLifecycleHooks(): readonly LifecycleHook[] {
+    return this.lifecycleHooks;
+  }
+
   // ── Trust ladder ─────────────────────────────────────────────────────────
 
   /** Get current trust level. */
@@ -3026,6 +3056,7 @@ export class TUI {
     nextTickAt?: number;
     nextReasonAt?: number;
     pendingCount?: number;
+    supervisorStatus?: string;
   }): void {
     if (opts.phase !== undefined) this.phase = opts.phase;
     if (opts.pollCount !== undefined) this.pollCount = opts.pollCount;
@@ -3034,6 +3065,7 @@ export class TUI {
     if (opts.nextTickAt !== undefined) this.nextTickAt = opts.nextTickAt;
     if (opts.nextReasonAt !== undefined) this.nextReasonAt = opts.nextReasonAt;
     if (opts.pendingCount !== undefined) this.pendingCount = opts.pendingCount;
+    if (opts.supervisorStatus !== undefined) this.supervisorStatus = opts.supervisorStatus;
     if (opts.sessions !== undefined) {
       // track activity changes for sort-by-activity + first-seen for uptime
       const now = Date.now();
@@ -3627,7 +3659,11 @@ export class TUI {
         ? ` ${STEEL}${BOX.v}${RESET}${BG_DARK} ${confBadge}${BG_DARK}`
         : "";
 
-      line = ` ${brand}  ${poll}  ${agents}  ${phaseChunk}${reasonerChunk}${watchdogChunk}${groupFilterChunk}${confidenceChunk}`;
+      const supervisorChunk = this.supervisorStatus
+        ? ` ${STEEL}${BOX.v}${RESET}${BG_DARK} ${SLATE}${truncateAnsi(this.supervisorStatus, 52)}${RESET}${BG_DARK}`
+        : "";
+
+      line = ` ${brand}  ${poll}  ${agents}  ${phaseChunk}${reasonerChunk}${watchdogChunk}${groupFilterChunk}${confidenceChunk}${supervisorChunk}`;
     }
     process.stderr.write(
       SAVE_CURSOR +
@@ -5437,6 +5473,79 @@ export function formatAlertPatterns(patterns: readonly AlertPattern[]): string[]
   for (const p of patterns) {
     const labelStr = p.label ? ` ${DIM}(${p.label})${RESET}` : "";
     lines.push(`  ${DIM}#${p.id}${RESET} ${BOLD}/${p.pattern}/i${RESET}${labelStr}`);
+  }
+  return lines;
+}
+
+// ── Session lifecycle hooks ─────────────────────────────────────────────────
+
+export const LIFECYCLE_EVENTS = [
+  "pre_start", "post_start",
+  "pre_stop", "post_stop",
+  "pre_restart", "post_restart",
+] as const;
+
+export type LifecycleEvent = typeof LIFECYCLE_EVENTS[number];
+
+export interface LifecycleHook {
+  id: number;
+  event: LifecycleEvent;
+  sessionPattern: string; // session title pattern: exact match or "*" for all
+  command: string;        // shell command to execute
+  createdAt: number;
+}
+
+let nextHookId = 1;
+
+/** Reset hook ID counter (for testing). */
+export function resetHookIdCounter(): void { nextHookId = 1; }
+
+/**
+ * Create a new lifecycle hook. Returns null if event is invalid.
+ */
+export function createLifecycleHook(event: string, sessionPattern: string, command: string): LifecycleHook | null {
+  if (!LIFECYCLE_EVENTS.includes(event as LifecycleEvent)) return null;
+  if (!command.trim()) return null;
+  return {
+    id: nextHookId++,
+    event: event as LifecycleEvent,
+    sessionPattern: sessionPattern.trim(),
+    command: command.trim(),
+    createdAt: Date.now(),
+  };
+}
+
+/**
+ * Find hooks that match a given lifecycle event and session title.
+ * Matches exact title (case-insensitive) or "*" (wildcard for all sessions).
+ */
+export function matchLifecycleHooks(
+  event: LifecycleEvent,
+  sessionTitle: string,
+  hooks: readonly LifecycleHook[],
+): LifecycleHook[] {
+  const titleLower = sessionTitle.toLowerCase();
+  return hooks.filter((h) =>
+    h.event === event && (h.sessionPattern === "*" || h.sessionPattern.toLowerCase() === titleLower),
+  );
+}
+
+/**
+ * Build the environment variables for a hook command.
+ */
+export function buildHookEnv(sessionTitle: string, sessionId: string): Record<string, string> {
+  return { SESSION_TITLE: sessionTitle, SESSION_ID: sessionId };
+}
+
+/**
+ * Format lifecycle hooks for display.
+ */
+export function formatLifecycleHooks(hooks: readonly LifecycleHook[]): string[] {
+  if (hooks.length === 0) return ["(no lifecycle hooks configured)"];
+  const lines: string[] = [];
+  lines.push(`lifecycle hooks: ${hooks.length}`);
+  for (const h of hooks) {
+    lines.push(`  ${DIM}#${h.id}${RESET} ${BOLD}${h.event}${RESET} ${DIM}[${h.sessionPattern}]${RESET} → ${h.command}`);
   }
   return lines;
 }
