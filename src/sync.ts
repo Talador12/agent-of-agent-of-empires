@@ -22,6 +22,9 @@ const SYNC_FILES = [
 
 export async function syncInit(remoteUrl: string): Promise<string> {
   if (!remoteUrl) throw new Error("usage: aoaoe sync init <git-remote-url>");
+  if (!/^(https?:\/\/|git@|ssh:\/\/)/.test(remoteUrl)) {
+    throw new Error("sync remote URL must use https://, ssh://, or git@ protocol");
+  }
 
   if (existsSync(join(SYNC_DIR, ".git"))) {
     // already initialized — update remote

@@ -47,8 +47,10 @@ export function savePreset(name: string, titles: string[], filePath = PRESETS_FI
 
 export function deletePreset(name: string, filePath = PRESETS_FILE): boolean {
   const presets = loadPinPresets(filePath);
-  if (!(name in presets)) return false;
-  delete presets[name];
+  const lower = name.toLowerCase();
+  const key = Object.keys(presets).find((k) => k.toLowerCase() === lower);
+  if (!key) return false;
+  delete presets[key];
   savePinPresets(presets, filePath);
   return true;
 }

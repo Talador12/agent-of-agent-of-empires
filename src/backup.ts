@@ -1,9 +1,9 @@
 // backup.ts — backup and restore aoaoe state + config for portability.
 // backs up ~/.aoaoe/ contents to a timestamped tarball or directory.
 
-import { existsSync, mkdirSync, readdirSync, copyFileSync, writeFileSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, copyFileSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
 import { join, basename } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { exec } from "./shell.js";
 import { BOLD, DIM, GREEN, YELLOW, RED, RESET } from "./colors.js";
 
@@ -80,17 +80,41 @@ export async function restoreBackup(inputPath: string): Promise<{ restored: stri
     mkdirSync(AOAOE_DIR, { recursive: true });
   }
 
-  // try tar extraction
+  // safe tar extraction: extract to temp dir, then copy only known files
   if (inputPath.endsWith(".tar.gz") || inputPath.endsWith(".tgz")) {
-    const result = await exec("tar", ["xzf", inputPath, "-C", "/"]);
-    if (result.exitCode === 0) {
-      // check what was restored
-      for (const f of BACKUP_FILES) {
-        if (existsSync(join(AOAOE_DIR, f))) restored.push(f);
+    const tmpDir = mkdtempSync(join(tmpdir(), "aoaoe-restore-"));
+    try {
+      const result = await exec("tar", ["xzf", inputPath, "-C", tmpDir]);
+      if (result.exitCode !== 0) throw new Error(`tar extraction failed: ${result.stderr}`);
+
+      // find and copy only known-safe files from extracted content
+      const findFiles = (dir: string): string[] => {
+        const found: string[] = [];
+        try {
+          for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            if (entry.isDirectory()) found.push(...findFiles(join(dir, entry.name)));
+            else found.push(join(dir, entry.name));
+          }
+        } catch { /* ignore unreadable dirs */ }
+        return found;
+      };
+
+      const allFiles = findFiles(tmpDir);
+      const safeNames = new Set([...BACKUP_FILES, "aoaoe.tasks.json"]);
+      for (const fullPath of allFiles) {
+        const name = basename(fullPath);
+        if (!safeNames.has(name)) { skipped.push(name); continue; }
+        if (name === "aoaoe.tasks.json") {
+          copyFileSync(fullPath, join(process.cwd(), name));
+        } else {
+          copyFileSync(fullPath, join(AOAOE_DIR, name));
+        }
+        restored.push(name);
       }
       return { restored, skipped };
+    } finally {
+      try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup best-effort */ }
     }
-    throw new Error(`tar extraction failed: ${result.stderr}`);
   }
 
   // directory restore

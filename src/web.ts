@@ -148,7 +148,7 @@ function healthClass(grade) {
 }
 
 function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 async function refresh() {
@@ -182,11 +182,11 @@ async function refresh() {
       const h = healthMap[t.session] || { score: 0, grade: 'inactive', factors: [] };
       const recent = (progressMap[t.session] || []).slice(-3);
       html += '<div class="card">';
-      html += '<div class="card-header"><span class="session-name">' + escHtml(t.session) + '</span><span class="' + statusClass(t.status) + '">' + t.status + '</span></div>';
-      html += '<div class="health-bar"><div class="' + healthClass(h.grade) + '" style="width:' + h.score + '%"></div></div>';
-      html += '<div class="meta">health: ' + h.score + '/100 (' + h.grade + ') · ' + h.factors.join(' · ') + '</div>';
+      html += '<div class="card-header"><span class="session-name">' + escHtml(t.session) + '</span><span class="' + statusClass(t.status) + '">' + escHtml(t.status) + '</span></div>';
+      html += '<div class="health-bar"><div class="' + healthClass(h.grade) + '" style="width:' + Math.max(0, Math.min(100, h.score)) + '%"></div></div>';
+      html += '<div class="meta">health: ' + escHtml(h.score + '/100 (' + h.grade + ')') + ' · ' + escHtml(h.factors.join(' · ')) + '</div>';
       html += '<div class="goal" title="' + escHtml(t.goal) + '">' + escHtml(t.goal) + '</div>';
-      if (t.dependsOn && t.dependsOn.length) html += '<div class="meta">depends on: ' + t.dependsOn.join(', ') + '</div>';
+      if (t.dependsOn && t.dependsOn.length) html += '<div class="meta">depends on: ' + escHtml(t.dependsOn.join(', ')) + '</div>';
       if (recent.length > 0) {
         recent.forEach(p => {
           html += '<div class="progress-entry"><span class="progress-time">' + p.ago + '</span> ' + escHtml(p.summary) + '</div>';
@@ -203,7 +203,7 @@ async function refresh() {
     let evHtml = '';
     supervisor.recentEvents.forEach(e => {
       const d = new Date(e.at);
-      evHtml += '<div class="event"><span class="event-time">' + d.toLocaleTimeString() + '</span> ' + escHtml(e.detail) + '</div>';
+      evHtml += '<div class="event"><span class="event-time">' + escHtml(d.toLocaleTimeString()) + '</span> ' + escHtml(e.detail) + '</div>';
     });
     document.getElementById('events').innerHTML = evHtml || '<div class="event">no recent events</div>';
 
@@ -235,11 +235,12 @@ function parseSince(url: URL): number {
 }
 
 function handleRequest(req: IncomingMessage, res: ServerResponse): void {
+  try {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
   const path = url.pathname;
 
-  // CORS for local dev
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  // no CORS header — dashboard is same-origin, no cross-origin access needed
+  res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
 
   if (path === "/" || path === "/index.html") {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -274,6 +275,12 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
 
   res.writeHead(404, { "Content-Type": "text/plain" });
   res.end("not found");
+  } catch (err) {
+    try {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: String(err) }));
+    } catch { /* response already started */ }
+  }
 }
 
 export function startWebServer(port: number): { close: () => void } {

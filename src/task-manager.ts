@@ -1,7 +1,7 @@
 // task-manager.ts — persistent task orchestration for aoaoe
 // loads task definitions from aoaoe.tasks.json (or config), creates/manages AoE
 // sessions for each, tracks progress that survives session cleanup.
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import { exec } from "./shell.js";
@@ -320,7 +320,10 @@ export function saveTaskState(states: Map<string, TaskState>): void {
     for (const [repo, state] of states) {
       obj[repo] = state;
     }
-    writeFileSync(STATE_FILE, JSON.stringify({ tasks: obj }, null, 2) + "\n");
+    // atomic write: write to temp file then rename (prevents corruption from concurrent writes)
+    const tmp = `${STATE_FILE}.tmp.${process.pid}`;
+    writeFileSync(tmp, JSON.stringify({ tasks: obj }, null, 2) + "\n");
+    renameSync(tmp, STATE_FILE);
   } catch (e) {
     console.error(`warning: failed to save task state: ${e}`);
   }
