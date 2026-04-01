@@ -3844,6 +3844,28 @@ async function showSupervisorStatus(opts: { all?: boolean; since?: string; limit
 }
 
 // `aoaoe tasks` -- show current task progress
+// probe live AoE sessions for real-time status enrichment.
+// returns a map of sessionTitle (lowercase) -> live status string.
+async function probeLiveSessionStatus(): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  try {
+    const result = await shellExec("aoe", ["list", "--json"]);
+    if (result.exitCode === 0) {
+      const sessions = JSON.parse(result.stdout);
+      if (Array.isArray(sessions)) {
+        for (const s of sessions) {
+          if (typeof s.title === "string" && typeof s.status === "string") {
+            map.set(s.title.toLowerCase(), s.status);
+          } else if (typeof s.title === "string") {
+            map.set(s.title.toLowerCase(), "running");
+          }
+        }
+      }
+    }
+  } catch { /* aoe not available — that's fine */ }
+  return map;
+}
+
 async function showTaskStatus(asJson = false): Promise<void> {
   const basePath = process.cwd();
   const defs = loadTaskDefinitions(basePath);
@@ -3863,10 +3885,12 @@ async function showTaskStatus(asJson = false): Promise<void> {
   const tm = new TaskManager(basePath, defs, taskProfiles);
 
   if (asJson) {
+    const liveStatus = await probeLiveSessionStatus();
     const payload = tm.tasks.map((t) => ({
       session: t.sessionTitle,
       repo: t.repo,
-      status: t.status,
+      taskStatus: t.status,
+      liveStatus: liveStatus.get(t.sessionTitle.toLowerCase()) ?? null,
       profile: t.profile || "default",
       sessionId: t.sessionId ?? null,
       dependsOn: t.dependsOn ?? [],
@@ -3901,9 +3925,11 @@ async function showProgressDigest(since?: string, asJson = false): Promise<void>
   if (asJson) {
     const now = Date.now();
     const cutoff = now - maxAgeMs;
+    const liveStatus = await probeLiveSessionStatus();
     const payload = tasks.map((t) => ({
       session: t.sessionTitle,
-      status: t.status,
+      taskStatus: t.status,
+      liveStatus: liveStatus.get(t.sessionTitle.toLowerCase()) ?? null,
       dependsOn: t.dependsOn ?? [],
       recentProgress: t.progress.filter((p) => p.at >= cutoff).map((p) => ({
         at: p.at,
