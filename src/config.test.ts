@@ -238,6 +238,26 @@ describe("parseCliArgs", () => {
     assert.equal(result.register, false);
   });
 
+  it("parses tasks --json", () => {
+    const result = parseCliArgs(argv("tasks", "--json"));
+    assert.equal(result.showTasks, true);
+    assert.equal(result.showTasksJson, true);
+  });
+
+  it("parses progress subcommand", () => {
+    const result = parseCliArgs(argv("progress"));
+    assert.equal(result.runProgress, true);
+    assert.equal(result.progressSince, undefined);
+    assert.equal(result.progressJson, false);
+  });
+
+  it("parses progress flags", () => {
+    const result = parseCliArgs(argv("progress", "--since", "8h", "--json"));
+    assert.equal(result.runProgress, true);
+    assert.equal(result.progressSince, "8h");
+    assert.equal(result.progressJson, true);
+  });
+
   it("parses runbook subcommand", () => {
     const result = parseCliArgs(argv("runbook"));
     assert.equal(result.runRunbook, true);

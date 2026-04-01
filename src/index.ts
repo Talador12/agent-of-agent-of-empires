@@ -46,7 +46,7 @@ const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.t
 const TASK_RECONCILE_EVERY_POLLS = 6;
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -83,7 +83,13 @@ async function main() {
 
   // `aoaoe tasks` -- show current task state
   if (showTasks) {
-    await showTaskStatus();
+    await showTaskStatus(showTasksJson);
+    return;
+  }
+
+  // `aoaoe progress` -- per-session accomplishment digest
+  if (runProgress) {
+    await showProgressDigest(progressSince, progressJson);
     return;
   }
 
@@ -3838,12 +3844,13 @@ async function showSupervisorStatus(opts: { all?: boolean; since?: string; limit
 }
 
 // `aoaoe tasks` -- show current task progress
-async function showTaskStatus(): Promise<void> {
+async function showTaskStatus(asJson = false): Promise<void> {
   const basePath = process.cwd();
   const defs = loadTaskDefinitions(basePath);
   const states = loadTaskState();
 
   if (defs.length === 0 && states.size === 0) {
+    if (asJson) { console.log("[]"); return; }
     console.log("no tasks defined.");
     console.log("");
     console.log("create aoaoe.tasks.json:");
@@ -3854,9 +3861,67 @@ async function showTaskStatus(): Promise<void> {
   // merge definitions into state for display
   const taskProfiles = resolveProfiles(loadConfig());
   const tm = new TaskManager(basePath, defs, taskProfiles);
+
+  if (asJson) {
+    const payload = tm.tasks.map((t) => ({
+      session: t.sessionTitle,
+      repo: t.repo,
+      status: t.status,
+      profile: t.profile || "default",
+      sessionId: t.sessionId ?? null,
+      dependsOn: t.dependsOn ?? [],
+      goal: t.goal,
+      lastProgressAt: t.lastProgressAt ?? null,
+      progressCount: t.progress.length,
+      lastProgress: t.progress.length > 0 ? t.progress[t.progress.length - 1].summary : null,
+    }));
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
   console.log("");
   console.log(formatTaskTable(tm.tasks));
   console.log("");
+}
+
+async function showProgressDigest(since?: string, asJson = false): Promise<void> {
+  const basePath = process.cwd();
+  const defs = loadTaskDefinitions(basePath);
+  const taskProfiles = resolveProfiles(loadConfig());
+  const tm = defs.length > 0 ? new TaskManager(basePath, defs, taskProfiles) : undefined;
+  const tasks = tm?.tasks ?? [];
+
+  let maxAgeMs = 24 * 60 * 60 * 1000;
+  if (since) {
+    const parsed = parseDuration(since);
+    if (parsed === null) throw new Error(`invalid --since '${since}' (examples: 1h, 8h, 7d)`);
+    maxAgeMs = parsed;
+  }
+
+  if (asJson) {
+    const now = Date.now();
+    const cutoff = now - maxAgeMs;
+    const payload = tasks.map((t) => ({
+      session: t.sessionTitle,
+      status: t.status,
+      dependsOn: t.dependsOn ?? [],
+      recentProgress: t.progress.filter((p) => p.at >= cutoff).map((p) => ({
+        at: p.at,
+        ago: formatAgo(now - p.at),
+        summary: p.summary,
+      })),
+    }));
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  if (tasks.length === 0) {
+    console.log("no tasks defined.");
+    return;
+  }
+
+  console.log("");
+  console.log(formatProgressDigest(tasks, maxAgeMs));
 }
 
 // `aoaoe history` -- review recent actions from the persistent action log
