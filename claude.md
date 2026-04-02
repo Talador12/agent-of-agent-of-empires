@@ -32,10 +32,25 @@ North-star goal: aoaoe should let one reasoner run AoE for any number of session
 - Templates: 6 task templates, 5 prompt templates, user-extensible
 - Quick step-in: `/task <session> :: <goal>` with immediate goal injection
 
-### What's next
-The orchestration loop is complete. All backlog items shipped.
-- ~~**Web dashboard**~~ — shipped: `aoaoe web` serves browser dashboard at http://127.0.0.1:4099
-- ~~**Multi-machine coordination**~~ — shipped: `aoaoe sync init/push/pull/diff/status`
+### What's next — real blockers to daily use
+- **Opencode SQLite corruption recovery** — `create session failed: 500 SQLiteError: disk I/O error` kills the reasoner on startup. Need to detect corrupt DB and auto-wipe/recreate the opencode session store.
+- **Session error state misdetection** — 4/5 sessions show as `error` (`!`) in the dashboard when they're actually idle. The error detection heuristic is too aggressive — confusing idle opencode UI chrome with error output.
+- **Legacy dashboard uses repo paths not session titles** — the periodic CLI dashboard (`daemonTick` status table) still shows truncated absolute paths like `...epos/github/adventure` instead of session titles. The new `formatTaskTable` was only wired into `aoaoe tasks`, not the daemon's built-in dashboard.
+- **Task-session linking not shown in dashboard** — tasks have sessionIds but the dashboard `task` column shows `-` for everything. The linking between polled sessions and task state isn't propagated to the display.
+- **Opencode serve state cleanup** — when the opencode server's internal state is corrupt, the daemon should be able to wipe `~/.opencode/` state and restart cleanly rather than looping on 500 errors.
+- **First-run experience** — starting `aoaoe` for the first time after install requires too much manual setup. Should detect sessions, generate config, and start supervising in one command.
+- **Graceful degradation when reasoner fails** — instead of falling back to `wait` silently, surface the error clearly in the TUI and suggest fixes (e.g. "opencode DB corrupt — run `aoaoe doctor --fix`").
+- **Session output summarization** — periodically summarize what each session is doing in plain English so the TUI shows "building auth feature" instead of raw terminal output snippets
+- **Cross-session conflict detection** — detect when two sessions are editing the same files or working on overlapping goals, and alert the operator
+- **Goal completion detection** — heuristic to detect when a session has likely finished its goal (committed, pushed, tests pass) and auto-mark the task complete without waiting for the reasoner
+- **Session cost budgets** — per-session cost limits that auto-pause sessions when they exceed the budget (prevents runaway LLM spending)
+- **Notification escalation** — if a task stays stuck after N notifications, escalate (e.g., Slack DM instead of channel, or SMS via webhook)
+- **Daemon systemd/launchd integration** — generate service files so aoaoe starts on boot and restarts on crash
+- **Config validation on startup** — catch bad config (wrong model names, invalid port ranges, missing tools) before entering the main loop
+
+### Shipped
+- ~~**Web dashboard**~~ — `aoaoe web`
+- ~~**Multi-machine coordination**~~ — `aoaoe sync`
 
 ### What shipped in v0.186.0
 

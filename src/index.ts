@@ -7,7 +7,7 @@ import { Executor } from "./executor.js";
 import { printDashboard } from "./dashboard.js";
 import { InputReader } from "./input.js";
 import { ReasonerConsole } from "./console.js";
-import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState, acquireLock, readState } from "./daemon-state.js";
+import { writeState, buildSessionStates, checkInterrupt, clearInterrupt, cleanupState, acquireLock, readState, setSessionTask } from "./daemon-state.js";
 import { formatSessionSummaries, formatActionDetail, formatPlainEnglishAction, narrateObservation, summarizeRecentActions, friendlyError, colorizeConsoleLine, filterLogLines } from "./console.js";
 import { type SessionPolicyState } from "./reasoner/prompt.js";
 import { loadGlobalContext, resolveProjectDirWithSource, discoverContextFiles, loadSessionContext } from "./context.js";
@@ -492,6 +492,14 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     if (linked.length > 0) log(`linked existing sessions: ${linked.join(", ")}`);
     if (goalsInjected.length > 0) log(`injected goals: ${goalsInjected.join(", ")}`);
     pushSupervisorEvent(`startup reconcile: +${created.length} created, +${linked.length} linked, +${goalsInjected.length} goals`);
+
+    // seed dashboard session-task display from task manager state
+    for (const t of taskManager.tasks) {
+      if (t.sessionId && t.goal) {
+        const goalPreview = t.goal.length > 60 ? t.goal.slice(0, 57) + "..." : t.goal;
+        setSessionTask(t.sessionId, `[${t.sessionTitle}] ${goalPreview}`);
+      }
+    }
   }
 
   const poller = new Poller(config);
@@ -2940,6 +2948,13 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         } else if (config.verbose) {
           if (tui) tui.log("system", "tasks reconcile: no changes"); else log("tasks reconcile: no changes");
         }
+        // refresh dashboard session-task display
+        for (const t of taskManager.tasks) {
+          if (t.sessionId && t.goal) {
+            const goalPreview = t.goal.length > 60 ? t.goal.slice(0, 57) + "..." : t.goal;
+            setSessionTask(t.sessionId, `[${t.sessionTitle}] ${goalPreview}`);
+          }
+        }
       }
 
       // ── observe mode: poll + display, skip reasoning + execution ──────
@@ -3177,6 +3192,34 @@ async function daemonTick(
       }
       return answer;
     };
+  }
+
+  // auto-restart sessions that have been in error state for too many consecutive polls.
+  // this runs independently of the reasoner so it works even when the LLM is down.
+  if (executor && pollCount > 1) {
+    const maxErrors = config.policies.maxErrorsBeforeRestart;
+    // build title lookup from task manager
+    const titleLookup = new Map<string, string>();
+    if (taskManager) {
+      for (const t of taskManager.tasks) {
+        if (t.sessionId) titleLookup.set(t.sessionId, t.sessionTitle);
+      }
+    }
+    for (const [sid, ps] of policyStates) {
+      if (ps.consecutiveErrorPolls >= maxErrors && maxErrors > 0) {
+        const title = titleLookup.get(sid) ?? sid.slice(0, 8);
+        const msg = `auto-restarting '${title}' after ${ps.consecutiveErrorPolls} consecutive error polls`;
+        if (tui) tui.log("system", msg); else log(msg);
+        try {
+          await shellExec("aoe", ["session", "restart", sid]);
+          ps.consecutiveErrorPolls = 0;
+          appendSupervisorEvent({ at: Date.now(), detail: `auto-restart: ${title}` });
+        } catch (err) {
+          const errMsg = `auto-restart failed for ${title}: ${err}`;
+          if (tui) tui.log("error", errMsg); else log(errMsg);
+        }
+      }
+    }
   }
 
   // run core tick logic (same code path the tests exercise)

@@ -50,12 +50,12 @@ export function printDashboard(
     lines.push("  tasks:");
     for (const t of tasks) {
       const icon = TASK_STATUS_ICONS[t.status] ?? "?";
-      const repo = t.repo.length > 24 ? "..." + t.repo.slice(-21) : t.repo.padEnd(24);
+      const title = t.sessionTitle.length > 22 ? t.sessionTitle.slice(0, 19) + "..." : t.sessionTitle.padEnd(22);
       const lastProg = t.progress.length > 0 ? t.progress[t.progress.length - 1] : null;
       const progStr = lastProg
         ? truncate(lastProg.summary, 40) + ` (${formatAgo(Date.now() - lastProg.at)})`
         : t.goal ? truncate(t.goal, 50) : "-";
-      lines.push(`    [${icon}] ${repo}  ${progStr}`);
+      lines.push(`    [${icon}] ${title}  ${progStr}`);
     }
     lines.push("");
   }

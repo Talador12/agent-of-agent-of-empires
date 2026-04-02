@@ -2,8 +2,8 @@ import type { AoaoeConfig, Reasoner, Observation, ReasonerResult } from "../type
 import { exec, sleep } from "../shell.js";
 import { buildSystemPrompt, formatObservation } from "./prompt.js";
 import { parseReasonerResponse, validateResult } from "./parse.js";
-import { writeFileSync, readFileSync, unlinkSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { writeFileSync, readFileSync, unlinkSync, mkdirSync, existsSync, renameSync } from "node:fs";
+import { join, basename } from "node:path";
 import { homedir } from "node:os";
 
 const OPENCODE_PID_FILE = join(homedir(), ".aoaoe", "opencode-server.pid");
@@ -156,8 +156,15 @@ export class OpencodeReasoner implements Reasoner {
         }
         // auto-restart opencode server on persistent 500s (likely stale state)
         if (errMsg.includes("500") || errMsg.includes("ECONNREFUSED")) {
-          this.log("opencode server appears unhealthy — attempting restart");
-          this.killOrphanedServer();
+          // detect SQLite corruption — the opencode DB is likely broken
+          if (errMsg.includes("SQLiteError") || errMsg.includes("disk I/O error") || errMsg.includes("database is locked")) {
+            this.log("detected corrupt opencode database — wiping and restarting");
+            this.killOrphanedServer();
+            await this.wipeOpencodeState();
+          } else {
+            this.log("opencode server appears unhealthy — attempting restart");
+            this.killOrphanedServer();
+          }
           try {
             await this.startServer(this.config.opencode.port);
             for (let i = 0; i < 15; i++) {
@@ -173,7 +180,9 @@ export class OpencodeReasoner implements Reasoner {
         }
         this.sessionId = null;
         this.messageCount = 0;
-        return { actions: [{ action: "wait", reason: "SDK session error" }] };
+        // include the error detail in the wait reason so the TUI can surface it
+        const shortErr = errMsg.length > 120 ? errMsg.slice(0, 117) + "..." : errMsg;
+        return { actions: [{ action: "wait", reason: `reasoner error: ${shortErr}` }] };
       }
     }
   }
@@ -258,6 +267,25 @@ export class OpencodeReasoner implements Reasoner {
       unlinkSync(OPENCODE_PID_FILE);
     } catch {
       // ENOENT is fine
+    }
+  }
+
+  // wipe corrupt opencode state so server can start fresh.
+  // backs up the corrupt DB first in case manual recovery is wanted.
+  private async wipeOpencodeState(): Promise<void> {
+    const dbPath = join(homedir(), ".local", "share", "opencode", "opencode.db");
+    const walPath = `${dbPath}-wal`;
+    const shmPath = `${dbPath}-shm`;
+    for (const f of [dbPath, walPath, shmPath]) {
+      try {
+        if (existsSync(f)) {
+          const backup = `${f}.corrupt.${Date.now()}`;
+          renameSync(f, backup);
+          this.log(`backed up corrupt file: ${f} → ${basename(backup)}`);
+        }
+      } catch (err) {
+        this.log(`failed to move ${basename(f)}: ${err}`);
+      }
     }
   }
 
