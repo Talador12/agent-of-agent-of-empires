@@ -118,6 +118,10 @@ export type DriftHandler = () => void; // show drift detection for all sessions
 export type GoalProgressHandler = () => void; // show goal progress estimates
 export type PoolHandler = () => void; // show session pool status
 export type ReasonerCostHandler = () => void; // show reasoner cost tracking
+export type AnomalyHandler = () => void; // show anomaly detection results
+export type SlaHandler = () => void; // show fleet health SLA status
+export type VelocityHandler = () => void; // show progress velocity + ETA
+export type ScheduleHandler = () => void; // show dependency-aware scheduling actions
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -317,6 +321,10 @@ export class InputReader {
   private goalProgressHandler: GoalProgressHandler | null = null;
   private poolHandler: PoolHandler | null = null;
   private reasonerCostHandler: ReasonerCostHandler | null = null;
+  private anomalyHandler: AnomalyHandler | null = null;
+  private slaHandler: SlaHandler | null = null;
+  private velocityHandler: VelocityHandler | null = null;
+  private scheduleHandler: ScheduleHandler | null = null;
   private sessionReportHandler: SessionReportHandler | null = null;
   private quietStatusHandler: QuietStatusHandler | null = null;
   private alertLogHandler: AlertLogHandler | null = null;
@@ -668,6 +676,10 @@ export class InputReader {
   onGoalProgress(handler: GoalProgressHandler): void { this.goalProgressHandler = handler; }
   onPool(handler: PoolHandler): void { this.poolHandler = handler; }
   onReasonerCost(handler: ReasonerCostHandler): void { this.reasonerCostHandler = handler; }
+  onAnomaly(handler: AnomalyHandler): void { this.anomalyHandler = handler; }
+  onSla(handler: SlaHandler): void { this.slaHandler = handler; }
+  onVelocity(handler: VelocityHandler): void { this.velocityHandler = handler; }
+  onSchedule(handler: ScheduleHandler): void { this.scheduleHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -2199,6 +2211,26 @@ ${BOLD}other:${RESET}
       case "/reasoner-cost":
         if (this.reasonerCostHandler) this.reasonerCostHandler();
         else console.error(`${DIM}reasoner-cost not available (no TUI)${RESET}`);
+        break;
+
+      case "/anomaly":
+        if (this.anomalyHandler) this.anomalyHandler();
+        else console.error(`${DIM}anomaly not available (no TUI)${RESET}`);
+        break;
+
+      case "/sla":
+        if (this.slaHandler) this.slaHandler();
+        else console.error(`${DIM}sla not available (no TUI)${RESET}`);
+        break;
+
+      case "/velocity":
+        if (this.velocityHandler) this.velocityHandler();
+        else console.error(`${DIM}velocity not available (no TUI)${RESET}`);
+        break;
+
+      case "/schedule":
+        if (this.scheduleHandler) this.scheduleHandler();
+        else console.error(`${DIM}schedule not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

@@ -98,6 +98,10 @@ The main loop is split into two layers:
 | `src/goal-progress.ts` | Task % completion estimation from multi-signal heuristics |
 | `src/session-pool.ts` | Concurrent active session pool limits with queuing |
 | `src/reasoner-cost.ts` | Per-reasoning-call token usage and cost tracking |
+| `src/anomaly-detector.ts` | Z-score anomaly detection across fleet session metrics |
+| `src/fleet-sla.ts` | Fleet health SLA monitoring with sliding window + breach alerts |
+| `src/progress-velocity.ts` | Progress velocity tracking + ETA estimation per task |
+| `src/dep-scheduler.ts` | Dependency-aware pool scheduling with capacity limits |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -125,7 +129,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Eighteen modules run every daemon tick without LLM calls:
+Twenty-two modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -209,10 +213,25 @@ Eighteen modules run every daemon tick without LLM calls:
   per reasoning call. Computes avg tokens, cost per call, calls/hr, cost/hr.
   `/reasoner-cost`.
 
-All modules are instantiated in `main()` and passed to `daemonTick()` via
-the `intelligence` parameter. Change-gated modules process
-`observation.changes`; budget predictor, task retry, and adaptive poll
-run every tick.
+- **Anomaly detector** (`anomaly-detector.ts`): z-score outlier detection
+  across fleet metrics (cost rate, activity rate, error count, idle duration).
+  Flags sessions >2σ from fleet mean. `/anomaly`.
+
+- **Fleet SLA monitor** (`fleet-sla.ts`): tracks fleet-wide health over a
+  sliding window. Alerts when average health drops below threshold (default
+  50). Cooldown between alerts. `/sla`.
+
+- **Progress velocity tracker** (`progress-velocity.ts`): records progress %
+  samples per task each tick, computes velocity (%/hr) and ETA. Detects
+  acceleration/deceleration/stall trends. `/velocity`.
+
+- **Dependency-aware scheduler** (`dep-scheduler.ts`): evaluates pending
+  tasks against dependency graph and pool capacity. Returns activate/block/skip
+  actions per task. `/schedule`.
+
+All modules are instantiated in `main()`. `daemonTick()` receives the
+`intelligence` parameter for change-gated modules. SLA, velocity, adaptive
+poll, and fleet snapshots run in the main loop after each tick.
 
 ### How to add a new TUI slash command
 
@@ -225,7 +244,7 @@ run every tick.
    changes are available (inside the `if (intelligence && ...)` block).
 
 ### Testing
-- 2996 unit tests across 56+ files, `node:test` (stdlib, zero deps)
+- 3038 unit tests across 60+ files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

@@ -53,6 +53,11 @@ import { detectDrift, formatDriftSignals } from "./drift-detector.js";
 import { estimateProgress, formatProgressEstimates } from "./goal-progress.js";
 import { SessionPoolManager } from "./session-pool.js";
 import { ReasonerCostTracker } from "./reasoner-cost.js";
+import { detectAnomalies, formatAnomalies } from "./anomaly-detector.js";
+import type { SessionMetrics } from "./anomaly-detector.js";
+import { FleetSlaMonitor } from "./fleet-sla.js";
+import { ProgressVelocityTracker } from "./progress-velocity.js";
+import { computeSchedulingActions, formatSchedulingActions } from "./dep-scheduler.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown, formatTaskExportJson, formatTaskExportMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
@@ -541,6 +546,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const escalationManager = new EscalationManager();
   const sessionPoolManager = new SessionPoolManager();
   const reasonerCostTracker = new ReasonerCostTracker();
+  const fleetSlaMonitor = new FleetSlaMonitor();
+  const progressVelocityTracker = new ProgressVelocityTracker();
 
   // audit: log daemon start
   audit("daemon_start", `daemon started (v${pkg ?? "dev"}, reasoner=${config.reasoner})`);
@@ -1948,6 +1955,39 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const lines = reasonerCostTracker.formatSummary();
       for (const line of lines) tui!.log("system", line);
     });
+    // wire /anomaly — fleet anomaly detection
+    input.onAnomaly(() => {
+      const sessions = tui!.getSessions();
+      const heatmaps = activityTracker.getAllHeatmaps();
+      const heatmapByTitle = new Map(heatmaps.map((h) => [h.sessionTitle, h]));
+      const metrics: SessionMetrics[] = sessions.map((s) => ({
+        sessionTitle: s.title,
+        costRatePerHour: budgetPredictor.predict(s.title, config.costBudgets ?? {})?.burnRateUsdPerHour ?? 0,
+        activityEventsPerHour: (heatmapByTitle.get(s.title)?.totalEvents ?? 0) * 2, // 30min window → hourly rate
+        errorCount: s.status === "error" ? 1 : 0,
+        idleDurationMs: tui!.getAllLastChangeAt().get(s.id) ? Date.now() - tui!.getAllLastChangeAt().get(s.id)! : 0,
+      }));
+      const anomalies = detectAnomalies(metrics);
+      const lines = formatAnomalies(anomalies);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /sla — fleet health SLA
+    input.onSla(() => {
+      const lines = fleetSlaMonitor.formatStatus();
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /velocity — progress velocity + ETA
+    input.onVelocity(() => {
+      const lines = progressVelocityTracker.formatAll();
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /schedule — dependency-aware scheduling
+    input.onSchedule(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const actions = computeSchedulingActions(tasks, sessionPoolManager.getStatus(tasks).maxConcurrent);
+      const lines = formatSchedulingActions(actions);
+      for (const line of lines) tui!.log("system", line);
+    });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();
       const summary = computeCostSummary(sessions, tui!.getAllSessionCosts());
@@ -3271,6 +3311,29 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
 
         // adaptive poll: feed tick results into the controller
         adaptivePollController.recordTick(decisionsThisTick > 0 ? 1 : 0, actionsOk > 0);
+
+        // fleet SLA: record health each tick and alert on breach
+        if (tui) {
+          const sessions = tui.getSessions();
+          const scores = sessions.map((s) => s.status === "working" || s.status === "running" ? 80 : s.status === "error" ? 20 : 50);
+          const fleetHealth = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 100;
+          const slaStatus = fleetSlaMonitor.recordHealth(fleetHealth);
+          if (slaStatus.shouldAlert) {
+            tui.log("status", `🔴 Fleet SLA breach: health ${slaStatus.averageHealth}/100 (threshold: ${slaStatus.threshold})`);
+            audit("session_error", `fleet SLA breach: avg health ${slaStatus.averageHealth}`, undefined, { averageHealth: slaStatus.averageHealth, threshold: slaStatus.threshold });
+          }
+        }
+
+        // progress velocity: record current estimates each tick
+        if (tui && taskManager) {
+          for (const task of taskManager.tasks) {
+            if (task.status !== "active") continue;
+            const session = tui.getSessions().find((s) => s.title === task.sessionTitle);
+            const outputLines = session ? (tui.getSessionOutput(session.id) ?? []) : [];
+            const est = estimateProgress(task, outputLines.join("\n"));
+            progressVelocityTracker.recordProgress(task.sessionTitle, est.percentComplete);
+          }
+        }
 
         // trust ladder: record stable tick or failure, sync mode if escalated
         if (tui && decisionsThisTick > 0) {
