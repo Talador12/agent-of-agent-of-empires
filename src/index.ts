@@ -33,6 +33,11 @@ import { appendSupervisorEvent, loadSupervisorEvents } from "./supervisor-histor
 import { savePreset, deletePreset, getPreset, formatPresetList } from "./pin-presets.js";
 import { resolvePromptTemplate, formatPromptTemplateList } from "./reasoner/prompt-templates.js";
 import { formatHealthReport, computeAllHealth } from "./health-score.js";
+import { SessionSummarizer } from "./session-summarizer.js";
+import { ConflictDetector } from "./conflict-detector.js";
+import { detectCompletionSignals, shouldAutoComplete } from "./goal-detector.js";
+import { computeBudgetStatus, findOverBudgetSessions, formatBudgetAlert } from "./cost-budget.js";
+import type { CostBudgetConfig } from "./cost-budget.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown, formatTaskExportJson, formatTaskExportMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
@@ -506,6 +511,10 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const reasoner = config.observe ? null : createReasoner(config, globalContext || undefined);
   const executor = config.observe ? null : new Executor(config);
   if (taskManager && executor) executor.setTaskManager(taskManager);
+
+  // v0.197 intelligence modules — instantiated once, fed per-tick
+  const sessionSummarizer = new SessionSummarizer();
+  const conflictDetector = new ConflictDetector();
 
   const refreshTaskSupervisorState = (reason?: string): void => {
     if (!taskManager) {
@@ -1725,6 +1734,28 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       }
     });
     // wire /cost-summary
+    // wire /activity — plain-English session activity summaries
+    input.onActivity(() => {
+      const all = sessionSummarizer.getAll();
+      if (all.size === 0) {
+        tui!.log("system", "activity: no session summaries yet (waiting for first poll)");
+        return;
+      }
+      tui!.log("system", `activity: ${all.size} session${all.size !== 1 ? "s" : ""}:`);
+      for (const [title, summary] of all) {
+        tui!.log("system", `  ${title}: ${SessionSummarizer.format(summary)}`);
+      }
+    });
+    // wire /conflicts — cross-session file edit conflicts
+    input.onConflicts(() => {
+      const conflicts = conflictDetector.detectConflicts();
+      if (conflicts.length === 0) {
+        tui!.log("system", "conflicts: no file edit conflicts detected");
+        return;
+      }
+      const lines = conflictDetector.formatConflicts(conflicts);
+      for (const line of lines) tui!.log("system", line);
+    });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();
       const summary = computeCostSummary(sessions, tui!.getAllSessionCosts());
@@ -3030,7 +3061,12 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
           reasonerDurationMs,
           reasonerActionCount,
           reasonerSummary,
-        } = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager, tui);
+        } = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager, tui, {
+          sessionSummarizer,
+          conflictDetector,
+          pushSupervisorEvent,
+          refreshTaskSupervisorState,
+        });
         totalDecisions += decisionsThisTick;
         totalActionsExecuted += actionsOk;
         totalActionsFailed += actionsFail;
@@ -3123,6 +3159,12 @@ async function daemonTick(
   taskContext?: TaskState[],
   taskManager?: TaskManager,
   tui?: TUI | null,
+  intelligence?: {
+    sessionSummarizer: SessionSummarizer;
+    conflictDetector: ConflictDetector;
+    pushSupervisorEvent: (detail: string) => void;
+    refreshTaskSupervisorState: (reason?: string) => void;
+  },
 ): Promise<{
   interrupted: boolean;
   decisionsThisTick: number;
@@ -3275,6 +3317,73 @@ async function daemonTick(
           for (const m of milestones) {
             if (!recentSummaries.has(m.summary)) {
               taskManager.reportProgress(change.title, m.summary);
+            }
+          }
+        }
+      }
+    }
+
+    // v0.197 intelligence modules — run only when wired
+    if (intelligence && observation.changes.length > 0) {
+      // session activity summarization: update plain-English summaries from new output
+      for (const change of observation.changes) {
+        if (!change.newLines) continue;
+        intelligence.sessionSummarizer.update(change.title, change.newLines.split("\n"));
+      }
+
+      // cross-session conflict detection: track file edits and alert on overlaps
+      for (const change of observation.changes) {
+        if (!change.newLines) continue;
+        const snap = observation.sessions.find((s) => s.session.title === change.title);
+        if (snap) {
+          intelligence.conflictDetector.recordEdits(change.title, snap.session.id, change.newLines.split("\n"));
+        }
+      }
+      const conflicts = intelligence.conflictDetector.detectConflicts();
+      if (conflicts.length > 0) {
+        const lines = intelligence.conflictDetector.formatConflicts(conflicts);
+        for (const line of lines) tui.log("status", line);
+      }
+
+      // goal completion detection: check active tasks for completion signals
+      if (taskManager) {
+        for (const change of observation.changes) {
+          const task = taskManager.getTaskForSession(change.title);
+          if (!task || task.status !== "active") continue;
+          const signals = detectCompletionSignals(change.newLines.split("\n"), task);
+          if (signals.length > 0) {
+            const autoResult = shouldAutoComplete(signals, task);
+            if (autoResult.complete) {
+              tui.log("+ action", `auto-completing "${change.title}": ${autoResult.summary}`);
+              intelligence.pushSupervisorEvent(`auto-completed: ${change.title} (${Math.round(autoResult.confidence * 100)}%)`);
+              taskManager.completeTask(change.title, autoResult.summary, false);
+              intelligence.refreshTaskSupervisorState(`auto-completed: ${change.title}`);
+            }
+          }
+        }
+      }
+
+      // cost budget enforcement: auto-pause tasks that exceed their budget
+      if (taskManager && config.costBudgets) {
+        const autoPause = config.costBudgets.autoPauseOnExceed !== false;
+        if (autoPause) {
+          const budgetConfig: CostBudgetConfig = {
+            globalBudgetUsd: config.costBudgets.globalBudgetUsd,
+            sessionBudgets: config.costBudgets.sessionBudgets,
+          };
+          const sessionInfos = observation.sessions.map((s) => ({
+            title: s.session.title,
+            costStr: sessionStates.find((ss) => ss.id === s.session.id)?.costStr,
+            status: s.session.status,
+          }));
+          const violations = findOverBudgetSessions(sessionInfos, budgetConfig);
+          for (const v of violations) {
+            const task = taskManager.getTaskForSession(v.sessionTitle);
+            if (task && task.status === "active") {
+              task.status = "paused";
+              tui.log("status", formatBudgetAlert(v));
+              intelligence.pushSupervisorEvent(`budget exceeded: ${v.sessionTitle} ($${v.currentCostUsd.toFixed(2)} / $${v.budgetUsd.toFixed(2)})`);
+              intelligence.refreshTaskSupervisorState(`budget pause: ${v.sessionTitle}`);
             }
           }
         }

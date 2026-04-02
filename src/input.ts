@@ -101,6 +101,8 @@ export type SnapHandler = (target: string) => void; // save output snapshot
 export type SnapDiffHandler = (target: string) => void; // diff current output vs snapshot
 export type AlertPatternHandler = (args: string) => void; // output pattern alerting management
 export type HookHandler = (args: string) => void; // session lifecycle hook management
+export type ActivityHandler = () => void; // show plain-English session activity summaries
+export type ConflictsHandler = () => void; // show cross-session file edit conflicts
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -283,6 +285,8 @@ export class InputReader {
   private quietHoursHandler: QuietHoursHandler | null = null;
   private historyStatsHandler: HistoryStatsHandler | null = null;
   private costSummaryHandler: CostSummaryHandler | null = null;
+  private activityHandler: ActivityHandler | null = null;
+  private conflictsHandler: ConflictsHandler | null = null;
   private sessionReportHandler: SessionReportHandler | null = null;
   private quietStatusHandler: QuietStatusHandler | null = null;
   private alertLogHandler: AlertLogHandler | null = null;
@@ -617,6 +621,8 @@ export class InputReader {
   onSnapDiff(handler: SnapDiffHandler): void { this.snapDiffHandler = handler; }
   onAlertPattern(handler: AlertPatternHandler): void { this.alertPatternHandler = handler; }
   onHook(handler: HookHandler): void { this.hookHandler = handler; }
+  onActivity(handler: ActivityHandler): void { this.activityHandler = handler; }
+  onConflicts(handler: ConflictsHandler): void { this.conflictsHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -2058,6 +2064,16 @@ ${BOLD}other:${RESET}
         }
         break;
       }
+
+      case "/activity":
+        if (this.activityHandler) this.activityHandler();
+        else console.error(`${DIM}activity not available (no TUI)${RESET}`);
+        break;
+
+      case "/conflicts":
+        if (this.conflictsHandler) this.conflictsHandler();
+        else console.error(`${DIM}conflicts not available (no TUI)${RESET}`);
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

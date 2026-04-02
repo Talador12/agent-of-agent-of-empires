@@ -110,8 +110,43 @@ De-duplication uses device+inode (handles macOS/Windows case-insensitive FS
 and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
+### Intelligence modules (v0.196+)
+Four modules run every daemon tick without LLM calls:
+
+- **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
+  classification (coding, testing, building, committing, error, idle, etc.)
+  with priority-ranked pattern matching. Updates per-session summaries from
+  `observation.changes` new lines. Exposed via `/activity` TUI command.
+
+- **ConflictDetector** (`conflict-detector.ts`): tracks file edits per
+  session in a sliding time window (default 10 min). When 2+ sessions edit
+  the same code file, logs a conflict alert. Exposed via `/conflicts`.
+
+- **Goal completion detector** (`goal-detector.ts`): scans new output for
+  completion signals (git push, tests passing, version bumps, all TODOs done,
+  explicit "done" messages, idle-after-progress). Aggregates confidence with
+  diminishing returns. Auto-completes tasks above 0.7 threshold.
+
+- **Cost budget enforcer** (`cost-budget.ts`): compares parsed `$N.NN` cost
+  from pane output against `costBudgets.globalBudgetUsd` or per-session
+  overrides. Auto-pauses tasks that exceed budget.
+
+All four are instantiated in `main()` and passed to `daemonTick()` via the
+`intelligence` parameter. They process `observation.changes` after milestones
+and before alert pattern matching.
+
+### How to add a new TUI slash command
+
+1. **`src/input.ts`**: Add handler type, private field, `on<Name>(handler)`
+   registration method, and `case "/<name>":` in `handleCommand()`.
+2. **`src/index.ts`**: Wire with `input.on<Name>(() => { ... })` inside the
+   `if (tui) { ... }` block (starts around line 543).
+3. **`src/tui.ts`**: Add any state fields and getter/setter methods.
+4. For per-tick processing, add logic in `daemonTick()` after observation
+   changes are available (inside the `if (intelligence && ...)` block).
+
 ### Testing
-- 1509 unit tests across 35 files, `node:test` (stdlib, zero deps)
+- 2829 unit tests across 41+ files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

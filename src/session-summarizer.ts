@@ -38,7 +38,10 @@ const ACTIVITY_PATTERNS: Array<{
   // ── errors first (high priority) ────────────────────────────────────
   { pattern: /error(?:\[|\s*:)\s*(.{1,60})/i, activity: "error", summary: (m) => `error: ${m[1].trim()}`, priority: 90 },
   { pattern: /ERR[!]?\s+(.{1,60})/, activity: "error", summary: (m) => `error: ${m[1].trim()}`, priority: 90 },
-  { pattern: /(?:FAIL|FAILED)\s+(.{1,60})/i, activity: "error", summary: (m) => `test failure: ${m[1].trim()}`, priority: 85 },
+  // match "FAIL test-name" but NOT "ℹ fail 0" (node:test reporting zero failures)
+  { pattern: /(?:FAIL|FAILED)\s+(?!0\b)(.{1,60})/i, activity: "error", summary: (m) => `test failure: ${m[1].trim()}`, priority: 85 },
+  // node:test "ℹ fail N" where N > 0 — actual failures
+  { pattern: /^ℹ\s+fail\s+([1-9]\d*)$/, activity: "error", summary: (m) => `${m[1]} test(s) failed`, priority: 88 },
   { pattern: /panic|segfault|SIGSEGV|core dumped/i, activity: "error", summary: "crash detected", priority: 95 },
 
   // ── committing / pushing ────────────────────────────────────────────
