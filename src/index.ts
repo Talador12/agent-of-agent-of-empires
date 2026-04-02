@@ -44,6 +44,11 @@ import { captureFleetSnapshot, saveFleetSnapshot, formatFleetSnapshot, shouldTak
 import { BudgetPredictor } from "./budget-predictor.js";
 import { TaskRetryManager } from "./task-retry.js";
 import { searchAuditTrail, parseAuditSearchQuery, formatAuditSearchResults } from "./audit-search.js";
+import { AdaptivePollController } from "./adaptive-poll.js";
+import { computeFleetForecast, formatFleetForecast } from "./fleet-forecast.js";
+import { rankSessionsByPriority, formatPriorityQueue } from "./session-priority.js";
+import type { SessionPriorityInput } from "./session-priority.js";
+import { EscalationManager } from "./notify-escalation.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown, formatTaskExportJson, formatTaskExportMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
@@ -526,6 +531,10 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const taskRetryManager = new TaskRetryManager({
     maxRetries: config.policies.maxStuckNudgesBeforePause ?? 3,
   });
+  const adaptivePollController = new AdaptivePollController({
+    baseIntervalMs: config.pollIntervalMs,
+  });
+  const escalationManager = new EscalationManager();
 
   // audit: log daemon start
   audit("daemon_start", `daemon started (v${pkg ?? "dev"}, reasoner=${config.reasoner})`);
@@ -1839,6 +1848,54 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const lines = formatAuditSearchResults(results, queryStr);
       for (const line of lines) tui!.log("system", line);
     });
+    // wire /fleet-forecast — fleet-wide cost projection
+    input.onFleetForecast(() => {
+      if (!config.costBudgets) {
+        tui!.log("system", "fleet-forecast: no costBudgets configured");
+        return;
+      }
+      const budgetConfig = { globalBudgetUsd: config.costBudgets.globalBudgetUsd, sessionBudgets: config.costBudgets.sessionBudgets };
+      const predictions = budgetPredictor.predictAll(budgetConfig);
+      if (predictions.length === 0) {
+        tui!.log("system", "fleet-forecast: insufficient cost data");
+        return;
+      }
+      const forecast = computeFleetForecast(predictions);
+      const lines = formatFleetForecast(forecast);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /priority — session priority queue
+    input.onPriorityQueue(() => {
+      const sessions = tui!.getSessions();
+      const tasks = taskManager?.tasks ?? [];
+      const inputs: SessionPriorityInput[] = sessions.map((s) => {
+        const task = tasks.find((t) => t.sessionTitle === s.title);
+        const lastChange = tui!.getAllLastChangeAt().get(s.id);
+        return {
+          sessionTitle: s.title,
+          healthScore: s.status === "working" || s.status === "running" ? 80 : s.status === "error" ? 20 : 50,
+          lastChangeMs: lastChange ? Date.now() - lastChange : 0,
+          lastProgressMs: task?.lastProgressAt ? Date.now() - task.lastProgressAt : 0,
+          taskStatus: task?.status ?? "unknown",
+          isStuck: (task?.stuckNudgeCount ?? 0) > 0,
+          hasError: s.status === "error",
+          isUserActive: s.userActive ?? false,
+        };
+      });
+      const ranked = rankSessionsByPriority(inputs);
+      tui!.log("system", `priority queue (${ranked.length} sessions):`);
+      const lines = formatPriorityQueue(ranked);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /escalations — notification escalation states
+    input.onEscalations(() => {
+      const lines = escalationManager.formatAll();
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /poll-status — adaptive poll interval info
+    input.onPollStatus(() => {
+      tui!.log("system", adaptivePollController.formatStatus());
+    });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();
       const summary = computeCostSummary(sessions, tui!.getAllSessionCosts());
@@ -2409,6 +2466,9 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
 
     // format user messages for the reasoner prompt
     const userMessage = userMessages.length > 0 ? formatUserMessages(userMessages) : undefined;
+
+    // adaptive poll: reset to fast mode when user sends a message
+    if (userMessage) adaptivePollController.reset();
 
     // handle built-in command markers (from stdin or chat.ts file IPC)
     for (const cmd of commands) {
@@ -3157,6 +3217,9 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         totalActionsExecuted += actionsOk;
         totalActionsFailed += actionsFail;
 
+        // adaptive poll: feed tick results into the controller
+        adaptivePollController.recordTick(decisionsThisTick > 0 ? 1 : 0, actionsOk > 0);
+
         // trust ladder: record stable tick or failure, sync mode if escalated
         if (tui && decisionsThisTick > 0) {
           if (actionsFail > 0) {
@@ -3232,12 +3295,14 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       if (skipSleep) {
         if (tui) tui.log("system", "skipping sleep — pending input detected"); else log("skipping sleep — pending input detected");
       } else {
-        const nextTickAt = Date.now() + config.pollIntervalMs;
+        // adaptive poll: use dynamic interval instead of fixed config value
+        const effectivePollMs = adaptivePollController.intervalMs;
+        const nextTickAt = Date.now() + effectivePollMs;
         const nextReasonAtFull = lastReasonerAt > 0 ? lastReasonerAt + config.reasonIntervalMs : Date.now() + config.reasonIntervalMs;
         if (tui) tui.updateState({ phase: "sleeping", nextTickAt, nextReasonAt: nextReasonAtFull });
-        writeState("sleeping", { pollCount, pollIntervalMs: config.pollIntervalMs, nextTickAt, paused: false });
+        writeState("sleeping", { pollCount, pollIntervalMs: effectivePollMs, nextTickAt, paused: false });
 
-        const wake = await wakeableSleep(config.pollIntervalMs, AOAOE_DIR);
+        const wake = await wakeableSleep(effectivePollMs, AOAOE_DIR);
         if (wake.reason === "wake") {
           if (tui) tui.log("system", `woke early after ${wake.elapsed}ms`); else log(`woke early after ${wake.elapsed}ms (file change detected)`);
         }

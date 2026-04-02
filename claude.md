@@ -8,7 +8,7 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.199.0
+## Version: v0.200.0
 
 ## Current Focus
 
@@ -24,84 +24,82 @@ North-star goal: aoaoe should let one reasoner run AoE for any number of session
 - Cross-session conflict detection + auto-resolution — `/conflicts`
 - Goal completion auto-detect — auto-completes tasks per-tick
 - Cost budget enforcement — auto-pauses tasks exceeding budget per-tick
-- Activity heatmap — per-session sparklines — `/heatmap`
+- Activity heatmap — `/heatmap`
 - Structured audit trail — `/audit`, `/audit-stats`, `/audit-search`
-- Fleet snapshots — periodic auto-save — `/fleet-snap`
-- Predictive budget alerts — time-to-exhaustion projection — `/budget-predict`
-- Task auto-retry — exponential backoff + jitter — `/retries`
+- Fleet snapshots — `/fleet-snap`
+- Predictive budget alerts — `/budget-predict`
+- Task auto-retry with backoff — `/retries`
+- **Adaptive poll interval** — speeds up when active, slows when idle — `/poll-status`
+- **Fleet cost forecasting** — aggregated burn rate + daily/weekly projections — `/fleet-forecast`
+- **Session priority queue** — ranked by health, staleness, error state — `/priority`
+- **Notification escalation** — normal → elevated → critical with per-level webhooks — `/escalations`
 
 ### Operator surface
-- Interactive: `/supervisor`, `/incident`, `/runbook`, `/progress`, `/health`, `/prompt-template`, `/pin-save/load/presets`, `/activity`, `/conflicts`, `/heatmap`, `/audit`, `/audit-stats`, `/audit-search`, `/fleet-snap`, `/budget-predict`, `/retries`
+- Interactive: `/supervisor`, `/incident`, `/runbook`, `/progress`, `/health`, `/prompt-template`, `/pin-save/load/presets`, `/activity`, `/conflicts`, `/heatmap`, `/audit`, `/audit-stats`, `/audit-search`, `/fleet-snap`, `/budget-predict`, `/retries`, `/fleet-forecast`, `/priority`, `/escalations`, `/poll-status`
 - CLI: `aoaoe tasks/progress/health/summary/supervisor/incident/runbook/adopt/doctor`
 - All JSON-capable: `--json`, `--ndjson`, `--watch`, `--changes-only`, `--heartbeat`, `--follow`
 
 ### What's next
 - **Session error state misdetection** — idle opencode UI chrome triggers false error status
 - **Legacy dashboard uses repo paths not session titles**
-- **Notification escalation** — stuck tasks escalate from Slack → DM → SMS
 - **Daemon systemd/launchd integration** — generate service files
 
 ### Shipped
-- ~~**Web dashboard**~~ — `aoaoe web`
-- ~~**Multi-machine coordination**~~ — `aoaoe sync`
-- ~~**Session output summarization**~~ — `/activity`
-- ~~**Cross-session conflict detection + auto-resolution**~~ — `/conflicts`
-- ~~**Goal completion detection**~~ — auto-completes per-tick
-- ~~**Session cost budgets**~~ — auto-pauses per-tick
-- ~~**Activity heatmap**~~ — `/heatmap`
-- ~~**Audit trail + search**~~ — `/audit`, `/audit-search`
-- ~~**Fleet snapshots**~~ — `/fleet-snap`
-- ~~**Conflict auto-resolution**~~ — auto-pauses lower-priority
+- ~~**Adaptive poll interval**~~ — `/poll-status`
+- ~~**Fleet cost forecasting**~~ — `/fleet-forecast`
+- ~~**Session priority queue**~~ — `/priority`
+- ~~**Notification escalation**~~ — `/escalations`
 - ~~**Predictive budget alerts**~~ — `/budget-predict`
 - ~~**Task retry with backoff**~~ — `/retries`
+- ~~**Audit trail + search**~~ — `/audit`, `/audit-search`
+- ~~**Activity heatmap**~~ — `/heatmap`
+- ~~**Fleet snapshots**~~ — `/fleet-snap`
+- ~~**Conflict auto-resolution**~~ — auto-pauses lower-priority
+- ~~**Goal completion detection**~~ — auto-completes per-tick
+- ~~**Cost budgets**~~ — auto-pauses per-tick
+- ~~**Session summarization**~~ — `/activity`
+- ~~**Web dashboard**~~ — `aoaoe web`
+- ~~**Multi-machine coordination**~~ — `aoaoe sync`
 
-### What shipped in v0.199.0
+### What shipped in v0.200.0
 
-**v0.199.0 — Predictive Intelligence: Budget Forecasting, Task Retry, Audit Search**:
-- `BudgetPredictor` class: records cost samples per session each tick, computes $/hr burn rate via linear regression on recent samples, projects time-to-budget-exhaustion. Warns in TUI when exhaustion is imminent (<30min). New `/budget-predict` command shows all predictions with sparkline-style warning icons.
-- `TaskRetryManager` class: auto-retries failed tasks with exponential backoff + jitter. Configurable max retries (default 3), base delay (60s), max delay (30min), jitter fraction (20%). Tracks retry count, next-retry-at, exhaustion. Failed tasks auto-register; due retries auto-activate tasks. New `/retries` command.
-- `audit-search.ts`: structured search of audit trail — filter by `type:`, `session:`, `keyword:`, `last:` (duration), `before:`, `limit:`. Parses query DSL string, returns filtered entries. New `/audit-search` command.
-- All three modules wired into daemon loop: budget predictor records costs every tick and alerts on imminent exhaustion; task retry checks for due retries every tick and re-activates failed tasks; audit search available on demand.
-- `daemonTick()` intelligence parameter expanded to include `budgetPredictor` and `taskRetryManager`.
+**v0.200.0 — Autonomy Layer: Adaptive Poll, Fleet Forecast, Priority Queue, Escalation**:
+- `AdaptivePollController`: dynamic poll interval replaces fixed `config.pollIntervalMs` in sleep call. Speeds up (min 5s) after 2+ consecutive active ticks; slows down (max 60s) after 3+ idle ticks. Resets to base on operator input. Fed tick results (change count + reasoner actions) each iteration. `/poll-status` TUI command.
+- `computeFleetForecast()`: aggregates all session `BudgetPrediction`s into total fleet burn rate ($/hr), projected daily/weekly cost, earliest exhaustion session, over-budget list, imminent list. `/fleet-forecast` TUI command.
+- `SessionPriority` system: weighted priority scoring — error (100), stuck (80), failed task (70), low health (proportional below 50), staleness (proportional to idle time), user-active (-200 = back off). `rankSessionsByPriority()`, `selectTopPriority()`. `/priority` TUI command.
+- `EscalationManager`: progressive notification escalation. Tracks per-session notify count, escalates normal → elevated → critical based on configurable thresholds. Supports separate webhook URLs per level (default channel → DM → SMS/pager). Cooldown between notifications. `/escalations` TUI command.
 
-New files: `src/budget-predictor.ts`, `src/task-retry.ts`, `src/audit-search.ts`
-Test files: `src/budget-predictor.test.ts`, `src/task-retry.test.ts`, `src/audit-search.test.ts`
+New files: `src/adaptive-poll.ts`, `src/fleet-forecast.ts`, `src/session-priority.ts`, `src/notify-escalation.ts`
+Test files: `src/adaptive-poll.test.ts`, `src/fleet-forecast.test.ts`, `src/session-priority.test.ts`, `src/notify-escalation.test.ts`
 Modified: `src/index.ts`, `src/input.ts`, `AGENTS.md`, `claude.md`, `package.json`
-Test changes: +35 new tests, net 2907 tests across 48 files.
+Test changes: +42 new tests, net 2949 tests across 52 files.
 
-### What shipped in v0.198.0
+### Older versions
 
-**v0.198.0 — Observability Layer**: activity heatmap, audit trail, fleet snapshots, conflict auto-resolution.
-
-### What shipped in v0.197.0
-
-**v0.197.0 — Daemon Wiring**: all intelligence modules wired into daemonTick.
-
-### What shipped in v0.196.0
-
-**v0.196.0 — Intelligence Layer**: standalone modules for summarization, conflict detection, goal completion, cost budgets.
-
-### Older versions (v0.1.0 → v0.195.0)
-
-195 releases. Key milestones: scaffolding → poller → reasoner → executor → TUI → policy → notifications → config hot-reload → health endpoint → export → replay → tail → prompt watcher → alert patterns → lifecycle hooks → relay rules → OOM detection → trust ladder → multi-session orchestration → goal injection → task dependencies → auto-pause → health scores → web dashboard → sync → security hardening.
+- v0.199.0: budget predictor, task retry, audit search
+- v0.198.0: activity heatmap, audit trail, fleet snapshots, conflict auto-resolution
+- v0.197.0: daemon wiring of all intelligence modules
+- v0.196.0: standalone intelligence modules (summarizer, conflict, goal, cost)
+- v0.1–v0.195: scaffolding → full orchestration (195 releases)
 
 ## Ideas Backlog
 
-- **Session replay from history** — replay activity timeline step-by-step for post-mortem
-- **Reasoner cost tracking** — per-reasoning-call token usage and cost for optimizer insights
-- **Session priority queue** — prioritize reasoner attention by health score and staleness
+- **Session replay from history** — replay activity timeline for post-mortem
+- **Reasoner cost tracking** — per-reasoning-call token usage for optimizer
 - **Multi-reasoner support** — different backends for different sessions
-- **Notification escalation** — stuck tasks escalate Slack → DM → SMS
-- **Daemon systemd/launchd integration** — generate service files for boot start
-- **Auto-restart on config change** — detect config file changes and hot-apply
-- **Session templates** — pre-configured session profiles with tailored prompts
-- **Smart scheduling** — batch reasoning calls for low-activity sessions to reduce costs
-- **Goal decomposition** — auto-split complex goals into sub-tasks with dependency chains
-- **Fleet snapshot diffing CLI** — `aoaoe fleet-diff` for command-line snapshot comparison
-- **Heatmap overlay in TUI** — embed sparklines directly in the session panel header
-- **Session dependency inference** — auto-detect implicit dependencies from import graphs
-- **Adaptive poll interval** — speed up polling when sessions are active, slow down when idle
-- **Reasoner context pruning** — auto-trim observation history to stay within LLM context limits
-- **Session memory** — persist per-session learnings across daemon restarts for smarter supervision
-- **Cross-repo impact analysis** — detect when one session's changes break another's tests
-- **Fleet cost forecasting** — aggregate all session predictions into a total fleet spend forecast
+- **Daemon systemd/launchd integration** — generate service files for boot
+- **Auto-restart on config change** — detect config changes, hot-apply
+- **Session templates** — pre-configured profiles with tailored prompts
+- **Smart scheduling** — batch reasoning calls for low-activity sessions
+- **Goal decomposition** — auto-split complex goals into sub-tasks
+- **Fleet snapshot diffing CLI** — `aoaoe fleet-diff` command
+- **Session dependency inference** — detect dependencies from import graphs
+- **Reasoner context pruning** — auto-trim observation history for LLM context
+- **Session memory** — persist per-session learnings across restarts
+- **Cross-repo impact analysis** — detect when one session breaks another's tests
+- **Heatmap overlay in TUI** — embed sparklines in session panel header
+- **Priority-aware reasoning** — only send highest-priority sessions to reasoner
+- **Session pool limits** — cap concurrent active sessions to control spend
+- **Drift detection** — alert when a session diverges from its stated goal
+- **Goal progress estimation** — predict % completion based on pattern matching
+- **Session forking** — clone a session to try alternative approaches in parallel

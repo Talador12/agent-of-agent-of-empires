@@ -90,6 +90,10 @@ The main loop is split into two layers:
 | `src/budget-predictor.ts` | Predictive budget exhaustion from cost burn rate regression |
 | `src/task-retry.ts` | Auto-retry failed tasks with exponential backoff + jitter |
 | `src/audit-search.ts` | Structured audit trail search by type, session, time, keyword |
+| `src/adaptive-poll.ts` | Dynamic poll interval — speeds up when active, slows when idle |
+| `src/fleet-forecast.ts` | Fleet-wide cost forecasting from aggregated budget predictions |
+| `src/session-priority.ts` | Session priority queue by health, staleness, error, stuck state |
+| `src/notify-escalation.ts` | Progressive notification escalation: normal → elevated → critical |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -117,7 +121,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Ten modules run every daemon tick without LLM calls:
+Fourteen modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -166,9 +170,29 @@ Ten modules run every daemon tick without LLM calls:
   trail by type, session, keyword, time range. Supports `last:2h`,
   `type:auto_complete`, `session:adventure`. Exposed via `/audit-search`.
 
+- **AdaptivePollController** (`adaptive-poll.ts`): dynamic poll interval.
+  Speeds up (min 5s) after 2+ consecutive active ticks; slows down (max 60s)
+  after 3+ consecutive idle ticks. Resets to base on operator input. Replaces
+  the fixed `config.pollIntervalMs` in the sleep call. `/poll-status`.
+
+- **Fleet forecast** (`fleet-forecast.ts`): aggregates all session budget
+  predictions into total fleet burn rate, projected daily/weekly cost,
+  earliest exhaustion, and over-budget/imminent session lists. `/fleet-forecast`.
+
+- **Session priority queue** (`session-priority.ts`): ranks sessions by
+  urgency using weighted scoring (error=100, stuck=80, failed=70, low
+  health, staleness, user-active=-200). `/priority`.
+
+- **Notification escalation** (`notify-escalation.ts`): progressive
+  escalation of stuck-task notifications. Normal → elevated (after N
+  notifications) → critical (after more). Supports separate webhook URLs
+  per escalation level (DM, SMS, pager). Cooldown between notifications.
+  `/escalations`.
+
 All modules are instantiated in `main()` and passed to `daemonTick()` via
 the `intelligence` parameter. Change-gated modules process
-`observation.changes`; budget predictor and task retry run every tick.
+`observation.changes`; budget predictor, task retry, and adaptive poll
+run every tick.
 
 ### How to add a new TUI slash command
 
@@ -181,7 +205,7 @@ the `intelligence` parameter. Change-gated modules process
    changes are available (inside the `if (intelligence && ...)` block).
 
 ### Testing
-- 2907 unit tests across 48+ files, `node:test` (stdlib, zero deps)
+- 2949 unit tests across 52+ files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

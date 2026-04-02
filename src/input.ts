@@ -110,6 +110,10 @@ export type FleetSnapHandler = () => void; // take a manual fleet snapshot
 export type BudgetPredictHandler = () => void; // show predictive budget exhaustion estimates
 export type RetriesHandler = () => void; // show task retry states
 export type AuditSearchHandler = (query: string) => void; // search audit trail
+export type FleetForecastHandler = () => void; // show fleet-wide cost forecast
+export type PriorityQueueHandler = () => void; // show session priority ranking
+export type EscalationsHandler = () => void; // show notification escalation states
+export type PollStatusHandler = () => void; // show adaptive poll interval status
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -301,6 +305,10 @@ export class InputReader {
   private budgetPredictHandler: BudgetPredictHandler | null = null;
   private retriesHandler: RetriesHandler | null = null;
   private auditSearchHandler: AuditSearchHandler | null = null;
+  private fleetForecastHandler: FleetForecastHandler | null = null;
+  private priorityQueueHandler: PriorityQueueHandler | null = null;
+  private escalationsHandler: EscalationsHandler | null = null;
+  private pollStatusHandler: PollStatusHandler | null = null;
   private sessionReportHandler: SessionReportHandler | null = null;
   private quietStatusHandler: QuietStatusHandler | null = null;
   private alertLogHandler: AlertLogHandler | null = null;
@@ -644,6 +652,10 @@ export class InputReader {
   onBudgetPredict(handler: BudgetPredictHandler): void { this.budgetPredictHandler = handler; }
   onRetries(handler: RetriesHandler): void { this.retriesHandler = handler; }
   onAuditSearch(handler: AuditSearchHandler): void { this.auditSearchHandler = handler; }
+  onFleetForecast(handler: FleetForecastHandler): void { this.fleetForecastHandler = handler; }
+  onPriorityQueue(handler: PriorityQueueHandler): void { this.priorityQueueHandler = handler; }
+  onEscalations(handler: EscalationsHandler): void { this.escalationsHandler = handler; }
+  onPollStatus(handler: PollStatusHandler): void { this.pollStatusHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -2136,6 +2148,26 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}audit-search not available (no TUI)${RESET}`);
         break;
       }
+
+      case "/fleet-forecast":
+        if (this.fleetForecastHandler) this.fleetForecastHandler();
+        else console.error(`${DIM}fleet-forecast not available (no TUI)${RESET}`);
+        break;
+
+      case "/priority":
+        if (this.priorityQueueHandler) this.priorityQueueHandler();
+        else console.error(`${DIM}priority not available (no TUI)${RESET}`);
+        break;
+
+      case "/escalations":
+        if (this.escalationsHandler) this.escalationsHandler();
+        else console.error(`${DIM}escalations not available (no TUI)${RESET}`);
+        break;
+
+      case "/poll-status":
+        if (this.pollStatusHandler) this.pollStatusHandler();
+        else console.error(`${DIM}poll-status not available (no TUI)${RESET}`);
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");
