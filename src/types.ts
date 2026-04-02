@@ -156,6 +156,11 @@ export interface AoaoeConfig {
     events?: NotificationEvent[]; // filter which events trigger notifications (default: all)
     maxRetries?: number; // retry failed deliveries with exponential backoff (default: 0 = no retry)
   };
+  costBudgets?: {
+    globalBudgetUsd?: number; // global budget in USD — applies to sessions without a per-session budget
+    sessionBudgets?: Record<string, number>; // per-session budgets keyed by session title
+    autoPauseOnExceed?: boolean; // auto-pause tasks when budget exceeded (default: true)
+  };
   healthPort?: number; // optional HTTP health check server port (e.g. 4098)
   tuiHistoryRetentionDays?: number; // how many days of TUI history to keep on startup replay (default: 7)
 }

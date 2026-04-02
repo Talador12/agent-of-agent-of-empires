@@ -95,12 +95,42 @@ export class OpencodeReasoner implements Reasoner {
 
     // create session on first call, after rotation, or after error reset
     if (!this.sessionId) {
-      const session = await client.createSession("aoaoe-supervisor");
-      this.sessionId = session.id;
-      this.messageCount = 0;
-
-      // inject system prompt (with global context) as context
-      await client.sendMessage(this.sessionId, this.systemPrompt, true);
+      try {
+        const session = await client.createSession("aoaoe-supervisor");
+        this.sessionId = session.id;
+        this.messageCount = 0;
+        await client.sendMessage(this.sessionId, this.systemPrompt, true);
+      } catch (initErr) {
+        const errMsg = String(initErr);
+        this.log(`session init failed: ${errMsg}`);
+        // detect SQLite corruption and auto-wipe
+        if (errMsg.includes("SQLiteError") || errMsg.includes("disk I/O error") || errMsg.includes("database is locked")) {
+          this.log("detected corrupt opencode database — wiping and restarting");
+          this.killOrphanedServer();
+          await this.wipeOpencodeState();
+          try {
+            await this.startServer(this.config.opencode.port);
+            for (let i = 0; i < 15; i++) {
+              if (await this.tryConnect(this.config.opencode.port)) {
+                this.log("opencode server restarted with fresh DB");
+                // retry session creation with fresh server
+                const session = await client.createSession("aoaoe-supervisor");
+                this.sessionId = session.id;
+                this.messageCount = 0;
+                await client.sendMessage(this.sessionId, this.systemPrompt, true);
+                break;
+              }
+              await sleep(1000);
+            }
+          } catch (restartErr) {
+            this.log(`recovery failed: ${restartErr}`);
+          }
+        }
+        if (!this.sessionId) {
+          const shortErr = errMsg.length > 120 ? errMsg.slice(0, 117) + "..." : errMsg;
+          return { actions: [{ action: "wait", reason: `session init failed: ${shortErr}` }] };
+        }
+      }
     }
 
     try {

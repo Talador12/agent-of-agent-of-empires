@@ -80,6 +80,10 @@ The main loop is split into two layers:
 | `src/console.ts` | Conversation log, narrated observations, friendly errors |
 | `src/input.ts` | Stdin listener with inject() for post-interrupt text |
 | `src/init.ts` | `aoaoe init`: auto-discover tools, sessions, reasoner; generate config; auto-start opencode serve |
+| `src/session-summarizer.ts` | Plain-English activity digests from tmux output (no LLM) |
+| `src/conflict-detector.ts` | Cross-session file edit conflict detection with sliding window |
+| `src/goal-detector.ts` | Heuristic goal completion detection from git/test/todo signals |
+| `src/cost-budget.ts` | Per-session cost budgets with auto-pause enforcement |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 

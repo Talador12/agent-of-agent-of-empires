@@ -104,8 +104,10 @@ const KNOWN_KEYS: Record<string, Set<string> | true> = {
   policies: new Set([
     "maxIdleBeforeNudgeMs", "maxErrorsBeforeRestart", "autoAnswerPermissions",
     "actionCooldownMs", "userActivityThresholdMs", "allowDestructive",
+    "maxStuckNudgesBeforePause", "quietHours",
   ]),
   notifications: new Set(["webhookUrl", "slackWebhookUrl", "events", "maxRetries"]),
+  costBudgets: new Set(["globalBudgetUsd", "sessionBudgets", "autoPauseOnExceed"]),
 };
 
 export function warnUnknownKeys(raw: unknown, source: string): void {
@@ -247,6 +249,30 @@ export function validateConfig(config: AoaoeConfig): void {
     const r = config.notifications.maxRetries;
     if (typeof r !== "number" || !isFinite(r) || r < 0 || !Number.isInteger(r)) {
       errors.push(`notifications.maxRetries must be a non-negative integer, got ${r}`);
+    }
+  }
+
+  // costBudgets validation
+  if (config.costBudgets !== undefined) {
+    const cb = config.costBudgets;
+    if (cb.globalBudgetUsd !== undefined) {
+      if (typeof cb.globalBudgetUsd !== "number" || !isFinite(cb.globalBudgetUsd) || cb.globalBudgetUsd < 0) {
+        errors.push(`costBudgets.globalBudgetUsd must be a non-negative number, got ${cb.globalBudgetUsd}`);
+      }
+    }
+    if (cb.sessionBudgets !== undefined) {
+      if (typeof cb.sessionBudgets !== "object" || cb.sessionBudgets === null || Array.isArray(cb.sessionBudgets)) {
+        errors.push(`costBudgets.sessionBudgets must be an object mapping session titles to USD amounts`);
+      } else {
+        for (const [key, val] of Object.entries(cb.sessionBudgets)) {
+          if (typeof val !== "number" || !isFinite(val) || val < 0) {
+            errors.push(`costBudgets.sessionBudgets["${key}"] must be a non-negative number, got ${val}`);
+          }
+        }
+      }
+    }
+    if (cb.autoPauseOnExceed !== undefined && typeof cb.autoPauseOnExceed !== "boolean") {
+      errors.push(`costBudgets.autoPauseOnExceed must be a boolean, got ${typeof cb.autoPauseOnExceed}`);
     }
   }
 
