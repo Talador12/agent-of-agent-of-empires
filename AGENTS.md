@@ -81,9 +81,12 @@ The main loop is split into two layers:
 | `src/input.ts` | Stdin listener with inject() for post-interrupt text |
 | `src/init.ts` | `aoaoe init`: auto-discover tools, sessions, reasoner; generate config; auto-start opencode serve |
 | `src/session-summarizer.ts` | Plain-English activity digests from tmux output (no LLM) |
-| `src/conflict-detector.ts` | Cross-session file edit conflict detection with sliding window |
+| `src/conflict-detector.ts` | Cross-session file edit conflict detection + auto-resolution |
 | `src/goal-detector.ts` | Heuristic goal completion detection from git/test/todo signals |
 | `src/cost-budget.ts` | Per-session cost budgets with auto-pause enforcement |
+| `src/activity-heatmap.ts` | Per-session activity sparklines using Unicode block characters |
+| `src/audit-trail.ts` | Structured JSONL audit log of all daemon decisions |
+| `src/fleet-snapshot.ts` | Periodic fleet state snapshots for time-travel debugging |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -111,16 +114,17 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Four modules run every daemon tick without LLM calls:
+Seven modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
-  with priority-ranked pattern matching. Updates per-session summaries from
-  `observation.changes` new lines. Exposed via `/activity` TUI command.
+  with priority-ranked pattern matching. Exposed via `/activity`.
 
 - **ConflictDetector** (`conflict-detector.ts`): tracks file edits per
   session in a sliding time window (default 10 min). When 2+ sessions edit
-  the same code file, logs a conflict alert. Exposed via `/conflicts`.
+  the same code file, logs a conflict alert and auto-pauses the lower-priority
+  session. `resolveConflicts()` uses explicit priority or edit-count fallback.
+  Exposed via `/conflicts`.
 
 - **Goal completion detector** (`goal-detector.ts`): scans new output for
   completion signals (git push, tests passing, version bumps, all TODOs done,
@@ -128,12 +132,26 @@ Four modules run every daemon tick without LLM calls:
   diminishing returns. Auto-completes tasks above 0.7 threshold.
 
 - **Cost budget enforcer** (`cost-budget.ts`): compares parsed `$N.NN` cost
-  from pane output against `costBudgets.globalBudgetUsd` or per-session
-  overrides. Auto-pauses tasks that exceed budget.
+  against `costBudgets.globalBudgetUsd` or per-session overrides. Auto-pauses
+  tasks that exceed budget.
 
-All four are instantiated in `main()` and passed to `daemonTick()` via the
-`intelligence` parameter. They process `observation.changes` after milestones
-and before alert pattern matching.
+- **ActivityTracker** (`activity-heatmap.ts`): records change events per
+  session in fixed-width time buckets (default 1min, 30 buckets). Renders
+  Unicode sparklines (▁▂▃▄▅▆▇█). Exposed via `/heatmap`.
+
+- **Audit trail** (`audit-trail.ts`): structured JSONL log of every daemon
+  decision — reasoner actions, auto-completions, budget pauses, conflict
+  detections, operator commands. Rotates at 50MB. Exposed via `/audit [N]`
+  and `/audit-stats`.
+
+- **Fleet snapshots** (`fleet-snapshot.ts`): periodic auto-save of full
+  fleet state (sessions, tasks, health, costs, summaries) every ~10min.
+  Supports `diffFleetSnapshots()` for time-travel comparison. Manual trigger
+  via `/fleet-snap`.
+
+All modules are instantiated in `main()` and passed to `daemonTick()` via
+the `intelligence` parameter. They process `observation.changes` after
+milestones and before alert pattern matching.
 
 ### How to add a new TUI slash command
 
@@ -146,7 +164,7 @@ and before alert pattern matching.
    changes are available (inside the `if (intelligence && ...)` block).
 
 ### Testing
-- 2829 unit tests across 41+ files, `node:test` (stdlib, zero deps)
+- 2872 unit tests across 45+ files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

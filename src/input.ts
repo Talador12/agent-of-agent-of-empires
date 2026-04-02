@@ -103,6 +103,10 @@ export type AlertPatternHandler = (args: string) => void; // output pattern aler
 export type HookHandler = (args: string) => void; // session lifecycle hook management
 export type ActivityHandler = () => void; // show plain-English session activity summaries
 export type ConflictsHandler = () => void; // show cross-session file edit conflicts
+export type HeatmapHandler = () => void; // show per-session activity heatmap sparklines
+export type AuditHandler = (count: number) => void; // show recent audit trail entries
+export type AuditStatsHandler = () => void; // show audit event type counts
+export type FleetSnapHandler = () => void; // take a manual fleet snapshot
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -287,6 +291,10 @@ export class InputReader {
   private costSummaryHandler: CostSummaryHandler | null = null;
   private activityHandler: ActivityHandler | null = null;
   private conflictsHandler: ConflictsHandler | null = null;
+  private heatmapHandler: HeatmapHandler | null = null;
+  private auditHandler: AuditHandler | null = null;
+  private auditStatsHandler: AuditStatsHandler | null = null;
+  private fleetSnapHandler: FleetSnapHandler | null = null;
   private sessionReportHandler: SessionReportHandler | null = null;
   private quietStatusHandler: QuietStatusHandler | null = null;
   private alertLogHandler: AlertLogHandler | null = null;
@@ -623,6 +631,10 @@ export class InputReader {
   onHook(handler: HookHandler): void { this.hookHandler = handler; }
   onActivity(handler: ActivityHandler): void { this.activityHandler = handler; }
   onConflicts(handler: ConflictsHandler): void { this.conflictsHandler = handler; }
+  onHeatmap(handler: HeatmapHandler): void { this.heatmapHandler = handler; }
+  onAudit(handler: AuditHandler): void { this.auditHandler = handler; }
+  onAuditStats(handler: AuditStatsHandler): void { this.auditStatsHandler = handler; }
+  onFleetSnap(handler: FleetSnapHandler): void { this.fleetSnapHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -2073,6 +2085,29 @@ ${BOLD}other:${RESET}
       case "/conflicts":
         if (this.conflictsHandler) this.conflictsHandler();
         else console.error(`${DIM}conflicts not available (no TUI)${RESET}`);
+        break;
+
+      case "/heatmap":
+        if (this.heatmapHandler) this.heatmapHandler();
+        else console.error(`${DIM}heatmap not available (no TUI)${RESET}`);
+        break;
+
+      case "/audit": {
+        const auditArg = line.slice("/audit".length).trim();
+        const auditCount = auditArg ? parseInt(auditArg, 10) : 25;
+        if (this.auditHandler) this.auditHandler(isNaN(auditCount) ? 25 : auditCount);
+        else console.error(`${DIM}audit not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/audit-stats":
+        if (this.auditStatsHandler) this.auditStatsHandler();
+        else console.error(`${DIM}audit-stats not available (no TUI)${RESET}`);
+        break;
+
+      case "/fleet-snap":
+        if (this.fleetSnapHandler) this.fleetSnapHandler();
+        else console.error(`${DIM}fleet-snap not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

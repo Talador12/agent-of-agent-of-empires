@@ -38,6 +38,9 @@ import { ConflictDetector } from "./conflict-detector.js";
 import { detectCompletionSignals, shouldAutoComplete } from "./goal-detector.js";
 import { computeBudgetStatus, findOverBudgetSessions, formatBudgetAlert } from "./cost-budget.js";
 import type { CostBudgetConfig } from "./cost-budget.js";
+import { ActivityTracker } from "./activity-heatmap.js";
+import { audit, readRecentAuditEntries, auditStats, formatAuditEntries, formatAuditStats } from "./audit-trail.js";
+import { captureFleetSnapshot, saveFleetSnapshot, formatFleetSnapshot, shouldTakeSnapshot } from "./fleet-snapshot.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown, formatTaskExportJson, formatTaskExportMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
@@ -512,9 +515,13 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const executor = config.observe ? null : new Executor(config);
   if (taskManager && executor) executor.setTaskManager(taskManager);
 
-  // v0.197 intelligence modules — instantiated once, fed per-tick
+  // v0.197+ intelligence modules — instantiated once, fed per-tick
   const sessionSummarizer = new SessionSummarizer();
   const conflictDetector = new ConflictDetector();
+  const activityTracker = new ActivityTracker();
+
+  // audit: log daemon start
+  audit("daemon_start", `daemon started (v${pkg ?? "dev"}, reasoner=${config.reasoner})`);
 
   const refreshTaskSupervisorState = (reason?: string): void => {
     if (!taskManager) {
@@ -1754,6 +1761,48 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         return;
       }
       const lines = conflictDetector.formatConflicts(conflicts);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /heatmap — per-session activity sparklines
+    input.onHeatmap(() => {
+      const lines = activityTracker.formatAll();
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /audit — show recent audit trail entries
+    input.onAudit((count) => {
+      const entries = readRecentAuditEntries(count);
+      if (entries.length === 0) {
+        tui!.log("system", "audit: no entries yet");
+        return;
+      }
+      tui!.log("system", `audit: last ${entries.length} entries:`);
+      const lines = formatAuditEntries(entries);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /audit-stats — audit event type counts
+    input.onAuditStats(() => {
+      const stats = auditStats();
+      tui!.log("system", "audit-stats:");
+      const lines = formatAuditStats(stats);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /fleet-snap — manual fleet snapshot
+    input.onFleetSnap(() => {
+      const sessions = tui!.getSessions();
+      const tasks = taskManager?.tasks ?? [];
+      const summaries = new Map<string, string>();
+      for (const [title, s] of sessionSummarizer.getAll()) {
+        summaries.set(title, SessionSummarizer.format(s));
+      }
+      const scores = new Map<string, number>();
+      // simple health from session status
+      for (const s of sessions) {
+        scores.set(s.title, s.status === "working" || s.status === "running" ? 80 : s.status === "error" ? 20 : 50);
+      }
+      const snapshot = captureFleetSnapshot(sessions, tasks, summaries, scores);
+      const filepath = saveFleetSnapshot(snapshot);
+      tui!.log("system", `fleet-snap: saved to ${filepath}`);
+      const lines = formatFleetSnapshot(snapshot);
       for (const line of lines) tui!.log("system", line);
     });
     input.onCostSummary(() => {
@@ -3064,6 +3113,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         } = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager, tui, {
           sessionSummarizer,
           conflictDetector,
+          activityTracker,
           pushSupervisorEvent,
           refreshTaskSupervisorState,
         });
@@ -3090,6 +3140,22 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
               tui.updateState({ reasonerName: getReasonerLabel() });
             }
           }
+        }
+
+        // periodic fleet snapshots (every ~10min = 60 polls at 10s interval)
+        if (tui && shouldTakeSnapshot(pollCount)) {
+          const sessions = tui.getSessions();
+          const tasks = taskManager?.tasks ?? [];
+          const summaries = new Map<string, string>();
+          for (const [title, s] of sessionSummarizer.getAll()) {
+            summaries.set(title, SessionSummarizer.format(s));
+          }
+          const scores = new Map<string, number>();
+          for (const s of sessions) {
+            scores.set(s.title, s.status === "working" || s.status === "running" ? 80 : s.status === "error" ? 20 : 50);
+          }
+          const snapshot = captureFleetSnapshot(sessions, tasks, summaries, scores);
+          saveFleetSnapshot(snapshot);
         }
 
         if (reasonerDurationMs !== undefined) {
@@ -3162,6 +3228,7 @@ async function daemonTick(
   intelligence?: {
     sessionSummarizer: SessionSummarizer;
     conflictDetector: ConflictDetector;
+    activityTracker: ActivityTracker;
     pushSupervisorEvent: (detail: string) => void;
     refreshTaskSupervisorState: (reason?: string) => void;
   },
@@ -3323,15 +3390,16 @@ async function daemonTick(
       }
     }
 
-    // v0.197 intelligence modules — run only when wired
+    // v0.198 intelligence modules — run only when wired
     if (intelligence && observation.changes.length > 0) {
-      // session activity summarization: update plain-English summaries from new output
+      // session activity summarization + heatmap tracking
       for (const change of observation.changes) {
         if (!change.newLines) continue;
         intelligence.sessionSummarizer.update(change.title, change.newLines.split("\n"));
+        intelligence.activityTracker.recordEvent(change.title);
       }
 
-      // cross-session conflict detection: track file edits and alert on overlaps
+      // cross-session conflict detection: track file edits, alert, and auto-resolve
       for (const change of observation.changes) {
         if (!change.newLines) continue;
         const snap = observation.sessions.find((s) => s.session.title === change.title);
@@ -3343,6 +3411,24 @@ async function daemonTick(
       if (conflicts.length > 0) {
         const lines = intelligence.conflictDetector.formatConflicts(conflicts);
         for (const line of lines) tui.log("status", line);
+        for (const c of conflicts) {
+          audit("conflict_detected", `${c.filePath} — ${c.sessions.map((s) => s.title).join(", ")}`, undefined, { filePath: c.filePath, sessions: c.sessions.map((s) => s.title) });
+        }
+
+        // auto-resolve: pause lower-priority sessions on conflict (if task manager available)
+        if (taskManager && !config.observe && !config.dryRun) {
+          const resolutions = intelligence.conflictDetector.resolveConflicts(conflicts);
+          for (const r of resolutions) {
+            const task = taskManager.getTaskForSession(r.pauseSession);
+            if (task && task.status === "active") {
+              task.status = "paused";
+              tui.log("status", `conflict auto-pause: "${r.pauseSession}" — ${r.reason}`);
+              audit("conflict_detected", `auto-paused "${r.pauseSession}": ${r.reason}`, r.pauseSession);
+              intelligence.pushSupervisorEvent(`conflict auto-pause: ${r.pauseSession}`);
+              intelligence.refreshTaskSupervisorState(`conflict pause: ${r.pauseSession}`);
+            }
+          }
+        }
       }
 
       // goal completion detection: check active tasks for completion signals
@@ -3356,6 +3442,7 @@ async function daemonTick(
             if (autoResult.complete) {
               tui.log("+ action", `auto-completing "${change.title}": ${autoResult.summary}`);
               intelligence.pushSupervisorEvent(`auto-completed: ${change.title} (${Math.round(autoResult.confidence * 100)}%)`);
+              audit("auto_complete", autoResult.summary, change.title, { confidence: autoResult.confidence });
               taskManager.completeTask(change.title, autoResult.summary, false);
               intelligence.refreshTaskSupervisorState(`auto-completed: ${change.title}`);
             }
@@ -3382,6 +3469,7 @@ async function daemonTick(
             if (task && task.status === "active") {
               task.status = "paused";
               tui.log("status", formatBudgetAlert(v));
+              audit("budget_pause", `$${v.currentCostUsd.toFixed(2)} / $${v.budgetUsd.toFixed(2)}`, v.sessionTitle, { cost: v.currentCostUsd, budget: v.budgetUsd });
               intelligence.pushSupervisorEvent(`budget exceeded: ${v.sessionTitle} ($${v.currentCostUsd.toFixed(2)} / $${v.budgetUsd.toFixed(2)})`);
               intelligence.refreshTaskSupervisorState(`budget pause: ${v.sessionTitle}`);
             }

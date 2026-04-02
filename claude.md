@@ -8,7 +8,7 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.197.0
+## Version: v0.198.0
 
 ## Current Focus
 
@@ -19,63 +19,68 @@ North-star goal: aoaoe should let one reasoner run AoE for any number of session
 - Profile-aware session discovery and lifecycle across multiple AoE profiles
 - Periodic reconcile in daemon loop (every ~6 polls) auto-adopts new sessions
 - Stuck-task detection (⚠ POSSIBLY STUCK after 30min) + auto-pause after N nudges
-- Goal injection on reconcile, edit, and quick step-in via tmux send-keys
 - Task dependency graph: `dependsOn` with cascading activation
-- Supervisor event history persists across restarts
 - Health scoring (0-100 per session) with fleet average
-- **Session output summarization** — live plain-English activity digests in TUI via `/activity`
-- **Cross-session conflict detection** — live file conflict alerts in TUI via `/conflicts`
-- **Goal completion auto-detect** — auto-completes tasks from git/test/todo signals per-tick
-- **Cost budget enforcement** — auto-pauses tasks exceeding budget per-tick
+- Session output summarization — live plain-English activity digests via `/activity`
+- Cross-session conflict detection + auto-resolution — `/conflicts`
+- Goal completion auto-detect — auto-completes tasks per-tick
+- Cost budget enforcement — auto-pauses tasks exceeding budget per-tick
+- Activity heatmap — per-session sparklines over time via `/heatmap`
+- Structured audit trail — all daemon decisions logged as JSONL via `/audit`
+- Fleet snapshots — periodic auto-save for time-travel debugging via `/fleet-snap`
 
 ### Operator surface
-- Interactive: `/supervisor`, `/incident`, `/runbook`, `/progress`, `/health`, `/prompt-template`, `/pin-save/load/presets`, `/activity`, `/conflicts`
+- Interactive: `/supervisor`, `/incident`, `/runbook`, `/progress`, `/health`, `/prompt-template`, `/pin-save/load/presets`, `/activity`, `/conflicts`, `/heatmap`, `/audit`, `/audit-stats`, `/fleet-snap`
 - CLI: `aoaoe tasks/progress/health/summary/supervisor/incident/runbook/adopt/doctor`
 - All JSON-capable: `--json`, `--ndjson`, `--watch`, `--changes-only`, `--heartbeat`, `--follow`
 - Fleet management: `task start-all/stop-all/pause-all/resume-all`
 - Templates: 6 task templates, 5 prompt templates, user-extensible
-- Quick step-in: `/task <session> :: <goal>` with immediate goal injection
 
 ### What's next — real blockers to daily use
 - **Session error state misdetection** — idle opencode UI chrome triggers false error status
 - **Legacy dashboard uses repo paths not session titles** — daemonTick status table still shows truncated paths
-- **Task-session linking not shown in dashboard** — tasks have sessionIds but task column shows `-`
+- **Task-session linking not shown in dashboard** — task column shows `-` for everything
 - **Notification escalation** — stuck tasks escalate from Slack channel → DM → SMS webhook
 - **Daemon systemd/launchd integration** — generate service files for boot start + crash restart
 
 ### Shipped
 - ~~**Web dashboard**~~ — `aoaoe web`
 - ~~**Multi-machine coordination**~~ — `aoaoe sync`
-- ~~**Session output summarization**~~ — wired into daemon loop + `/activity` command
-- ~~**Cross-session conflict detection**~~ — wired into daemon loop + `/conflicts` command
-- ~~**Goal completion detection**~~ — wired into daemon loop, auto-completes tasks per-tick
-- ~~**Session cost budgets**~~ — wired into daemon loop, auto-pauses on exceed per-tick
-- ~~**Config validation**~~ — `costBudgets` validation + policy key coverage
+- ~~**Session output summarization**~~ — wired into daemon loop + `/activity`
+- ~~**Cross-session conflict detection + auto-resolution**~~ — wired + `/conflicts`
+- ~~**Goal completion detection**~~ — wired, auto-completes per-tick
+- ~~**Session cost budgets**~~ — wired, auto-pauses per-tick
+- ~~**Activity heatmap**~~ — sparklines via `/heatmap`
+- ~~**Audit trail export**~~ — JSONL via `/audit` + `/audit-stats`
+- ~~**Fleet snapshots**~~ — periodic auto-save + `/fleet-snap`
+- ~~**Conflict auto-resolution**~~ — auto-pauses lower-priority session on file conflict
+
+### What shipped in v0.198.0
+
+**v0.198.0 — Observability Layer: Heatmap, Audit Trail, Fleet Snapshots, Conflict Auto-Resolution**:
+- `ActivityTracker` class: records change events per session in 1-minute time buckets (30-bucket window), renders Unicode sparklines (▁▂▃▄▅▆▇█) with peak rate and total events. Wired into daemon loop — every `observation.changes` entry records an event. New `/heatmap` TUI command.
+- `audit-trail.ts`: structured JSONL audit log at `~/.aoaoe/audit-trail.jsonl`. Records every auto-completion, budget pause, conflict detection, and daemon start. Auto-rotates at 50MB. `readRecentAuditEntries()`, `auditStats()`, `formatAuditEntries()`. New `/audit [N]` and `/audit-stats` TUI commands.
+- `fleet-snapshot.ts`: captures full fleet state (sessions, tasks, health scores, costs, activity summaries) into timestamped JSON files at `~/.aoaoe/fleet-snapshots/`. Auto-saves every ~10min (60 polls). `diffFleetSnapshots()` for time-travel comparison. Max 100 snapshots with auto-pruning. New `/fleet-snap` TUI command for manual trigger.
+- `ConflictDetector.resolveConflicts()`: auto-resolution of file conflicts. When two sessions edit the same file, the lower-priority session is auto-paused. Priority uses explicit `sessionPriority` map or falls back to edit count (more edits = more invested = keeps running). Deduplicates pause targets across multiple concurrent conflicts. Wired into daemon loop with audit logging.
+- All new daemon actions (auto-complete, budget pause, conflict detect/resolve) now emit audit entries with structured `data` payloads.
+
+New files: `src/activity-heatmap.ts`, `src/audit-trail.ts`, `src/fleet-snapshot.ts`
+Test files: `src/activity-heatmap.test.ts`, `src/audit-trail.test.ts`, `src/fleet-snapshot.test.ts`
+Modified: `src/index.ts`, `src/input.ts`, `src/conflict-detector.ts`, `src/conflict-detector.test.ts`, `AGENTS.md`, `claude.md`, `package.json`
+Test changes: +43 new tests (5 conflict auto-resolution, 11 heatmap, 8 audit, 13 fleet snapshot, 6 shouldTakeSnapshot), net 2872 tests across 45 files.
 
 ### What shipped in v0.197.0
 
 **v0.197.0 — Daemon Wiring: Intelligence Modules Live in the Loop**:
-- All four v0.196 intelligence modules now run every daemon tick:
-  - `SessionSummarizer` processes `observation.changes` new lines → per-session activity summaries
-  - `ConflictDetector` tracks file edits across sessions → automatic conflict alerts in TUI
-  - `detectCompletionSignals()` scans active tasks for goal completion → auto-completes above 0.7 confidence
-  - `findOverBudgetSessions()` compares parsed costs against budgets → auto-pauses on exceed
-- New TUI commands: `/activity` (session summaries), `/conflicts` (file conflict report)
-- `daemonTick()` takes new `intelligence` parameter carrying module instances + supervisor event hooks
-- Fixed `SessionSummarizer` false positive: `ℹ fail 0` (zero failures) no longer classified as error
-- Added `ℹ fail N` (N>0) as explicit error signal at priority 88
-- `AGENTS.md` updated with intelligence module documentation and "how to add a TUI command" guide
-
-Modified: `src/index.ts`, `src/input.ts`, `src/session-summarizer.ts`, `AGENTS.md`, `claude.md`, `package.json`
-New test file: `src/daemon-intelligence.test.ts` (18 integration tests)
-Test changes: +18 new tests, net 2829 tests across 42 files.
+- All four v0.196 intelligence modules wired into daemonTick
+- `/activity`, `/conflicts` TUI commands
+- SessionSummarizer FAIL false-positive fix
 
 ### What shipped in v0.196.0
 
-**v0.196.0 — Intelligence Layer: Summarization, Conflict Detection, Goal Completion, Cost Budgets**:
-- `SessionSummarizer`, `ConflictDetector`, goal detector, cost budget modules (standalone, not yet wired)
-- Config validation for `costBudgets`, SQLite corruption recovery in opencode reasoner
-- 103 new tests across 4 test files
+**v0.196.0 — Intelligence Layer**:
+- SessionSummarizer, ConflictDetector, goal detector, cost budget modules (standalone)
+- Config validation, SQLite corruption recovery
 
 ### Older versions (v0.1.0 → v0.195.0)
 
@@ -99,11 +104,13 @@ Full history: `git log --oneline` or check GitHub Releases.
 - **Notification escalation** — stuck tasks escalate from Slack channel → DM → SMS webhook
 - **Daemon systemd/launchd integration** — generate service files for boot start + crash restart
 - **Auto-restart on config change** — detect config file changes and hot-apply without manual restart
-- **Conflict auto-resolution** — when two sessions conflict, auto-pause the lower-priority one
 - **Session templates** — pre-configured session profiles (frontend, backend, infra) with tailored prompts
-- **Audit trail export** — export all daemon decisions as a compliance-friendly audit log
-- **Activity heatmap** — show per-session activity over time in the TUI (sparkline or ASCII chart)
 - **Smart scheduling** — batch reasoning calls for low-activity sessions to reduce LLM costs
 - **Goal decomposition** — auto-split complex goals into sub-tasks with dependency chains
 - **Session handoff** — gracefully migrate a session between reasoner backends mid-task
-- **Fleet snapshots** — periodic auto-save of fleet state for time-travel debugging
+- **Fleet snapshot diffing CLI** — `aoaoe fleet-diff` to compare two snapshots from the command line
+- **Audit trail search** — filter audit entries by type, session, time range, keyword
+- **Heatmap overlay in TUI** — embed sparklines directly in the session panel header
+- **Predictive budget alerts** — estimate when a session will exceed budget based on burn rate
+- **Task retry with backoff** — auto-retry failed tasks with exponential backoff and jitter
+- **Session dependency inference** — auto-detect implicit dependencies from import graphs

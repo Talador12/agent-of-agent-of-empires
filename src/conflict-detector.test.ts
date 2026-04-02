@@ -152,3 +152,65 @@ describe("ConflictDetector", () => {
     assert.equal(conflicts[0].sessions.length, 3);
   });
 });
+
+describe("ConflictDetector — auto-resolution", () => {
+  it("resolves conflict by pausing the lower-priority session", () => {
+    const detector = new ConflictDetector();
+    detector.recordEdits("important", "1", ["Edit src/shared.ts"]);
+    detector.recordEdits("secondary", "2", ["Edit src/shared.ts"]);
+    const conflicts = detector.detectConflicts();
+
+    const priority = new Map([["important", 10], ["secondary", 1]]);
+    const resolutions = detector.resolveConflicts(conflicts, priority);
+    assert.equal(resolutions.length, 1);
+    assert.equal(resolutions[0].pauseSession, "secondary");
+    assert.ok(resolutions[0].reason.includes("src/shared.ts"));
+  });
+
+  it("returns empty for no conflicts", () => {
+    const detector = new ConflictDetector();
+    assert.deepEqual(detector.resolveConflicts([]), []);
+  });
+
+  it("pauses all except highest priority with 3+ sessions", () => {
+    const detector = new ConflictDetector();
+    detector.recordEdits("high", "1", ["Edit src/shared.ts"]);
+    detector.recordEdits("mid", "2", ["Edit src/shared.ts"]);
+    detector.recordEdits("low", "3", ["Edit src/shared.ts"]);
+    const conflicts = detector.detectConflicts();
+
+    const priority = new Map([["high", 10], ["mid", 5], ["low", 1]]);
+    const resolutions = detector.resolveConflicts(conflicts, priority);
+    assert.equal(resolutions.length, 2);
+    const paused = resolutions.map((r) => r.pauseSession).sort();
+    assert.deepEqual(paused, ["low", "mid"]);
+  });
+
+  it("falls back to edit count when no priority set", () => {
+    const detector = new ConflictDetector();
+    // session A has more edits on the file
+    detector.recordEdits("active", "1", ["Edit src/shared.ts"]);
+    detector.recordEdits("active", "1", ["Edit src/shared.ts"]);
+    detector.recordEdits("active", "1", ["Edit src/shared.ts"]);
+    // session B has fewer edits
+    detector.recordEdits("casual", "2", ["Edit src/shared.ts"]);
+    const conflicts = detector.detectConflicts();
+
+    const resolutions = detector.resolveConflicts(conflicts);
+    assert.equal(resolutions.length, 1);
+    assert.equal(resolutions[0].pauseSession, "casual"); // fewer edits = lower priority
+  });
+
+  it("deduplicates pause targets across multiple conflicts", () => {
+    const detector = new ConflictDetector();
+    detector.recordEdits("a", "1", ["Edit src/foo.ts", "Edit src/bar.ts"]);
+    detector.recordEdits("b", "2", ["Edit src/foo.ts", "Edit src/bar.ts"]);
+    const conflicts = detector.detectConflicts();
+    assert.equal(conflicts.length, 2); // two file conflicts
+
+    const priority = new Map([["a", 10], ["b", 1]]);
+    const resolutions = detector.resolveConflicts(conflicts, priority);
+    assert.equal(resolutions.length, 1); // b paused only once
+    assert.equal(resolutions[0].pauseSession, "b");
+  });
+});

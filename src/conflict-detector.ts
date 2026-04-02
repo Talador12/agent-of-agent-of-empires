@@ -128,6 +128,50 @@ export class ConflictDetector {
     return lines;
   }
 
+  /**
+   * Auto-resolve conflicts by identifying which session to pause.
+   * Uses a priority function: the session with the fewest recent edits
+   * (least active on the file) gets paused. Returns session titles to pause.
+   */
+  resolveConflicts(
+    conflicts: Conflict[],
+    sessionPriority?: Map<string, number>, // higher = more important, keeps running
+  ): Array<{ pauseSession: string; reason: string }> {
+    const result: Array<{ pauseSession: string; reason: string }> = [];
+    const alreadyPausing = new Set<string>();
+
+    for (const conflict of conflicts) {
+      if (conflict.sessions.length < 2) continue;
+
+      // rank sessions: higher priority stays, lower gets paused
+      const ranked = [...conflict.sessions].sort((a, b) => {
+        // explicit priority wins
+        const pa = sessionPriority?.get(a.title) ?? 0;
+        const pb = sessionPriority?.get(b.title) ?? 0;
+        if (pa !== pb) return pb - pa; // higher priority first
+
+        // fallback: session with more edits on this file is "more invested"
+        const aEdits = this.edits.filter((e) => e.sessionId === a.id && e.filePath === conflict.filePath).length;
+        const bEdits = this.edits.filter((e) => e.sessionId === b.id && e.filePath === conflict.filePath).length;
+        return bEdits - aEdits;
+      });
+
+      // pause all except the highest-priority session
+      for (let i = 1; i < ranked.length; i++) {
+        const session = ranked[i];
+        if (!alreadyPausing.has(session.title)) {
+          alreadyPausing.add(session.title);
+          result.push({
+            pauseSession: session.title,
+            reason: `file conflict on ${conflict.filePath} with "${ranked[0].title}"`,
+          });
+        }
+      }
+    }
+
+    return result;
+  }
+
   /** Get the current edit count (for testing). */
   get editCount(): number {
     return this.edits.length;
