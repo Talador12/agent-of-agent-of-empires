@@ -41,6 +41,9 @@ import type { CostBudgetConfig } from "./cost-budget.js";
 import { ActivityTracker } from "./activity-heatmap.js";
 import { audit, readRecentAuditEntries, auditStats, formatAuditEntries, formatAuditStats } from "./audit-trail.js";
 import { captureFleetSnapshot, saveFleetSnapshot, formatFleetSnapshot, shouldTakeSnapshot } from "./fleet-snapshot.js";
+import { BudgetPredictor } from "./budget-predictor.js";
+import { TaskRetryManager } from "./task-retry.js";
+import { searchAuditTrail, parseAuditSearchQuery, formatAuditSearchResults } from "./audit-search.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown, formatTaskExportJson, formatTaskExportMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
@@ -519,6 +522,10 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const sessionSummarizer = new SessionSummarizer();
   const conflictDetector = new ConflictDetector();
   const activityTracker = new ActivityTracker();
+  const budgetPredictor = new BudgetPredictor();
+  const taskRetryManager = new TaskRetryManager({
+    maxRetries: config.policies.maxStuckNudgesBeforePause ?? 3,
+  });
 
   // audit: log daemon start
   audit("daemon_start", `daemon started (v${pkg ?? "dev"}, reasoner=${config.reasoner})`);
@@ -1803,6 +1810,33 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const filepath = saveFleetSnapshot(snapshot);
       tui!.log("system", `fleet-snap: saved to ${filepath}`);
       const lines = formatFleetSnapshot(snapshot);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /budget-predict — predictive budget exhaustion
+    input.onBudgetPredict(() => {
+      if (!config.costBudgets) {
+        tui!.log("system", "budget-predict: no costBudgets configured");
+        return;
+      }
+      const budgetConfig = { globalBudgetUsd: config.costBudgets.globalBudgetUsd, sessionBudgets: config.costBudgets.sessionBudgets };
+      const predictions = budgetPredictor.predictAll(budgetConfig);
+      if (predictions.length === 0) {
+        tui!.log("system", "budget-predict: insufficient cost data (need 2+ samples per session)");
+        return;
+      }
+      tui!.log("system", `budget-predict: ${predictions.length} session${predictions.length !== 1 ? "s" : ""}:`);
+      for (const p of predictions) tui!.log("system", BudgetPredictor.format(p));
+    });
+    // wire /retries — task retry states
+    input.onRetries(() => {
+      const lines = taskRetryManager.formatRetries();
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /audit-search — structured audit trail search
+    input.onAuditSearch((queryStr) => {
+      const query = parseAuditSearchQuery(queryStr);
+      const results = searchAuditTrail(query);
+      const lines = formatAuditSearchResults(results, queryStr);
       for (const line of lines) tui!.log("system", line);
     });
     input.onCostSummary(() => {
@@ -3114,6 +3148,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
           sessionSummarizer,
           conflictDetector,
           activityTracker,
+          budgetPredictor,
+          taskRetryManager,
           pushSupervisorEvent,
           refreshTaskSupervisorState,
         });
@@ -3229,6 +3265,8 @@ async function daemonTick(
     sessionSummarizer: SessionSummarizer;
     conflictDetector: ConflictDetector;
     activityTracker: ActivityTracker;
+    budgetPredictor: BudgetPredictor;
+    taskRetryManager: TaskRetryManager;
     pushSupervisorEvent: (detail: string) => void;
     refreshTaskSupervisorState: (reason?: string) => void;
   },
@@ -3473,6 +3511,54 @@ async function daemonTick(
               intelligence.pushSupervisorEvent(`budget exceeded: ${v.sessionTitle} ($${v.currentCostUsd.toFixed(2)} / $${v.budgetUsd.toFixed(2)})`);
               intelligence.refreshTaskSupervisorState(`budget pause: ${v.sessionTitle}`);
             }
+          }
+        }
+      }
+    }
+
+  }
+
+  // budget prediction + task retry run every tick (not gated on changes)
+  if (tui && intelligence) {
+    // predictive budget: record cost samples from all sessions each tick
+    for (const s of sessionStates) {
+      if (s.costStr) intelligence.budgetPredictor.recordCost(s.title, s.costStr);
+    }
+    // predictive budget alerts: warn when approaching exhaustion
+    if (config.costBudgets) {
+      const budgetConfig = { globalBudgetUsd: config.costBudgets.globalBudgetUsd, sessionBudgets: config.costBudgets.sessionBudgets };
+      const predictions = intelligence.budgetPredictor.predictAll(budgetConfig);
+      for (const p of predictions) {
+        if (p.warningLevel === "imminent") {
+          tui.log("status", `⚠ budget imminent: "${p.sessionTitle}" — ${p.estimatedExhaustionLabel} at $${p.burnRateUsdPerHour.toFixed(2)}/hr`);
+        }
+      }
+    }
+
+    // task retry: check for failed tasks due for retry
+    if (taskManager) {
+      const dueRetries = intelligence.taskRetryManager.getDueRetries();
+      for (const r of dueRetries) {
+        const task = taskManager.getTaskForSession(r.sessionTitle);
+        if (task && task.status === "failed") {
+          task.status = "active";
+          intelligence.taskRetryManager.clearRetry(r.sessionTitle);
+          tui.log("+ action", `retrying "${r.sessionTitle}" (attempt ${r.retryCount})`);
+          audit("session_restart", `auto-retry attempt ${r.retryCount}`, r.sessionTitle);
+          intelligence.pushSupervisorEvent(`auto-retry: ${r.sessionTitle} (attempt ${r.retryCount})`);
+          intelligence.refreshTaskSupervisorState(`retry: ${r.sessionTitle}`);
+        }
+      }
+      // record failures for tasks that just entered failed state
+      for (const task of taskManager.tasks) {
+        if (task.status === "failed" && !intelligence.taskRetryManager.getState(task.sessionTitle)) {
+          const retryState = intelligence.taskRetryManager.recordFailure(task.sessionTitle);
+          if (retryState.exhausted) {
+            tui.log("status", `task "${task.sessionTitle}" exhausted retries (${retryState.retryCount})`);
+            audit("session_error", `retry exhausted after ${retryState.retryCount} attempts`, task.sessionTitle);
+          } else {
+            const delay = Math.round((retryState.nextRetryAt - Date.now()) / 1000);
+            tui.log("status", `task "${task.sessionTitle}" failed — retry ${retryState.retryCount} in ${delay}s`);
           }
         }
       }

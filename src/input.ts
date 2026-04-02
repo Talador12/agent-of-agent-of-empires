@@ -107,6 +107,9 @@ export type HeatmapHandler = () => void; // show per-session activity heatmap sp
 export type AuditHandler = (count: number) => void; // show recent audit trail entries
 export type AuditStatsHandler = () => void; // show audit event type counts
 export type FleetSnapHandler = () => void; // take a manual fleet snapshot
+export type BudgetPredictHandler = () => void; // show predictive budget exhaustion estimates
+export type RetriesHandler = () => void; // show task retry states
+export type AuditSearchHandler = (query: string) => void; // search audit trail
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -295,6 +298,9 @@ export class InputReader {
   private auditHandler: AuditHandler | null = null;
   private auditStatsHandler: AuditStatsHandler | null = null;
   private fleetSnapHandler: FleetSnapHandler | null = null;
+  private budgetPredictHandler: BudgetPredictHandler | null = null;
+  private retriesHandler: RetriesHandler | null = null;
+  private auditSearchHandler: AuditSearchHandler | null = null;
   private sessionReportHandler: SessionReportHandler | null = null;
   private quietStatusHandler: QuietStatusHandler | null = null;
   private alertLogHandler: AlertLogHandler | null = null;
@@ -635,6 +641,9 @@ export class InputReader {
   onAudit(handler: AuditHandler): void { this.auditHandler = handler; }
   onAuditStats(handler: AuditStatsHandler): void { this.auditStatsHandler = handler; }
   onFleetSnap(handler: FleetSnapHandler): void { this.fleetSnapHandler = handler; }
+  onBudgetPredict(handler: BudgetPredictHandler): void { this.budgetPredictHandler = handler; }
+  onRetries(handler: RetriesHandler): void { this.retriesHandler = handler; }
+  onAuditSearch(handler: AuditSearchHandler): void { this.auditSearchHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -2109,6 +2118,24 @@ ${BOLD}other:${RESET}
         if (this.fleetSnapHandler) this.fleetSnapHandler();
         else console.error(`${DIM}fleet-snap not available (no TUI)${RESET}`);
         break;
+
+      case "/budget-predict":
+        if (this.budgetPredictHandler) this.budgetPredictHandler();
+        else console.error(`${DIM}budget-predict not available (no TUI)${RESET}`);
+        break;
+
+      case "/retries":
+        if (this.retriesHandler) this.retriesHandler();
+        else console.error(`${DIM}retries not available (no TUI)${RESET}`);
+        break;
+
+      case "/audit-search": {
+        const asArg = line.slice("/audit-search".length).trim();
+        if (!asArg) { console.error(`${DIM}usage: /audit-search <query> — e.g. type:auto_complete session:adventure last:1h${RESET}`); break; }
+        if (this.auditSearchHandler) this.auditSearchHandler(asArg);
+        else console.error(`${DIM}audit-search not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

@@ -87,6 +87,9 @@ The main loop is split into two layers:
 | `src/activity-heatmap.ts` | Per-session activity sparklines using Unicode block characters |
 | `src/audit-trail.ts` | Structured JSONL audit log of all daemon decisions |
 | `src/fleet-snapshot.ts` | Periodic fleet state snapshots for time-travel debugging |
+| `src/budget-predictor.ts` | Predictive budget exhaustion from cost burn rate regression |
+| `src/task-retry.ts` | Auto-retry failed tasks with exponential backoff + jitter |
+| `src/audit-search.ts` | Structured audit trail search by type, session, time, keyword |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -114,7 +117,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Seven modules run every daemon tick without LLM calls:
+Ten modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -149,9 +152,23 @@ Seven modules run every daemon tick without LLM calls:
   Supports `diffFleetSnapshots()` for time-travel comparison. Manual trigger
   via `/fleet-snap`.
 
+- **BudgetPredictor** (`budget-predictor.ts`): records cost samples per
+  session each tick, computes $/hr burn rate via linear regression, predicts
+  time-to-budget-exhaustion. Alerts when exhaustion is imminent (<30min).
+  Exposed via `/budget-predict`.
+
+- **TaskRetryManager** (`task-retry.ts`): auto-retries failed tasks with
+  exponential backoff + jitter. Configurable max retries (default 3), base
+  delay (60s), max delay (30min). Exhausted tasks are logged. Exposed via
+  `/retries`.
+
+- **Audit search** (`audit-search.ts`): structured search of the audit
+  trail by type, session, keyword, time range. Supports `last:2h`,
+  `type:auto_complete`, `session:adventure`. Exposed via `/audit-search`.
+
 All modules are instantiated in `main()` and passed to `daemonTick()` via
-the `intelligence` parameter. They process `observation.changes` after
-milestones and before alert pattern matching.
+the `intelligence` parameter. Change-gated modules process
+`observation.changes`; budget predictor and task retry run every tick.
 
 ### How to add a new TUI slash command
 
@@ -164,7 +181,7 @@ milestones and before alert pattern matching.
    changes are available (inside the `if (intelligence && ...)` block).
 
 ### Testing
-- 2872 unit tests across 45+ files, `node:test` (stdlib, zero deps)
+- 2907 unit tests across 48+ files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.
