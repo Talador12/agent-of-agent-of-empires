@@ -94,6 +94,10 @@ The main loop is split into two layers:
 | `src/fleet-forecast.ts` | Fleet-wide cost forecasting from aggregated budget predictions |
 | `src/session-priority.ts` | Session priority queue by health, staleness, error, stuck state |
 | `src/notify-escalation.ts` | Progressive notification escalation: normal → elevated → critical |
+| `src/drift-detector.ts` | Goal drift detection via keyword overlap heuristic |
+| `src/goal-progress.ts` | Task % completion estimation from multi-signal heuristics |
+| `src/session-pool.ts` | Concurrent active session pool limits with queuing |
+| `src/reasoner-cost.ts` | Per-reasoning-call token usage and cost tracking |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -121,7 +125,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Fourteen modules run every daemon tick without LLM calls:
+Eighteen modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -189,6 +193,22 @@ Fourteen modules run every daemon tick without LLM calls:
   per escalation level (DM, SMS, pager). Cooldown between notifications.
   `/escalations`.
 
+- **Drift detector** (`drift-detector.ts`): compares goal keywords against
+  recent session output. If fewer than 15% of goal keywords appear in output,
+  flags the session as drifted. `/drift`.
+
+- **Goal progress estimator** (`goal-progress.ts`): multi-signal % completion.
+  Weighs bullet-point goal items matched, progress entry count, elapsed time,
+  and output patterns (git push, tests passing). `/goal-progress`.
+
+- **Session pool manager** (`session-pool.ts`): caps concurrent active
+  sessions. Queues pending tasks when at capacity, activates oldest first
+  when a slot opens. Respects `dependsOn` constraints. `/pool`.
+
+- **Reasoner cost tracker** (`reasoner-cost.ts`): records input/output tokens
+  per reasoning call. Computes avg tokens, cost per call, calls/hr, cost/hr.
+  `/reasoner-cost`.
+
 All modules are instantiated in `main()` and passed to `daemonTick()` via
 the `intelligence` parameter. Change-gated modules process
 `observation.changes`; budget predictor, task retry, and adaptive poll
@@ -205,7 +225,7 @@ run every tick.
    changes are available (inside the `if (intelligence && ...)` block).
 
 ### Testing
-- 2949 unit tests across 52+ files, `node:test` (stdlib, zero deps)
+- 2996 unit tests across 56+ files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

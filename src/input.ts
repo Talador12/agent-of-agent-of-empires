@@ -114,6 +114,10 @@ export type FleetForecastHandler = () => void; // show fleet-wide cost forecast
 export type PriorityQueueHandler = () => void; // show session priority ranking
 export type EscalationsHandler = () => void; // show notification escalation states
 export type PollStatusHandler = () => void; // show adaptive poll interval status
+export type DriftHandler = () => void; // show drift detection for all sessions
+export type GoalProgressHandler = () => void; // show goal progress estimates
+export type PoolHandler = () => void; // show session pool status
+export type ReasonerCostHandler = () => void; // show reasoner cost tracking
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -309,6 +313,10 @@ export class InputReader {
   private priorityQueueHandler: PriorityQueueHandler | null = null;
   private escalationsHandler: EscalationsHandler | null = null;
   private pollStatusHandler: PollStatusHandler | null = null;
+  private driftHandler: DriftHandler | null = null;
+  private goalProgressHandler: GoalProgressHandler | null = null;
+  private poolHandler: PoolHandler | null = null;
+  private reasonerCostHandler: ReasonerCostHandler | null = null;
   private sessionReportHandler: SessionReportHandler | null = null;
   private quietStatusHandler: QuietStatusHandler | null = null;
   private alertLogHandler: AlertLogHandler | null = null;
@@ -656,6 +664,10 @@ export class InputReader {
   onPriorityQueue(handler: PriorityQueueHandler): void { this.priorityQueueHandler = handler; }
   onEscalations(handler: EscalationsHandler): void { this.escalationsHandler = handler; }
   onPollStatus(handler: PollStatusHandler): void { this.pollStatusHandler = handler; }
+  onDrift(handler: DriftHandler): void { this.driftHandler = handler; }
+  onGoalProgress(handler: GoalProgressHandler): void { this.goalProgressHandler = handler; }
+  onPool(handler: PoolHandler): void { this.poolHandler = handler; }
+  onReasonerCost(handler: ReasonerCostHandler): void { this.reasonerCostHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -2167,6 +2179,26 @@ ${BOLD}other:${RESET}
       case "/poll-status":
         if (this.pollStatusHandler) this.pollStatusHandler();
         else console.error(`${DIM}poll-status not available (no TUI)${RESET}`);
+        break;
+
+      case "/drift":
+        if (this.driftHandler) this.driftHandler();
+        else console.error(`${DIM}drift not available (no TUI)${RESET}`);
+        break;
+
+      case "/goal-progress":
+        if (this.goalProgressHandler) this.goalProgressHandler();
+        else console.error(`${DIM}goal-progress not available (no TUI)${RESET}`);
+        break;
+
+      case "/pool":
+        if (this.poolHandler) this.poolHandler();
+        else console.error(`${DIM}pool not available (no TUI)${RESET}`);
+        break;
+
+      case "/reasoner-cost":
+        if (this.reasonerCostHandler) this.reasonerCostHandler();
+        else console.error(`${DIM}reasoner-cost not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

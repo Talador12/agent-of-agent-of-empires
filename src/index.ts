@@ -49,6 +49,10 @@ import { computeFleetForecast, formatFleetForecast } from "./fleet-forecast.js";
 import { rankSessionsByPriority, formatPriorityQueue } from "./session-priority.js";
 import type { SessionPriorityInput } from "./session-priority.js";
 import { EscalationManager } from "./notify-escalation.js";
+import { detectDrift, formatDriftSignals } from "./drift-detector.js";
+import { estimateProgress, formatProgressEstimates } from "./goal-progress.js";
+import { SessionPoolManager } from "./session-pool.js";
+import { ReasonerCostTracker } from "./reasoner-cost.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown, formatTaskExportJson, formatTaskExportMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
@@ -535,6 +539,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     baseIntervalMs: config.pollIntervalMs,
   });
   const escalationManager = new EscalationManager();
+  const sessionPoolManager = new SessionPoolManager();
+  const reasonerCostTracker = new ReasonerCostTracker();
 
   // audit: log daemon start
   audit("daemon_start", `daemon started (v${pkg ?? "dev"}, reasoner=${config.reasoner})`);
@@ -1895,6 +1901,52 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     // wire /poll-status — adaptive poll interval info
     input.onPollStatus(() => {
       tui!.log("system", adaptivePollController.formatStatus());
+    });
+    // wire /drift — goal drift detection
+    input.onDrift(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const sessions = tui!.getSessions();
+      const activeTasks = tasks.filter((t) => t.status === "active");
+      if (activeTasks.length === 0) {
+        tui!.log("system", "drift: no active tasks to check");
+        return;
+      }
+      const signals = activeTasks.map((t) => {
+        const session = sessions.find((s) => s.title === t.sessionTitle);
+        const outputLines = session ? (tui!.getSessionOutput(session.id) ?? []) : [];
+        return detectDrift(t, outputLines.join("\n"));
+      });
+      tui!.log("system", `drift: ${signals.length} session${signals.length !== 1 ? "s" : ""} checked:`);
+      const lines = formatDriftSignals(signals);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /goal-progress — progress estimation
+    input.onGoalProgress(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const sessions = tui!.getSessions();
+      if (tasks.length === 0) {
+        tui!.log("system", "goal-progress: no tasks");
+        return;
+      }
+      const estimates = tasks.map((t) => {
+        const session = sessions.find((s) => s.title === t.sessionTitle);
+        const outputLines = session ? (tui!.getSessionOutput(session.id) ?? []) : [];
+        return estimateProgress(t, outputLines.join("\n"));
+      });
+      tui!.log("system", `goal-progress: ${estimates.length} tasks:`);
+      const lines = formatProgressEstimates(estimates);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /pool — session pool status
+    input.onPool(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const lines = sessionPoolManager.formatStatus(tasks);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /reasoner-cost — reasoner call cost tracking
+    input.onReasonerCost(() => {
+      const lines = reasonerCostTracker.formatSummary();
+      for (const line of lines) tui!.log("system", line);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();
