@@ -102,6 +102,10 @@ The main loop is split into two layers:
 | `src/fleet-sla.ts` | Fleet health SLA monitoring with sliding window + breach alerts |
 | `src/progress-velocity.ts` | Progress velocity tracking + ETA estimation per task |
 | `src/dep-scheduler.ts` | Dependency-aware pool scheduling with capacity limits |
+| `src/observation-cache.ts` | LLM response caching via observation content hashing |
+| `src/fleet-rate-limiter.ts` | Fleet-wide API spend rate limiting (hourly + daily caps) |
+| `src/context-compressor.ts` | Observation compression: summarize old lines, keep recent |
+| `src/recovery-playbook.ts` | Auto-execute recovery steps when health drops |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -129,7 +133,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Twenty-two modules run every daemon tick without LLM calls:
+Twenty-six modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -229,6 +233,21 @@ Twenty-two modules run every daemon tick without LLM calls:
   tasks against dependency graph and pool capacity. Returns activate/block/skip
   actions per task. `/schedule`.
 
+- **Observation cache** (`observation-cache.ts`): SHA-256 content hash
+  deduplication of LLM reasoning calls. 5min TTL, 100 entries max. `/cache`.
+
+- **Fleet rate limiter** (`fleet-rate-limiter.ts`): caps fleet-wide API
+  spend with hourly ($10 default) and daily ($100) limits. Cooldown on
+  breach. `/rate-limit`.
+
+- **Context compressor** (`context-compressor.ts`): compresses old observation
+  lines into scored summaries, keeping recent lines detailed. Fits within
+  token budgets. Used pre-reasoning to reduce LLM context.
+
+- **Recovery playbook** (`recovery-playbook.ts`): auto-execute recovery
+  steps when health drops. 4-step default: nudge → restart → pause → escalate.
+  Resets on health recovery, respects maxRetries. `/recovery`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter for change-gated modules. SLA, velocity, adaptive
 poll, and fleet snapshots run in the main loop after each tick.
@@ -244,7 +263,7 @@ poll, and fleet snapshots run in the main loop after each tick.
    changes are available (inside the `if (intelligence && ...)` block).
 
 ### Testing
-- 3038 unit tests across 60+ files, `node:test` (stdlib, zero deps)
+- 3083 unit tests across 64+ files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

@@ -122,6 +122,9 @@ export type AnomalyHandler = () => void; // show anomaly detection results
 export type SlaHandler = () => void; // show fleet health SLA status
 export type VelocityHandler = () => void; // show progress velocity + ETA
 export type ScheduleHandler = () => void; // show dependency-aware scheduling actions
+export type CacheHandler = () => void; // show observation cache stats
+export type RateLimitHandler = () => void; // show fleet rate limit status
+export type RecoveryHandler = () => void; // show recovery playbook states
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -325,6 +328,9 @@ export class InputReader {
   private slaHandler: SlaHandler | null = null;
   private velocityHandler: VelocityHandler | null = null;
   private scheduleHandler: ScheduleHandler | null = null;
+  private cacheHandler: CacheHandler | null = null;
+  private rateLimitHandler: RateLimitHandler | null = null;
+  private recoveryHandler: RecoveryHandler | null = null;
   private sessionReportHandler: SessionReportHandler | null = null;
   private quietStatusHandler: QuietStatusHandler | null = null;
   private alertLogHandler: AlertLogHandler | null = null;
@@ -680,6 +686,9 @@ export class InputReader {
   onSla(handler: SlaHandler): void { this.slaHandler = handler; }
   onVelocity(handler: VelocityHandler): void { this.velocityHandler = handler; }
   onSchedule(handler: ScheduleHandler): void { this.scheduleHandler = handler; }
+  onCache(handler: CacheHandler): void { this.cacheHandler = handler; }
+  onRateLimit(handler: RateLimitHandler): void { this.rateLimitHandler = handler; }
+  onRecovery(handler: RecoveryHandler): void { this.recoveryHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -2231,6 +2240,21 @@ ${BOLD}other:${RESET}
       case "/schedule":
         if (this.scheduleHandler) this.scheduleHandler();
         else console.error(`${DIM}schedule not available (no TUI)${RESET}`);
+        break;
+
+      case "/cache":
+        if (this.cacheHandler) this.cacheHandler();
+        else console.error(`${DIM}cache not available (no TUI)${RESET}`);
+        break;
+
+      case "/rate-limit":
+        if (this.rateLimitHandler) this.rateLimitHandler();
+        else console.error(`${DIM}rate-limit not available (no TUI)${RESET}`);
+        break;
+
+      case "/recovery":
+        if (this.recoveryHandler) this.recoveryHandler();
+        else console.error(`${DIM}recovery not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

@@ -58,6 +58,9 @@ import type { SessionMetrics } from "./anomaly-detector.js";
 import { FleetSlaMonitor } from "./fleet-sla.js";
 import { ProgressVelocityTracker } from "./progress-velocity.js";
 import { computeSchedulingActions, formatSchedulingActions } from "./dep-scheduler.js";
+import { ObservationCache } from "./observation-cache.js";
+import { FleetRateLimiter } from "./fleet-rate-limiter.js";
+import { RecoveryPlaybookManager } from "./recovery-playbook.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown, formatTaskExportJson, formatTaskExportMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
@@ -548,6 +551,9 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const reasonerCostTracker = new ReasonerCostTracker();
   const fleetSlaMonitor = new FleetSlaMonitor();
   const progressVelocityTracker = new ProgressVelocityTracker();
+  const observationCache = new ObservationCache();
+  const fleetRateLimiter = new FleetRateLimiter();
+  const recoveryPlaybookManager = new RecoveryPlaybookManager();
 
   // audit: log daemon start
   audit("daemon_start", `daemon started (v${pkg ?? "dev"}, reasoner=${config.reasoner})`);
@@ -1986,6 +1992,21 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const tasks = taskManager?.tasks ?? [];
       const actions = computeSchedulingActions(tasks, sessionPoolManager.getStatus(tasks).maxConcurrent);
       const lines = formatSchedulingActions(actions);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /cache — observation cache stats
+    input.onCache(() => {
+      const lines = observationCache.formatStats();
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /rate-limit — fleet rate limit status
+    input.onRateLimit(() => {
+      const lines = fleetRateLimiter.formatStatus();
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /recovery — recovery playbook states
+    input.onRecovery(() => {
+      const lines = recoveryPlaybookManager.formatAll();
       for (const line of lines) tui!.log("system", line);
     });
     input.onCostSummary(() => {
