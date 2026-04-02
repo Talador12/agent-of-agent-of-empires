@@ -812,7 +812,9 @@ export function parseCliArgs(argv: string[]): {
     }
   }
 
-  return { overrides, help, version, register: false, testContext: false, runTest: false, showTasks: false, showTasksJson: false, runProgress: false, progressSince: undefined, progressJson: false, runHealth: false, healthJson: false, runSummary: false, runAdopt: false, adoptTemplate: undefined, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined, runIncident: false, incidentSince: undefined, incidentLimit: undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined, incidentIntervalMs: undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined, supervisorLimit: undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined, supervisorIntervalMs: undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runBackup: false, backupOutput: undefined as string | undefined, runRestore: false, restoreInput: undefined as string | undefined, runSync: false, syncAction: undefined as string | undefined, syncRemote: undefined as string | undefined, runWeb: false, webPort: undefined as number | undefined, runLogs: false, logsActions: false, logsGrep: undefined, logsCount: undefined, runExport: false, exportFormat: undefined, exportOutput: undefined, exportLast: undefined, exportTasks: false, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined, runStats: false, statsLast: undefined, runReplay: false, replaySpeed: undefined, replayLast: undefined };
+  // reuse defaults object — avoids the bug class where a new CLI flag is added to
+  // defaults but forgotten in this fallback return (caused exportTasks missing bug earlier)
+  return { ...defaults, help, version, register, testContext, runTest, showTasks, runInit, initForce, runTaskCli, registerTitle };
 }
 
 export function printHelp() {
