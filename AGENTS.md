@@ -126,6 +126,10 @@ The main loop is split into two layers:
 | `src/approval-workflow.ts` | Route low-confidence decisions through approval queue |
 | `src/goal-refiner.ts` | Learn from completed tasks to suggest goal improvements |
 | `src/fleet-export.ts` | Generate self-contained HTML fleet report |
+| `src/service-generator.ts` | Generate systemd/launchd service files for boot start |
+| `src/cli-completions.ts` | Shell autocomplete scripts (bash, zsh, fish) |
+| `src/session-replay.ts` | Replay session activity timeline from audit trail |
+| `src/workflow-engine.ts` | Multi-session workflow DAG with fan-out/fan-in stages |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -305,7 +309,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
    changes are available (inside the `if (intelligence && ...)` block).
 
 ### Testing
-- 3304 unit + integration tests across 86+ files, `node:test` (stdlib, zero deps)
+- 3332 unit + integration tests across 90+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,

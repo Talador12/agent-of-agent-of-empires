@@ -8,78 +8,60 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v1.0.0
+## Version: v1.1.0
 
-## v1.0.0 — The Milestone Release
+## Current Focus
 
-This is it. From scaffolding to a fully autonomous fleet operations platform in 212+ releases.
+The v1.0 milestone is shipped. v1.1 adds production infrastructure: service files for boot start, shell completions, session replay, and workflow orchestration.
 
-### What v1.0.0 ships
-- **51 intelligence modules** running without LLM calls
-- **55 TUI slash commands** for real-time fleet management
-- **7-gate autonomous reasoning pipeline**: rate limit → cache → priority filter → compress → LLM → approval gate → cost track
-- **Autonomous recovery**: health-based playbook with nudge → restart → pause → escalate
-- **Autonomous scheduling**: dependency-aware task activation with pool limits
-- **Session graduation**: trust ladder — sessions earn their way from confirm → auto
-- **Approval workflow**: destructive + low-confidence actions gated through human review
-- **Goal refinement**: learns from completed tasks to suggest improvements
-- **3304 tests** (unit + integration), zero runtime dependencies
-- **Bug fixes**: session error state misdetection (idle UI chrome no longer triggers false errors), dashboard task-session linking
+### What shipped in v1.1.0
 
-### What shipped in v1.0.0
+**v1.1.0 — Production Infrastructure: Service Files, Completions, Replay, Workflows**:
+- `generateSystemdUnit()` + `generateLaunchdPlist()`: auto-detect platform and generate appropriate service file. systemd unit with `Restart=on-failure`, journal logging, env vars. launchd plist with `RunAtLoad`, `KeepAlive`, throttle interval. `installService()` writes file + returns copy/enable/start instructions. `aoaoe service` CLI command (ready to wire).
+- `generateCompletion("bash"|"zsh"|"fish")`: shell autocomplete for all 18 CLI commands, 14 CLI flags, and 55 TUI slash commands. Bash uses `compgen`/`COMPREPLY`, zsh uses `_describe`/`compdef`, fish uses `complete -c`. `aoaoe completions <shell>` CLI command (ready to wire).
+- `buildSessionReplay()`: reconstructs a session's activity timeline from the audit trail. Produces chronological events with icons, time gaps, and type-based summaries. `formatReplay()` for detailed view, `summarizeReplay()` for quick post-mortem overview. `/replay <name>` TUI command (ready to wire).
+- `WorkflowEngine`: define multi-session workflows as a DAG of stages. Stages execute sequentially; tasks within a stage execute in parallel (fan-out). `advanceWorkflow()` checks live task states and auto-activates next stage when all tasks complete (fan-in). Detects stage failures. `formatWorkflow()` for ASCII visualization. `/workflow` TUI command (ready to wire).
 
-**v1.0.0 — Production Release: Bug Fixes + Integration Tests + v1 Tag**:
-- **Fixed: session error state misdetection** — `Poller.correctErrorMisdetection()` cross-references AoE's reported "error" status with actual pane output. If the output looks like normal opencode idle chrome (model info, token counts, prompt chars, box-drawing) with no real error indicators (error:, panic, FATAL, stack trace, Traceback), overrides to "idle". 9 new tests.
-- **Fixed: dashboard task-session linking** — session table now falls back to task manager goal when `currentTask` is empty, showing `[~] implement auth` instead of `-`.
-- **Integration test suite** (v0.211.0): 28 tests proving the full autonomous pipeline works end-to-end.
-- **Version bump**: 0.211.0 → 1.0.0
+New files: `src/service-generator.ts`, `src/cli-completions.ts`, `src/session-replay.ts`, `src/workflow-engine.ts`
+Test files: 4 matching test files
+Modified: `AGENTS.md`, `claude.md`, `package.json`
+Test changes: +28 new tests, net 3332 tests across 90 files.
 
-Modified: `src/poller.ts`, `src/dashboard.ts`, `AGENTS.md`, `claude.md`, `package.json`
-New file: `src/error-correction.test.ts` (9 tests)
-Net: 3304 tests across 86 files.
-
-### Architecture Summary
+### Full Architecture
 
 ```
-Observation → [Rate Limit] → [Cache] → [Priority Filter] → [Compress] → LLM Reasoner
-    ↓                                                                         ↓
-[Summarize]     [Conflict Detect]     [Goal Detect]     [Budget Enforce]   [Approval Gate]
-    ↓                  ↓                   ↓                  ↓                 ↓
-[Heatmap]      [Auto-Resolve]      [Auto-Complete]     [Auto-Pause]     [Execute Actions]
-    ↓                  ↓                   ↓                  ↓                 ↓
-[Audit]        [Escalation]        [Graduation]        [Cost Track]     [Recovery Playbook]
-    ↓                  ↓                   ↓                  ↓                 ↓
-[Fleet Snap]   [SLA Monitor]      [Velocity Track]    [Dep Scheduler]   [Fleet Utilization]
+                          ┌─ Rate Limit ─┐
+Observation ──────────────┤  Cache       ├── LLM Reasoner
+  │                       │  Priority    │        │
+  │                       │  Compress    │        ▼
+  │                       └──────────────┘  Approval Gate
+  │                                              │
+  ├─ Summarize ── Conflict Detect ── Goal Detect ── Budget Enforce
+  ├─ Heatmap ── Escalation ── Graduation ── Cost Track
+  ├─ Audit ── Fleet Snap ── SLA Monitor ── Velocity
+  ├─ Recovery Playbook ── Dep Scheduler ── Pool Manager
+  └─ Workflow Engine ── Session Replay ── Fleet Export
 ```
 
-### Full Release History
-- v1.0.0: production release — bug fixes, integration tests
+55 intelligence modules. 55 TUI commands. 3332 tests. Zero runtime deps.
+
+### Older versions
+- v1.0.0: production release — bug fixes, integration tests, v1 tag
 - v0.211.0: pipeline integration test suite
-- v0.210.0: deep integration pass 2 — graduation, approval, refiner, export wired
-- v0.209.0: session graduation, approval workflow, goal refinement, fleet HTML export
-- v0.208.0: deep integration — autonomous reasoning pipeline, recovery, scheduling
-- v0.207.0: template auto-detection, fleet search, nudge tracking, smart allocation
-- v0.206.0: session templates, difficulty scoring, smart nudges, fleet utilization
-- v0.205.0: session memory, dep graph viz, approval queue, fleet diff
-- v0.204.0: lifecycle analytics, cost attribution, goal decomposition, priority reasoning
-- v0.203.0: LLM caching, fleet rate limiting, context compression, recovery playbooks
-- v0.202.0: anomaly detection, fleet SLA, velocity tracking, dep scheduling
-- v0.201.0: drift detection, goal progress, session pool, reasoner cost
-- v0.200.0: adaptive poll, fleet forecast, priority queue, notification escalation
-- v0.199.0: budget predictor, task retry, audit search
-- v0.198.0: activity heatmap, audit trail, fleet snapshots, conflict auto-resolution
-- v0.197.0: daemon wiring of intelligence modules
-- v0.196.0: standalone intelligence modules
+- v0.210.0: deep integration pass 2
+- v0.209.0: session graduation, approval workflow, goal refinement, fleet export
+- v0.208.0: deep integration — autonomous reasoning pipeline
+- v0.207.0–v0.196.0: 12 releases building intelligence modules
 - v0.1–v0.195: scaffolding → full orchestration
 
 ## Ideas Backlog (v2.0)
 - **Multi-reasoner support** — different backends for different sessions
-- **Daemon systemd/launchd integration** — generate service files
-- **Session replay from history** — post-mortem timeline replay
-- **Workflow orchestration** — fan-out/fan-in multi-session workflows
-- **A/B reasoning** — compare two reasoner strategies
-- **Cross-repo impact analysis** — detect when one session breaks another
-- **Multi-host fleet dashboard** — aggregate across daemons
-- **CLI completions** — shell autocomplete for commands
-- **Property-based testing** — fuzz modules with random inputs
-- **Web dashboard v2** — real-time browser UI via SSE
+- **A/B reasoning** — compare two reasoner strategies on same observation
+- **Cross-repo impact analysis** — detect when one session breaks another's tests
+- **Multi-host fleet dashboard** — aggregate state across daemons via HTTP
+- **Property-based testing** — fuzz intelligence modules with random inputs
+- **Web dashboard v2** — real-time browser UI via SSE from daemon
+- **Workflow templates** — pre-built workflow definitions for common patterns (CI/CD, feature dev)
+- **Session replay TUI player** — animated step-through with timing
+- **Reasoner plugin system** — load custom reasoner backends as ESM modules
+- **Fleet federation** — coordinate across multiple aoaoe daemons
