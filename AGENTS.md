@@ -364,36 +364,29 @@ Two files per repo:
 - **`AGENTS.md`** (this file) — how to work on this project. Stable, changes slowly.
 - **`claude.md`** — what we're working on. Status, roadmap, what's next. Update every commit.
 
-## Development Session Summary (v0.196 → v1.2.0)
+## Development Session Summary (v0.196 → v2.5.0)
 
-A single extended AI-assisted development session shipped 20 releases:
+A single extended AI-assisted development session shipped ~40 releases:
 
 | Release | Theme | Key Deliverables |
 |---------|-------|------------------|
-| v0.196 | Intelligence Layer | SessionSummarizer, ConflictDetector, GoalDetector, CostBudget |
-| v0.197 | Daemon Wiring | All 4 modules wired into daemonTick loop |
-| v0.198 | Observability | ActivityHeatmap, AuditTrail, FleetSnapshots, ConflictAutoResolve |
-| v0.199 | Predictive Intelligence | BudgetPredictor, TaskRetry, AuditSearch |
-| v0.200 | Autonomy | AdaptivePoll, FleetForecast, SessionPriority, NotifyEscalation |
-| v0.201 | Insight | DriftDetector, GoalProgress, SessionPool, ReasonerCost |
-| v0.202 | Analytics | AnomalyDetector, FleetSLA, ProgressVelocity, DepScheduler |
-| v0.203 | Efficiency | ObservationCache, FleetRateLimiter, ContextCompressor, RecoveryPlaybook |
-| v0.204 | Intelligence Platform | LifecycleAnalytics, CostAttribution, GoalDecomposer, PriorityReasoning |
-| v0.205 | Persistence | SessionMemory, DepGraphViz, ApprovalQueue, FleetDiff |
-| v0.206 | User Experience | SessionTemplates, DifficultyScorer, SmartNudge, FleetUtilization |
-| v0.207 | Automation | TemplateDetector, FleetSearch, NudgeTracker, DifficultyAllocator |
-| v0.208 | Deep Integration | 10 modules wired into autonomous reasoning pipeline |
-| v0.209 | Trust & Learning | SessionGraduation, ApprovalWorkflow, GoalRefiner, FleetExport |
-| v0.210 | Deep Integration 2 | Graduation + approval + refiner + export wired into daemon |
+| v0.196–v0.207 | Intelligence Modules | 51 standalone modules: summarizer, conflicts, goals, budgets, heatmap, audit, snapshots, predictions, retry, search, adaptive poll, forecast, priority, escalation, drift, progress, pool, reasoner cost, anomaly, SLA, velocity, dep-scheduler, cache, rate-limiter, compressor, recovery, lifecycle, cost-attribution, goal-decomposer, priority-reasoning, session-memory, dep-graph, approval-queue, fleet-diff, templates, difficulty, smart-nudge, utilization, template-detector, fleet-search, nudge-tracker, difficulty-allocator |
+| v0.208–v0.210 | Deep Integration | All modules wired into autonomous 8-gate reasoning pipeline + per-tick loop |
 | v0.211 | Integration Tests | 28 pipeline integration tests proving end-to-end wiring |
-| v1.0.0 | Production Release | Bug fixes (error misdetection, dashboard linking), v1 tag |
-| v1.1.0 | Production Infrastructure | ServiceGenerator, CLICompletions, SessionReplay, WorkflowEngine |
-| v1.2.0 | Full Wiring | CLI subcommands + TUI commands + workflow auto-advance |
+| v1.0.0 | Production | Bug fixes (error misdetection, dashboard linking), v1 tag |
+| v1.1–v1.2 | Infrastructure | ServiceGenerator, CLICompletions, SessionReplay, WorkflowEngine + wiring |
+| v1.3 | Quality | README update, 26 property-based fuzz tests (zero bugs) |
+| v1.4–v1.5 | Multi-Reasoner | MultiReasoner routing, WorkflowTemplates, SessionCheckpoints, TokenQuotas + wiring |
+| v1.6–v1.7 | A/B + Workflows | A/B reasoning, workflow cost forecast, workflow chains + wiring |
+| v1.8 | Stress Tests | 16 stress tests across 14 modules (zero bugs) |
+| v1.9–v2.0 | Federation + Alerts | FleetFederation, OutputArchival, RunbookGenerator, CustomAlertRules + wiring, v2 tag |
+| v2.1–v2.2 | DSL + Viz | AlertRuleDSL, HealthForecast, SessionTail, WorkflowViz + wiring |
+| v2.5 | Platform Completion | MetricsExport, AlertComposer, FleetGrep, RunbookExecutor |
 
-**Totals**: 55 source modules, 53 test files, 58 TUI commands, 20 CLI subcommands,
-3332 tests, ~16,000 lines added, zero runtime dependencies.
+**Totals**: 74 source modules, 110 test files, 72 TUI commands, 20 CLI subcommands,
+3491 tests, ~22,000 lines added, zero runtime dependencies.
 
-**Architecture pattern**: each feature was built as a standalone tested module first,
-then wired into the daemon loop in a separate integration pass. This kept each
-commit focused and testable. The autonomous reasoning pipeline has 7 gates:
-rate limit → cache → priority filter → compress → LLM → approval → cost track.
+**Architecture**: standalone module → test → wire into daemon loop → integration test.
+8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →
+compress → LLM → approval → cost+token track. Per-tick: SLA, velocity, recovery,
+dep-scheduler, graduation, workflow, alert rules, fleet utilization, fleet snapshots.
