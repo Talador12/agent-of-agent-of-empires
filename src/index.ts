@@ -102,6 +102,8 @@ import { createTagStore, setTag, formatTagStore } from "./session-tag-manager.js
 import type { SessionTagStore } from "./session-tag-manager.js";
 import { compareSessions, formatComparison } from "./session-compare.js";
 import { buildFleetSummary, formatFleetSummaryText, formatFleetSummaryTui } from "./fleet-summary-report.js";
+import { buildTimeline, formatTimeline } from "./session-timeline.js";
+import { generateChangelog, formatChangelog } from "./fleet-changelog.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -2613,6 +2615,30 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const lines = formatFleetSummaryTui(summary);
       for (const l of lines) tui!.log("system", l);
       tui!.log("system", `  (copy text: ${formatFleetSummaryText(summary).replace(/\n/g, " | ")})`);
+    });
+    // wire /task-timeline — session event timeline
+    input.onTaskTimeline((target) => {
+      const tasks = taskManager?.tasks ?? [];
+      const task = tasks.find((t) => t.sessionTitle.toLowerCase() === target.toLowerCase());
+      if (!task) { tui!.log("system", `timeline: "${target}" not found`); return; }
+      const events = buildTimeline(task);
+      const lines = formatTimeline(task.sessionTitle, events);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /changelog — fleet event changelog
+    input.onChangelog((args) => {
+      const durationStr = args.trim() || "1h";
+      const match = durationStr.match(/^(\d+)(m|h|d)$/);
+      let sinceMs = Date.now() - 3_600_000; // default 1h
+      if (match) {
+        const n = parseInt(match[1], 10);
+        const unit = match[2];
+        const ms = unit === "d" ? n * 86_400_000 : unit === "h" ? n * 3_600_000 : n * 60_000;
+        sinceMs = Date.now() - ms;
+      }
+      const entries = generateChangelog(sinceMs);
+      const lines = formatChangelog(entries, durationStr);
+      for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

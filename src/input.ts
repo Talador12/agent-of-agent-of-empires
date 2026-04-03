@@ -166,6 +166,8 @@ export type SessionDiffHandler = (args: string) => void; // diff session output
 export type SessionTagHandler = (args: string) => void; // set/show session tags
 export type CompareHandler = (args: string) => void; // compare two sessions
 export type FleetReportHandler = () => void; // generate fleet summary report
+export type TaskTimelineHandler = (target: string) => void; // show session task timeline
+export type ChangelogHandler = (args: string) => void; // show fleet changelog
 export type MetricsHandler = () => void; // show Prometheus metrics
 export type FleetGrepHandler = (pattern: string) => void; // grep archived outputs
 export type RunbookExecHandler = () => void; // execute/advance runbook
@@ -823,6 +825,10 @@ export class InputReader {
   onSessionTag(handler: SessionTagHandler): void { this.sessionTagHandler = handler; }
   onCompare(handler: CompareHandler): void { this.compareHandler = handler; }
   onFleetReport(handler: FleetReportHandler): void { this.fleetReportHandler = handler; }
+  private taskTimelineHandler: TaskTimelineHandler | null = null;
+  private changelogHandler: ChangelogHandler | null = null;
+  onTaskTimeline(handler: TaskTimelineHandler): void { this.taskTimelineHandler = handler; }
+  onChangelog(handler: ChangelogHandler): void { this.changelogHandler = handler; }
   onMetrics(handler: MetricsHandler): void { this.metricsHandler = handler; }
   onFleetGrep(handler: FleetGrepHandler): void { this.fleetGrepHandler = handler; }
   onRunbookExec(handler: RunbookExecHandler): void { this.runbookExecHandler = handler; }
@@ -2651,6 +2657,21 @@ ${BOLD}other:${RESET}
         if (this.fleetReportHandler) this.fleetReportHandler();
         else console.error(`${DIM}fleet-report not available (no TUI)${RESET}`);
         break;
+
+      case "/task-timeline": {
+        const tlArg = line.slice("/task-timeline".length).trim();
+        if (!tlArg) { console.error(`${DIM}usage: /task-timeline <session>${RESET}`); break; }
+        if (this.taskTimelineHandler) this.taskTimelineHandler(tlArg);
+        else console.error(`${DIM}task-timeline not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/changelog": {
+        const clArg = line.slice("/changelog".length).trim();
+        if (this.changelogHandler) this.changelogHandler(clArg);
+        else console.error(`${DIM}changelog not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/metrics":
         if (this.metricsHandler) this.metricsHandler();
