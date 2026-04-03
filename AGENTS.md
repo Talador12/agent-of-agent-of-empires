@@ -185,6 +185,9 @@ The main loop is split into two layers:
 | `src/daemon-config-diff.ts` | Track config snapshots, compute field-level diffs (added/removed/changed) |
 | `src/goal-auto-priority.ts` | Rank goals by urgency keywords, impact keywords, deps, age, priority tags |
 | `src/fleet-capacity-forecaster.ts` | Predict pool exhaustion from utilization, queue depth, completion/arrival rates |
+| `src/daemon-watchdog.ts` | Self-recovery on main loop stalls (warn → restart → exit escalation) |
+| `src/fleet-cost-regression.ts` | Alert when per-session cost deviates from historical rolling baseline |
+| `src/goal-cascading.ts` | Parent goals auto-generate child goals with tree structure + auto-completion |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -212,7 +215,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Seventy-two modules run every daemon tick without LLM calls:
+Seventy-five modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -483,6 +486,21 @@ Seventy-two modules run every daemon tick without LLM calls:
   completion/arrival rates. Recommends ok / scale-up / throttle-intake /
   critical. Computes ETA to exhaustion. `/capacity-forecast`.
 
+- **Daemon watchdog** (`daemon-watchdog.ts`): self-recovery if main loop
+  stalls beyond configurable threshold (default 2m). Tracks tick timestamps,
+  detects stalls, escalates: warn (1x) → restart (2x) → exit (3x).
+  Enable/disable, configurable threshold (min 10s). `/watchdog-status`.
+
+- **Fleet cost regression** (`fleet-cost-regression.ts`): alert when
+  per-session cost patterns deviate from historical baseline. Rolling
+  $/hr samples, warning at 50% above baseline, critical at 100%.
+  Skips sessions with negligible baseline. `/cost-regression`.
+
+- **Goal cascading** (`goal-cascading.ts`): parent goals auto-generate
+  child goals across dependent sessions. Tree structure with configurable
+  max depth (default 3). Bottom-up auto-completion propagation — when
+  all children complete, parent auto-completes. `/goal-cascade [add|child]`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -529,7 +547,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3943 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 3982 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -693,6 +711,21 @@ Shipped 3 features in v4.3.0 (37 new tests, 3 modules, 3 TUI commands):
 
 Running total: 114 source modules, 115 TUI commands, 3943 tests, zero runtime deps.
 
+### v4.4.0 Session Response
+
+Shipped 3 features in v4.4.0 (39 new tests, 3 modules, 3 TUI commands):
+1. **`daemon-watchdog.ts`** + 13 tests — Self-recovery on main loop stalls.
+   Tracks tick timestamps, escalates warn → restart (2x) → exit (3x threshold).
+   Enable/disable, configurable threshold (min 10s). `/watchdog-status`.
+2. **`fleet-cost-regression.ts`** + 11 tests — Alert when per-session cost
+   deviates from rolling historical baseline. Warning at 50%, critical at 100%
+   above baseline. Skips negligible baselines. `/cost-regression`.
+3. **`goal-cascading.ts`** + 15 tests — Parent goals auto-generate child goals.
+   Tree structure with max depth (default 3). Bottom-up auto-completion when
+   all children done. `/goal-cascade [add|child]`.
+
+Running total: 117 source modules, 118 TUI commands, 3982 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -728,9 +761,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v4.1 | Security + Compliance | SessionOutputRedaction, FleetComplianceChecker, DaemonPluginHooks |
 | v4.2 | Observability + Safety | FleetIncidentTimeline, SessionOutputBookmarks, DaemonCanaryMode |
 | v4.3 | Intelligence + Planning | DaemonConfigDiff, GoalAutoPriority, FleetCapacityForecaster |
+| v4.4 | Resilience + Hierarchy | DaemonWatchdog, FleetCostRegression, GoalCascading |
 
-**Totals**: 114 source modules, 120+ test files, 115 TUI commands, 20 CLI subcommands,
-3943 tests, ~32,000 lines added, zero runtime dependencies.
+**Totals**: 117 source modules, 120+ test files, 118 TUI commands, 20 CLI subcommands,
+3982 tests, ~33,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

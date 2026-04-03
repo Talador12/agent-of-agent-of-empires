@@ -141,6 +141,9 @@ import { createConfigDiffState, recordConfig, computeConfigDiff as computeDaemon
 import { rankGoals, formatGoalPriority } from "./goal-auto-priority.js";
 import type { GoalPriorityInput } from "./goal-auto-priority.js";
 import { FleetCapacityForecaster, formatCapacityForecast } from "./fleet-capacity-forecaster.js";
+import { createWatchdog, tickWatchdog, formatWatchdog } from "./daemon-watchdog.js";
+import { FleetCostRegression, formatCostRegression } from "./fleet-cost-regression.js";
+import { createCascadeState, addParentGoal, cascadeChild, formatCascadeTree } from "./goal-cascading.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -691,6 +694,9 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const canaryState = createCanaryState();
   const configDiffState = createConfigDiffState();
   const capacityForecaster = new FleetCapacityForecaster();
+  const watchdogState = createWatchdog();
+  const costRegressionDetector = new FleetCostRegression();
+  const cascadeState = createCascadeState();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3101,6 +3107,49 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     input.onCapacityForecast(() => {
       const lines = formatCapacityForecast(capacityForecaster);
       for (const l of lines) tui!.log("system", l);
+    });
+    // wire /watchdog-status — daemon watchdog state
+    input.onWatchdogStatus(() => {
+      const lines = formatWatchdog(watchdogState);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /cost-regression — fleet cost regression alerts
+    input.onCostRegression(() => {
+      const allCosts = tui!.getAllSessionCosts();
+      const currentRates = new Map<string, number>();
+      for (const [title, costStr] of allCosts) {
+        const rate = costThrottleState.burnRates.get(title) ?? 0;
+        currentRates.set(title, rate);
+      }
+      const lines = formatCostRegression(costRegressionDetector, currentRates);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /goal-cascade — goal cascading tree
+    input.onGoalCascade((args) => {
+      const parts = args.split(/\s+/);
+      const subcmd = parts[0] ?? "";
+      if (subcmd === "add" && parts.length >= 3) {
+        const session = parts[1];
+        const goal = parts.slice(2).join(" ");
+        const tasks = taskManager?.tasks ?? [];
+        const task = tasks.find((t) => t.sessionTitle === session);
+        const repo = task?.repo ?? "";
+        const g = addParentGoal(cascadeState, session, goal, repo);
+        tui!.log("system", `goal-cascade: root #${g.id} created for ${session}`);
+      } else if (subcmd === "child" && parts.length >= 4) {
+        const parentId = parseInt(parts[1], 10);
+        const session = parts[2];
+        const goal = parts.slice(3).join(" ");
+        const tasks = taskManager?.tasks ?? [];
+        const task = tasks.find((t) => t.sessionTitle === session);
+        const repo = task?.repo ?? "";
+        const c = cascadeChild(cascadeState, parentId, session, goal, repo);
+        if (c) tui!.log("system", `goal-cascade: child #${c.id} created under #${parentId}`);
+        else tui!.log("system", `goal-cascade: failed (invalid parent or max depth)`);
+      } else {
+        const lines = formatCascadeTree(cascadeState);
+        for (const l of lines) tui!.log("system", l);
+      }
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

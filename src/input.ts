@@ -205,6 +205,9 @@ export type CanaryModeHandler = (args: string) => void; // manage canary mode
 export type ConfigDiffHandler = () => void; // show config diff between reloads
 export type GoalPriorityHandler = () => void; // show auto-prioritized goals
 export type CapacityForecastHandler = () => void; // show fleet capacity forecast
+export type WatchdogStatusHandler = () => void; // show daemon watchdog status
+export type CostRegressionHandler = () => void; // show fleet cost regression alerts
+export type GoalCascadeHandler = (args: string) => void; // manage goal cascading
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -926,6 +929,12 @@ export class InputReader {
   onConfigDiff(handler: ConfigDiffHandler): void { this.configDiffHandler = handler; }
   onGoalPriority(handler: GoalPriorityHandler): void { this.goalPriorityHandler = handler; }
   onCapacityForecast(handler: CapacityForecastHandler): void { this.capacityForecastHandler = handler; }
+  private watchdogStatusHandler: WatchdogStatusHandler | null = null;
+  private costRegressionHandler: CostRegressionHandler | null = null;
+  private goalCascadeHandler: GoalCascadeHandler | null = null;
+  onWatchdogStatus(handler: WatchdogStatusHandler): void { this.watchdogStatusHandler = handler; }
+  onCostRegression(handler: CostRegressionHandler): void { this.costRegressionHandler = handler; }
+  onGoalCascade(handler: GoalCascadeHandler): void { this.goalCascadeHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2975,6 +2984,23 @@ ${BOLD}other:${RESET}
         if (this.capacityForecastHandler) this.capacityForecastHandler();
         else console.error(`${DIM}capacity-forecast not available (no TUI)${RESET}`);
         break;
+
+      case "/watchdog-status":
+        if (this.watchdogStatusHandler) this.watchdogStatusHandler();
+        else console.error(`${DIM}watchdog-status not available (no TUI)${RESET}`);
+        break;
+
+      case "/cost-regression":
+        if (this.costRegressionHandler) this.costRegressionHandler();
+        else console.error(`${DIM}cost-regression not available (no TUI)${RESET}`);
+        break;
+
+      case "/goal-cascade": {
+        const gcArg = line.slice("/goal-cascade".length).trim();
+        if (this.goalCascadeHandler) this.goalCascadeHandler(gcArg);
+        else console.error(`${DIM}goal-cascade not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");
