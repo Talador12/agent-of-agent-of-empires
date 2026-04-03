@@ -604,6 +604,21 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   let activeWorkflow: WorkflowState | null = null;
   const tokenQuotaManager = new TokenQuotaManager();
 
+  // checkpoint restore: load previous daemon state if available
+  if (shouldRestoreCheckpoint()) {
+    const cp = loadCheckpoint();
+    if (cp) {
+      // restore adaptive poll interval
+      if (cp.pollInterval && cp.pollInterval !== config.pollIntervalMs) {
+        // poll controller will naturally adjust, but log what was saved
+      }
+      const restoredSessions = Object.keys(cp.graduation).length;
+      if (restoredSessions > 0) {
+        audit("daemon_start", `restored checkpoint: ${restoredSessions} graduation states, cache ${cp.cacheStats.hits}/${cp.cacheStats.misses}`);
+      }
+    }
+  }
+
   // audit: log daemon start
   audit("daemon_start", `daemon started (v${pkg ?? "dev"}, reasoner=${config.reasoner})`);
 

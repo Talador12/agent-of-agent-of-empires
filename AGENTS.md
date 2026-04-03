@@ -134,6 +134,9 @@ The main loop is split into two layers:
 | `src/workflow-templates.ts` | Pre-built workflow definitions (CI/CD, feature-dev, refactor, incident) |
 | `src/session-checkpoint.ts` | Save + restore transient daemon state across restarts |
 | `src/token-quota.ts` | Per-model token quotas for fleet-wide rate limiting |
+| `src/ab-reasoning.ts` | A/B reasoning: compare two backends, track which wins |
+| `src/workflow-cost-forecast.ts` | Estimate workflow cost from difficulty + historical rates |
+| `src/workflow-chain.ts` | Chain workflows with cross-workflow dependencies |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -322,7 +325,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3387 unit + integration + property tests across 95+ files, `node:test` (stdlib, zero deps)
+- 3409 unit + integration + property tests across 98+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
