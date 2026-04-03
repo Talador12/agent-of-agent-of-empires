@@ -5,16 +5,23 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v5.3.0
+## Version: v5.4.0
+
+## What shipped in v5.4.0
+
+**v5.4.0 — Output Dedup, Config Migration, Progress Prediction**:
+- `session-output-dedup.ts`: Detect and collapse consecutive repeated lines with count (×N). Configurable min-repeat threshold. Compression stats. **`/output-dedup <session>`** command.
+- `daemon-config-migration.ts`: Auto-upgrade config files through 4 sequential migrations (v1→v5). Renames, restructures, normalizes. Version detection heuristics. **`/config-migrate`** command.
+- `goal-progress-prediction.ts`: ML-free statistical completion prediction. Linear extrapolation (insufficient data) or historical blending (3+ samples). Confidence scoring, percentile ranking. **`/progress-predict`** command.
+
+148 TUI commands. 147 source modules. 4346 tests. 0 runtime deps.
 
 ## What shipped in v5.3.0
 
 **v5.3.0 — Webhook Integrations, Structured Log, State Export**:
-- `fleet-webhook-integrations.ts`: Format fleet events as Slack Block Kit, Teams Adaptive Card, Discord embed, or generic JSON. Templates for completions, errors, handoffs, digests. **`/webhook-preview [slack|teams|discord]`** command.
-- `session-structured-log.ts`: Parse output into 8 structured event types (test-result, build-result, git-operation, error, cost-update, progress, prompt, unknown). ANSI stripping, type counting. **`/structured-log`** command.
-- `daemon-state-portable.ts`: Export/import daemon state as self-contained JSON. Config sanitization (secrets redacted), metadata (hostname, node, platform), validation on import. **`/state-export`** command.
-
-145 TUI commands. 144 source modules. 4309 tests. 0 runtime deps.
+- `fleet-webhook-integrations.ts`: Slack/Teams/Discord payloads. **`/webhook-preview`** command.
+- `session-structured-log.ts`: 8 event type output parser. **`/structured-log`** command.
+- `daemon-state-portable.ts`: Portable state export. **`/state-export`** command.
 
 ## What shipped in v5.2.0
 
@@ -23,14 +30,7 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - `goal-nl-parser.ts`: NL goal extraction. **`/parse-goal`** command.
 - `daemon-hot-swap.ts`: Module hot-swapping. **`/hot-swap`** command.
 
-## What shipped in v5.1.0
-
-**v5.1.0 — Goal Celebration, Fleet Readiness, Process Supervisor**:
-- `goal-celebration.ts`: Achievement badges. **`/celebrate`** command.
-- `fleet-readiness-score.ts`: Production readiness. **`/readiness`** command.
-- `daemon-process-supervisor.ts`: Crash recovery. **`/supervisor`** command.
-
-## Ideas Backlog (v5.4+)
+## Ideas Backlog (v5.5+)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
@@ -57,12 +57,11 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Fleet time-travel** — rewind to any snapshot and compare
 - **Fleet session migration** — move sessions between hosts
 - **Daemon plugin marketplace** — discover and install community hooks
-- **Session resource limiter** — CPU/memory cgroup limits per pane
-- **Fleet cost attribution report** — HTML report by team/repo/tag
-- **Goal dependency visualizer v2** — interactive browser-based DAG
 - **Goal templating engine** — Mustache-style templates with variables
 - **Fleet multi-tenant isolation** — separate namespaces per team
-- **Session output deduplication** — detect and collapse repeated output lines
-- **Daemon config migration** — auto-upgrade config files between versions
 - **Fleet session tagging taxonomy** — hierarchical tag system with inheritance
-- **Goal progress prediction model** — ML-free statistical completion prediction
+- **Session output knowledge graph** — extract entities from output for querying
+- **Fleet operational dashboard CLI** — ncurses-style full-screen fleet monitor
+- **Goal dependency auto-repair** — fix broken dep chains from completed/removed tasks
+- **Daemon memory profiler** — track per-module memory usage over time
+- **Session output pattern evolution** — detect when output patterns change over time

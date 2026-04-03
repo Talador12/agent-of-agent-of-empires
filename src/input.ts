@@ -235,6 +235,9 @@ export type HotSwapHandler = (args: string) => void; // manage module hot-swappi
 export type WebhookPreviewHandler = (args: string) => void; // preview webhook payloads
 export type StructuredLogHandler = () => void; // parse output into structured events
 export type StateExportHandler = () => void; // export daemon state
+export type OutputDedupHandler = (session: string) => void; // deduplicate session output
+export type ConfigMigrateHandler = () => void; // migrate config to latest version
+export type ProgressPredictHandler = () => void; // predict goal completion times
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1016,6 +1019,12 @@ export class InputReader {
   onWebhookPreview(handler: WebhookPreviewHandler): void { this.webhookPreviewHandler = handler; }
   onStructuredLog(handler: StructuredLogHandler): void { this.structuredLogHandler = handler; }
   onStateExport(handler: StateExportHandler): void { this.stateExportHandler = handler; }
+  private outputDedupHandler: OutputDedupHandler | null = null;
+  private configMigrateHandler: ConfigMigrateHandler | null = null;
+  private progressPredictHandler: ProgressPredictHandler | null = null;
+  onOutputDedup(handler: OutputDedupHandler): void { this.outputDedupHandler = handler; }
+  onConfigMigrate(handler: ConfigMigrateHandler): void { this.configMigrateHandler = handler; }
+  onProgressPredict(handler: ProgressPredictHandler): void { this.progressPredictHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3232,6 +3241,24 @@ ${BOLD}other:${RESET}
       case "/state-export":
         if (this.stateExportHandler) this.stateExportHandler();
         else console.error(`${DIM}state-export not available (no TUI)${RESET}`);
+        break;
+
+      case "/output-dedup": {
+        const odArg = line.slice("/output-dedup".length).trim();
+        if (!odArg) { console.error(`${DIM}usage: /output-dedup <session>${RESET}`); break; }
+        if (this.outputDedupHandler) this.outputDedupHandler(odArg);
+        else console.error(`${DIM}output-dedup not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/config-migrate":
+        if (this.configMigrateHandler) this.configMigrateHandler();
+        else console.error(`${DIM}config-migrate not available (no TUI)${RESET}`);
+        break;
+
+      case "/progress-predict":
+        if (this.progressPredictHandler) this.progressPredictHandler();
+        else console.error(`${DIM}progress-predict not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

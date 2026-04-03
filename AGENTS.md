@@ -215,6 +215,9 @@ The main loop is split into two layers:
 | `src/fleet-webhook-integrations.ts` | Slack/Teams/Discord/generic webhook payload formatting |
 | `src/session-structured-log.ts` | Parse output into 8 structured event types with ANSI stripping |
 | `src/daemon-state-portable.ts` | Portable daemon state export/import with secret sanitization |
+| `src/session-output-dedup.ts` | Detect and collapse consecutive repeated output lines (×N count) |
+| `src/daemon-config-migration.ts` | Auto-upgrade config through 4 sequential migrations (v1→v5) |
+| `src/goal-progress-prediction.ts` | ML-free statistical completion prediction (linear + historical blend) |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -242,7 +245,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-One hundred and two modules run every daemon tick without LLM calls:
+One hundred and five modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -671,6 +674,25 @@ One hundred and two modules run every daemon tick without LLM calls:
   redacted), metadata (hostname, node version, platform), import
   validation. `/state-export`.
 
+- **Session output dedup** (`session-output-dedup.ts`): detect and collapse
+  consecutive repeated output lines. Shows repeat count (×N). Configurable
+  min-repeat threshold (default 2). Compression stats (% saved, runs
+  collapsed). `/output-dedup <session>`.
+
+- **Daemon config migration** (`daemon-config-migration.ts`): auto-upgrade
+  config files through 4 sequential migrations (v1.0→v5.0). Handles
+  field renames (pollInterval→pollIntervalMs), restructuring (verbose→
+  logging.verbose), normalization (claude→claude-code), and new block
+  additions (costBudgets, healthPort, sessionPool, pluginHooks). Version
+  detection via explicit field or heuristics. `/config-migrate`.
+
+- **Goal progress prediction** (`goal-progress-prediction.ts`): ML-free
+  statistical completion prediction. Uses linear extrapolation when
+  insufficient historical data (<3 samples), blends linear + historical
+  median when data is available (60/40 weight). Confidence scoring based
+  on data size + progress %. Percentile ranking against historical
+  completions. `/progress-predict`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -717,7 +739,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4309 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4346 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -1044,6 +1066,21 @@ Batch 2 — v5.3.0 (34 tests, 3 modules):
 
 Running total: 144 source modules, 145 TUI commands, 4309 tests, zero runtime deps.
 
+### v5.4.0 Session Response
+
+Shipped 3 features in v5.4.0 (37 new tests, 3 modules, 3 TUI commands):
+1. **`session-output-dedup.ts`** + 12 tests — Collapse consecutive repeated
+   output lines with count (×N). Configurable min-repeat threshold.
+   Compression stats. `/output-dedup <session>`.
+2. **`daemon-config-migration.ts`** + 13 tests — Auto-upgrade config through
+   4 sequential migrations (v1→v5). Field renames, restructuring,
+   normalization, new blocks. Version detection heuristics. `/config-migrate`.
+3. **`goal-progress-prediction.ts`** + 12 tests — ML-free statistical
+   completion prediction. Linear extrapolation + historical blending.
+   Confidence scoring, percentile ranking. `/progress-predict`.
+
+Running total: 147 source modules, 148 TUI commands, 4346 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -1089,9 +1126,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v5.1 | Celebration + Readiness | GoalCelebration, FleetReadinessScore, DaemonProcessSupervisor |
 | v5.2 | Digest + NLP + Hot-Swap | FleetDailyDigest, GoalNLParser, DaemonHotSwap |
 | v5.3 | Webhooks + Logs + Export | FleetWebhookIntegrations, SessionStructuredLog, DaemonStatePortable |
+| v5.4 | Dedup + Migration + Prediction | SessionOutputDedup, DaemonConfigMigration, GoalProgressPrediction |
 
-**Totals**: 144 source modules, 120+ test files, 145 TUI commands, 20 CLI subcommands,
-4309 tests, ~42,000 lines added, zero runtime dependencies.
+**Totals**: 147 source modules, 120+ test files, 148 TUI commands, 20 CLI subcommands,
+4346 tests, ~43,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

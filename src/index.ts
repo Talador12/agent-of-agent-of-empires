@@ -181,6 +181,9 @@ import { formatWebhookPreview } from "./fleet-webhook-integrations.js";
 import type { WebhookEvent, WebhookPlatform } from "./fleet-webhook-integrations.js";
 import { parseOutputLines, formatStructuredLog } from "./session-structured-log.js";
 import { exportState, formatStateExport } from "./daemon-state-portable.js";
+import { deduplicateOutput, formatDedup } from "./session-output-dedup.js";
+import { migrateConfig, formatMigration } from "./daemon-config-migration.js";
+import { GoalProgressPredictor, formatPredictions } from "./goal-progress-prediction.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -742,6 +745,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const outputAnnotationState = createAnnotationState();
   const processSupervisorState = createSupervisor();
   const hotSwapState = createHotSwapState();
+  const progressPredictor = new GoalProgressPredictor();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3542,6 +3546,36 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         moduleCount: 144, commandCount: 145, testCount: 4275,
       });
       const lines = formatStateExport(state);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /output-dedup — deduplicate session output
+    input.onOutputDedup((sessionArg) => {
+      const output = tui!.getSessionOutput(sessionArg) ?? [];
+      const result = deduplicateOutput(output);
+      const lines = formatDedup(result);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /config-migrate — auto-upgrade config
+    input.onConfigMigrate(() => {
+      const result = migrateConfig(config as unknown as Record<string, unknown>);
+      const lines = formatMigration(result);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /progress-predict — statistical completion prediction
+    input.onProgressPredict(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const active = tasks.filter((t) => t.status === "active");
+      const predictions = active.map((t) => {
+        const vel = progressVelocityTracker.estimate(t.sessionTitle);
+        return progressPredictor.predict({
+          sessionTitle: t.sessionTitle,
+          goal: t.goal,
+          currentProgressPct: Math.min(100, t.progress.length * 15),
+          elapsedHours: t.createdAt ? (Date.now() - t.createdAt) / 3_600_000 : 0,
+          errorCount: 0,
+        });
+      });
+      const lines = formatPredictions(predictions);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
