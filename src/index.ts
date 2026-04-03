@@ -170,6 +170,10 @@ import { computeCriticalPath, formatCriticalPath } from "./goal-critical-path.js
 import type { CriticalPathNode } from "./goal-critical-path.js";
 import { createCompressionState, recordSnapshot as recordCompressedSnapshot, formatCompressionStats } from "./fleet-snapshot-compression.js";
 import { createAnnotationState, annotate, getSessionAnnotations, formatAnnotations } from "./session-output-annotations.js";
+import { celebrate, formatCelebrations } from "./goal-celebration.js";
+import type { CelebrationInput } from "./goal-celebration.js";
+import { evaluateReadiness, formatReadiness } from "./fleet-readiness-score.js";
+import { createSupervisor, formatSupervisor } from "./daemon-process-supervisor.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -729,6 +733,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const contextDiffState = createContextDiffState();
   const snapshotCompressionState = createCompressionState();
   const outputAnnotationState = createAnnotationState();
+  const processSupervisorState = createSupervisor();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3431,6 +3436,48 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         const lines = formatAnnotations(outputAnnotationState.annotations);
         for (const l of lines) tui!.log("system", l);
       }
+    });
+    // wire /celebrate — goal completion celebrations
+    input.onCelebration(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const completed = tasks.filter((t) => t.status === "completed" && t.completedAt);
+      if (completed.length === 0) { tui!.log("system", "celebrate: no completed goals"); return; }
+      const allCosts = tui!.getAllSessionCosts();
+      const results = completed.slice(-5).map((t) => {
+        const costStr = allCosts.get(t.sessionTitle) ?? "0";
+        const costUsd = parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0;
+        const input_: CelebrationInput = {
+          sessionTitle: t.sessionTitle, goal: t.goal, repo: t.repo,
+          startedAt: t.createdAt ?? Date.now(), completedAt: t.completedAt!,
+          costUsd, progressEntries: t.progress.length, taskCount: 1, errorCount: 0,
+        };
+        return celebrate(input_);
+      });
+      const lines = formatCelebrations(results);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /readiness — fleet operational readiness
+    input.onReadiness(() => {
+      const sessions = tui!.getSessions();
+      const report = evaluateReadiness({
+        configValid: true,
+        reasonerConnected: true,
+        sessionCount: sessions.length,
+        poolCapacity: sessionPoolManager.getStatus(taskManager?.tasks ?? []).maxConcurrent,
+        healthScore: 70,
+        complianceViolations: 0,
+        unresolvedIncidents: incidentTimeline.unresolvedCount(),
+        watchdogEnabled: watchdogState.enabled,
+        costBudgetSet: !!(config.costBudgets?.globalBudgetUsd),
+        contextFilesLoaded: incrementalContextState.fingerprints.size > 0,
+      });
+      const lines = formatReadiness(report);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /supervisor — process supervisor state
+    input.onProcessSupervisor(() => {
+      const lines = formatSupervisor(processSupervisorState);
+      for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

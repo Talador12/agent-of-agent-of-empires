@@ -226,6 +226,9 @@ export type AnomalyCorrelationHandler = () => void; // show correlated anomalies
 export type CriticalPathHandler = () => void; // show goal dependency critical path
 export type SnapshotCompressionHandler = () => void; // show snapshot compression stats
 export type OutputAnnotationsHandler = (args: string) => void; // manage output annotations
+export type CelebrationHandler = () => void; // show goal completion celebrations
+export type ReadinessHandler = () => void; // show fleet operational readiness score
+export type ProcessSupervisorHandler = () => void; // show process supervisor state
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -989,6 +992,12 @@ export class InputReader {
   onCriticalPath(handler: CriticalPathHandler): void { this.criticalPathHandler = handler; }
   onSnapshotCompression(handler: SnapshotCompressionHandler): void { this.snapshotCompressionHandler = handler; }
   onOutputAnnotations(handler: OutputAnnotationsHandler): void { this.outputAnnotationsHandler = handler; }
+  private celebrationHandler: CelebrationHandler | null = null;
+  private readinessHandler: ReadinessHandler | null = null;
+  private processSupervisorHandler: ProcessSupervisorHandler | null = null;
+  onCelebration(handler: CelebrationHandler): void { this.celebrationHandler = handler; }
+  onReadiness(handler: ReadinessHandler): void { this.readinessHandler = handler; }
+  onProcessSupervisor(handler: ProcessSupervisorHandler): void { this.processSupervisorHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3154,6 +3163,21 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}annotate not available (no TUI)${RESET}`);
         break;
       }
+
+      case "/celebrate":
+        if (this.celebrationHandler) this.celebrationHandler();
+        else console.error(`${DIM}celebrate not available (no TUI)${RESET}`);
+        break;
+
+      case "/readiness":
+        if (this.readinessHandler) this.readinessHandler();
+        else console.error(`${DIM}readiness not available (no TUI)${RESET}`);
+        break;
+
+      case "/supervisor":
+        if (this.processSupervisorHandler) this.processSupervisorHandler();
+        else console.error(`${DIM}supervisor not available (no TUI)${RESET}`);
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

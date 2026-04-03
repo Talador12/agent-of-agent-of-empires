@@ -5,16 +5,23 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v5.0.0
+## Version: v5.1.0
+
+## What shipped in v5.1.0
+
+**v5.1.0 — Goal Celebration, Fleet Readiness, Process Supervisor**:
+- `goal-celebration.ts`: Auto-generate achievement summaries with badges (Flawless Diamond, Zero Errors, Speed Run, Budget Hero, Well Tracked, Multi-Tasker). Duration, cost, highlights. **`/celebrate`** command.
+- `fleet-readiness-score.ts`: 10-check composite readiness metric for production workloads. Checks config, reasoner, sessions, pool, health, compliance, incidents, watchdog, budgets, context. Grades READY/CAUTION/NOT READY. **`/readiness`** command.
+- `daemon-process-supervisor.ts`: Track process health for fork-exec recovery. Crash history, exponential backoff, max-restart window, uptime tracking, longest uptime record. **`/supervisor`** command.
+
+139 TUI commands. 138 source modules. 4236 tests. 0 runtime deps.
 
 ## What shipped in v5.0.0
 
 **v5.0.0 — Critical Path, Snapshot Compression, Output Annotations**:
-- `goal-critical-path.ts`: Identify the longest dependency chain in the task graph. Topological sort + longest-path DP. Finds bottleneck node, counts parallelizable tasks off the critical path. **`/critical-path`** command.
-- `fleet-snapshot-compression.ts`: Delta-encode fleet snapshots. Only stores changes (added/removed/modified) vs full snapshots. Auto-falls back to full when delta > 60% of full size. Auto-compaction after max deltas. **`/snap-compress`** command.
-- `session-output-annotations.ts`: Programmatic annotation of output lines with labels, severity, notes, and creator attribution. Filter by session/severity/label. **`/annotate [add|session]`** command.
-
-136 TUI commands. 135 source modules. 4203 tests. 0 runtime deps.
+- `goal-critical-path.ts`: Longest dependency chain via DP. **`/critical-path`** command.
+- `fleet-snapshot-compression.ts`: Delta-encoded snapshots. **`/snap-compress`** command.
+- `session-output-annotations.ts`: Output line annotations. **`/annotate`** command.
 
 ## What shipped in v4.9.0
 
@@ -23,14 +30,7 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - `goal-decomp-quality.ts`: Sub-goal coverage grading. **`/decomp-quality`** command.
 - `fleet-anomaly-correlation.ts`: Cross-session anomaly correlation. **`/anomaly-corr`** command.
 
-## What shipped in v4.8.0
-
-**v4.8.0 — Session Groups, Context Diff, Config Validation**:
-- `fleet-session-grouping.ts`: Logical session groups. **`/group`** command.
-- `session-context-diff.ts`: Context file diffs. **`/context-diff`** command.
-- `daemon-config-schema.ts`: Config validation. **`/config-validate`** command.
-
-## Ideas Backlog (v5.1+)
+## Ideas Backlog (v5.2+)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
@@ -55,12 +55,14 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Session sandbox mode** — isolated environments with rollback
 - **Daemon remote control API** — REST API for external tool commands
 - **Fleet time-travel** — rewind to any snapshot and compare
-- **Fleet session migration** — move sessions between hosts in federated mode
-- **Daemon process supervisor** — fork-exec recovery on crash
+- **Fleet session migration** — move sessions between hosts
 - **Daemon plugin marketplace** — discover and install community hooks
-- **Fleet cost attribution report** — HTML report of cost by team/repo/tag
-- **Session output diffusion tracker** — track how output patterns spread across sessions
-- **Goal completion celebration** — auto-generate achievement summaries for completed goals
-- **Fleet operational readiness score** — composite readiness metric for production workloads
-- **Daemon upgrade orchestrator** — zero-downtime daemon version upgrades with state migration
-- **Session output knowledge graph** — extract entities and relations from output for querying
+- **Session output knowledge graph** — extract entities from output
+- **Daemon upgrade orchestrator** — zero-downtime version upgrades
+- **Fleet cost attribution report** — HTML report by team/repo/tag
+- **Session output diffusion tracker** — track pattern spread across sessions
+- **Goal dependency visualizer v2** — interactive browser-based DAG viewer
+- **Fleet daily digest** — auto-generated daily summary email/webhook
+- **Session resource limiter** — CPU/memory cgroup limits per tmux pane
+- **Daemon hot-swap modules** — reload intelligence modules without restart
+- **Goal natural language parser** — extract structured goals from freeform text

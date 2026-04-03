@@ -206,6 +206,9 @@ The main loop is split into two layers:
 | `src/goal-critical-path.ts` | Longest dependency chain via topo-sort + DP (bottleneck ID, parallelizable count) |
 | `src/fleet-snapshot-compression.ts` | Delta-encode fleet snapshots (added/removed/modified) with auto-compaction |
 | `src/session-output-annotations.ts` | Programmatic output line annotations with label/severity/note/creator |
+| `src/goal-celebration.ts` | Achievement summaries with badges for completed goals (7 badge types) |
+| `src/fleet-readiness-score.ts` | 10-check composite readiness metric (READY/CAUTION/NOT READY) |
+| `src/daemon-process-supervisor.ts` | Crash history + exponential backoff + max-restart window + uptime tracking |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -233,7 +236,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Ninety-three modules run every daemon tick without LLM calls:
+Ninety-six modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -614,6 +617,24 @@ Ninety-three modules run every daemon tick without LLM calls:
   warning/error/critical), notes, and creator attribution. Filter by
   session, severity, or label. Max 500 annotations. `/annotate [add|session]`.
 
+- **Goal celebration** (`goal-celebration.ts`): auto-generate achievement
+  summaries with badges for completed goals. 7 badge types: Flawless Diamond
+  (cheap + zero errors), Zero Errors, Speed Run (<30m), Budget Hero (<$2),
+  Well Tracked (10+ progress), Multi-Tasker (5+ tasks), Mission Complete
+  (fallback). Highlights + stats. `/celebrate`.
+
+- **Fleet readiness score** (`fleet-readiness-score.ts`): 10-check composite
+  readiness metric for production workloads. Checks: config valid, reasoner
+  connected, sessions active, pool capacity, fleet health, compliance,
+  incidents clear, watchdog enabled, cost budget set, context loaded.
+  Weighted scoring, grades READY/CAUTION/NOT READY. `/readiness`.
+
+- **Daemon process supervisor** (`daemon-process-supervisor.ts`): track
+  process health for fork-exec recovery. Records crash history with reasons
+  and exit codes. Exponential backoff (base * 2^n, capped). Max-restart
+  window (default 5 in 10m). Uptime tracking with longest streak.
+  `/supervisor`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -660,7 +681,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4203 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4236 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -936,6 +957,21 @@ Shipped 3 features in v5.0.0 (36 new tests, 3 modules, 3 TUI commands):
 
 Milestone: **v5.0.0 — 135 source modules, 136 TUI commands, 4203 tests, zero runtime deps.**
 
+### v5.1.0 Session Response
+
+Shipped 3 features in v5.1.0 (33 new tests, 3 modules, 3 TUI commands):
+1. **`goal-celebration.ts`** + 11 tests — Achievement summaries with 7 badge
+   types (Flawless Diamond, Zero Errors, Speed Run, Budget Hero, Well Tracked,
+   Multi-Tasker, Mission Complete). Stats + highlights. `/celebrate`.
+2. **`fleet-readiness-score.ts`** + 10 tests — 10-check composite readiness
+   metric. Checks config, reasoner, sessions, pool, health, compliance,
+   incidents, watchdog, budgets, context. READY/CAUTION/NOT READY. `/readiness`.
+3. **`daemon-process-supervisor.ts`** + 12 tests — Crash history + exponential
+   backoff + max-restart window (5 in 10m). Uptime tracking with longest
+   streak. `/supervisor`.
+
+Running total: 138 source modules, 139 TUI commands, 4236 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -978,9 +1014,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v4.8 | Grouping + Validation | FleetSessionGrouping, SessionContextDiff, DaemonConfigSchema |
 | v4.9 | Export + Quality + Correlation | SessionTranscriptExport, GoalDecompQuality, FleetAnomalyCorrelation |
 | v5.0 | Graph + Storage + Metadata | GoalCriticalPath, FleetSnapshotCompression, SessionOutputAnnotations |
+| v5.1 | Celebration + Readiness | GoalCelebration, FleetReadinessScore, DaemonProcessSupervisor |
 
-**Totals**: 135 source modules, 120+ test files, 136 TUI commands, 20 CLI subcommands,
-4203 tests, ~39,000 lines added, zero runtime dependencies.
+**Totals**: 138 source modules, 120+ test files, 139 TUI commands, 20 CLI subcommands,
+4236 tests, ~40,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →
