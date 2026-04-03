@@ -114,6 +114,10 @@ The main loop is split into two layers:
 | `src/dep-graph-viz.ts` | ASCII dependency graph visualization + cycle detection |
 | `src/approval-queue.ts` | Operator approval queue for batched async human review |
 | `src/fleet-diff.ts` | Fleet snapshot comparison CLI + TUI command |
+| `src/session-templates.ts` | Pre-configured session profiles (frontend, backend, infra, etc.) |
+| `src/difficulty-scorer.ts` | Task complexity estimation from goal analysis |
+| `src/smart-nudge.ts` | Context-aware nudge generation using session memory |
+| `src/fleet-utilization.ts` | Per-hour fleet activity heatmap for capacity planning |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -141,7 +145,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Thirty-four modules run every daemon tick without LLM calls:
+Thirty-eight modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -271,7 +275,7 @@ poll, and fleet snapshots run in the main loop after each tick.
    changes are available (inside the `if (intelligence && ...)` block).
 
 ### Testing
-- 3149 unit tests across 72+ files, `node:test` (stdlib, zero deps)
+- 3188 unit tests across 76+ files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

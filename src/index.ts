@@ -68,6 +68,10 @@ import { loadSessionMemory, formatSessionMemory, listSessionMemories } from "./s
 import { buildGraph, renderGraph, detectCycles, formatCycles } from "./dep-graph-viz.js";
 import { ApprovalQueue } from "./approval-queue.js";
 import { compareLatestSnapshots, formatFleetDiff } from "./fleet-diff.js";
+import { findTemplate, formatTemplateList, formatTemplateDetail } from "./session-templates.js";
+import { scoreDifficulty, formatDifficultyScores } from "./difficulty-scorer.js";
+import { generateNudge, buildNudgeContext, formatNudgePreview } from "./smart-nudge.js";
+import { FleetUtilizationTracker } from "./fleet-utilization.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown, formatTaskExportJson, formatTaskExportMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
@@ -558,6 +562,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const reasonerCostTracker = new ReasonerCostTracker();
   const fleetSlaMonitor = new FleetSlaMonitor();
   const progressVelocityTracker = new ProgressVelocityTracker();
+  const fleetUtilizationTracker = new FleetUtilizationTracker();
   const observationCache = new ObservationCache();
   const fleetRateLimiter = new FleetRateLimiter();
   const recoveryPlaybookManager = new RecoveryPlaybookManager();
@@ -2091,6 +2096,44 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       if (!result) { tui!.log("system", "fleet-diff: need at least 2 fleet snapshots"); return; }
       const lines = formatFleetDiff(result);
       for (const line of lines) tui!.log("system", line);
+    });
+    // wire /template — session template viewer
+    input.onSessionTemplate((name) => {
+      if (!name) { const lines = formatTemplateList(); for (const l of lines) tui!.log("system", l); return; }
+      const tmpl = findTemplate(name);
+      if (!tmpl) { tui!.log("system", `template not found: ${name}`); const lines = formatTemplateList(); for (const l of lines) tui!.log("system", l); return; }
+      const lines = formatTemplateDetail(tmpl);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /difficulty — task difficulty scores
+    input.onDifficulty(() => {
+      const tasks = taskManager?.tasks ?? [];
+      if (tasks.length === 0) { tui!.log("system", "difficulty: no tasks"); return; }
+      const scores = tasks.map((t) => {
+        const elapsed = t.createdAt ? Date.now() - t.createdAt : 0;
+        return scoreDifficulty(t.sessionTitle, t.goal, t.progress.length, elapsed);
+      });
+      const lines = formatDifficultyScores(scores);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /smart-nudge — preview context-aware nudge
+    input.onSmartNudge((target) => {
+      const tasks = taskManager?.tasks ?? [];
+      const task = tasks.find((t) => t.sessionTitle.toLowerCase() === target.toLowerCase());
+      if (!task) { tui!.log("system", `smart-nudge: task not found: ${target}`); return; }
+      const summary = sessionSummarizer.get(task.sessionTitle);
+      const activity = summary ? SessionSummarizer.format(summary) : undefined;
+      const lastChange = tui!.getAllLastChangeAt().get(tui!.getSessions().find((s) => s.title === task.sessionTitle)?.id ?? "");
+      const idleMs = lastChange ? Date.now() - lastChange : 0;
+      const ctx = buildNudgeContext(task, activity, idleMs);
+      const nudge = generateNudge(ctx);
+      const lines = formatNudgePreview(task.sessionTitle, nudge);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /utilization — fleet utilization heatmap
+    input.onUtilization(() => {
+      const lines = fleetUtilizationTracker.formatHeatmap();
+      for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

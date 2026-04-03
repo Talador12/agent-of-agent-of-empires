@@ -134,6 +134,10 @@ export type ApprovalQueueHandler = () => void; // show approval queue
 export type ApproveHandler = (target: string) => void; // approve pending decision
 export type RejectHandler = (target: string) => void; // reject pending decision
 export type FleetDiffHandler = () => void; // compare latest fleet snapshots
+export type SessionTemplateHandler = (name: string) => void; // show/apply session template
+export type DifficultyHandler = () => void; // show task difficulty scores
+export type SmartNudgeHandler = (target: string) => void; // preview smart nudge for session
+export type UtilizationHandler = () => void; // show fleet utilization heatmap
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -349,6 +353,10 @@ export class InputReader {
   private approveHandler: ApproveHandler | null = null;
   private rejectHandler: RejectHandler | null = null;
   private fleetDiffHandler: FleetDiffHandler | null = null;
+  private sessionTemplateHandler: SessionTemplateHandler | null = null;
+  private difficultyHandler: DifficultyHandler | null = null;
+  private smartNudgeHandler: SmartNudgeHandler | null = null;
+  private utilizationHandler: UtilizationHandler | null = null;
   private sessionReportHandler: SessionReportHandler | null = null;
   private quietStatusHandler: QuietStatusHandler | null = null;
   private alertLogHandler: AlertLogHandler | null = null;
@@ -716,6 +724,10 @@ export class InputReader {
   onApprove(handler: ApproveHandler): void { this.approveHandler = handler; }
   onReject(handler: RejectHandler): void { this.rejectHandler = handler; }
   onFleetDiff(handler: FleetDiffHandler): void { this.fleetDiffHandler = handler; }
+  onSessionTemplate(handler: SessionTemplateHandler): void { this.sessionTemplateHandler = handler; }
+  onDifficulty(handler: DifficultyHandler): void { this.difficultyHandler = handler; }
+  onSmartNudge(handler: SmartNudgeHandler): void { this.smartNudgeHandler = handler; }
+  onUtilization(handler: UtilizationHandler): void { this.utilizationHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -2339,6 +2351,31 @@ ${BOLD}other:${RESET}
       case "/fleet-diff":
         if (this.fleetDiffHandler) this.fleetDiffHandler();
         else console.error(`${DIM}fleet-diff not available (no TUI)${RESET}`);
+        break;
+
+      case "/template": {
+        const tmplArg = line.slice("/template".length).trim();
+        if (this.sessionTemplateHandler) this.sessionTemplateHandler(tmplArg);
+        else console.error(`${DIM}template not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/difficulty":
+        if (this.difficultyHandler) this.difficultyHandler();
+        else console.error(`${DIM}difficulty not available (no TUI)${RESET}`);
+        break;
+
+      case "/smart-nudge": {
+        const snArg = line.slice("/smart-nudge".length).trim();
+        if (!snArg) { console.error(`${DIM}usage: /smart-nudge <N|name>${RESET}`); break; }
+        if (this.smartNudgeHandler) this.smartNudgeHandler(snArg);
+        else console.error(`${DIM}smart-nudge not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/utilization":
+        if (this.utilizationHandler) this.utilizationHandler();
+        else console.error(`${DIM}utilization not available (no TUI)${RESET}`);
         break;
 
       case "/clear":
