@@ -158,9 +158,43 @@ export class Poller {
     }
   }
 
+  /**
+   * Heuristic to detect when AoE reports "error" but the session is actually idle.
+   * opencode's idle UI renders colored status lines, model info, and prompt chars
+   * that AoE may misinterpret as error state. If the output has no actual error
+   * content and looks like normal idle chrome, we override to "idle".
+   */
+  private static correctErrorMisdetection(status: AoeSessionStatus, output: string): AoeSessionStatus {
+    if (status !== "error") return status;
+    // strip ANSI for clean matching
+    const clean = output.replace(/\x1b\[[0-9;]*[mABCDHJKST]/g, "");
+    const lines = clean.split("\n").map((l) => l.trim()).filter(Boolean);
+    const last20 = lines.slice(-20);
+
+    // actual error indicators — if any of these are present, keep "error" status
+    const hasRealError = last20.some((l) =>
+      /(?:^error|^ERR[!]|panic|SIGSEGV|core dumped|unhandled|FATAL|stack trace|Traceback)/i.test(l)
+    );
+    if (hasRealError) return "error";
+
+    // opencode idle chrome indicators — if the output looks like a normal prompt, override
+    const hasIdleChrome = last20.some((l) =>
+      /^[>$#%]\s*$/.test(l) || // bare prompt
+      /model:|provider:|tokens?:/i.test(l) || // opencode status line
+      /opencode|claude|anthropic/i.test(l) || // tool name in UI
+      /^\s*[─═│┃┌┐└┘├┤┬┴┼]+\s*$/.test(l) // box-drawing UI chrome
+    );
+    if (hasIdleChrome && !hasRealError) return "idle";
+
+    // if we can't determine, keep the original status
+    return status;
+  }
+
   private async captureSession(session: AoeSession): Promise<SessionSnapshot> {
     const output = await this.captureTmuxPane(session.tmux_name);
     const outputHash = quickHash(output);
+    // fix false error detection from AoE when session is actually idle
+    session.status = Poller.correctErrorMisdetection(session.status, output);
 
     // load AI instruction files from session's project directory
     // auto-discovers AGENTS.md, claude.md, .cursorrules, etc. + user-configured extras

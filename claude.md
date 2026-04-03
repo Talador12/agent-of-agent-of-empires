@@ -8,97 +8,78 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.211.0
+## Version: v1.0.0
 
-## Current Focus
+## v1.0.0 — The Milestone Release
 
-North-star goal: aoaoe should let one reasoner run AoE for any number of sessions/tasks, make its actions obvious, and make it trivial for a human to step in with new info or new tasks at any time.
+This is it. From scaffolding to a fully autonomous fleet operations platform in 212+ releases.
 
-### What's working end-to-end now
-- Fully autonomous 7-gate reasoning pipeline — **now integration-tested end-to-end**
-- 46 intelligence modules, 55 TUI slash commands, 3295 tests (28 new integration tests)
-- Pipeline integration test suite proves the full wiring: cache → filter → compress → LLM → approval → cost track → graduation → recovery → scheduling → escalation → SLA → budgets → completion detection → summarization → conflicts → velocity → goal refinement
+### What v1.0.0 ships
+- **51 intelligence modules** running without LLM calls
+- **55 TUI slash commands** for real-time fleet management
+- **7-gate autonomous reasoning pipeline**: rate limit → cache → priority filter → compress → LLM → approval gate → cost track
+- **Autonomous recovery**: health-based playbook with nudge → restart → pause → escalate
+- **Autonomous scheduling**: dependency-aware task activation with pool limits
+- **Session graduation**: trust ladder — sessions earn their way from confirm → auto
+- **Approval workflow**: destructive + low-confidence actions gated through human review
+- **Goal refinement**: learns from completed tasks to suggest improvements
+- **3304 tests** (unit + integration), zero runtime dependencies
+- **Bug fixes**: session error state misdetection (idle UI chrome no longer triggers false errors), dashboard task-session linking
 
-### What shipped in v0.211.0
+### What shipped in v1.0.0
 
-**v0.211.0 — Pipeline Integration Test Suite: Proving the Wiring Works**
+**v1.0.0 — Production Release: Bug Fixes + Integration Tests + v1 Tag**:
+- **Fixed: session error state misdetection** — `Poller.correctErrorMisdetection()` cross-references AoE's reported "error" status with actual pane output. If the output looks like normal opencode idle chrome (model info, token counts, prompt chars, box-drawing) with no real error indicators (error:, panic, FATAL, stack trace, Traceback), overrides to "idle". 9 new tests.
+- **Fixed: dashboard task-session linking** — session table now falls back to task manager goal when `currentTask` is empty, showing `[~] implement auth` instead of `-`.
+- **Integration test suite** (v0.211.0): 28 tests proving the full autonomous pipeline works end-to-end.
+- **Version bump**: 0.211.0 → 1.0.0
 
-28 new integration tests that exercise the full autonomous pipeline end-to-end using real module instances (not mocks):
+Modified: `src/poller.ts`, `src/dashboard.ts`, `AGENTS.md`, `claude.md`, `package.json`
+New file: `src/error-correction.test.ts` (9 tests)
+Net: 3304 tests across 86 files.
 
-1. **Reasoning gate chain (6 tests):**
-   - Rate limiter blocks when hourly budget exhausted
-   - Observation cache returns hit for duplicate observations
-   - Priority filter excludes low-priority sessions, computes savings
-   - Context compressor reduces 100-line output to compact form
-   - Approval workflow gates destructive actions through queue
-   - Full 5-step pipeline chain: rate limit → cache → filter → compress → approval → cost track
+### Architecture Summary
 
-2. **Graduation lifecycle (3 tests):**
-   - Promotes session after 10+ successes at 90%+ rate
-   - Demotes session after failure rate drops below 50%
-   - Graduation + approval interact: demoted sessions are more restricted
+```
+Observation → [Rate Limit] → [Cache] → [Priority Filter] → [Compress] → LLM Reasoner
+    ↓                                                                         ↓
+[Summarize]     [Conflict Detect]     [Goal Detect]     [Budget Enforce]   [Approval Gate]
+    ↓                  ↓                   ↓                  ↓                 ↓
+[Heatmap]      [Auto-Resolve]      [Auto-Complete]     [Auto-Pause]     [Execute Actions]
+    ↓                  ↓                   ↓                  ↓                 ↓
+[Audit]        [Escalation]        [Graduation]        [Cost Track]     [Recovery Playbook]
+    ↓                  ↓                   ↓                  ↓                 ↓
+[Fleet Snap]   [SLA Monitor]      [Velocity Track]    [Dep Scheduler]   [Fleet Utilization]
+```
 
-3. **Recovery playbook (2 tests):**
-   - Triggers nudge at health 55, pause at 15
-   - Resets and re-triggers after health recovery
-
-4. **Dependency scheduling (3 tests):**
-   - Activates task when prerequisite completes
-   - Blocks when prerequisite still active
-   - Respects pool capacity limits
-
-5. **Nudge effectiveness + escalation (3 tests):**
-   - Tracks nudge → progress correlation with response time
-   - Escalation progresses normal → elevated → critical
-   - Escalation clears on progress
-
-6. **Fleet SLA (2 tests):**
-   - Detects breach when health drops below threshold
-   - Respects alert cooldown
-
-7. **Budget enforcement + prediction (2 tests):**
-   - Auto-identifies over-budget sessions
-   - Predictor estimates exhaustion time from burn rate
-
-8. **Goal completion (1 test):**
-   - Detects completion from git push + tests passing + done message
-
-9. **Summarizer + conflicts (2 tests):**
-   - Summarizes session activity from output
-   - Detects cross-session file conflicts
-
-10. **Velocity tracking (1 test):**
-    - Computes velocity from progress samples
-
-11. **Goal refinement (1 test):**
-    - Suggests improvements based on completed task patterns
-
-12. **Full multi-module scenario (1 test):**
-    - Simulates a complete daemon tick with ALL intelligence modules active simultaneously: 3 sessions (healthy, testing, erroring), SLA check, recovery actions, rate limit, LLM simulation, approval, graduation, velocity — verifies they all compose correctly.
-
-New file: `src/pipeline-integration.test.ts` (28 tests)
-Modified: `AGENTS.md`, `claude.md`, `package.json`
-Test changes: +28 new tests, net 3295 tests across 85 files.
-
-### Older versions
+### Full Release History
+- v1.0.0: production release — bug fixes, integration tests
+- v0.211.0: pipeline integration test suite
 - v0.210.0: deep integration pass 2 — graduation, approval, refiner, export wired
 - v0.209.0: session graduation, approval workflow, goal refinement, fleet HTML export
-- v0.208.0: deep integration — autonomous reasoning pipeline, recovery, scheduling, escalation
-- v0.207.0–v0.196.0: 12 releases building 51 intelligence modules
-- v0.1–v0.195: scaffolding → full orchestration (195 releases)
+- v0.208.0: deep integration — autonomous reasoning pipeline, recovery, scheduling
+- v0.207.0: template auto-detection, fleet search, nudge tracking, smart allocation
+- v0.206.0: session templates, difficulty scoring, smart nudges, fleet utilization
+- v0.205.0: session memory, dep graph viz, approval queue, fleet diff
+- v0.204.0: lifecycle analytics, cost attribution, goal decomposition, priority reasoning
+- v0.203.0: LLM caching, fleet rate limiting, context compression, recovery playbooks
+- v0.202.0: anomaly detection, fleet SLA, velocity tracking, dep scheduling
+- v0.201.0: drift detection, goal progress, session pool, reasoner cost
+- v0.200.0: adaptive poll, fleet forecast, priority queue, notification escalation
+- v0.199.0: budget predictor, task retry, audit search
+- v0.198.0: activity heatmap, audit trail, fleet snapshots, conflict auto-resolution
+- v0.197.0: daemon wiring of intelligence modules
+- v0.196.0: standalone intelligence modules
+- v0.1–v0.195: scaffolding → full orchestration
 
-## Ideas Backlog
-- **Fix real blockers** — session error misdetection, legacy dashboard paths, task-session linking
-- **Cut v1.0.0** — squash, tag, proper release notes, npm publish
-- **Session replay from history** — replay activity timeline for post-mortem
+## Ideas Backlog (v2.0)
 - **Multi-reasoner support** — different backends for different sessions
-- **Daemon systemd/launchd integration** — generate service files for boot
-- **Workflow orchestration** — define multi-session workflows with fan-out/fan-in
-- **A/B reasoning** — test two reasoner strategies and compare outcomes
-- **Cross-repo impact analysis** — detect when one session breaks another's tests
-- **Graduation-aware pool scheduling** — prioritize graduated sessions for harder tasks
-- **Fleet cost projections** — weekly/monthly projections from velocity + burn rate
-- **Mutation testing** — verify test quality by introducing bugs and checking test failures
-- **Property-based testing** — fuzz intelligence modules with random inputs
-- **Load testing** — simulate 50+ concurrent sessions to find bottlenecks
-- **CLI completions** — shell autocomplete for all aoaoe commands and TUI slash commands
+- **Daemon systemd/launchd integration** — generate service files
+- **Session replay from history** — post-mortem timeline replay
+- **Workflow orchestration** — fan-out/fan-in multi-session workflows
+- **A/B reasoning** — compare two reasoner strategies
+- **Cross-repo impact analysis** — detect when one session breaks another
+- **Multi-host fleet dashboard** — aggregate across daemons
+- **CLI completions** — shell autocomplete for commands
+- **Property-based testing** — fuzz modules with random inputs
+- **Web dashboard v2** — real-time browser UI via SSE

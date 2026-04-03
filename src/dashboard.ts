@@ -73,11 +73,16 @@ export function printDashboard(
       const tool = s.tool.padEnd(10).slice(0, 10);
       const title = s.title.padEnd(20).slice(0, 20);
       const id = s.id.slice(0, 8).padEnd(10);
-      // show current task from daemon state
+      // show current task from daemon state, fall back to task manager goal
       const sessionState = state?.sessions?.find((ss) => ss.id === s.id);
       const userFlag = sessionState?.userActive ? "*" : " ";
-      const task = sessionState?.currentTask ?? "";
-      const taskStr = task ? truncate(task, 30) : "-";
+      const taskFromSend = sessionState?.currentTask ?? "";
+      const taskFromManager = tasks?.find((t) => t.sessionTitle === s.title);
+      const taskStr = taskFromSend
+        ? truncate(taskFromSend, 30)
+        : taskFromManager
+          ? `[${TASK_STATUS_ICONS[taskFromManager.status] ?? "?"}] ${truncate(taskFromManager.goal, 25)}`
+          : "-";
       lines.push(`   ${icon}${userFlag}  ${tool} ${title} ${id} ${taskStr}`);
       // show todo items if present
       if (sessionState?.todoSummary) {
