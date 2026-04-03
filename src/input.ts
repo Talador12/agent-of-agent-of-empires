@@ -220,6 +220,9 @@ export type CrashReportHandler = () => void; // show crash report preview
 export type SessionGroupHandler = (args: string) => void; // manage session groups
 export type ContextDiffHandler = () => void; // show context file diffs
 export type ConfigSchemaHandler = () => void; // validate config against schema
+export type TranscriptExportHandler = (session: string) => void; // export session transcript
+export type DecompQualityHandler = () => void; // show goal decomposition quality
+export type AnomalyCorrelationHandler = () => void; // show correlated anomalies
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -971,6 +974,12 @@ export class InputReader {
   onSessionGroup(handler: SessionGroupHandler): void { this.sessionGroupHandler = handler; }
   onContextDiff(handler: ContextDiffHandler): void { this.contextDiffHandler = handler; }
   onConfigSchema(handler: ConfigSchemaHandler): void { this.configSchemaHandler = handler; }
+  private transcriptExportHandler: TranscriptExportHandler | null = null;
+  private decompQualityHandler: DecompQualityHandler | null = null;
+  private anomalyCorrelationHandler: AnomalyCorrelationHandler | null = null;
+  onTranscriptExport(handler: TranscriptExportHandler): void { this.transcriptExportHandler = handler; }
+  onDecompQuality(handler: DecompQualityHandler): void { this.decompQualityHandler = handler; }
+  onAnomalyCorrelation(handler: AnomalyCorrelationHandler): void { this.anomalyCorrelationHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3100,6 +3109,24 @@ ${BOLD}other:${RESET}
       case "/config-validate":
         if (this.configSchemaHandler) this.configSchemaHandler();
         else console.error(`${DIM}config-validate not available (no TUI)${RESET}`);
+        break;
+
+      case "/transcript": {
+        const trArg = line.slice("/transcript".length).trim();
+        if (!trArg) { console.error(`${DIM}usage: /transcript <session>${RESET}`); break; }
+        if (this.transcriptExportHandler) this.transcriptExportHandler(trArg);
+        else console.error(`${DIM}transcript not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/decomp-quality":
+        if (this.decompQualityHandler) this.decompQualityHandler();
+        else console.error(`${DIM}decomp-quality not available (no TUI)${RESET}`);
+        break;
+
+      case "/anomaly-corr":
+        if (this.anomalyCorrelationHandler) this.anomalyCorrelationHandler();
+        else console.error(`${DIM}anomaly-corr not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

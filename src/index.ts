@@ -161,6 +161,11 @@ import { generateCrashReport, formatCrashReportTui } from "./daemon-crash-report
 import { createGroupingState, addToGroup, removeFromGroup, listGroups, formatGrouping } from "./fleet-session-grouping.js";
 import { createContextDiffState, diffContextFiles, formatContextDiff } from "./session-context-diff.js";
 import { validateConfigSchema, formatValidation } from "./daemon-config-schema.js";
+import { buildTranscript, formatTranscriptPreview } from "./session-transcript-export.js";
+import type { TranscriptInput } from "./session-transcript-export.js";
+import { scoreDecomposition, formatDecompQuality } from "./goal-decomp-quality.js";
+import { correlateAnomalies, formatCorrelations } from "./fleet-anomaly-correlation.js";
+import type { AnomalyEvent } from "./fleet-anomaly-correlation.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -3338,6 +3343,47 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     input.onConfigSchema(() => {
       const result = validateConfigSchema(config as unknown as Record<string, unknown>);
       const lines = formatValidation(result);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /transcript — export session transcript as markdown
+    input.onTranscriptExport((sessionArg) => {
+      const tasks = taskManager?.tasks ?? [];
+      const task = tasks.find((t) => t.sessionTitle.toLowerCase() === sessionArg.toLowerCase());
+      if (!task) { tui!.log("system", `transcript: "${sessionArg}" not found`); return; }
+      const allCosts = tui!.getAllSessionCosts();
+      const costStr = allCosts.get(task.sessionTitle) ?? "0";
+      const costUsd = parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0;
+      const output = tui!.getSessionOutput(task.sessionId ?? "") ?? [];
+      const input_: TranscriptInput = {
+        sessionTitle: task.sessionTitle, goal: task.goal, repo: task.repo,
+        status: task.status, startedAt: task.createdAt ?? Date.now(), costUsd,
+        progressEntries: task.progress, recentOutput: output,
+        actions: [],
+      };
+      const lines = formatTranscriptPreview(input_);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /decomp-quality — goal decomposition quality
+    input.onDecompQuality(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const roots = tasks.filter((t) => !t.dependsOn || t.dependsOn.length === 0);
+      if (roots.length === 0) { tui!.log("system", "decomp-quality: no root goals found"); return; }
+      for (const root of roots.slice(0, 3)) {
+        const children = tasks.filter((t) => t.dependsOn?.includes(root.sessionTitle));
+        if (children.length === 0) continue;
+        const result = scoreDecomposition({ parentGoal: root.goal, subGoals: children.map((c) => c.goal) });
+        const lines = formatDecompQuality(result);
+        for (const l of lines) tui!.log("system", l);
+      }
+    });
+    // wire /anomaly-corr — correlated anomalies
+    input.onAnomalyCorrelation(() => {
+      const events = incidentTimeline.getEvents({ sinceMs: 3_600_000 });
+      const anomalyEvents: AnomalyEvent[] = events.map((e) => ({
+        sessionTitle: e.sessionTitle, type: e.type, timestamp: e.timestamp, detail: e.message,
+      }));
+      const clusters = correlateAnomalies(anomalyEvents);
+      const lines = formatCorrelations(clusters);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {

@@ -200,6 +200,9 @@ The main loop is split into two layers:
 | `src/fleet-session-grouping.ts` | Logical session groups with per-group aggregate stats (health/cost/progress) |
 | `src/session-context-diff.ts` | Track context file content hashes, detect added/removed/modified between ticks |
 | `src/daemon-config-schema.ts` | JSON Schema-style config validation with type/range/enum/nested checks |
+| `src/session-transcript-export.ts` | Export session transcript as self-contained markdown (metadata+progress+output) |
+| `src/goal-decomp-quality.ts` | Rate sub-goal keyword coverage of parent goal (A-F grades + suggestions) |
+| `src/fleet-anomaly-correlation.ts` | Correlate anomalies by time proximity to detect fleet-wide root causes |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -227,7 +230,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Eighty-seven modules run every daemon tick without LLM calls:
+Ninety modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -577,6 +580,22 @@ Eighty-seven modules run every daemon tick without LLM calls:
   range (min/max), enum, required fields, nested object validation,
   unknown field warnings. `/config-validate`.
 
+- **Session transcript export** (`session-transcript-export.ts`): export
+  full session transcript as self-contained markdown. Metadata table,
+  progress timeline, action log, recent output (ANSI-stripped code block),
+  generation footer with timestamp. `/transcript <session>`.
+
+- **Goal decomposition quality** (`goal-decomp-quality.ts`): rate how well
+  sub-goals cover the parent goal. Keyword extraction + set coverage
+  analysis. Grades A-F based on coverage %. Detects uncovered keywords,
+  warns on too few/many sub-goals, short sub-goals. `/decomp-quality`.
+
+- **Fleet anomaly correlation** (`fleet-anomaly-correlation.ts`): correlate
+  anomalies across sessions by time proximity (default 60s window). Detects
+  fleet-wide same-type issues (infra), cascading failures (single session,
+  multiple types), shared dependency problems. Hot-session ranking.
+  `/anomaly-corr`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -623,7 +642,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4135 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4167 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -869,6 +888,21 @@ Shipped 3 features in v4.8.0 (40 new tests, 3 modules, 3 TUI commands):
 
 Running total: 129 source modules, 130 TUI commands, 4135 tests, zero runtime deps.
 
+### v4.9.0 Session Response
+
+Shipped 3 features in v4.9.0 (32 new tests, 3 modules, 3 TUI commands):
+1. **`session-transcript-export.ts`** + 10 tests — Export session transcript as
+   self-contained markdown. Metadata table, progress timeline, action log,
+   recent output (ANSI-stripped), generation footer. `/transcript <session>`.
+2. **`goal-decomp-quality.ts`** + 12 tests — Rate sub-goal keyword coverage
+   of parent goal. Grades A-F, uncovered keyword detection, actionable
+   suggestions (too few/many subs, short subs). `/decomp-quality`.
+3. **`fleet-anomaly-correlation.ts`** + 10 tests — Correlate anomalies by
+   time proximity (60s window). Detect fleet-wide issues, cascading failures,
+   shared deps. Hot-session ranking. `/anomaly-corr`.
+
+Running total: 132 source modules, 133 TUI commands, 4167 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -909,9 +943,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v4.6 | Profiling + Prediction | DaemonTickProfiler, GoalConfidenceEstimator, FleetBudgetPlanner |
 | v4.7 | Sentiment + Balance | SessionSentiment, FleetWorkloadBalancer, DaemonCrashReport |
 | v4.8 | Grouping + Validation | FleetSessionGrouping, SessionContextDiff, DaemonConfigSchema |
+| v4.9 | Export + Quality + Correlation | SessionTranscriptExport, GoalDecompQuality, FleetAnomalyCorrelation |
 
-**Totals**: 129 source modules, 120+ test files, 130 TUI commands, 20 CLI subcommands,
-4135 tests, ~37,000 lines added, zero runtime dependencies.
+**Totals**: 132 source modules, 120+ test files, 133 TUI commands, 20 CLI subcommands,
+4167 tests, ~38,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

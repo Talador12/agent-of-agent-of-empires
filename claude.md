@@ -5,32 +5,32 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v4.8.0
+## Version: v4.9.0
+
+## What shipped in v4.9.0
+
+**v4.9.0 — Transcript Export, Decomposition Quality, Anomaly Correlation**:
+- `session-transcript-export.ts`: Export full session transcript as self-contained markdown. Metadata table, progress timeline, action log, recent output (ANSI-stripped), generation footer. **`/transcript <session>`** command.
+- `goal-decomp-quality.ts`: Rate how well sub-goals cover the parent goal via keyword extraction + coverage analysis. Letter grades A-F, uncovered keyword detection, actionable suggestions. **`/decomp-quality`** command.
+- `fleet-anomaly-correlation.ts`: Correlate anomalies across sessions by time proximity. Detects fleet-wide issues, cascading failures, shared dependencies. Hot-session ranking. **`/anomaly-corr`** command.
+
+133 TUI commands. 132 source modules. 4167 tests. 0 runtime deps.
 
 ## What shipped in v4.8.0
 
 **v4.8.0 — Session Groups, Context Diff, Config Validation**:
-- `fleet-session-grouping.ts`: Logical groups (frontend, backend, infra) with group-level aggregate stats. Add/remove sessions, list groups, compute per-group health/cost/progress. **`/group [add|rm]`** command.
-- `session-context-diff.ts`: Track context file content hashes between ticks. Detect added/removed/modified/unchanged files. SHA-256 based. **`/context-diff`** command.
-- `daemon-config-schema.ts`: JSON Schema-style validation for daemon config. Type checks, range checks, enum validation, required fields, nested object validation, unknown field warnings. **`/config-validate`** command.
-
-130 TUI commands. 129 source modules. 4135 tests. 0 runtime deps.
+- `fleet-session-grouping.ts`: Logical session groups with stats. **`/group`** command.
+- `session-context-diff.ts`: Context file hash diffs. **`/context-diff`** command.
+- `daemon-config-schema.ts`: Config schema validation. **`/config-validate`** command.
 
 ## What shipped in v4.7.0
 
 **v4.7.0 — Session Sentiment, Workload Balancer, Crash Reports**:
-- `session-sentiment.ts`: Classify output tone (17 patterns, 7 sentiments). **`/sentiment`** command.
-- `fleet-workload-balancer.ts`: Detect uneven loads, suggest moves. **`/workload-balance`** command.
-- `daemon-crash-report.ts`: Auto-generate diagnostic report. **`/crash-report`** command.
+- `session-sentiment.ts`: Output tone classification. **`/sentiment`** command.
+- `fleet-workload-balancer.ts`: Load balancing. **`/workload-balance`** command.
+- `daemon-crash-report.ts`: Crash diagnostics. **`/crash-report`** command.
 
-## What shipped in v4.6.0
-
-**v4.6.0 — Tick Profiler, Goal Confidence, Budget Planner**:
-- `daemon-tick-profiler.ts`: Per-phase tick timing. **`/tick-profiler`** command.
-- `goal-confidence-estimator.ts`: Completion probability. **`/goal-confidence`** command.
-- `fleet-budget-planner.ts`: Priority-weighted budget distribution. **`/budget-plan`** command.
-
-## Ideas Backlog (v4.9+)
+## Ideas Backlog (v5.0+)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
@@ -55,12 +55,12 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Session sandbox mode** — isolated environments with rollback
 - **Daemon remote control API** — REST API for external tool commands
 - **Fleet time-travel** — rewind to any snapshot and compare
-- **Session output correlation** — cross-session output pattern matching
-- **Fleet anomaly correlation** — correlate anomalies across sessions for root cause
-- **Session output transcript export** — export full session transcript as markdown
-- **Goal decomposition quality scorer** — rate sub-goal coverage of parent
 - **Fleet session migration** — move sessions between hosts in federated mode
-- **Daemon telemetry aggregator** — aggregate metrics across federated daemon instances
 - **Session output search index** — inverted index for fast cross-session search
-- **Goal template inheritance** — child templates inherit parent constraints + defaults
-- **Fleet cost attribution report** — HTML report of cost by team/repo/tag over time
+- **Goal template inheritance** — child templates inherit parent constraints
+- **Fleet cost attribution report** — HTML report of cost by team/repo/tag
+- **Daemon process supervisor** — fork-exec recovery with clean restart on OOM/crash
+- **Session output annotation API** — programmatic annotation of output lines with metadata
+- **Fleet snapshot compression** — delta-encode fleet snapshots for storage efficiency
+- **Goal dependency critical path** — identify the longest dependency chain for scheduling
+- **Daemon plugin marketplace** — discover and install community hooks via registry
