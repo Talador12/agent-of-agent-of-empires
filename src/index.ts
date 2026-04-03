@@ -112,6 +112,10 @@ import type { LeaderboardInput } from "./fleet-leaderboard.js";
 import { SessionHealthHistory, formatHealthHistory } from "./session-health-history.js";
 import { createThrottleState, updateBurnRate, evaluateThrottles, formatThrottleState } from "./cost-anomaly-throttle.js";
 import { suggestSessionNames, formatNameSuggestions } from "./smart-session-naming.js";
+import { buildShiftHandoff, formatHandoffTui } from "./operator-shift-handoff.js";
+import { detectDependencies, formatDetectedDeps } from "./session-dep-auto-detect.js";
+import type { SessionInfo as DepSessionInfo } from "./session-dep-auto-detect.js";
+import { projectCosts, evaluateCostAlerts, formatCostForecastAlerts, formatCostProjections } from "./cost-forecast-alert.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -2724,6 +2728,49 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const suggestions = suggestSessionNames(repoPath, goal, existingTitles);
       const lines = formatNameSuggestions(suggestions);
       for (const l of lines) tui!.log("system", l);
+    });
+    // wire /handoff — operator shift handoff notes
+    input.onShiftHandoff(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const sessions = tui!.getSessions();
+      const healthScores = new Map<string, number>();
+      for (const s of sessions) healthScores.set(s.title, s.status === "working" ? 80 : s.status === "error" ? 20 : 50);
+      const costMap = new Map<string, number>();
+      const allCosts = tui!.getAllSessionCosts();
+      for (const [title, costStr] of allCosts) costMap.set(title, parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0);
+      const pendingApprovals = approvalQueue.getPending().map((p) => `${p.sessionTitle}: ${p.detail}`);
+      const handoff = buildShiftHandoff(tasks, healthScores, costMap, [], pendingApprovals);
+      const lines = formatHandoffTui(handoff);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /auto-deps — auto-detect inter-session dependencies
+    input.onAutoDeps(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const depSessions: DepSessionInfo[] = tasks.filter((t) => t.status === "active" || t.status === "pending").map((t) => ({
+        title: t.sessionTitle,
+        repo: t.repo,
+        goal: t.goal,
+        dependsOn: t.dependsOn,
+      }));
+      const deps = detectDependencies(depSessions);
+      const lines = formatDetectedDeps(deps);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /cost-forecast — proactive cost forecast alerts
+    input.onCostForecast(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const allCosts = tui!.getAllSessionCosts();
+      const projections = tasks.filter((t) => t.status === "active").map((t) => {
+        const costStr = allCosts.get(t.sessionTitle) ?? "0";
+        const costUsd = parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0;
+        const burnRate = costThrottleState.burnRates.get(t.sessionTitle) ?? 0;
+        return projectCosts(t.sessionTitle, costUsd, burnRate);
+      });
+      const alerts = evaluateCostAlerts(projections);
+      const alertLines = formatCostForecastAlerts(alerts);
+      const projLines = formatCostProjections(projections);
+      for (const l of alertLines) tui!.log("system", l);
+      for (const l of projLines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

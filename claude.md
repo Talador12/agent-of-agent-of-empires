@@ -5,29 +5,36 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v3.5.0
+## Version: v3.6.0
+
+## What shipped in v3.6.0
+
+**v3.6.0 — Shift Handoffs, Dependency Auto-Detection, Cost Forecast Alerts**:
+- `operator-shift-handoff.ts`: Structured handoff notes for operator shift changes. Aggregates fleet state, session health/cost, failed/paused task alerts, pending approvals, and actionable recommendations into a scannable summary. TUI + markdown output. **`/handoff`** command.
+- `session-dep-auto-detect.ts`: Infer inter-session dependencies from explicit declarations, goal text references ("after X", "blocked by X"), shared file edits, and repo path overlap. Confidence-ranked, deduplicated. **`/auto-deps`** command.
+- `cost-forecast-alert.ts`: Project costs at daily/weekly/monthly intervals from current spend + burn rate. Fires alerts when projections exceed configurable thresholds. Critical severity for imminent breaches (<2h). **`/cost-forecast`** command.
+
+94 TUI commands. 93 source modules. 3654 tests. 0 runtime deps.
 
 ## What shipped in v3.5.0
 
 **v3.5.0 — Health History, Cost Anomaly Throttling, Smart Session Naming**:
-- `session-health-history.ts`: Rolling-window health score tracker per session with sparkline visualizations. Computes trend (improving/degrading/stable) from first-half vs second-half average. Worst-health-first sorting. **`/health-history`** command.
-- `cost-anomaly-throttle.ts`: Auto-throttle poll rate for cost-anomalous sessions. EMA-smoothed burn rates, fleet average comparison, configurable threshold (default 3x fleet avg). Throttled sessions get slower polling; auto-unthrottles when costs normalize. **`/cost-throttle`** command.
-- `smart-session-naming.ts`: Generate descriptive session titles from repo path + goal text. 5 naming strategies: repo-verb, repo-noun, verb-noun, repo-verb-noun, fallback with dedupe. **`/suggest-name <repo> [goal]`** command.
-
-91 TUI commands. 90 source modules. 3620 tests. 0 runtime deps.
+- `session-health-history.ts`: Rolling-window health score sparklines + trend detection. **`/health-history`** command.
+- `cost-anomaly-throttle.ts`: EMA-smoothed burn rate monitoring + auto-throttle. **`/cost-throttle`** command.
+- `smart-session-naming.ts`: Generate descriptive titles from repo + goal. **`/suggest-name <repo> [goal]`** command.
 
 ## What shipped in v3.4.0
 
 **v3.4.0 — Idle Detection, Goal Conflict Resolution, Fleet Leaderboard**:
-- `session-idle-detector.ts`: Track per-session idle duration, escalate from nudge → pause → reclaim. **`/idle-detect`** command.
-- `goal-conflict-resolver.ts`: Cross-session goal conflict analysis via Jaccard similarity + file overlap + dependency cycles. **`/goal-conflicts`** command.
-- `fleet-leaderboard.ts`: Rank sessions by composite productivity score (completion, velocity, cost efficiency). **`/leaderboard`** command.
+- `session-idle-detector.ts`: Idle escalation (nudge/pause/reclaim). **`/idle-detect`** command.
+- `goal-conflict-resolver.ts`: Cross-session goal conflict analysis. **`/goal-conflicts`** command.
+- `fleet-leaderboard.ts`: Productivity rankings. **`/leaderboard`** command.
 
 ## What shipped in v3.3.0
 
 **v3.3.0 — Session Timeline + Fleet Changelog**:
-- `session-timeline.ts`: Chronological event timeline from task lifecycle. **`/task-timeline <name>`** command.
-- `fleet-changelog.ts`: Deduplicated fleet event changelog from audit trail. **`/changelog [duration]`** command.
+- `session-timeline.ts`: Task lifecycle timeline. **`/task-timeline <name>`** command.
+- `fleet-changelog.ts`: Fleet event changelog. **`/changelog [duration]`** command.
 
 ## Ideas Backlog (v4.0+)
 - **Web dashboard v2** — real-time browser UI via SSE
@@ -49,11 +56,11 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Audit trail retention policies** — configurable TTL with automatic archival to compressed storage
 - **Fleet health dashboard API** — REST API for external monitoring tools (Grafana, Datadog)
 - **Batch goal assignment** — assign goals to multiple sessions at once from a YAML manifest
-- **Session output summarizer v2** — LLM-powered summaries (opt-in) for shift handoffs
 - **Workflow replay** — replay completed workflow DAGs for post-mortem analysis
-- **Cost forecasting alerts** — proactive alerts when projected costs exceed configurable thresholds
-- **Session dependency auto-detection** — infer inter-session dependencies from import/file analysis
-- **Fleet-wide search-and-replace** — broadcast a code fix across all active sessions
-- **Operator shift handoff** — structured handoff notes with auto-generated fleet state summary
 - **Task priority inheritance** — child tasks inherit parent session priority + escalation state
 - **Session resource profiling** — track CPU/memory usage per tmux pane for resource-aware scheduling
+- **Fleet event bus** — pub/sub event system for decoupled module communication
+- **Session output diff highlights** — color-coded diff view between consecutive captures
+- **Reasoner prompt tuning** — auto-adjust system prompt parameters based on action success rates
+- **Goal completion verification** — double-check completed goals by re-scanning output for regressions
+- **Fleet config profiles** — named config presets for different workload types (dev, CI, incident)

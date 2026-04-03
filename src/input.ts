@@ -181,6 +181,9 @@ export type LeaderboardHandler = () => void; // show fleet productivity leaderbo
 export type HealthHistoryHandler = () => void; // show per-session health history sparklines
 export type CostThrottleHandler = () => void; // show cost anomaly throttle state
 export type SuggestNameHandler = (args: string) => void; // suggest session names from repo+goal
+export type ShiftHandoffHandler = () => void; // generate operator shift handoff notes
+export type AutoDepsHandler = () => void; // auto-detect session dependencies
+export type CostForecastHandler = () => void; // show cost forecast alerts + projections
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -854,6 +857,12 @@ export class InputReader {
   onHealthHistory(handler: HealthHistoryHandler): void { this.healthHistoryHandler = handler; }
   onCostThrottle(handler: CostThrottleHandler): void { this.costThrottleHandler = handler; }
   onSuggestName(handler: SuggestNameHandler): void { this.suggestNameHandler = handler; }
+  private shiftHandoffHandler: ShiftHandoffHandler | null = null;
+  private autoDepsHandler: AutoDepsHandler | null = null;
+  private costForecastHandler: CostForecastHandler | null = null;
+  onShiftHandoff(handler: ShiftHandoffHandler): void { this.shiftHandoffHandler = handler; }
+  onAutoDeps(handler: AutoDepsHandler): void { this.autoDepsHandler = handler; }
+  onCostForecast(handler: CostForecastHandler): void { this.costForecastHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2766,6 +2775,21 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}suggest-name not available (no TUI)${RESET}`);
         break;
       }
+
+      case "/handoff":
+        if (this.shiftHandoffHandler) this.shiftHandoffHandler();
+        else console.error(`${DIM}handoff not available (no TUI)${RESET}`);
+        break;
+
+      case "/auto-deps":
+        if (this.autoDepsHandler) this.autoDepsHandler();
+        else console.error(`${DIM}auto-deps not available (no TUI)${RESET}`);
+        break;
+
+      case "/cost-forecast":
+        if (this.costForecastHandler) this.costForecastHandler();
+        else console.error(`${DIM}cost-forecast not available (no TUI)${RESET}`);
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

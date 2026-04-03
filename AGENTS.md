@@ -161,6 +161,9 @@ The main loop is split into two layers:
 | `src/session-health-history.ts` | Rolling-window health score tracker per session with sparkline trend viz |
 | `src/cost-anomaly-throttle.ts` | Auto-throttle poll rate for cost-anomalous sessions (EMA burn rate vs fleet avg) |
 | `src/smart-session-naming.ts` | Auto-generate descriptive session titles from repo path + goal keywords |
+| `src/operator-shift-handoff.ts` | Structured handoff notes with fleet state, alerts, recommendations (TUI + markdown) |
+| `src/session-dep-auto-detect.ts` | Infer inter-session dependencies from goals, files, repos, explicit declarations |
+| `src/cost-forecast-alert.ts` | Project costs at daily/weekly/monthly intervals + fire alerts on threshold breach |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -188,7 +191,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Forty-eight modules run every daemon tick without LLM calls:
+Fifty-one modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -332,6 +335,21 @@ Forty-eight modules run every daemon tick without LLM calls:
   repo-verb, repo-noun, verb-noun, repo-verb-noun, basename fallback.
   Deduplicates against existing titles. `/suggest-name <repo> [goal]`.
 
+- **Operator shift handoff** (`operator-shift-handoff.ts`): generates structured
+  handoff notes for operator shift changes. Aggregates fleet state, session
+  health/cost, failed/paused alerts, pending approvals, and actionable
+  recommendations. TUI and markdown output formats. `/handoff`.
+
+- **Session dependency auto-detect** (`session-dep-auto-detect.ts`): infers
+  inter-session dependencies from explicit declarations, goal text references
+  ("after X", "blocked by X"), shared file edits, and repo path overlap.
+  Confidence-ranked (high/medium/low), deduplicated. `/auto-deps`.
+
+- **Cost forecast alert** (`cost-forecast-alert.ts`): projects session costs
+  at daily/weekly/monthly intervals from current spend + burn rate. Fires
+  alerts when projections exceed configurable thresholds ($25/day, $100/week,
+  $300/month default). Critical severity for imminent breaches (<2h). `/cost-forecast`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -378,7 +396,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3620 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 3654 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -402,7 +420,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 ## Session Workflow
 
 When asked to continue work on this project:
-- **Do multiple roadmap items per request.** Ship 2-4 features in a single pass:
+- **Do multiple roadmap items per request.** Ship 3 features in a single pass:
   module + tests + wiring + docs. Don't stop at one.
 - **Add new roadmap ideas** to `claude.md` Ideas Backlog that are in line with the
   project's direction (fleet intelligence, observability, cost management,
@@ -412,6 +430,27 @@ When asked to continue work on this project:
 - Follow the established pattern: standalone module → test → wire into input.ts +
   index.ts → update docs. Each module is a pure function or stateful class,
   zero runtime deps, includes a `format*()` function returning `string[]` for TUI.
+- **Add this response to AGENTS.md** — every session's shipped summary goes into
+  the development session summary table at the bottom.
+
+### v3.6.0 Session Response
+
+Shipped 3 features in v3.6.0 (34 new tests, 3 modules, 3 TUI commands):
+1. **`operator-shift-handoff.ts`** + 10 tests — Structured handoff notes aggregating
+   fleet state, session health/cost, failed/paused alerts, pending approvals,
+   actionable recommendations. TUI (`/handoff`) + clipboard-ready markdown output.
+2. **`session-dep-auto-detect.ts`** + 10 tests — Auto-detect inter-session
+   dependencies via explicit declarations, goal text references, shared file
+   edits, and repo path overlap. Confidence-ranked, deduplicated. `/auto-deps`.
+3. **`cost-forecast-alert.ts`** + 14 tests — Project costs at daily/weekly/monthly
+   intervals from burn rate. Alerts on threshold breaches ($25/day, $100/week,
+   $300/month). Critical severity when breach is <2h away. `/cost-forecast`.
+
+Also shipped in prior session (v3.4.0 + v3.5.0):
+- v3.4.0: SessionIdleDetector, GoalConflictResolver, FleetLeaderboard (33 tests)
+- v3.5.0: SessionHealthHistory, CostAnomalyThrottle, SmartSessionNaming (44 tests)
+
+Running total: 93 source modules, 94 TUI commands, 3654 tests, zero runtime deps.
 
 ## AI Working Context
 
@@ -440,9 +479,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v2.6–v3.3 | Deep Features | SessionClone, GoalSimilarity, CostAllocationTags, PredictiveScaling, SessionTagManager, SessionCompare, FleetSummaryReport, SessionTimeline, FleetChangelog |
 | v3.4 | Fleet Intelligence | SessionIdleDetector, GoalConflictResolver, FleetLeaderboard |
 | v3.5 | Observability + DX | SessionHealthHistory, CostAnomalyThrottle, SmartSessionNaming |
+| v3.6 | Operations + Forecasting | OperatorShiftHandoff, SessionDepAutoDetect, CostForecastAlert |
 
-**Totals**: 90 source modules, 120+ test files, 91 TUI commands, 20 CLI subcommands,
-3620 tests, ~24,000 lines added, zero runtime dependencies.
+**Totals**: 93 source modules, 120+ test files, 94 TUI commands, 20 CLI subcommands,
+3654 tests, ~25,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →
