@@ -152,6 +152,9 @@ export type MultiReasonerHandler = () => void; // show reasoner assignments
 export type TokenQuotaHandler = () => void; // show per-model token quotas
 export type CheckpointHandler = () => void; // show checkpoint info
 export type WorkflowNewHandler = (template: string) => void; // create workflow from template
+export type ABStatsHandler = () => void; // show A/B reasoning stats
+export type WorkflowChainHandler = () => void; // show workflow chain state
+export type WorkflowForecastHandler = (template: string) => void; // show workflow cost forecast
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -767,6 +770,12 @@ export class InputReader {
   onTokenQuota(handler: TokenQuotaHandler): void { this.tokenQuotaHandler = handler; }
   onCheckpoint(handler: CheckpointHandler): void { this.checkpointHandler = handler; }
   onWorkflowNew(handler: WorkflowNewHandler): void { this.workflowNewHandler = handler; }
+  private abStatsHandler: ABStatsHandler | null = null;
+  private workflowChainHandler: WorkflowChainHandler | null = null;
+  private workflowForecastHandler: WorkflowForecastHandler | null = null;
+  onABStats(handler: ABStatsHandler): void { this.abStatsHandler = handler; }
+  onWorkflowChain(handler: WorkflowChainHandler): void { this.workflowChainHandler = handler; }
+  onWorkflowForecast(handler: WorkflowForecastHandler): void { this.workflowForecastHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2502,6 +2511,24 @@ ${BOLD}other:${RESET}
         if (!wnArg) { console.error(`${DIM}usage: /workflow-new <template> <prefix>${RESET}`); break; }
         if (this.workflowNewHandler) this.workflowNewHandler(wnArg);
         else console.error(`${DIM}workflow-new not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/ab-stats":
+        if (this.abStatsHandler) this.abStatsHandler();
+        else console.error(`${DIM}ab-stats not available (no TUI)${RESET}`);
+        break;
+
+      case "/workflow-chain":
+        if (this.workflowChainHandler) this.workflowChainHandler();
+        else console.error(`${DIM}workflow-chain not available (no TUI)${RESET}`);
+        break;
+
+      case "/workflow-forecast": {
+        const wfArg = line.slice("/workflow-forecast".length).trim();
+        if (!wfArg) { console.error(`${DIM}usage: /workflow-forecast <template>${RESET}`); break; }
+        if (this.workflowForecastHandler) this.workflowForecastHandler(wfArg);
+        else console.error(`${DIM}workflow-forecast not available (no TUI)${RESET}`);
         break;
       }
 

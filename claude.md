@@ -5,28 +5,21 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v1.6.0
+## Version: v1.7.0
 
-## What shipped in v1.6.0
+## What shipped in v1.7.0
 
-**v1.6.0 — A/B Reasoning, Workflow Cost Forecasting, Workflow Chains, Checkpoint Restore**:
-- `ABReasoningTracker` + `compareResults()`: run two backends on same observation, score by non-wait action count (+2), confidence level (+1), focus (+1). Tracks wins/losses/ties over time. `/ab-reasoning` ready to wire.
-- `forecastWorkflowCost()`: estimates total workflow USD + hours from per-stage task difficulty scores. Scales cost by difficulty/5 × rate × hours. Parallel tasks use max duration; sequential stages sum. `/workflow-forecast` ready to wire.
-- `WorkflowChain` + `advanceChain()`: chain multiple workflows with cross-workflow dependencies. Activates workflows when deps complete. Detects failure propagation. Supports parallel entries with no deps. `/workflow-chain` ready to wire.
-- **Checkpoint restore on startup**: daemon loads last checkpoint from `~/.aoaoe/checkpoints/` on start (if <30min old), logs restoration to audit trail.
+**v1.7.0 — Wire v1.6: A/B Stats, Workflow Chain, Workflow Forecast, Cost Preview**:
+- **`/ab-stats` TUI command** — shows A/B reasoning trial results: wins, losses, ties, and which backend is performing better.
+- **`/workflow-chain` TUI command** — shows active workflow chain state with dependency arrows and status icons.
+- **`/workflow-forecast <template>` TUI command** — previews cost + time estimate for a workflow template before creating it.
+- **Cost forecast auto-shown on `/workflow-new`** — when creating a workflow from template, the cost forecast is now displayed automatically before the workflow starts.
+- **Workflow chain wired into main loop** — `advanceChain()` runs every tick, auto-activating dependent workflows when predecessors complete.
+- **A/B reasoning tracker instantiated** — ready for the reasoning pipeline to feed trial results.
 
-New files: `src/ab-reasoning.ts`, `src/workflow-cost-forecast.ts`, `src/workflow-chain.ts`
-Test files: 3 matching test files
-Modified: `src/index.ts`, `AGENTS.md`, `claude.md`, `package.json`
-Test changes: +22 new tests, net 3409 tests across 98 files.
-
-### Stats
-62 source modules, 62 test files, 62 TUI commands, 3409 tests, 8-gate pipeline, 0 runtime deps.
+65 TUI commands. 62 source modules. 3409 tests. 0 runtime deps.
 
 ## Ideas Backlog
-- **Wire A/B reasoning into daemon** — split every Nth observation to both backends
-- **Wire workflow chain into main loop** — auto-advance chains per tick
-- **Wire workflow cost forecast into /workflow-new** — show estimate before creating
 - **Fleet federation** — coordinate across multiple aoaoe daemons via HTTP
 - **Web dashboard v2** — real-time browser UI via SSE from daemon
 - **Reasoner plugin system** — load custom backends as ESM modules
@@ -34,3 +27,6 @@ Test changes: +22 new tests, net 3409 tests across 98 files.
 - **Multi-reasoner parallel calls** — call backends concurrently, merge results
 - **Workflow retry policies** — auto-retry failed stages with configurable strategies
 - **Workflow visualization** — ASCII DAG rendering for workflow chains
+- **Fleet health alerting rules** — custom alert rules beyond SLA threshold
+- **Session output archival** — compress + archive old outputs to disk/S3
+- **Operator runbook generator** — auto-generate runbooks from audit trail patterns

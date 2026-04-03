@@ -76,6 +76,10 @@ import { assignReasonerBackends, formatAssignments } from "./multi-reasoner.js";
 import { TokenQuotaManager } from "./token-quota.js";
 import { saveCheckpoint, loadCheckpoint, buildCheckpoint, formatCheckpointInfo, shouldRestoreCheckpoint } from "./session-checkpoint.js";
 import { findWorkflowTemplate, instantiateWorkflow, formatWorkflowTemplateList } from "./workflow-templates.js";
+import { ABReasoningTracker } from "./ab-reasoning.js";
+import { forecastWorkflowCost, formatWorkflowCostForecast } from "./workflow-cost-forecast.js";
+import { createWorkflowChain, advanceChain, formatWorkflowChain } from "./workflow-chain.js";
+import type { WorkflowChain } from "./workflow-chain.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -602,7 +606,9 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const approvalQueue = new ApprovalQueue();
   const graduationManager = new GraduationManager();
   let activeWorkflow: WorkflowState | null = null;
+  let activeWorkflowChain: WorkflowChain | null = null;
   const tokenQuotaManager = new TokenQuotaManager();
+  const abReasoningTracker = new ABReasoningTracker(config.reasoner, "claude-code");
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -2315,10 +2321,40 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         return;
       }
       const def = instantiateWorkflow(template, prefix);
+      // show cost forecast before creating
+      const forecast = forecastWorkflowCost(def);
+      const forecastLines = formatWorkflowCostForecast(forecast);
+      for (const l of forecastLines) tui!.log("system", l);
       activeWorkflow = createWorkflowState(def);
       tui!.log("+ action", `workflow "${def.name}" created from template "${templateName}" (${def.stages.length} stages)`);
       audit("task_created", `workflow created: ${def.name} from ${templateName}`, undefined, { stages: def.stages.length });
       const lines = formatWorkflow(activeWorkflow);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /ab-stats — A/B reasoning statistics
+    input.onABStats(() => {
+      const lines = abReasoningTracker.formatStats();
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /workflow-chain — show active workflow chain
+    input.onWorkflowChain(() => {
+      if (!activeWorkflowChain) {
+        tui!.log("system", "workflow-chain: no active chain");
+        return;
+      }
+      const lines = formatWorkflowChain(activeWorkflowChain);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /workflow-forecast — preview cost estimate for a template
+    input.onWorkflowForecast((templateName) => {
+      const template = findWorkflowTemplate(templateName);
+      if (!template) {
+        tui!.log("system", `workflow-forecast: template "${templateName}" not found`);
+        return;
+      }
+      const def = instantiateWorkflow(template, "preview");
+      const forecast = forecastWorkflowCost(def);
+      const lines = formatWorkflowCostForecast(forecast);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
@@ -3771,6 +3807,24 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
           if (completed) {
             tui.log("+ action", `workflow "${wf.name}" completed`);
             activeWorkflow = null;
+          }
+        }
+
+        // workflow chain: advance cross-workflow dependencies
+        if (activeWorkflowChain && tui) {
+          const chain = activeWorkflowChain;
+          const wfStates = new Map<string, WorkflowState>();
+          const { activate, completed: chainDone, failed: chainFailed } = advanceChain(chain, wfStates);
+          for (const name of activate) {
+            tui.log("status", `workflow-chain: activating workflow "${name}"`);
+            audit("task_created", `chain activated: ${name}`, name);
+          }
+          if (chainDone) {
+            tui.log("+ action", `workflow chain "${chain.name}" completed`);
+            activeWorkflowChain = null;
+          }
+          if (chainFailed) {
+            tui.log("status", `workflow chain "${chain.name}" has failures`);
           }
         }
 
