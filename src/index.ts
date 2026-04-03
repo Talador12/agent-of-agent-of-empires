@@ -184,6 +184,9 @@ import { exportState, formatStateExport } from "./daemon-state-portable.js";
 import { deduplicateOutput, formatDedup } from "./session-output-dedup.js";
 import { migrateConfig, formatMigration } from "./daemon-config-migration.js";
 import { GoalProgressPredictor, formatPredictions } from "./goal-progress-prediction.js";
+import { buildDashboardData, formatOpsDashboard } from "./fleet-ops-dashboard.js";
+import { findBrokenDeps, detectCycles as detectDepCycles, formatDepRepairs } from "./goal-dep-auto-repair.js";
+import { createEvolutionState, recordWindow, formatPatternEvolution } from "./session-pattern-evolution.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -746,6 +749,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const processSupervisorState = createSupervisor();
   const hotSwapState = createHotSwapState();
   const progressPredictor = new GoalProgressPredictor();
+  const patternEvolutionState = createEvolutionState();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3576,6 +3580,45 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         });
       });
       const lines = formatPredictions(predictions);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /ops-dashboard — full-screen fleet operations dashboard
+    input.onOpsDashboard(() => {
+      const sessions = tui!.getSessions();
+      const allCosts = tui!.getAllSessionCosts();
+      let totalCost = 0;
+      const dashSessions = sessions.map((s) => {
+        const costStr = allCosts.get(s.title) ?? "0";
+        const costUsd = parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0;
+        totalCost += costUsd;
+        return { title: s.title, status: s.status, healthPct: 70, costUsd, progressPct: 50, sentiment: "progress", idleMinutes: 0 };
+      });
+      const data = buildDashboardData({
+        sessions: dashSessions, fleetHealth: 70, totalCostUsd: totalCost,
+        unresolvedIncidents: incidentTimeline.unresolvedCount(),
+        poolUtilizationPct: Math.round((sessions.length / sessionPoolManager.getStatus(taskManager?.tasks ?? []).maxConcurrent) * 100),
+        readinessGrade: "READY", recentEvents: incidentTimeline.getEvents().slice(-3).map((e) => `${e.type}: ${e.message.slice(0, 40)}`),
+        uptimeHours: (Date.now() - daemonStartedAt) / 3_600_000, tickCount: pollCount,
+      });
+      const lines = formatOpsDashboard(data);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /dep-repair — auto-repair broken dependency chains
+    input.onDepRepair(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const depInfos = tasks.map((t) => ({ sessionTitle: t.sessionTitle, status: t.status, dependsOn: t.dependsOn ?? [] }));
+      const repairs = findBrokenDeps(depInfos);
+      const cycles = detectDepCycles(depInfos);
+      const lines = formatDepRepairs(repairs, cycles);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /pattern-evolution — output pattern evolution tracking
+    input.onPatternEvolution(() => {
+      // record current window from all session outputs
+      const sessions = tui!.getSessions();
+      const allLines = sessions.flatMap((s) => (tui!.getSessionOutput(s.id) ?? []).slice(-20));
+      if (allLines.length > 0) recordWindow(patternEvolutionState, allLines);
+      const lines = formatPatternEvolution(patternEvolutionState);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {

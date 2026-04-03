@@ -238,6 +238,9 @@ export type StateExportHandler = () => void; // export daemon state
 export type OutputDedupHandler = (session: string) => void; // deduplicate session output
 export type ConfigMigrateHandler = () => void; // migrate config to latest version
 export type ProgressPredictHandler = () => void; // predict goal completion times
+export type OpsDashboardHandler = () => void; // show fleet ops dashboard
+export type DepRepairHandler = () => void; // auto-repair broken dependency chains
+export type PatternEvolutionHandler = () => void; // show output pattern evolution
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1025,6 +1028,12 @@ export class InputReader {
   onOutputDedup(handler: OutputDedupHandler): void { this.outputDedupHandler = handler; }
   onConfigMigrate(handler: ConfigMigrateHandler): void { this.configMigrateHandler = handler; }
   onProgressPredict(handler: ProgressPredictHandler): void { this.progressPredictHandler = handler; }
+  private opsDashboardHandler: OpsDashboardHandler | null = null;
+  private depRepairHandler: DepRepairHandler | null = null;
+  private patternEvolutionHandler: PatternEvolutionHandler | null = null;
+  onOpsDashboard(handler: OpsDashboardHandler): void { this.opsDashboardHandler = handler; }
+  onDepRepair(handler: DepRepairHandler): void { this.depRepairHandler = handler; }
+  onPatternEvolution(handler: PatternEvolutionHandler): void { this.patternEvolutionHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3259,6 +3268,21 @@ ${BOLD}other:${RESET}
       case "/progress-predict":
         if (this.progressPredictHandler) this.progressPredictHandler();
         else console.error(`${DIM}progress-predict not available (no TUI)${RESET}`);
+        break;
+
+      case "/ops-dashboard":
+        if (this.opsDashboardHandler) this.opsDashboardHandler();
+        else console.error(`${DIM}ops-dashboard not available (no TUI)${RESET}`);
+        break;
+
+      case "/dep-repair":
+        if (this.depRepairHandler) this.depRepairHandler();
+        else console.error(`${DIM}dep-repair not available (no TUI)${RESET}`);
+        break;
+
+      case "/pattern-evolution":
+        if (this.patternEvolutionHandler) this.patternEvolutionHandler();
+        else console.error(`${DIM}pattern-evolution not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

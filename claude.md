@@ -5,32 +5,32 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v5.4.0
+## Version: v5.5.0
+
+## What shipped in v5.5.0
+
+**v5.5.0 — Ops Dashboard, Dep Auto-Repair, Pattern Evolution**:
+- `fleet-ops-dashboard.ts`: Full-screen fleet monitor with box-drawing: session table (status/health/cost/progress/sentiment), metrics bar, recent events, capacity. **`/ops-dashboard`** command.
+- `goal-dep-auto-repair.ts`: Fix broken dependency chains from completed/removed/failed tasks. Cycle detection via DFS. Apply repairs (remove stale deps). **`/dep-repair`** command.
+- `session-pattern-evolution.ts`: Track output pattern frequency over time windows. Detect appeared/disappeared/increased/decreased shifts. Sparkline trends per pattern. **`/pattern-evolution`** command.
+
+151 TUI commands. 150 source modules. 4374 tests. 0 runtime deps.
 
 ## What shipped in v5.4.0
 
 **v5.4.0 — Output Dedup, Config Migration, Progress Prediction**:
-- `session-output-dedup.ts`: Detect and collapse consecutive repeated lines with count (×N). Configurable min-repeat threshold. Compression stats. **`/output-dedup <session>`** command.
-- `daemon-config-migration.ts`: Auto-upgrade config files through 4 sequential migrations (v1→v5). Renames, restructures, normalizes. Version detection heuristics. **`/config-migrate`** command.
-- `goal-progress-prediction.ts`: ML-free statistical completion prediction. Linear extrapolation (insufficient data) or historical blending (3+ samples). Confidence scoring, percentile ranking. **`/progress-predict`** command.
-
-148 TUI commands. 147 source modules. 4346 tests. 0 runtime deps.
+- `session-output-dedup.ts`: Collapse repeated lines. **`/output-dedup`** command.
+- `daemon-config-migration.ts`: Auto-upgrade config v1→v5. **`/config-migrate`** command.
+- `goal-progress-prediction.ts`: Statistical completion prediction. **`/progress-predict`** command.
 
 ## What shipped in v5.3.0
 
 **v5.3.0 — Webhook Integrations, Structured Log, State Export**:
 - `fleet-webhook-integrations.ts`: Slack/Teams/Discord payloads. **`/webhook-preview`** command.
-- `session-structured-log.ts`: 8 event type output parser. **`/structured-log`** command.
+- `session-structured-log.ts`: 8 event type parser. **`/structured-log`** command.
 - `daemon-state-portable.ts`: Portable state export. **`/state-export`** command.
 
-## What shipped in v5.2.0
-
-**v5.2.0 — Daily Digest, Goal NL Parser, Hot-Swap Modules**:
-- `fleet-daily-digest.ts`: Daily fleet summary. **`/daily-digest`** command.
-- `goal-nl-parser.ts`: NL goal extraction. **`/parse-goal`** command.
-- `daemon-hot-swap.ts`: Module hot-swapping. **`/hot-swap`** command.
-
-## Ideas Backlog (v5.5+)
+## Ideas Backlog (v5.6+)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
@@ -60,8 +60,9 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Goal templating engine** — Mustache-style templates with variables
 - **Fleet multi-tenant isolation** — separate namespaces per team
 - **Fleet session tagging taxonomy** — hierarchical tag system with inheritance
-- **Session output knowledge graph** — extract entities from output for querying
-- **Fleet operational dashboard CLI** — ncurses-style full-screen fleet monitor
-- **Goal dependency auto-repair** — fix broken dep chains from completed/removed tasks
+- **Session output knowledge graph** — extract entities from output
 - **Daemon memory profiler** — track per-module memory usage over time
-- **Session output pattern evolution** — detect when output patterns change over time
+- **Fleet alert dashboard** — unified view of all active/recent alerts with acknowledge
+- **Session output language detector** — detect programming language from output patterns
+- **Goal SLA enforcement** — per-goal time limits with auto-escalation on breach
+- **Daemon audit report generator** — periodic compliance audit reports from trail

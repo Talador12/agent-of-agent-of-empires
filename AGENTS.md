@@ -218,6 +218,9 @@ The main loop is split into two layers:
 | `src/session-output-dedup.ts` | Detect and collapse consecutive repeated output lines (×N count) |
 | `src/daemon-config-migration.ts` | Auto-upgrade config through 4 sequential migrations (v1→v5) |
 | `src/goal-progress-prediction.ts` | ML-free statistical completion prediction (linear + historical blend) |
+| `src/fleet-ops-dashboard.ts` | Full-screen fleet monitor with box-drawing (sessions, metrics, events) |
+| `src/goal-dep-auto-repair.ts` | Fix broken dep chains from completed/removed/failed tasks + cycle detection |
+| `src/session-pattern-evolution.ts` | Track output pattern frequency shifts over time with sparkline trends |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -245,7 +248,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-One hundred and five modules run every daemon tick without LLM calls:
+One hundred and eight modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -693,6 +696,22 @@ One hundred and five modules run every daemon tick without LLM calls:
   on data size + progress %. Percentile ranking against historical
   completions. `/progress-predict`.
 
+- **Fleet ops dashboard** (`fleet-ops-dashboard.ts`): full-screen fleet
+  monitor with Unicode box-drawing. Session table (title/status/health/
+  cost/progress/sentiment), metrics bar (health/cost/pool/uptime/ticks),
+  incident count, recent events. Truncates at 8 sessions. `/ops-dashboard`.
+
+- **Goal dep auto-repair** (`goal-dep-auto-repair.ts`): fix broken
+  dependency chains from completed/removed/failed tasks. Scans active
+  tasks, removes stale dep references. DFS-based cycle detection. Reports
+  repairs and cycles. `/dep-repair`.
+
+- **Session pattern evolution** (`session-pattern-evolution.ts`): track
+  output pattern frequency over time windows using 8 default regex
+  patterns (test-pass/fail, error, warning, build, git, install, deploy).
+  Detects appeared/disappeared/increased/decreased shifts. Sparkline
+  trends per pattern. `/pattern-evolution`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -739,7 +758,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4346 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4374 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -1081,6 +1100,28 @@ Shipped 3 features in v5.4.0 (37 new tests, 3 modules, 3 TUI commands):
 
 Running total: 147 source modules, 148 TUI commands, 4346 tests, zero runtime deps.
 
+### v5.5.0 Session Response
+
+Shipped 6 features in v5.5.0 across 2 batches (65 new tests, 6 modules, 6 TUI commands):
+
+Batch 1 — v5.4.0 (37 tests, 3 modules):
+1. **`session-output-dedup.ts`** + 12 tests — Collapse consecutive repeated
+   output lines (×N). Configurable threshold. Compression stats. `/output-dedup`.
+2. **`daemon-config-migration.ts`** + 13 tests — Auto-upgrade config v1→v5
+   through 4 sequential migrations. Version detection heuristics. `/config-migrate`.
+3. **`goal-progress-prediction.ts`** + 12 tests — ML-free statistical completion
+   prediction. Linear + historical blend. Confidence + percentile. `/progress-predict`.
+
+Batch 2 — v5.5.0 (28 tests, 3 modules):
+4. **`fleet-ops-dashboard.ts`** + 5 tests — Full-screen fleet monitor with
+   box-drawing. Session table, metrics bar, incidents, events. `/ops-dashboard`.
+5. **`goal-dep-auto-repair.ts`** + 11 tests — Fix broken dep chains from
+   completed/removed/failed tasks. DFS cycle detection. `/dep-repair`.
+6. **`session-pattern-evolution.ts`** + 12 tests — Track output pattern frequency
+   shifts over time. 8 default patterns, sparkline trends. `/pattern-evolution`.
+
+Running total: 150 source modules, 151 TUI commands, 4374 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -1127,9 +1168,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v5.2 | Digest + NLP + Hot-Swap | FleetDailyDigest, GoalNLParser, DaemonHotSwap |
 | v5.3 | Webhooks + Logs + Export | FleetWebhookIntegrations, SessionStructuredLog, DaemonStatePortable |
 | v5.4 | Dedup + Migration + Prediction | SessionOutputDedup, DaemonConfigMigration, GoalProgressPrediction |
+| v5.5 | Dashboard + Repair + Evolution | FleetOpsDashboard, GoalDepAutoRepair, SessionPatternEvolution |
 
-**Totals**: 147 source modules, 120+ test files, 148 TUI commands, 20 CLI subcommands,
-4346 tests, ~43,000 lines added, zero runtime dependencies.
+**Totals**: 150 source modules, 120+ test files, 151 TUI commands, 20 CLI subcommands,
+4374 tests, ~44,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →
