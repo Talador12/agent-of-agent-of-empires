@@ -241,6 +241,9 @@ export type ProgressPredictHandler = () => void; // predict goal completion time
 export type OpsDashboardHandler = () => void; // show fleet ops dashboard
 export type DepRepairHandler = () => void; // auto-repair broken dependency chains
 export type PatternEvolutionHandler = () => void; // show output pattern evolution
+export type AlertDashboardHandler = (args: string) => void; // manage alert dashboard
+export type LangDetectHandler = () => void; // detect programming languages
+export type GoalSlaHandler = (args: string) => void; // manage goal SLA enforcement
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1034,6 +1037,12 @@ export class InputReader {
   onOpsDashboard(handler: OpsDashboardHandler): void { this.opsDashboardHandler = handler; }
   onDepRepair(handler: DepRepairHandler): void { this.depRepairHandler = handler; }
   onPatternEvolution(handler: PatternEvolutionHandler): void { this.patternEvolutionHandler = handler; }
+  private alertDashboardHandler: AlertDashboardHandler | null = null;
+  private langDetectHandler: LangDetectHandler | null = null;
+  private goalSlaHandler: GoalSlaHandler | null = null;
+  onAlertDashboard(handler: AlertDashboardHandler): void { this.alertDashboardHandler = handler; }
+  onLangDetect(handler: LangDetectHandler): void { this.langDetectHandler = handler; }
+  onGoalSla(handler: GoalSlaHandler): void { this.goalSlaHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3284,6 +3293,25 @@ ${BOLD}other:${RESET}
         if (this.patternEvolutionHandler) this.patternEvolutionHandler();
         else console.error(`${DIM}pattern-evolution not available (no TUI)${RESET}`);
         break;
+
+      case "/alert-dashboard": {
+        const adArg = line.slice("/alert-dashboard".length).trim();
+        if (this.alertDashboardHandler) this.alertDashboardHandler(adArg);
+        else console.error(`${DIM}alert-dashboard not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/lang-detect":
+        if (this.langDetectHandler) this.langDetectHandler();
+        else console.error(`${DIM}lang-detect not available (no TUI)${RESET}`);
+        break;
+
+      case "/goal-sla": {
+        const gsArg = line.slice("/goal-sla".length).trim();
+        if (this.goalSlaHandler) this.goalSlaHandler(gsArg);
+        else console.error(`${DIM}goal-sla not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

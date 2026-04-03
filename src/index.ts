@@ -187,6 +187,9 @@ import { GoalProgressPredictor, formatPredictions } from "./goal-progress-predic
 import { buildDashboardData, formatOpsDashboard } from "./fleet-ops-dashboard.js";
 import { findBrokenDeps, detectCycles as detectDepCycles, formatDepRepairs } from "./goal-dep-auto-repair.js";
 import { createEvolutionState, recordWindow, formatPatternEvolution } from "./session-pattern-evolution.js";
+import { createAlertDashboard, addAlert, acknowledgeAlert, formatAlertDashboard } from "./fleet-alert-dashboard.js";
+import { detectFleetLanguages, formatLangDetection } from "./session-lang-detector.js";
+import { createSlaState, registerGoalSla, checkGoalSlas, formatSlaChecks } from "./goal-sla-enforcement.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -750,6 +753,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const hotSwapState = createHotSwapState();
   const progressPredictor = new GoalProgressPredictor();
   const patternEvolutionState = createEvolutionState();
+  const alertDashboardState = createAlertDashboard();
+  const goalSlaState = createSlaState();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3620,6 +3625,42 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       if (allLines.length > 0) recordWindow(patternEvolutionState, allLines);
       const lines = formatPatternEvolution(patternEvolutionState);
       for (const l of lines) tui!.log("system", l);
+    });
+    // wire /alert-dashboard — unified alert view
+    input.onAlertDashboard((args) => {
+      const parts = args.split(/\s+/);
+      if (parts[0] === "ack" && parts[1]) {
+        const id = parseInt(parts[1], 10);
+        if (acknowledgeAlert(alertDashboardState, id)) tui!.log("system", `alert: #${id} acknowledged`);
+        else tui!.log("system", `alert: #${id} not found or already ack'd`);
+      } else {
+        const lines = formatAlertDashboard(alertDashboardState);
+        for (const l of lines) tui!.log("system", l);
+      }
+    });
+    // wire /lang-detect — programming language detection
+    input.onLangDetect(() => {
+      const sessions = tui!.getSessions();
+      const inputs = sessions.map((s) => ({ title: s.title, output: (tui!.getSessionOutput(s.id) ?? []).join("\n") }));
+      const results = detectFleetLanguages(inputs);
+      const lines = formatLangDetection(results);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /goal-sla — SLA enforcement
+    input.onGoalSla((args) => {
+      const parts = args.split(/\s+/);
+      if (parts[0] === "set" && parts[1] && parts[2]) {
+        const session = parts[1];
+        const hours = parseFloat(parts[2]);
+        const tasks = taskManager?.tasks ?? [];
+        const task = tasks.find((t) => t.sessionTitle === session);
+        registerGoalSla(goalSlaState, session, task?.goal ?? "", hours);
+        tui!.log("system", `goal-sla: ${session} set to ${hours}h`);
+      } else {
+        const checks = checkGoalSlas(goalSlaState);
+        const lines = formatSlaChecks(checks);
+        for (const l of lines) tui!.log("system", l);
+      }
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

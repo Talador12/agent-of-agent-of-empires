@@ -221,6 +221,9 @@ The main loop is split into two layers:
 | `src/fleet-ops-dashboard.ts` | Full-screen fleet monitor with box-drawing (sessions, metrics, events) |
 | `src/goal-dep-auto-repair.ts` | Fix broken dep chains from completed/removed/failed tasks + cycle detection |
 | `src/session-pattern-evolution.ts` | Track output pattern frequency shifts over time with sparkline trends |
+| `src/fleet-alert-dashboard.ts` | Unified alert view with acknowledge/dismiss, severity counts, source filter |
+| `src/session-lang-detector.ts` | Detect programming language from output patterns (10 languages) |
+| `src/goal-sla-enforcement.ts` | Per-goal time limits with ok/warning/breached status + auto-escalation |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -248,7 +251,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-One hundred and eight modules run every daemon tick without LLM calls:
+One hundred and eleven modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -758,7 +761,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4374 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4410 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -1122,6 +1125,20 @@ Batch 2 — v5.5.0 (28 tests, 3 modules):
 
 Running total: 150 source modules, 151 TUI commands, 4374 tests, zero runtime deps.
 
+### v5.6.0 Session Response
+
+Shipped 3 features in v5.6.0 (36 new tests, 3 modules, 3 TUI commands):
+1. **`fleet-alert-dashboard.ts`** + 12 tests — Unified alert view aggregating
+   all sources (incident/cost/compliance/health/watchdog/sla). Acknowledge,
+   dismiss. Severity counts (C/E/W/I). `/alert-dashboard [ack N]`.
+2. **`session-lang-detector.ts`** + 12 tests — Detect programming language from
+   output (10 langs: TS, JS, Python, Rust, Go, Java, C/C++, Ruby, Shell, SQL).
+   Multi-signal confidence. `/lang-detect`.
+3. **`goal-sla-enforcement.ts`** + 12 tests — Per-goal time limits. Register SLAs,
+   check ok/warning/breached, sorted by % used. `/goal-sla [set session hours]`.
+
+Running total: 153 source modules, 154 TUI commands, 4410 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -1169,9 +1186,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v5.3 | Webhooks + Logs + Export | FleetWebhookIntegrations, SessionStructuredLog, DaemonStatePortable |
 | v5.4 | Dedup + Migration + Prediction | SessionOutputDedup, DaemonConfigMigration, GoalProgressPrediction |
 | v5.5 | Dashboard + Repair + Evolution | FleetOpsDashboard, GoalDepAutoRepair, SessionPatternEvolution |
+| v5.6 | Alerts + Language + SLA | FleetAlertDashboard, SessionLangDetector, GoalSlaEnforcement |
 
-**Totals**: 150 source modules, 120+ test files, 151 TUI commands, 20 CLI subcommands,
-4374 tests, ~44,000 lines added, zero runtime dependencies.
+**Totals**: 153 source modules, 120+ test files, 154 TUI commands, 20 CLI subcommands,
+4410 tests, ~45,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

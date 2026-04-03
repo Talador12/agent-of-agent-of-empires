@@ -5,32 +5,32 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v5.5.0
+## Version: v5.6.0
+
+## What shipped in v5.6.0
+
+**v5.6.0 — Alert Dashboard, Language Detection, Goal SLA Enforcement**:
+- `fleet-alert-dashboard.ts`: Unified alert view aggregating incidents, cost, compliance, health, watchdog. Acknowledge/dismiss. Severity counts. **`/alert-dashboard [ack N]`** command.
+- `session-lang-detector.ts`: Detect programming language from output (10 languages: TS, JS, Python, Rust, Go, Java, C/C++, Ruby, Shell, SQL). Multi-signal confidence scoring. **`/lang-detect`** command.
+- `goal-sla-enforcement.ts`: Per-goal time limits with auto-escalation. Register SLAs, check status (ok/warning/breached), breach detection. **`/goal-sla [set session hours]`** command.
+
+154 TUI commands. 153 source modules. 4410 tests. 0 runtime deps.
 
 ## What shipped in v5.5.0
 
 **v5.5.0 — Ops Dashboard, Dep Auto-Repair, Pattern Evolution**:
-- `fleet-ops-dashboard.ts`: Full-screen fleet monitor with box-drawing: session table (status/health/cost/progress/sentiment), metrics bar, recent events, capacity. **`/ops-dashboard`** command.
-- `goal-dep-auto-repair.ts`: Fix broken dependency chains from completed/removed/failed tasks. Cycle detection via DFS. Apply repairs (remove stale deps). **`/dep-repair`** command.
-- `session-pattern-evolution.ts`: Track output pattern frequency over time windows. Detect appeared/disappeared/increased/decreased shifts. Sparkline trends per pattern. **`/pattern-evolution`** command.
-
-151 TUI commands. 150 source modules. 4374 tests. 0 runtime deps.
+- `fleet-ops-dashboard.ts`: Full-screen fleet monitor. **`/ops-dashboard`** command.
+- `goal-dep-auto-repair.ts`: Fix broken dep chains. **`/dep-repair`** command.
+- `session-pattern-evolution.ts`: Pattern frequency tracking. **`/pattern-evolution`** command.
 
 ## What shipped in v5.4.0
 
 **v5.4.0 — Output Dedup, Config Migration, Progress Prediction**:
 - `session-output-dedup.ts`: Collapse repeated lines. **`/output-dedup`** command.
-- `daemon-config-migration.ts`: Auto-upgrade config v1→v5. **`/config-migrate`** command.
-- `goal-progress-prediction.ts`: Statistical completion prediction. **`/progress-predict`** command.
+- `daemon-config-migration.ts`: Auto-upgrade config. **`/config-migrate`** command.
+- `goal-progress-prediction.ts`: Statistical prediction. **`/progress-predict`** command.
 
-## What shipped in v5.3.0
-
-**v5.3.0 — Webhook Integrations, Structured Log, State Export**:
-- `fleet-webhook-integrations.ts`: Slack/Teams/Discord payloads. **`/webhook-preview`** command.
-- `session-structured-log.ts`: 8 event type parser. **`/structured-log`** command.
-- `daemon-state-portable.ts`: Portable state export. **`/state-export`** command.
-
-## Ideas Backlog (v5.6+)
+## Ideas Backlog (v5.7+)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
@@ -59,10 +59,9 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Daemon plugin marketplace** — discover and install community hooks
 - **Goal templating engine** — Mustache-style templates with variables
 - **Fleet multi-tenant isolation** — separate namespaces per team
-- **Fleet session tagging taxonomy** — hierarchical tag system with inheritance
-- **Session output knowledge graph** — extract entities from output
 - **Daemon memory profiler** — track per-module memory usage over time
-- **Fleet alert dashboard** — unified view of all active/recent alerts with acknowledge
-- **Session output language detector** — detect programming language from output patterns
-- **Goal SLA enforcement** — per-goal time limits with auto-escalation on breach
-- **Daemon audit report generator** — periodic compliance audit reports from trail
+- **Daemon audit report generator** — periodic compliance reports from trail
+- **Fleet session auto-scaler** — add/remove sessions based on queue depth
+- **Goal progress gamification** — XP/levels for sessions based on completions
+- **Session output diff stream** — real-time diff stream for external consumers
+- **Fleet cost waterfall chart** — visualize cost accumulation over time per session
