@@ -127,6 +127,9 @@ import { runDiagnostics, formatDiagnostics } from "./daemon-diagnostics.js";
 import { formatStateMachine, canTransition, formatTransitionResult } from "./session-state-machine.js";
 import type { SessionState as SMState } from "./session-state-machine.js";
 import { createIncrementalState, detectChanges, formatIncrementalContext } from "./incremental-context.js";
+import { DaemonMetricsHistogram, formatMetricsHistogram } from "./daemon-metrics-histogram.js";
+import { createPeerReviewState, formatPeerReviews, requestReview, resolveReview, expireStaleReviews } from "./session-peer-review.js";
+import { createWarmStandby, warmSlot, claimSlot, formatWarmStandby } from "./fleet-warm-standby.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -667,6 +670,9 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const heartbeatState = createHeartbeatState();
   let actionReplayState: ReplayState | null = null;
   const incrementalContextState = createIncrementalState();
+  const daemonMetrics = new DaemonMetricsHistogram();
+  const peerReviewState = createPeerReviewState();
+  const warmStandbyState = createWarmStandby();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -2915,6 +2921,54 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     input.onContextStats(() => {
       const lines = formatIncrementalContext(incrementalContextState);
       for (const l of lines) tui!.log("system", l);
+    });
+    // wire /metrics-hist — daemon latency histogram
+    input.onMetricsHist(() => {
+      const lines = formatMetricsHistogram(daemonMetrics);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /peer-review — manage peer reviews
+    input.onPeerReview((args) => {
+      const parts = args.split(/\s+/);
+      const subcmd = parts[0] ?? "";
+      if (subcmd === "approve" || subcmd === "reject") {
+        const id = parseInt(parts[1] ?? "0", 10);
+        const feedback = parts.slice(2).join(" ") || undefined;
+        const result = resolveReview(peerReviewState, id, subcmd === "approve" ? "approved" : "rejected", feedback);
+        if (result) tui!.log("system", `peer-review: #${id} ${result.status}`);
+        else tui!.log("system", `peer-review: #${id} not found or already resolved`);
+      } else if (subcmd === "request" && parts.length >= 3) {
+        const reviewer = parts[1];
+        const target = parts[2];
+        const tasks = taskManager?.tasks ?? [];
+        const task = tasks.find((t) => t.sessionTitle.toLowerCase() === target.toLowerCase());
+        const goal = task?.goal ?? "unknown";
+        const output = (tui!.getSessionOutput(task?.sessionId ?? "") ?? []).join("\n");
+        const review = requestReview(peerReviewState, reviewer, target, goal, output);
+        tui!.log("system", `peer-review: created #${review.id} (${target} → ${reviewer})`);
+      } else {
+        expireStaleReviews(peerReviewState);
+        const lines = formatPeerReviews(peerReviewState);
+        for (const l of lines) tui!.log("system", l);
+      }
+    });
+    // wire /warm-standby — manage warm slots
+    input.onWarmStandby((args) => {
+      const parts = args.split(/\s+/);
+      const subcmd = parts[0] ?? "";
+      if (subcmd === "warm" && parts[1]) {
+        const repo = parts[1];
+        const slot = warmSlot(warmStandbyState, repo, []);
+        if (slot) tui!.log("system", `warm-standby: slot #${slot.id} warmed for ${repo}`);
+        else tui!.log("system", "warm-standby: pool full");
+      } else if (subcmd === "claim" && parts[1] && parts[2]) {
+        const slot = claimSlot(warmStandbyState, parts[1], parts[2]);
+        if (slot) tui!.log("system", `warm-standby: slot #${slot.id} claimed by ${parts[2]}`);
+        else tui!.log("system", `warm-standby: no warm slot for ${parts[1]}`);
+      } else {
+        const lines = formatWarmStandby(warmStandbyState);
+        for (const l of lines) tui!.log("system", l);
+      }
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

@@ -193,6 +193,9 @@ export type ConfigProfilesHandler = (args: string) => void; // show/apply config
 export type DoctorHandler = () => void; // run daemon self-diagnostics
 export type StateMachineHandler = (args: string) => void; // show session state machine
 export type ContextStatsHandler = () => void; // show incremental context stats
+export type MetricsHistHandler = () => void; // show daemon metrics histogram
+export type PeerReviewHandler = (args: string) => void; // manage peer reviews
+export type WarmStandbyHandler = (args: string) => void; // manage warm standby slots
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -890,6 +893,12 @@ export class InputReader {
   onDoctor(handler: DoctorHandler): void { this.doctorHandler = handler; }
   onStateMachine(handler: StateMachineHandler): void { this.stateMachineHandler = handler; }
   onContextStats(handler: ContextStatsHandler): void { this.contextStatsHandler = handler; }
+  private metricsHistHandler: MetricsHistHandler | null = null;
+  private peerReviewHandler: PeerReviewHandler | null = null;
+  private warmStandbyHandler: WarmStandbyHandler | null = null;
+  onMetricsHist(handler: MetricsHistHandler): void { this.metricsHistHandler = handler; }
+  onPeerReview(handler: PeerReviewHandler): void { this.peerReviewHandler = handler; }
+  onWarmStandby(handler: WarmStandbyHandler): void { this.warmStandbyHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2871,6 +2880,25 @@ ${BOLD}other:${RESET}
         if (this.contextStatsHandler) this.contextStatsHandler();
         else console.error(`${DIM}context-stats not available (no TUI)${RESET}`);
         break;
+
+      case "/metrics-hist":
+        if (this.metricsHistHandler) this.metricsHistHandler();
+        else console.error(`${DIM}metrics-hist not available (no TUI)${RESET}`);
+        break;
+
+      case "/peer-review": {
+        const prArg = line.slice("/peer-review".length).trim();
+        if (this.peerReviewHandler) this.peerReviewHandler(prArg);
+        else console.error(`${DIM}peer-review not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/warm-standby": {
+        const wsArg = line.slice("/warm-standby".length).trim();
+        if (this.warmStandbyHandler) this.warmStandbyHandler(wsArg);
+        else console.error(`${DIM}warm-standby not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

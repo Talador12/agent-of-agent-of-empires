@@ -173,6 +173,9 @@ The main loop is split into two layers:
 | `src/daemon-diagnostics.ts` | /doctor self-diagnostics: node, config, state, reasoner, poll, uptime, sessions |
 | `src/session-state-machine.ts` | 11-state lifecycle state machine with 31 guarded transitions |
 | `src/incremental-context.ts` | Mtime/size fingerprinting for skip-unchanged context file reloads |
+| `src/daemon-metrics-histogram.ts` | Per-tick latency distribution (p50/p90/p99) with ASCII histograms |
+| `src/session-peer-review.ts` | Cross-session code review gating with approve/reject/expire workflow |
+| `src/fleet-warm-standby.ts` | Pre-warm session slots with loaded context for instant task activation |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -200,7 +203,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Sixty modules run every daemon tick without LLM calls:
+Sixty-three modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -408,6 +411,21 @@ Sixty modules run every daemon tick without LLM calls:
   I/O on large fleets. Reports cache hit rate, reload/skip counts, recent
   change details. `/context-stats`.
 
+- **Daemon metrics histogram** (`daemon-metrics-histogram.ts`): per-tick
+  latency distribution for poll, reason, execute, and tick-total phases.
+  Records timing samples (capped at 500), computes percentiles (p50/p90/p99),
+  renders ASCII histograms with 8 buckets. `/metrics-hist`.
+
+- **Session peer review** (`session-peer-review.ts`): cross-session code
+  review gating. Operator requests reviews, reviewer sessions approve or
+  reject with feedback. Stale reviews auto-expire. Gates task completion
+  on peer approval. `/peer-review [request|approve|reject]`.
+
+- **Fleet warm standby** (`fleet-warm-standby.ts`): pre-warm session slots
+  with loaded context for instant task activation. Pool-limited (default 5),
+  TTL-based expiry, repo-matched claiming. Reduces cold-start time for
+  new tasks. `/warm-standby [warm|claim]`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -454,7 +472,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3778 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 3819 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -557,6 +575,21 @@ Shipped 3 features in v3.9.0 (43 new tests, 3 modules, 3 TUI commands):
 
 Running total: 102 source modules, 103 TUI commands, 3778 tests, zero runtime deps.
 
+### v4.0.0 Session Response
+
+Shipped 3 features in v4.0.0 (41 new tests, 3 modules, 3 TUI commands):
+1. **`daemon-metrics-histogram.ts`** + 10 tests — Per-tick latency distribution
+   for poll/reason/execute/tick-total phases. Percentiles (p50/p90/p99), ASCII
+   histograms with 8 buckets, 500-sample rolling window. `/metrics-hist`.
+2. **`session-peer-review.ts`** + 17 tests — Cross-session code review gating.
+   Request/approve/reject reviews with feedback. Stale auto-expiry. Gates task
+   completion on peer approval. `/peer-review`.
+3. **`fleet-warm-standby.ts`** + 14 tests — Pre-warm session slots with loaded
+   context for instant task activation. Pool-limited (5 default), TTL expiry,
+   repo-matched claiming. `/warm-standby`.
+
+Milestone: **v4.0.0 — 105 source modules, 106 TUI commands, 3819 tests, zero runtime deps.**
+
 ## AI Working Context
 
 Two files per repo:
@@ -588,9 +621,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v3.7 | Events + Verification | FleetEventBus, GoalCompletionVerifier, SessionOutputDiff |
 | v3.8 | Debugging + Config | SessionHeartbeat, ActionReplay, FleetConfigProfiles |
 | v3.9 | Quality + Lifecycle | DaemonDiagnostics, SessionStateMachine, IncrementalContext |
+| v4.0 | Performance + Governance | DaemonMetricsHistogram, SessionPeerReview, FleetWarmStandby |
 
-**Totals**: 102 source modules, 120+ test files, 103 TUI commands, 20 CLI subcommands,
-3778 tests, ~28,000 lines added, zero runtime dependencies.
+**Totals**: 105 source modules, 120+ test files, 106 TUI commands, 20 CLI subcommands,
+3819 tests, ~29,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →
