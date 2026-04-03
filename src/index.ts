@@ -123,6 +123,10 @@ import { createHeartbeatState, recordHeartbeat, evaluateHeartbeats, formatHeartb
 import { buildReplayState, seekTo, step, currentEntry, filterBySession, formatReplayEntry, formatReplayStats } from "./action-replay.js";
 import type { ReplayState } from "./action-replay.js";
 import { listProfiles, getProfile, formatProfileList, formatProfileDetail } from "./fleet-config-profiles.js";
+import { runDiagnostics, formatDiagnostics } from "./daemon-diagnostics.js";
+import { formatStateMachine, canTransition, formatTransitionResult } from "./session-state-machine.js";
+import type { SessionState as SMState } from "./session-state-machine.js";
+import { createIncrementalState, detectChanges, formatIncrementalContext } from "./incremental-context.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -662,6 +666,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const previousOutputs = new Map<string, string>(); // session -> last captured output for diff
   const heartbeatState = createHeartbeatState();
   let actionReplayState: ReplayState | null = null;
+  const incrementalContextState = createIncrementalState();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -2877,6 +2882,39 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
           tui!.log("system", `profiles: "${subcmd}" not found (try: dev, ci, incident, conservative, overnight)`);
         }
       }
+    });
+    // wire /doctor — daemon self-diagnostics
+    input.onDoctor(() => {
+      const sessions = tui!.getSessions();
+      const report = runDiagnostics({
+        reasonerBackend: config.reasoner,
+        pollIntervalMs: config.pollIntervalMs,
+        sessionCount: sessions.length,
+        uptimeMs: Date.now() - daemonStartedAt,
+        tickCount: pollCount,
+      });
+      const lines = formatDiagnostics(report);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /state-machine — session lifecycle state machine
+    input.onStateMachine((args) => {
+      const currentState = args.trim() as SMState | undefined;
+      if (args.includes("→") || args.includes("->")) {
+        const parts = args.replace("→", "->").split("->");
+        const from = parts[0].trim() as SMState;
+        const to = parts[1].trim() as SMState;
+        const result = canTransition(from, to);
+        const lines = formatTransitionResult(result);
+        for (const l of lines) tui!.log("system", l);
+      } else {
+        const lines = formatStateMachine(currentState || undefined);
+        for (const l of lines) tui!.log("system", l);
+      }
+    });
+    // wire /context-stats — incremental context loading stats
+    input.onContextStats(() => {
+      const lines = formatIncrementalContext(incrementalContextState);
+      for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

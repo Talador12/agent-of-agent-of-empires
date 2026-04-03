@@ -190,6 +190,9 @@ export type OutputDiffHandler = (target: string) => void; // show output diff fo
 export type HeartbeatHandler = () => void; // show session heartbeat status
 export type ActionReplayHandler = (args: string) => void; // action replay navigation
 export type ConfigProfilesHandler = (args: string) => void; // show/apply config profiles
+export type DoctorHandler = () => void; // run daemon self-diagnostics
+export type StateMachineHandler = (args: string) => void; // show session state machine
+export type ContextStatsHandler = () => void; // show incremental context stats
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -881,6 +884,12 @@ export class InputReader {
   onHeartbeat(handler: HeartbeatHandler): void { this.heartbeatHandler = handler; }
   onActionReplay(handler: ActionReplayHandler): void { this.actionReplayHandler = handler; }
   onConfigProfiles(handler: ConfigProfilesHandler): void { this.configProfilesHandler = handler; }
+  private doctorHandler: DoctorHandler | null = null;
+  private stateMachineHandler: StateMachineHandler | null = null;
+  private contextStatsHandler: ContextStatsHandler | null = null;
+  onDoctor(handler: DoctorHandler): void { this.doctorHandler = handler; }
+  onStateMachine(handler: StateMachineHandler): void { this.stateMachineHandler = handler; }
+  onContextStats(handler: ContextStatsHandler): void { this.contextStatsHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2845,6 +2854,23 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}profiles not available (no TUI)${RESET}`);
         break;
       }
+
+      case "/doctor":
+        if (this.doctorHandler) this.doctorHandler();
+        else console.error(`${DIM}doctor not available (no TUI)${RESET}`);
+        break;
+
+      case "/state-machine": {
+        const smArg = line.slice("/state-machine".length).trim();
+        if (this.stateMachineHandler) this.stateMachineHandler(smArg);
+        else console.error(`${DIM}state-machine not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/context-stats":
+        if (this.contextStatsHandler) this.contextStatsHandler();
+        else console.error(`${DIM}context-stats not available (no TUI)${RESET}`);
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

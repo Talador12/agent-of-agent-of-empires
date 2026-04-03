@@ -5,30 +5,30 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v3.8.0
+## Version: v3.9.0
+
+## What shipped in v3.9.0
+
+**v3.9.0 — Self-Diagnostics, State Machine, Incremental Context**:
+- `daemon-diagnostics.ts`: `/doctor` command — checks node version, config file, state dir, reasoner backend, poll interval sanity, uptime, tick count, session count, actions log. Severity-ranked (ok/warn/error/info) with actionable suggestions. **`/doctor`** command.
+- `session-state-machine.ts`: Formalizes 11 session lifecycle states (pending → starting → active → idle → stuck → error → paused → completing → completed → failed → removed) with 31 valid transitions and guard conditions. Blocks illegal state changes. **`/state-machine [state]`** command. Supports transition checking: `/state-machine active→idle`.
+- `incremental-context.ts`: Tracks file mtimes/sizes per tick, skips re-reads for unchanged files. Reports cache hit rate, reload/skip counts, and recent change details. Reduces I/O on large fleets. **`/context-stats`** command.
+
+103 TUI commands. 102 source modules. 3778 tests. 0 runtime deps.
 
 ## What shipped in v3.8.0
 
 **v3.8.0 — Session Heartbeat, Action Replay, Fleet Config Profiles**:
-- `session-heartbeat.ts`: Detect tmux pane crashes independent of AoE status. Tracks output hash changes per tick, escalates stale → unresponsive → dead. Configurable thresholds (5/10/20 ticks default). **`/heartbeat`** command.
-- `action-replay.ts`: Step through daemon decision history for post-mortem analysis. Loads action log, groups by tick, supports seek/step/filter-by-session navigation. Includes replay stats (ticks, actions, failures, sessions). **`/replay [stats|next|prev|N|session]`** command.
-- `fleet-config-profiles.ts`: 5 built-in config presets (dev, ci, incident, conservative, overnight) + user-defined profiles. Each profile overrides poll intervals, policies, verbosity, confirm mode. **`/profiles [name]`** command.
-
-100 TUI commands. 99 source modules. 3735 tests. 0 runtime deps.
+- `session-heartbeat.ts`: Tmux pane crash detection. **`/heartbeat`** command.
+- `action-replay.ts`: Decision history debugger. **`/replay`** command.
+- `fleet-config-profiles.ts`: Named config presets. **`/profiles`** command.
 
 ## What shipped in v3.7.0
 
 **v3.7.0 — Event Bus, Goal Verification, Output Diffs**:
-- `fleet-event-bus.ts`: Typed pub/sub with 22 event types. **`/event-bus`** command.
-- `goal-completion-verifier.ts`: Post-completion regression scanner. **`/verify-goals`** command.
-- `session-output-diff.ts`: Line-level output diffs. **`/output-diff <session>`** command.
-
-## What shipped in v3.6.0
-
-**v3.6.0 — Shift Handoffs, Dependency Auto-Detection, Cost Forecast Alerts**:
-- `operator-shift-handoff.ts`: Structured handoff notes. **`/handoff`** command.
-- `session-dep-auto-detect.ts`: Infer session dependencies. **`/auto-deps`** command.
-- `cost-forecast-alert.ts`: Proactive cost forecast alerts. **`/cost-forecast`** command.
+- `fleet-event-bus.ts`: Typed pub/sub. **`/event-bus`** command.
+- `goal-completion-verifier.ts`: Regression scanner. **`/verify-goals`** command.
+- `session-output-diff.ts`: Line-level diffs. **`/output-diff <session>`** command.
 
 ## Ideas Backlog (v4.0+)
 - **Web dashboard v2** — real-time browser UI via SSE
@@ -52,13 +52,13 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Batch goal assignment** — assign goals to multiple sessions at once from a YAML manifest
 - **Workflow replay** — replay completed workflow DAGs for post-mortem analysis
 - **Task priority inheritance** — child tasks inherit parent session priority + escalation state
-- **Session resource profiling** — track CPU/memory usage per tmux pane for resource-aware scheduling
-- **Reasoner prompt tuning** — auto-adjust system prompt parameters based on action success rates
 - **Session output watermarking** — embed daemon tick ID in injected messages for trace correlation
 - **Parallel goal execution** — split a single goal into sub-goals and run across multiple sessions
 - **Fleet-wide rollback** — coordinated revert of recent actions across all sessions
-- **Session state machine** — formalize session lifecycle as a state machine with transition guards
 - **Fleet cost allocation dashboard** — visual cost breakdown by team/repo/tag over time
-- **Incremental context loading** — only reload context files that changed since last tick
 - **Session peer review** — have one session review another's output before marking complete
-- **Daemon self-diagnostics** — /doctor command that checks config, env, perf, and reports issues
+- **Daemon metrics histogram** — per-tick latency distribution for reasoning, polling, execution
+- **Session output pattern library** — reusable regex patterns for common tool outputs
+- **Goal template marketplace** — share goal + decomposition templates across teams
+- **Fleet warm standby** — pre-warm session slots with context for fast task activation
+- **Reasoner chain-of-thought logger** — capture and display LLM reasoning steps for transparency

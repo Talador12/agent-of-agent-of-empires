@@ -170,6 +170,9 @@ The main loop is split into two layers:
 | `src/session-heartbeat.ts` | Tmux pane crash detection via output hash tracking (alive/stale/unresponsive/dead) |
 | `src/action-replay.ts` | Step through daemon decision history with tick grouping, seek, filter-by-session |
 | `src/fleet-config-profiles.ts` | Named config presets (dev, ci, incident, conservative, overnight) + user profiles |
+| `src/daemon-diagnostics.ts` | /doctor self-diagnostics: node, config, state, reasoner, poll, uptime, sessions |
+| `src/session-state-machine.ts` | 11-state lifecycle state machine with 31 guarded transitions |
+| `src/incremental-context.ts` | Mtime/size fingerprinting for skip-unchanged context file reloads |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -197,7 +200,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Fifty-seven modules run every daemon tick without LLM calls:
+Sixty modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -388,6 +391,23 @@ Fifty-seven modules run every daemon tick without LLM calls:
   conservative (dry run, confirm everything), overnight (unattended, budget-conscious).
   User-defined profiles via config. `/profiles [name]`.
 
+- **Daemon diagnostics** (`daemon-diagnostics.ts`): `/doctor` self-diagnostics.
+  Checks node version (>=20), config file existence, state directory, reasoner
+  backend validity, poll interval sanity (not <1s or >2m), uptime, tick count,
+  session count, actions log. Severity-ranked (ok/warn/error/info) with
+  actionable suggestions. `/doctor`.
+
+- **Session state machine** (`session-state-machine.ts`): formalizes 11
+  session lifecycle states with 31 valid guarded transitions. States: pending,
+  starting, active, idle, stuck, error, paused, completing, completed, failed,
+  removed. Blocks illegal transitions (e.g. completed→active). Transition
+  checking via `/state-machine active→idle`. `/state-machine [state]`.
+
+- **Incremental context** (`incremental-context.ts`): tracks file mtime +
+  size fingerprints per tick. Skips re-reads for unchanged files, reducing
+  I/O on large fleets. Reports cache hit rate, reload/skip counts, recent
+  change details. `/context-stats`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -434,7 +454,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3735 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 3778 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -521,6 +541,22 @@ Shipped 3 features in v3.8.0 (45 new tests, 3 modules, 3 TUI commands):
 
 Milestone: **100 TUI commands, 99 source modules, 3735 tests, zero runtime deps.**
 
+### v3.9.0 Session Response
+
+Shipped 3 features in v3.9.0 (43 new tests, 3 modules, 3 TUI commands):
+1. **`daemon-diagnostics.ts`** + 12 tests — `/doctor` self-diagnostics. Checks
+   node version, config file, state dir, reasoner backend, poll interval
+   sanity, uptime, tick count, session count, actions log. Severity-ranked
+   with actionable suggestions. `/doctor`.
+2. **`session-state-machine.ts`** + 19 tests — 11-state session lifecycle with
+   31 guarded transitions. Blocks illegal state changes (e.g. completed→active).
+   Supports transition checking: `/state-machine active→idle`. `/state-machine`.
+3. **`incremental-context.ts`** + 12 tests — Mtime/size fingerprinting to skip
+   re-reads for unchanged context files. Cache hit rate tracking, reload/skip
+   counts. Reduces I/O on large fleets. `/context-stats`.
+
+Running total: 102 source modules, 103 TUI commands, 3778 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -551,9 +587,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v3.6 | Operations + Forecasting | OperatorShiftHandoff, SessionDepAutoDetect, CostForecastAlert |
 | v3.7 | Events + Verification | FleetEventBus, GoalCompletionVerifier, SessionOutputDiff |
 | v3.8 | Debugging + Config | SessionHeartbeat, ActionReplay, FleetConfigProfiles |
+| v3.9 | Quality + Lifecycle | DaemonDiagnostics, SessionStateMachine, IncrementalContext |
 
-**Totals**: 99 source modules, 120+ test files, 100 TUI commands, 20 CLI subcommands,
-3735 tests, ~27,000 lines added, zero runtime dependencies.
+**Totals**: 102 source modules, 120+ test files, 103 TUI commands, 20 CLI subcommands,
+3778 tests, ~28,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →
