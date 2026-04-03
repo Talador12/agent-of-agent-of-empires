@@ -90,6 +90,14 @@ import { parseAlertRuleConfigs } from "./alert-rule-dsl.js";
 import { forecastHealth, formatHealthForecast } from "./health-forecast.js";
 import { tailSession, formatTail, parseTailArgs } from "./session-tail.js";
 import { renderWorkflowDag, renderChainDag } from "./workflow-viz.js";
+import { formatPrometheusMetrics, buildMetricsSnapshot } from "./metrics-export.js";
+import { grepArchives, formatGrepResult } from "./fleet-grep.js";
+import { createExecution, advanceExecution, formatExecution } from "./runbook-executor.js";
+import type { RunbookExecution } from "./runbook-executor.js";
+import { cloneSession, formatCloneResult } from "./session-clone.js";
+import { findSimilarGoals, formatSimilarGoals } from "./goal-similarity.js";
+import { groupByTag, formatTagReport, parseTags } from "./cost-allocation-tags.js";
+import { recommendScaling, formatScalingRecommendation } from "./predictive-scaling.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -620,6 +628,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const tokenQuotaManager = new TokenQuotaManager();
   const abReasoningTracker = new ABReasoningTracker(config.reasoner, "claude-code");
   const alertRules = defaultAlertRules();
+  let activeRunbookExec: RunbookExecution | null = null;
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -2440,6 +2449,108 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       if (!activeWorkflow && !activeWorkflowChain) {
         tui!.log("system", "workflow-viz: no active workflow or chain");
       }
+    });
+    // wire /metrics — Prometheus metrics snapshot
+    input.onMetrics(() => {
+      const sessions = tui!.getSessions();
+      const tasks = taskManager?.tasks ?? [];
+      const scores = sessions.map((s) => s.status === "working" || s.status === "running" ? 80 : s.status === "error" ? 20 : 50);
+      const health = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 100;
+      let cost = 0;
+      for (const s of sessions) { const m = s.costStr?.match(/\$(\d+(?:\.\d+)?)/); if (m) cost += parseFloat(m[1]); }
+      const cacheStats = observationCache.getStats();
+      const reasonerStats = reasonerCostTracker.getSummary();
+      const nudgeReport = nudgeTracker.getReport();
+      const snapshot = buildMetricsSnapshot({
+        fleetHealth: health, totalSessions: sessions.length,
+        activeSessions: sessions.filter((s) => s.status === "working" || s.status === "running").length,
+        errorSessions: sessions.filter((s) => s.status === "error").length,
+        totalTasks: tasks.length, activeTasks: tasks.filter((t) => t.status === "active").length,
+        completedTasks: tasks.filter((t) => t.status === "completed").length,
+        failedTasks: tasks.filter((t) => t.status === "failed").length,
+        totalCostUsd: cost, reasonerCallsTotal: reasonerStats.totalCalls,
+        reasonerCostTotal: reasonerStats.totalCostUsd,
+        cacheHits: cacheStats.totalHits, cacheMisses: cacheStats.totalMisses,
+        nudgesSent: nudgeReport.totalNudges, nudgesEffective: nudgeReport.effectiveNudges,
+        pollIntervalMs: adaptivePollController.intervalMs,
+        uptimeMs: Date.now() - daemonStartedAt,
+      });
+      const text = formatPrometheusMetrics(snapshot);
+      for (const l of text.split("\n").filter(Boolean)) tui!.log("system", l);
+    });
+    // wire /fleet-grep — search archived outputs
+    input.onFleetGrep((pattern) => {
+      const result = grepArchives(pattern);
+      const lines = formatGrepResult(result);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /runbook-exec — execute/advance runbook
+    input.onRunbookExec(() => {
+      if (!activeRunbookExec) {
+        const runbooks = generateRunbooks();
+        if (runbooks.length === 0) { tui!.log("system", "runbook-exec: no runbooks to execute (need audit data)"); return; }
+        activeRunbookExec = createExecution(runbooks[0]);
+        tui!.log("+ action", `runbook-exec: starting "${runbooks[0].title}"`);
+      }
+      const step = advanceExecution(activeRunbookExec);
+      if (step) {
+        tui!.log("system", `runbook-exec: executing step — ${step.action}: ${step.detail}`);
+      } else {
+        const lines = formatExecution(activeRunbookExec);
+        for (const l of lines) tui!.log("system", l);
+        activeRunbookExec = null;
+      }
+    });
+    // wire /clone — clone a session
+    input.onClone((args) => {
+      const parts = args.split(/\s+/);
+      const [sourceTitle, cloneTitle, ...goalParts] = parts;
+      if (!sourceTitle || !cloneTitle) { tui!.log("system", "clone: usage: /clone <source> <new-name> [goal]"); return; }
+      const tasks = taskManager?.tasks ?? [];
+      const source = tasks.find((t) => t.sessionTitle.toLowerCase() === sourceTitle.toLowerCase());
+      if (!source) { tui!.log("system", `clone: source "${sourceTitle}" not found`); return; }
+      const goalOverride = goalParts.length > 0 ? goalParts.join(" ") : undefined;
+      const def = cloneSession(source, { sourceTitle, cloneTitle, goalOverride });
+      tui!.log("+ action", `cloned "${sourceTitle}" → "${cloneTitle}"`);
+      const lines = formatCloneResult({ original: sourceTitle, clone: cloneTitle, goal: def.goal as string, tool: def.tool ?? "opencode" });
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /similar-goals — find overlapping goals
+    input.onSimilarGoals(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const pairs = findSimilarGoals(tasks);
+      const lines = formatSimilarGoals(pairs);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /cost-tags — group costs by tag
+    input.onCostTags((tagKey) => {
+      const tasks = taskManager?.tasks ?? [];
+      const sessions = tui!.getSessions();
+      const tagged = tasks.map((t) => {
+        const s = sessions.find((s) => s.title === t.sessionTitle);
+        let cost = 0;
+        if (s?.costStr) { const m = s.costStr.match(/\$(\d+(?:\.\d+)?)/); if (m) cost = parseFloat(m[1]); }
+        return { sessionTitle: t.sessionTitle, tags: parseTags((t as any).tags ?? ""), costUsd: cost };
+      });
+      const report = groupByTag(tagged, tagKey);
+      const lines = formatTagReport(report);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /scaling — predictive pool scaling
+    input.onScaling(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const poolStatus = sessionPoolManager.getStatus(tasks);
+      const activeSessions = poolStatus.activeCount;
+      const pendingTasks = poolStatus.pendingCount;
+      const utilPct = poolStatus.maxConcurrent > 0 ? Math.round((activeSessions / poolStatus.maxConcurrent) * 100) : 0;
+      const rec = recommendScaling({
+        currentPoolSize: poolStatus.maxConcurrent,
+        activeSessions, pendingTasks,
+        recentUtilizationPct: utilPct, peakUtilizationPct: utilPct,
+        averageTaskDurationMs: 3_600_000,
+      });
+      const lines = formatScalingRecommendation(rec);
+      for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

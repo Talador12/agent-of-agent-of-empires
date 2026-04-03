@@ -162,6 +162,13 @@ export type AlertRulesHandler = () => void; // show alert rules status
 export type SessionTailHandler = (args: string) => void; // tail session output
 export type HealthForecastHandler = () => void; // show health trend forecast
 export type WorkflowVizHandler = () => void; // show workflow ASCII DAG
+export type MetricsHandler = () => void; // show Prometheus metrics
+export type FleetGrepHandler = (pattern: string) => void; // grep archived outputs
+export type RunbookExecHandler = () => void; // execute/advance runbook
+export type CloneHandler = (args: string) => void; // clone a session
+export type SimilarGoalsHandler = () => void; // find similar goals
+export type CostTagsHandler = (tagKey: string) => void; // group costs by tag
+export type ScalingHandler = () => void; // show scaling recommendation
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -797,6 +804,20 @@ export class InputReader {
   onSessionTail(handler: SessionTailHandler): void { this.sessionTailHandler = handler; }
   onHealthForecast(handler: HealthForecastHandler): void { this.healthForecastHandler = handler; }
   onWorkflowViz(handler: WorkflowVizHandler): void { this.workflowVizHandler = handler; }
+  private metricsHandler: MetricsHandler | null = null;
+  private fleetGrepHandler: FleetGrepHandler | null = null;
+  private runbookExecHandler: RunbookExecHandler | null = null;
+  private cloneHandler: CloneHandler | null = null;
+  private similarGoalsHandler: SimilarGoalsHandler | null = null;
+  private costTagsHandler: CostTagsHandler | null = null;
+  private scalingHandler: ScalingHandler | null = null;
+  onMetrics(handler: MetricsHandler): void { this.metricsHandler = handler; }
+  onFleetGrep(handler: FleetGrepHandler): void { this.fleetGrepHandler = handler; }
+  onRunbookExec(handler: RunbookExecHandler): void { this.runbookExecHandler = handler; }
+  onClone(handler: CloneHandler): void { this.cloneHandler = handler; }
+  onSimilarGoals(handler: SimilarGoalsHandler): void { this.similarGoalsHandler = handler; }
+  onCostTags(handler: CostTagsHandler): void { this.costTagsHandler = handler; }
+  onScaling(handler: ScalingHandler): void { this.scalingHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2589,6 +2610,49 @@ ${BOLD}other:${RESET}
       case "/workflow-viz":
         if (this.workflowVizHandler) this.workflowVizHandler();
         else console.error(`${DIM}workflow-viz not available (no TUI)${RESET}`);
+        break;
+
+      case "/metrics":
+        if (this.metricsHandler) this.metricsHandler();
+        else console.error(`${DIM}metrics not available (no TUI)${RESET}`);
+        break;
+
+      case "/fleet-grep": {
+        const fgArg = line.slice("/fleet-grep".length).trim();
+        if (!fgArg) { console.error(`${DIM}usage: /fleet-grep <pattern>${RESET}`); break; }
+        if (this.fleetGrepHandler) this.fleetGrepHandler(fgArg);
+        else console.error(`${DIM}fleet-grep not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/runbook-exec":
+        if (this.runbookExecHandler) this.runbookExecHandler();
+        else console.error(`${DIM}runbook-exec not available (no TUI)${RESET}`);
+        break;
+
+      case "/clone": {
+        const clArg = line.slice("/clone".length).trim();
+        if (!clArg) { console.error(`${DIM}usage: /clone <source> <new-name> [goal-override]${RESET}`); break; }
+        if (this.cloneHandler) this.cloneHandler(clArg);
+        else console.error(`${DIM}clone not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/similar-goals":
+        if (this.similarGoalsHandler) this.similarGoalsHandler();
+        else console.error(`${DIM}similar-goals not available (no TUI)${RESET}`);
+        break;
+
+      case "/cost-tags": {
+        const ctArg = line.slice("/cost-tags".length).trim() || "team";
+        if (this.costTagsHandler) this.costTagsHandler(ctArg);
+        else console.error(`${DIM}cost-tags not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/scaling":
+        if (this.scalingHandler) this.scalingHandler();
+        else console.error(`${DIM}scaling not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

@@ -5,26 +5,46 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v2.6.0
+## Version: v3.0.0
 
-## What shipped in v2.6.0
+## What shipped in v3.0.0
 
-**v2.6.0 — Session Cloning, Goal Similarity, Cost Tags, Predictive Scaling**:
-- `session-clone.ts`: clone an existing session for A/B experimentation. `cloneSession()` creates a new TaskDefinition from source with optional goal/tool/mode overrides. Clone runs independently (no dependency on source).
-- `goal-similarity.ts`: Jaccard similarity on keyword sets to detect overlapping goals. `findSimilarGoals()` returns pairs above threshold sorted by similarity. Useful for coordinating sessions working on related problems.
-- `cost-allocation-tags.ts`: tag sessions with key-value pairs (team, project, etc.) for grouped cost attribution. `groupByTag()` aggregates costs per tag value. `parseTags()` handles `"team=platform,project=aoaoe"` format.
-- `predictive-scaling.ts`: `recommendScaling()` analyzes utilization, pending tasks, and peak usage to recommend pool scale-up/down/maintain. Never scales below 2. Confidence levels based on data strength.
+**v3.0.0 — All Modules Wired: 79 TUI Commands, 78 Source Modules, 3518 Tests**
 
-78 source modules. 114 test files. 3518 tests. 0 runtime deps.
+Final wiring release. Every standalone module from v2.5 and v2.6 is now live in the daemon with TUI commands:
 
-## Ideas Backlog (v3.0)
-- **Wire v2.5+v2.6 modules** — /metrics, /fleet-grep, /clone, /similar-goals, /cost-tags, /scaling, /runbook-exec
+- **`/metrics`** — Prometheus-compatible metrics snapshot (18 metrics: health, sessions, tasks, cost, reasoner, cache, alerts, nudges, poll, uptime)
+- **`/fleet-grep <pattern>`** — regex search across gzipped output archives
+- **`/runbook-exec`** — step-by-step execution of auto-generated runbooks (advance with each call)
+- **`/clone <source> <name> [goal]`** — clone a session for A/B experimentation
+- **`/similar-goals`** — Jaccard similarity detection for overlapping task goals
+- **`/cost-tags [key]`** — group session costs by tag (team, project, etc.)
+- **`/scaling`** — predictive pool scaling recommendation based on utilization
+
+### Platform Stats (v3.0.0)
+| Metric | Value |
+|--------|-------|
+| Source modules | 78 |
+| Test files | 114 |
+| Tests | 3518 |
+| TUI commands | 79 |
+| CLI subcommands | 20 |
+| Reasoning gates | 8 |
+| Prometheus metrics | 18 |
+| Alert rules | 5 |
+| Workflow templates | 5 |
+| Session templates | 6 |
+| Tagged releases | v1.0.0, v1.3.0, v2.0.0, v2.5.0, v3.0.0 |
+| Runtime deps | 0 |
+
+## Ideas Backlog (v4.0)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
-- **Workflow DAG editor** — interactive workflow definition
+- **Federation auto-discovery** — mDNS peer finding
+- **Workflow DAG editor** — interactive definition
 - **Session replay TUI player** — animated step-through
-- **Multi-reasoner parallel** — concurrent calls + merge
+- **Alert rule inheritance** — child rules inherit parent severity
+- **Fleet capacity planning** — historical utilization dashboard
 - **Output archival to R2/S3** — remote storage
-- **Alert rule inheritance** — child rules that inherit parent severity
-- **Fleet capacity planning dashboard** — historical utilization + forecast
+- **Multi-reasoner parallel** — concurrent calls + merge
