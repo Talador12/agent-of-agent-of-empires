@@ -197,6 +197,9 @@ The main loop is split into two layers:
 | `src/session-sentiment.ts` | Classify output tone (17 patterns, 7 sentiments: success/progress/blocked/etc) |
 | `src/fleet-workload-balancer.ts` | Detect uneven loads, classify overloaded/underloaded, suggest moves |
 | `src/daemon-crash-report.ts` | Auto-generate diagnostic report on exit (state, errors, memory, config) |
+| `src/fleet-session-grouping.ts` | Logical session groups with per-group aggregate stats (health/cost/progress) |
+| `src/session-context-diff.ts` | Track context file content hashes, detect added/removed/modified between ticks |
+| `src/daemon-config-schema.ts` | JSON Schema-style config validation with type/range/enum/nested checks |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -224,7 +227,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Eighty-four modules run every daemon tick without LLM calls:
+Eighty-seven modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -560,6 +563,20 @@ Eighty-four modules run every daemon tick without LLM calls:
   memory usage (heap + RSS), sanitized config (secrets redacted).
   `/crash-report`.
 
+- **Fleet session grouping** (`fleet-session-grouping.ts`): logical
+  groups (frontend, backend, infra) with per-group aggregate stats.
+  Add/remove sessions from groups, compute group-level health, cost,
+  progress, active session count. `/group [add|rm]`.
+
+- **Session context diff** (`session-context-diff.ts`): track context
+  file content hashes (SHA-256) between ticks. Detects added, removed,
+  modified, and unchanged files. Summary counts. `/context-diff`.
+
+- **Daemon config schema** (`daemon-config-schema.ts`): JSON Schema-style
+  config validation. Type checks (string/number/boolean/object/array),
+  range (min/max), enum, required fields, nested object validation,
+  unknown field warnings. `/config-validate`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -606,7 +623,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4095 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4135 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -837,6 +854,21 @@ Batch 2 — v4.7.0 (35 tests, 3 modules):
 
 Running total: 126 source modules, 127 TUI commands, 4095 tests, zero runtime deps.
 
+### v4.8.0 Session Response
+
+Shipped 3 features in v4.8.0 (40 new tests, 3 modules, 3 TUI commands):
+1. **`fleet-session-grouping.ts`** + 15 tests — Logical session groups with
+   per-group aggregate stats (health/cost/progress). Add/remove sessions,
+   list groups, deduplication. `/group [add|rm]`.
+2. **`session-context-diff.ts`** + 12 tests — Track context file content
+   hashes (SHA-256) between ticks. Detect added/removed/modified/unchanged.
+   Summary counts. `/context-diff`.
+3. **`daemon-config-schema.ts`** + 13 tests — JSON Schema-style config
+   validation. Type/range/enum/required/nested checks. Unknown field
+   warnings. `/config-validate`.
+
+Running total: 129 source modules, 130 TUI commands, 4135 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -876,9 +908,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v4.5 | Health + Replay + Context | DaemonHealthScore, FleetEventReplay, SessionContextBudget |
 | v4.6 | Profiling + Prediction | DaemonTickProfiler, GoalConfidenceEstimator, FleetBudgetPlanner |
 | v4.7 | Sentiment + Balance | SessionSentiment, FleetWorkloadBalancer, DaemonCrashReport |
+| v4.8 | Grouping + Validation | FleetSessionGrouping, SessionContextDiff, DaemonConfigSchema |
 
-**Totals**: 126 source modules, 120+ test files, 127 TUI commands, 20 CLI subcommands,
-4095 tests, ~36,000 lines added, zero runtime dependencies.
+**Totals**: 129 source modules, 120+ test files, 130 TUI commands, 20 CLI subcommands,
+4135 tests, ~37,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

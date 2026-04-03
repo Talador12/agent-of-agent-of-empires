@@ -217,6 +217,9 @@ export type BudgetPlanHandler = () => void; // show fleet budget allocation plan
 export type SentimentHandler = () => void; // show session output sentiment analysis
 export type WorkloadBalanceHandler = () => void; // show fleet workload balance report
 export type CrashReportHandler = () => void; // show crash report preview
+export type SessionGroupHandler = (args: string) => void; // manage session groups
+export type ContextDiffHandler = () => void; // show context file diffs
+export type ConfigSchemaHandler = () => void; // validate config against schema
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -962,6 +965,12 @@ export class InputReader {
   onSentiment(handler: SentimentHandler): void { this.sentimentHandler = handler; }
   onWorkloadBalance(handler: WorkloadBalanceHandler): void { this.workloadBalanceHandler = handler; }
   onCrashReport(handler: CrashReportHandler): void { this.crashReportHandler = handler; }
+  private sessionGroupHandler: SessionGroupHandler | null = null;
+  private contextDiffHandler: ContextDiffHandler | null = null;
+  private configSchemaHandler: ConfigSchemaHandler | null = null;
+  onSessionGroup(handler: SessionGroupHandler): void { this.sessionGroupHandler = handler; }
+  onContextDiff(handler: ContextDiffHandler): void { this.contextDiffHandler = handler; }
+  onConfigSchema(handler: ConfigSchemaHandler): void { this.configSchemaHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3074,6 +3083,23 @@ ${BOLD}other:${RESET}
       case "/crash-report":
         if (this.crashReportHandler) this.crashReportHandler();
         else console.error(`${DIM}crash-report not available (no TUI)${RESET}`);
+        break;
+
+      case "/group": {
+        const grpArg = line.slice("/group".length).trim();
+        if (this.sessionGroupHandler) this.sessionGroupHandler(grpArg);
+        else console.error(`${DIM}group not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/context-diff":
+        if (this.contextDiffHandler) this.contextDiffHandler();
+        else console.error(`${DIM}context-diff not available (no TUI)${RESET}`);
+        break;
+
+      case "/config-validate":
+        if (this.configSchemaHandler) this.configSchemaHandler();
+        else console.error(`${DIM}config-validate not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

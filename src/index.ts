@@ -158,6 +158,9 @@ import { analyzeFleetSentiment, formatSentiment } from "./session-sentiment.js";
 import { analyzeBalance, formatBalanceReport } from "./fleet-workload-balancer.js";
 import type { SessionLoad } from "./fleet-workload-balancer.js";
 import { generateCrashReport, formatCrashReportTui } from "./daemon-crash-report.js";
+import { createGroupingState, addToGroup, removeFromGroup, listGroups, formatGrouping } from "./fleet-session-grouping.js";
+import { createContextDiffState, diffContextFiles, formatContextDiff } from "./session-context-diff.js";
+import { validateConfigSchema, formatValidation } from "./daemon-config-schema.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -713,6 +716,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const cascadeState = createCascadeState();
   let eventReplayState: ReplayPlaybackState | null = null;
   const tickProfiler = new DaemonTickProfiler();
+  const sessionGroupingState = createGroupingState();
+  const contextDiffState = createContextDiffState();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3301,6 +3306,38 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         healthScore: 70,
       });
       const lines = formatCrashReportTui(report);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /group — session groups
+    input.onSessionGroup((args) => {
+      const parts = args.split(/\s+/);
+      const subcmd = parts[0] ?? "";
+      if (subcmd === "add" && parts[1] && parts[2]) {
+        addToGroup(sessionGroupingState, parts[1], parts[2]);
+        tui!.log("system", `group: added ${parts[2]} to ${parts[1]}`);
+      } else if (subcmd === "rm" && parts[1] && parts[2]) {
+        if (removeFromGroup(sessionGroupingState, parts[1], parts[2])) tui!.log("system", `group: removed ${parts[2]} from ${parts[1]}`);
+        else tui!.log("system", `group: not found`);
+      } else {
+        const groups = listGroups(sessionGroupingState);
+        const lines = formatGrouping(groups);
+        for (const l of lines) tui!.log("system", l);
+      }
+    });
+    // wire /context-diff — show context file changes
+    input.onContextDiff(() => {
+      const contextFiles = new Map<string, string>();
+      for (const [path, fp] of incrementalContextState.fingerprints) {
+        contextFiles.set(path, `${fp.mtimeMs}:${fp.size}`); // use mtime+size as proxy for content
+      }
+      const changes = diffContextFiles(contextDiffState, contextFiles);
+      const lines = formatContextDiff(changes);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /config-validate — validate config against schema
+    input.onConfigSchema(() => {
+      const result = validateConfigSchema(config as unknown as Record<string, unknown>);
+      const lines = formatValidation(result);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
