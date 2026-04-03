@@ -1,6 +1,6 @@
 # aoaoe — Project Status
 
-See `AGENTS.md` for architecture, build commands, and conventions.
+See `AGENTS.md` for architecture, build commands, conventions, and full session history.
 
 ## Rules
 - Update this file with every commit.
@@ -10,35 +10,29 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 
 ## Version: v1.2.0
 
-## Current Focus
+## Status: PARKED — feature-complete, ready for production use
 
-v1.0 shipped and tagged. v1.1 added production infrastructure. v1.2 wires v1.1 modules into the daemon loop with CLI subcommands.
+The project reached v1.0.0 and continued through v1.2.0 with production infrastructure.
+It is now feature-complete for its intended purpose and parked for future work as needed.
 
-### What shipped in v1.2.0
+### What's built
+- **55 intelligence modules** running without LLM calls
+- **58 TUI slash commands** for real-time fleet management
+- **20 CLI subcommands** including `service`, `completions`, `doctor`, `backup/restore`
+- **7-gate autonomous reasoning pipeline**: rate limit → cache → priority filter → compress → LLM → approval gate → cost track
+- **Workflow engine** with fan-out/fan-in multi-session orchestration
+- **Session graduation**: trust ladder (observe → confirm → auto)
+- **Recovery playbook**: auto-nudge/restart/pause/escalate on health drop
+- **3332 tests** (unit + integration), zero runtime dependencies
+- **systemd/launchd service files** for daemon boot start
+- **Shell completions** (bash, zsh, fish)
 
-**v1.2.0 — Full Wiring: Service, Completions, Replay, Workflow Live in Daemon**:
-- **`aoaoe service` CLI subcommand** — detects platform (macOS/Linux), generates launchd plist or systemd unit file, writes to `~/.aoaoe/`, prints install instructions. `/service` TUI command.
-- **`aoaoe completions <bash|zsh|fish>` CLI subcommand** — generates shell autocomplete scripts for all 18 CLI commands + 14 flags. Usage: `eval "$(aoaoe completions bash)"`.
-- **`/session-replay <name>` TUI command** — reconstructs a session's activity timeline from the audit trail. Shows chronological events with icons, time gaps, and type-based summary.
-- **`/workflow` TUI command** — shows active workflow state with stage icons and task statuses.
-- **Workflow engine wired into main loop** — `advanceWorkflow()` runs every tick. Auto-activates next stage tasks when all current stage tasks complete. Detects stage failures. Logs all state changes to audit trail.
-- **Workflow → task manager integration** — `activate_task` actions from the workflow engine directly set pending tasks to active status.
-
-Modified: `src/index.ts`, `src/input.ts`, `src/config.ts`, `AGENTS.md`, `claude.md`, `package.json`
-No new test files — all 3332 existing tests pass.
-
-### Operator surface (58 TUI commands)
-All 55 previous + `/service /session-replay /workflow`
-
-### CLI subcommands (20 total)
-All previous + `service`, `completions`
-
-### Full release history
-- v1.2.0: wire v1.1 modules + CLI subcommands
-- v1.1.0: service files, completions, session replay, workflow engine
-- v1.0.0: production release — bug fixes, integration tests, v1 tag
-- v0.211.0–v0.196.0: 16 releases building intelligence platform
-- v0.1–v0.195: scaffolding → full orchestration
+### If resuming work
+Consult `AGENTS.md` for the full source layout, module descriptions, and architecture.
+The Ideas Backlog below has v2.0 candidates. The most impactful next work would be:
+1. Multi-reasoner support (assign different LLM backends per session)
+2. Web dashboard v2 (real-time browser UI)
+3. Property-based testing (fuzz the intelligence modules)
 
 ## Ideas Backlog (v2.0)
 - **Multi-reasoner support** — different backends for different sessions
@@ -53,5 +47,3 @@ All previous + `service`, `completions`
 - **Fleet federation** — coordinate across multiple aoaoe daemons
 - **Smart workflow generation** — auto-create workflows from goal decomposition
 - **Workflow retry policies** — auto-retry failed stages with configurable strategies
-- **Cross-workflow dependencies** — chain workflows together
-- **Workflow cost forecasting** — estimate total workflow cost before starting
