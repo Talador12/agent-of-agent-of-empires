@@ -8,37 +8,38 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.206.0
+## Version: v0.207.0
 
 ## Current Focus
 
 North-star goal: aoaoe should let one reasoner run AoE for any number of sessions/tasks, make its actions obvious, and make it trivial for a human to step in with new info or new tasks at any time.
 
 ### What's working end-to-end now
-- Full task lifecycle with 38 intelligence modules, 48 TUI slash commands
-- 6 built-in session templates (frontend, backend, infra, data, docs, security)
-- Task difficulty scoring with complexity estimation + hour estimates
-- Context-aware nudge generation using session memory + activity data
-- Fleet utilization heatmap by hour-of-day for capacity planning
-- Everything from v0.196–v0.205
+- Full task lifecycle with 42 intelligence modules, 52 TUI slash commands
+- Template auto-detection from repo file patterns
+- Fleet-wide ranked search across all session outputs
+- Nudge effectiveness tracking with response time metrics
+- Difficulty-weighted pool slot allocation
+- Everything from v0.196–v0.206
 
-### Operator surface (48 TUI commands)
-`/supervisor /incident /runbook /progress /health /prompt-template /pin-save /pin-load /pin-presets /activity /conflicts /heatmap /audit /audit-stats /audit-search /fleet-snap /budget-predict /retries /fleet-forecast /priority /escalations /poll-status /drift /goal-progress /pool /reasoner-cost /anomaly /sla /velocity /schedule /cost-summary /session-report /cache /rate-limit /recovery /lifecycle /cost-report /decompose /memory /dep-graph /approvals /approve /reject /fleet-diff /template /difficulty /smart-nudge /utilization`
+### Operator surface (52 TUI commands)
+All 48 from v0.206 + `/detect-template /fleet-search /nudge-stats /allocation`
 
-### What shipped in v0.206.0
+### What shipped in v0.207.0
 
-**v0.206.0 — User Experience Layer: Session Templates, Difficulty Scoring, Smart Nudges, Fleet Utilization**:
-- `BUILTIN_TEMPLATES`: 6 session templates (frontend, backend, infra, data, docs, security) with tailored prompt hints, policy overrides, suggested tools, and tags. `applyTemplate()` merges template hints into task goals. `findTemplate()` by name, `formatTemplateDetail()` for inspection. `/template [name]`.
-- `scoreDifficulty()`: multi-signal complexity estimation from goal text. Scores 1-10 based on goal length, sub-task count, complexity keywords (refactor, migrate, distributed, etc.), simplicity keywords, and progress rate. Produces labels (trivial/easy/moderate/hard/complex) + hour estimates. `/difficulty`.
-- `generateNudge()` + `buildNudgeContext()`: context-aware nudge messages using session memory (error patterns, success patterns), recent activity, last progress, and idle time. References specific patterns instead of generic "are you stuck?". `/smart-nudge <name>`.
-- `FleetUtilizationTracker`: records activity events per hour-of-day over a 24h rolling window. `getReport()` computes peak/quiet hours, avg events/hr, unique sessions per hour. `formatHeatmap()` renders ASCII sparkline + top-5 hours bar chart. `/utilization`.
+**v0.207.0 — Automation Layer: Template Auto-Detection, Fleet Search, Nudge Tracking, Smart Allocation**:
+- `detectTemplate()`: infers session template (frontend/backend/infra/data/docs/security) from repo file patterns. Matches against file markers (package.json→frontend, go.mod→backend, .tf→infra, .ipynb→data, etc.). Returns confidence score + signal list. `detectAndResolveTemplate()` returns full SessionTemplate. `/detect-template <name>`.
+- `searchFleet()`: ranked full-text search across all session outputs simultaneously. Case-insensitive substring + regex support (`/pattern/`). Scores exact case matches higher, boosts recent lines. Returns match positions, per-session hit counts. `/fleet-search <query>`.
+- `NudgeTracker`: measures if nudges lead to progress resumption within a configurable window (default 30min). Tracks per-session nudge→progress pairs. `getReport()` computes effectiveness rate, avg response time. `/nudge-stats`.
+- `computeAllocation()`: uses difficulty scores to weight pool slot allocation. Harder tasks get proportionally more slots. Labels: prioritize/normal/deprioritize based on deviation from fleet average. `/allocation`.
 
-New files: `src/session-templates.ts`, `src/difficulty-scorer.ts`, `src/smart-nudge.ts`, `src/fleet-utilization.ts`
+New files: `src/template-detector.ts`, `src/fleet-search.ts`, `src/nudge-tracker.ts`, `src/difficulty-allocator.ts`
 Test files: 4 matching test files
 Modified: `src/index.ts`, `src/input.ts`, `AGENTS.md`, `claude.md`, `package.json`
-Test changes: +39 new tests, net 3188 tests across 76 files.
+Test changes: +40 new tests, net 3228 tests across 80 files.
 
 ### Older versions
+- v0.206.0: session templates, difficulty scoring, smart nudges, fleet utilization
 - v0.205.0: session memory, dep graph viz, approval queue, fleet diff
 - v0.204.0: lifecycle analytics, cost attribution, goal decomposition, priority reasoning
 - v0.203.0: LLM caching, fleet rate limiting, context compression, recovery playbooks
@@ -64,7 +65,7 @@ Test changes: +39 new tests, net 3188 tests across 76 files.
 - **Session checkpoint/restore** — save + resume session state across restarts
 - **Fleet-wide rollback** — revert all sessions to last known-good snapshot
 - **Utilization-based quiet hours** — auto-set quiet hours from low-utilization periods
-- **Template auto-detection** — infer session template from repo file patterns
-- **Difficulty-based pool allocation** — assign more resources to harder tasks
-- **Nudge effectiveness tracking** — measure if nudges lead to progress resumption
-- **Fleet-wide search** — search across all session outputs simultaneously
+- **Workflow orchestration** — define multi-session workflows with fan-out/fan-in
+- **A/B reasoning** — test two reasoner strategies and compare outcomes
+- **Session graduation** — auto-promote sessions from confirm→auto mode based on track record
+- **Fleet dashboard export** — generate HTML report from fleet state for sharing

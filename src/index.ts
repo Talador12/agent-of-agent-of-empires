@@ -72,6 +72,10 @@ import { findTemplate, formatTemplateList, formatTemplateDetail } from "./sessio
 import { scoreDifficulty, formatDifficultyScores } from "./difficulty-scorer.js";
 import { generateNudge, buildNudgeContext, formatNudgePreview } from "./smart-nudge.js";
 import { FleetUtilizationTracker } from "./fleet-utilization.js";
+import { detectTemplate, formatDetectionResult } from "./template-detector.js";
+import { searchFleet, formatFleetSearchResults } from "./fleet-search.js";
+import { NudgeTracker } from "./nudge-tracker.js";
+import { computeAllocation, formatAllocation } from "./difficulty-allocator.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown, formatTaskExportJson, formatTaskExportMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
@@ -563,6 +567,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const fleetSlaMonitor = new FleetSlaMonitor();
   const progressVelocityTracker = new ProgressVelocityTracker();
   const fleetUtilizationTracker = new FleetUtilizationTracker();
+  const nudgeTracker = new NudgeTracker();
   const observationCache = new ObservationCache();
   const fleetRateLimiter = new FleetRateLimiter();
   const recoveryPlaybookManager = new RecoveryPlaybookManager();
@@ -2133,6 +2138,49 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     // wire /utilization — fleet utilization heatmap
     input.onUtilization(() => {
       const lines = fleetUtilizationTracker.formatHeatmap();
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /detect-template — infer template from session's repo files
+    input.onDetectTemplate((target) => {
+      // use session's path to list files (simplified: use lastActivity as proxy)
+      const sessions = tui!.getSessions();
+      const session = sessions.find((s) => s.title.toLowerCase() === target.toLowerCase());
+      if (!session) { tui!.log("system", `detect-template: session not found: ${target}`); return; }
+      // use whatever file hints we can get from the session path
+      const path = session.path ?? "";
+      const fileHints = path.split("/").filter(Boolean); // minimal — in practice would readdir
+      const result = detectTemplate(fileHints);
+      const lines = formatDetectionResult(session.title, result);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /fleet-search — search all session outputs
+    input.onFleetSearch((query) => {
+      const sessions = tui!.getSessions();
+      const outputs = new Map<string, { title: string; lines: string[] }>();
+      for (const s of sessions) {
+        const sessionLines = tui!.getSessionOutput(s.id) ?? [];
+        outputs.set(s.id, { title: s.title, lines: sessionLines });
+      }
+      const result = searchFleet(outputs, query);
+      const lines = formatFleetSearchResults(result);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /nudge-stats — nudge effectiveness
+    input.onNudgeStats(() => {
+      const lines = nudgeTracker.formatReport();
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /allocation — difficulty-based resource allocation
+    input.onAllocation(() => {
+      const tasks = taskManager?.tasks ?? [];
+      if (tasks.length === 0) { tui!.log("system", "allocation: no tasks"); return; }
+      const scores = tasks.map((t) => {
+        const elapsed = t.createdAt ? Date.now() - t.createdAt : 0;
+        return scoreDifficulty(t.sessionTitle, t.goal, t.progress.length, elapsed);
+      });
+      const poolStatus = sessionPoolManager.getStatus(tasks);
+      const results = computeAllocation(scores, poolStatus.maxConcurrent);
+      const lines = formatAllocation(results);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {

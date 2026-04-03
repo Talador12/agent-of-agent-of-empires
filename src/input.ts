@@ -138,6 +138,10 @@ export type SessionTemplateHandler = (name: string) => void; // show/apply sessi
 export type DifficultyHandler = () => void; // show task difficulty scores
 export type SmartNudgeHandler = (target: string) => void; // preview smart nudge for session
 export type UtilizationHandler = () => void; // show fleet utilization heatmap
+export type DetectTemplateHandler = (target: string) => void; // detect template from repo
+export type FleetSearchHandler = (query: string) => void; // search all session outputs
+export type NudgeStatsHandler = () => void; // show nudge effectiveness stats
+export type AllocationHandler = () => void; // show difficulty-based allocation
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -728,6 +732,14 @@ export class InputReader {
   onDifficulty(handler: DifficultyHandler): void { this.difficultyHandler = handler; }
   onSmartNudge(handler: SmartNudgeHandler): void { this.smartNudgeHandler = handler; }
   onUtilization(handler: UtilizationHandler): void { this.utilizationHandler = handler; }
+  private detectTemplateHandler: DetectTemplateHandler | null = null;
+  private fleetSearchHandler: FleetSearchHandler | null = null;
+  private nudgeStatsHandler: NudgeStatsHandler | null = null;
+  private allocationHandler: AllocationHandler | null = null;
+  onDetectTemplate(handler: DetectTemplateHandler): void { this.detectTemplateHandler = handler; }
+  onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
+  onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
+  onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -2376,6 +2388,32 @@ ${BOLD}other:${RESET}
       case "/utilization":
         if (this.utilizationHandler) this.utilizationHandler();
         else console.error(`${DIM}utilization not available (no TUI)${RESET}`);
+        break;
+
+      case "/detect-template": {
+        const dtArg = line.slice("/detect-template".length).trim();
+        if (!dtArg) { console.error(`${DIM}usage: /detect-template <N|name>${RESET}`); break; }
+        if (this.detectTemplateHandler) this.detectTemplateHandler(dtArg);
+        else console.error(`${DIM}detect-template not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/fleet-search": {
+        const fsArg = line.slice("/fleet-search".length).trim();
+        if (!fsArg) { console.error(`${DIM}usage: /fleet-search <query>${RESET}`); break; }
+        if (this.fleetSearchHandler) this.fleetSearchHandler(fsArg);
+        else console.error(`${DIM}fleet-search not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/nudge-stats":
+        if (this.nudgeStatsHandler) this.nudgeStatsHandler();
+        else console.error(`${DIM}nudge-stats not available (no TUI)${RESET}`);
+        break;
+
+      case "/allocation":
+        if (this.allocationHandler) this.allocationHandler();
+        else console.error(`${DIM}allocation not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

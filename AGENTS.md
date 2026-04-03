@@ -118,6 +118,10 @@ The main loop is split into two layers:
 | `src/difficulty-scorer.ts` | Task complexity estimation from goal analysis |
 | `src/smart-nudge.ts` | Context-aware nudge generation using session memory |
 | `src/fleet-utilization.ts` | Per-hour fleet activity heatmap for capacity planning |
+| `src/template-detector.ts` | Auto-detect session template from repo file patterns |
+| `src/fleet-search.ts` | Ranked full-text search across all session outputs |
+| `src/nudge-tracker.ts` | Nudge effectiveness tracking with response time stats |
+| `src/difficulty-allocator.ts` | Difficulty-weighted pool slot allocation |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -145,7 +149,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Thirty-eight modules run every daemon tick without LLM calls:
+Forty-two modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -275,7 +279,7 @@ poll, and fleet snapshots run in the main loop after each tick.
    changes are available (inside the `if (intelligence && ...)` block).
 
 ### Testing
-- 3188 unit tests across 76+ files, `node:test` (stdlib, zero deps)
+- 3228 unit tests across 80+ files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.
