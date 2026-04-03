@@ -158,6 +158,9 @@ The main loop is split into two layers:
 | `src/session-idle-detector.ts` | Detect prolonged idle sessions, escalate nudge → pause → reclaim |
 | `src/goal-conflict-resolver.ts` | Cross-session goal conflict analysis via keyword + file + dependency overlap |
 | `src/fleet-leaderboard.ts` | Rank sessions by composite productivity score (completion, velocity, cost) |
+| `src/session-health-history.ts` | Rolling-window health score tracker per session with sparkline trend viz |
+| `src/cost-anomaly-throttle.ts` | Auto-throttle poll rate for cost-anomalous sessions (EMA burn rate vs fleet avg) |
+| `src/smart-session-naming.ts` | Auto-generate descriptive session titles from repo path + goal keywords |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -185,7 +188,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Forty-five modules run every daemon tick without LLM calls:
+Forty-eight modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -314,6 +317,21 @@ Forty-five modules run every daemon tick without LLM calls:
   productivity score: 40% completion rate, 30% velocity (normalized), 30%
   cost efficiency. Medal emojis for top 3. `/leaderboard`.
 
+- **Session health history** (`session-health-history.ts`): rolling-window
+  health score tracker per session. Records samples, computes trend
+  (improving/degrading/stable) from first-half vs second-half average.
+  Renders Unicode sparklines. Worst-health-first sorting. `/health-history`.
+
+- **Cost anomaly throttle** (`cost-anomaly-throttle.ts`): monitors per-session
+  cost burn rates via EMA smoothing, compares against fleet average. When
+  a session exceeds threshold (default 3x fleet avg), auto-increases its
+  poll interval multiplier. Auto-unthrottles when costs normalize. `/cost-throttle`.
+
+- **Smart session naming** (`smart-session-naming.ts`): generates descriptive
+  session title suggestions from repo path + goal text. 5 strategies:
+  repo-verb, repo-noun, verb-noun, repo-verb-noun, basename fallback.
+  Deduplicates against existing titles. `/suggest-name <repo> [goal]`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -360,7 +378,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3576 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 3620 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -421,9 +439,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v2.5 | Platform Completion | MetricsExport, AlertComposer, FleetGrep, RunbookExecutor |
 | v2.6–v3.3 | Deep Features | SessionClone, GoalSimilarity, CostAllocationTags, PredictiveScaling, SessionTagManager, SessionCompare, FleetSummaryReport, SessionTimeline, FleetChangelog |
 | v3.4 | Fleet Intelligence | SessionIdleDetector, GoalConflictResolver, FleetLeaderboard |
+| v3.5 | Observability + DX | SessionHealthHistory, CostAnomalyThrottle, SmartSessionNaming |
 
-**Totals**: 87 source modules, 120+ test files, 88 TUI commands, 20 CLI subcommands,
-3576 tests, ~23,000 lines added, zero runtime dependencies.
+**Totals**: 90 source modules, 120+ test files, 91 TUI commands, 20 CLI subcommands,
+3620 tests, ~24,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

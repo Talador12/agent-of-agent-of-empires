@@ -109,6 +109,9 @@ import { detectGoalConflicts, formatGoalConflicts } from "./goal-conflict-resolv
 import type { GoalInfo } from "./goal-conflict-resolver.js";
 import { computeLeaderboard, formatLeaderboard } from "./fleet-leaderboard.js";
 import type { LeaderboardInput } from "./fleet-leaderboard.js";
+import { SessionHealthHistory, formatHealthHistory } from "./session-health-history.js";
+import { createThrottleState, updateBurnRate, evaluateThrottles, formatThrottleState } from "./cost-anomaly-throttle.js";
+import { suggestSessionNames, formatNameSuggestions } from "./smart-session-naming.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -642,6 +645,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   let activeRunbookExec: RunbookExecution | null = null;
   const sessionTagStore = createTagStore();
   const idleDetectorState = createIdleDetector();
+  const sessionHealthHistory = new SessionHealthHistory();
+  const costThrottleState = createThrottleState();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -2693,6 +2698,31 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       }
       const board = computeLeaderboard(inputs);
       const lines = formatLeaderboard(board);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /health-history — per-session health score sparklines
+    input.onHealthHistory(() => {
+      const trends = sessionHealthHistory.getAllTrends();
+      const lines = formatHealthHistory(trends);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /cost-throttle — cost anomaly throttle state
+    input.onCostThrottle(() => {
+      const sessions = tui!.getSessions();
+      const activeTitles = sessions.filter((s) => s.status === "working" || s.status === "running").map((s) => s.title);
+      const results = evaluateThrottles(costThrottleState, activeTitles);
+      const lines = formatThrottleState(results);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /suggest-name — smart session name suggestions
+    input.onSuggestName((args) => {
+      const parts = args.split(/\s+/);
+      const repoPath = parts[0] ?? "";
+      const goal = parts.slice(1).join(" ") || "";
+      const sessions = tui!.getSessions();
+      const existingTitles = sessions.map((s) => s.title);
+      const suggestions = suggestSessionNames(repoPath, goal, existingTitles);
+      const lines = formatNameSuggestions(suggestions);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {

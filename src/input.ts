@@ -178,6 +178,9 @@ export type ScalingHandler = () => void; // show scaling recommendation
 export type IdleDetectHandler = () => void; // show idle session alerts
 export type GoalConflictsHandler = () => void; // show goal conflict analysis
 export type LeaderboardHandler = () => void; // show fleet productivity leaderboard
+export type HealthHistoryHandler = () => void; // show per-session health history sparklines
+export type CostThrottleHandler = () => void; // show cost anomaly throttle state
+export type SuggestNameHandler = (args: string) => void; // suggest session names from repo+goal
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -845,6 +848,12 @@ export class InputReader {
   onIdleDetect(handler: IdleDetectHandler): void { this.idleDetectHandler = handler; }
   onGoalConflicts2(handler: GoalConflictsHandler): void { this.goalConflictsHandler2 = handler; }
   onLeaderboard(handler: LeaderboardHandler): void { this.leaderboardHandler = handler; }
+  private healthHistoryHandler: HealthHistoryHandler | null = null;
+  private costThrottleHandler: CostThrottleHandler | null = null;
+  private suggestNameHandler: SuggestNameHandler | null = null;
+  onHealthHistory(handler: HealthHistoryHandler): void { this.healthHistoryHandler = handler; }
+  onCostThrottle(handler: CostThrottleHandler): void { this.costThrottleHandler = handler; }
+  onSuggestName(handler: SuggestNameHandler): void { this.suggestNameHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2739,6 +2748,24 @@ ${BOLD}other:${RESET}
         if (this.leaderboardHandler) this.leaderboardHandler();
         else console.error(`${DIM}leaderboard not available (no TUI)${RESET}`);
         break;
+
+      case "/health-history":
+        if (this.healthHistoryHandler) this.healthHistoryHandler();
+        else console.error(`${DIM}health-history not available (no TUI)${RESET}`);
+        break;
+
+      case "/cost-throttle":
+        if (this.costThrottleHandler) this.costThrottleHandler();
+        else console.error(`${DIM}cost-throttle not available (no TUI)${RESET}`);
+        break;
+
+      case "/suggest-name": {
+        const snArg = line.slice("/suggest-name".length).trim();
+        if (!snArg) { console.error(`${DIM}usage: /suggest-name <repo-path> [goal text]${RESET}`); break; }
+        if (this.suggestNameHandler) this.suggestNameHandler(snArg);
+        else console.error(`${DIM}suggest-name not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");
