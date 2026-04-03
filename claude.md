@@ -5,32 +5,32 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v5.2.0
+## Version: v5.3.0
+
+## What shipped in v5.3.0
+
+**v5.3.0 — Webhook Integrations, Structured Log, State Export**:
+- `fleet-webhook-integrations.ts`: Format fleet events as Slack Block Kit, Teams Adaptive Card, Discord embed, or generic JSON. Templates for completions, errors, handoffs, digests. **`/webhook-preview [slack|teams|discord]`** command.
+- `session-structured-log.ts`: Parse output into 8 structured event types (test-result, build-result, git-operation, error, cost-update, progress, prompt, unknown). ANSI stripping, type counting. **`/structured-log`** command.
+- `daemon-state-portable.ts`: Export/import daemon state as self-contained JSON. Config sanitization (secrets redacted), metadata (hostname, node, platform), validation on import. **`/state-export`** command.
+
+145 TUI commands. 144 source modules. 4309 tests. 0 runtime deps.
 
 ## What shipped in v5.2.0
 
 **v5.2.0 — Daily Digest, Goal NL Parser, Hot-Swap Modules**:
-- `fleet-daily-digest.ts`: Auto-generated daily fleet summary. Completions, failures, costs, health, incidents, uptime. Markdown + TUI output. **`/daily-digest`** command.
-- `goal-nl-parser.ts`: Extract structured goals from freeform text. Detects action verbs, target nouns, repo references, priority signals, dependencies, tags. Confidence scoring. **`/parse-goal <text>`** command.
-- `daemon-hot-swap.ts`: Module version registry with swap/rollback, validation gates, enable/disable per module, swap history tracking. **`/hot-swap`** command.
-
-142 TUI commands. 141 source modules. 4275 tests. 0 runtime deps.
+- `fleet-daily-digest.ts`: Daily fleet summary. **`/daily-digest`** command.
+- `goal-nl-parser.ts`: NL goal extraction. **`/parse-goal`** command.
+- `daemon-hot-swap.ts`: Module hot-swapping. **`/hot-swap`** command.
 
 ## What shipped in v5.1.0
 
 **v5.1.0 — Goal Celebration, Fleet Readiness, Process Supervisor**:
-- `goal-celebration.ts`: Achievement badges for completed goals. **`/celebrate`** command.
-- `fleet-readiness-score.ts`: 10-check production readiness. **`/readiness`** command.
-- `daemon-process-supervisor.ts`: Crash recovery + backoff. **`/supervisor`** command.
+- `goal-celebration.ts`: Achievement badges. **`/celebrate`** command.
+- `fleet-readiness-score.ts`: Production readiness. **`/readiness`** command.
+- `daemon-process-supervisor.ts`: Crash recovery. **`/supervisor`** command.
 
-## What shipped in v5.0.0
-
-**v5.0.0 — Critical Path, Snapshot Compression, Output Annotations**:
-- `goal-critical-path.ts`: Longest dependency chain. **`/critical-path`** command.
-- `fleet-snapshot-compression.ts`: Delta-encoded snapshots. **`/snap-compress`** command.
-- `session-output-annotations.ts`: Output line annotations. **`/annotate`** command.
-
-## Ideas Backlog (v5.3+)
+## Ideas Backlog (v5.4+)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
@@ -57,13 +57,12 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Fleet time-travel** — rewind to any snapshot and compare
 - **Fleet session migration** — move sessions between hosts
 - **Daemon plugin marketplace** — discover and install community hooks
-- **Session output knowledge graph** — extract entities from output
-- **Daemon upgrade orchestrator** — zero-downtime version upgrades
 - **Session resource limiter** — CPU/memory cgroup limits per pane
 - **Fleet cost attribution report** — HTML report by team/repo/tag
 - **Goal dependency visualizer v2** — interactive browser-based DAG
-- **Fleet webhook integrations** — Slack/Teams/Discord notifications
-- **Session output structured log** — parse output into structured events
-- **Daemon state export/import** — portable daemon state snapshots
-- **Goal templating engine** — Mustache-style goal templates with variables
-- **Fleet multi-tenant isolation** — separate namespaces per team/project
+- **Goal templating engine** — Mustache-style templates with variables
+- **Fleet multi-tenant isolation** — separate namespaces per team
+- **Session output deduplication** — detect and collapse repeated output lines
+- **Daemon config migration** — auto-upgrade config files between versions
+- **Fleet session tagging taxonomy** — hierarchical tag system with inheritance
+- **Goal progress prediction model** — ML-free statistical completion prediction

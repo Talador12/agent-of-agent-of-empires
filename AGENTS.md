@@ -212,6 +212,9 @@ The main loop is split into two layers:
 | `src/fleet-daily-digest.ts` | Auto-generated daily fleet summary (completions, failures, costs, health) |
 | `src/goal-nl-parser.ts` | Extract structured goals from freeform text (verbs, nouns, deps, tags, priority) |
 | `src/daemon-hot-swap.ts` | Module version registry with swap/rollback/validation/enable-disable |
+| `src/fleet-webhook-integrations.ts` | Slack/Teams/Discord/generic webhook payload formatting |
+| `src/session-structured-log.ts` | Parse output into 8 structured event types with ANSI stripping |
+| `src/daemon-state-portable.ts` | Portable daemon state export/import with secret sanitization |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -239,7 +242,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Ninety-nine modules run every daemon tick without LLM calls:
+One hundred and two modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -654,6 +657,20 @@ Ninety-nine modules run every daemon tick without LLM calls:
   versions with validation gates (rollback on failure), enable/disable per
   module, swap history tracking, stats. `/hot-swap`.
 
+- **Fleet webhook integrations** (`fleet-webhook-integrations.ts`): format
+  fleet events as Slack Block Kit, Teams Adaptive Card, Discord embed, or
+  generic JSON webhook payloads. Severity-colored. `/webhook-preview`.
+
+- **Session structured log** (`session-structured-log.ts`): parse output
+  into 8 structured event types: test-result, build-result, git-operation,
+  error, cost-update, progress, prompt, unknown. ANSI stripping, type
+  counting, recognized-only filtering. `/structured-log`.
+
+- **Daemon state portable** (`daemon-state-portable.ts`): export/import
+  daemon state as self-contained JSON. Config sanitization (secrets
+  redacted), metadata (hostname, node version, platform), import
+  validation. `/state-export`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -700,7 +717,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4275 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4309 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -1005,6 +1022,28 @@ Shipped 3 features in v5.2.0 (39 new tests, 3 modules, 3 TUI commands):
 
 Running total: 141 source modules, 142 TUI commands, 4275 tests, zero runtime deps.
 
+### v5.3.0 Session Response
+
+Shipped 6 features in v5.3.0 across 2 batches (73 new tests, 6 modules, 6 TUI commands):
+
+Batch 1 — v5.2.0 (39 tests, 3 modules):
+1. **`fleet-daily-digest.ts`** + 10 tests — Daily fleet summary with completions,
+   failures, costs, health, uptime. Markdown + TUI. `/daily-digest`.
+2. **`goal-nl-parser.ts`** + 15 tests — Extract structured goals from freeform
+   text. 23 verbs, targets, repos, priority, deps, tags. `/parse-goal`.
+3. **`daemon-hot-swap.ts`** + 14 tests — Module version registry with swap/
+   rollback/validation/enable-disable. `/hot-swap`.
+
+Batch 2 — v5.3.0 (34 tests, 3 modules):
+4. **`fleet-webhook-integrations.ts`** + 10 tests — Slack Block Kit, Teams
+   Adaptive Card, Discord embed, generic JSON payloads. `/webhook-preview`.
+5. **`session-structured-log.ts`** + 14 tests — Parse output into 8 event
+   types (test/build/git/error/cost/progress/prompt). `/structured-log`.
+6. **`daemon-state-portable.ts`** + 10 tests — Portable state export/import
+   with secret sanitization + import validation. `/state-export`.
+
+Running total: 144 source modules, 145 TUI commands, 4309 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -1049,9 +1088,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v5.0 | Graph + Storage + Metadata | GoalCriticalPath, FleetSnapshotCompression, SessionOutputAnnotations |
 | v5.1 | Celebration + Readiness | GoalCelebration, FleetReadinessScore, DaemonProcessSupervisor |
 | v5.2 | Digest + NLP + Hot-Swap | FleetDailyDigest, GoalNLParser, DaemonHotSwap |
+| v5.3 | Webhooks + Logs + Export | FleetWebhookIntegrations, SessionStructuredLog, DaemonStatePortable |
 
-**Totals**: 141 source modules, 120+ test files, 142 TUI commands, 20 CLI subcommands,
-4275 tests, ~41,000 lines added, zero runtime dependencies.
+**Totals**: 144 source modules, 120+ test files, 145 TUI commands, 20 CLI subcommands,
+4309 tests, ~42,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

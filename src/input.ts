@@ -232,6 +232,9 @@ export type ProcessSupervisorHandler = () => void; // show process supervisor st
 export type DailyDigestHandler = () => void; // show fleet daily digest
 export type GoalParserHandler = (text: string) => void; // parse natural language goal
 export type HotSwapHandler = (args: string) => void; // manage module hot-swapping
+export type WebhookPreviewHandler = (args: string) => void; // preview webhook payloads
+export type StructuredLogHandler = () => void; // parse output into structured events
+export type StateExportHandler = () => void; // export daemon state
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1007,6 +1010,12 @@ export class InputReader {
   onDailyDigest(handler: DailyDigestHandler): void { this.dailyDigestHandler = handler; }
   onGoalParser(handler: GoalParserHandler): void { this.goalParserHandler = handler; }
   onHotSwap(handler: HotSwapHandler): void { this.hotSwapHandler = handler; }
+  private webhookPreviewHandler: WebhookPreviewHandler | null = null;
+  private structuredLogHandler: StructuredLogHandler | null = null;
+  private stateExportHandler: StateExportHandler | null = null;
+  onWebhookPreview(handler: WebhookPreviewHandler): void { this.webhookPreviewHandler = handler; }
+  onStructuredLog(handler: StructuredLogHandler): void { this.structuredLogHandler = handler; }
+  onStateExport(handler: StateExportHandler): void { this.stateExportHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3207,6 +3216,23 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}hot-swap not available (no TUI)${RESET}`);
         break;
       }
+
+      case "/webhook-preview": {
+        const wpArg = line.slice("/webhook-preview".length).trim() || "slack";
+        if (this.webhookPreviewHandler) this.webhookPreviewHandler(wpArg);
+        else console.error(`${DIM}webhook-preview not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/structured-log":
+        if (this.structuredLogHandler) this.structuredLogHandler();
+        else console.error(`${DIM}structured-log not available (no TUI)${RESET}`);
+        break;
+
+      case "/state-export":
+        if (this.stateExportHandler) this.stateExportHandler();
+        else console.error(`${DIM}state-export not available (no TUI)${RESET}`);
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");
