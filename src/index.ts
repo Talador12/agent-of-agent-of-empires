@@ -119,6 +119,10 @@ import { projectCosts, evaluateCostAlerts, formatCostForecastAlerts, formatCostP
 import { FleetEventBus, formatEventBus } from "./fleet-event-bus.js";
 import { verifyCompletion, formatVerification } from "./goal-completion-verifier.js";
 import { computeOutputDiff, formatOutputDiff } from "./session-output-diff.js";
+import { createHeartbeatState, recordHeartbeat, evaluateHeartbeats, formatHeartbeats } from "./session-heartbeat.js";
+import { buildReplayState, seekTo, step, currentEntry, filterBySession, formatReplayEntry, formatReplayStats } from "./action-replay.js";
+import type { ReplayState } from "./action-replay.js";
+import { listProfiles, getProfile, formatProfileList, formatProfileDetail } from "./fleet-config-profiles.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -656,6 +660,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const costThrottleState = createThrottleState();
   const fleetEventBus = new FleetEventBus();
   const previousOutputs = new Map<string, string>(); // session -> last captured output for diff
+  const heartbeatState = createHeartbeatState();
+  let actionReplayState: ReplayState | null = null;
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -2805,6 +2811,72 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       previousOutputs.set(session.title, currentOutput);
       const lines = formatOutputDiff(diff);
       for (const l of lines) tui!.log("system", l);
+    });
+    // wire /heartbeat — session liveness monitoring
+    input.onHeartbeat(() => {
+      const sessions = tui!.getSessions();
+      const activeTitles = sessions.filter((s) => s.status === "working" || s.status === "running").map((s) => s.title);
+      // record current output hashes
+      for (const s of sessions) {
+        const output = (tui!.getSessionOutput(s.id) ?? []).join("");
+        const hash = output.length.toString(36) + output.slice(-100); // cheap hash
+        recordHeartbeat(heartbeatState, s.title, hash);
+      }
+      const hbs = evaluateHeartbeats(heartbeatState, activeTitles);
+      const lines = formatHeartbeats(hbs);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /replay — action replay debugger
+    input.onActionReplay((args) => {
+      const subcmd = args.split(/\s+/)[0] ?? "stats";
+      // lazy-load replay state from action log
+      if (!actionReplayState) {
+        try {
+          const logPath = resolve(homedir(), ".aoaoe", "actions.log");
+          const content = existsSync(logPath) ? readFileSync(logPath, "utf-8") : "";
+          const logLines = content.split("\n").filter(Boolean);
+          actionReplayState = buildReplayState(logLines);
+        } catch { actionReplayState = buildReplayState([]); }
+      }
+      if (subcmd === "stats") {
+        const lines = formatReplayStats(actionReplayState);
+        for (const l of lines) tui!.log("system", l);
+      } else if (subcmd === "next" || subcmd === "forward") {
+        const entry = step(actionReplayState, "forward");
+        const lines = formatReplayEntry(entry, actionReplayState.entries.length);
+        for (const l of lines) tui!.log("system", l);
+      } else if (subcmd === "prev" || subcmd === "backward") {
+        const entry = step(actionReplayState, "backward");
+        const lines = formatReplayEntry(entry, actionReplayState.entries.length);
+        for (const l of lines) tui!.log("system", l);
+      } else if (/^\d+$/.test(subcmd)) {
+        const entry = seekTo(actionReplayState, parseInt(subcmd, 10));
+        const lines = formatReplayEntry(entry, actionReplayState.entries.length);
+        for (const l of lines) tui!.log("system", l);
+      } else {
+        const filtered = filterBySession(actionReplayState, subcmd);
+        tui!.log("system", `replay: filtered to "${subcmd}" — ${filtered.length} ticks`);
+        const entry = currentEntry(actionReplayState);
+        const lines = formatReplayEntry(entry, actionReplayState.entries.length);
+        for (const l of lines) tui!.log("system", l);
+      }
+    });
+    // wire /profiles — fleet config profiles
+    input.onConfigProfiles((args) => {
+      const subcmd = args.trim();
+      if (!subcmd) {
+        const profiles = listProfiles();
+        const lines = formatProfileList(profiles);
+        for (const l of lines) tui!.log("system", l);
+      } else {
+        const profile = getProfile(subcmd);
+        if (profile) {
+          const lines = formatProfileDetail(profile);
+          for (const l of lines) tui!.log("system", l);
+        } else {
+          tui!.log("system", `profiles: "${subcmd}" not found (try: dev, ci, incident, conservative, overnight)`);
+        }
+      }
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

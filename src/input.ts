@@ -187,6 +187,9 @@ export type CostForecastHandler = () => void; // show cost forecast alerts + pro
 export type EventBusHandler = () => void; // show fleet event bus state
 export type VerifyGoalsHandler = () => void; // verify completed goals for regressions
 export type OutputDiffHandler = (target: string) => void; // show output diff for a session
+export type HeartbeatHandler = () => void; // show session heartbeat status
+export type ActionReplayHandler = (args: string) => void; // action replay navigation
+export type ConfigProfilesHandler = (args: string) => void; // show/apply config profiles
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -872,6 +875,12 @@ export class InputReader {
   onEventBus(handler: EventBusHandler): void { this.eventBusHandler = handler; }
   onVerifyGoals(handler: VerifyGoalsHandler): void { this.verifyGoalsHandler = handler; }
   onOutputDiff(handler: OutputDiffHandler): void { this.outputDiffHandler = handler; }
+  private heartbeatHandler: HeartbeatHandler | null = null;
+  private actionReplayHandler: ActionReplayHandler | null = null;
+  private configProfilesHandler: ConfigProfilesHandler | null = null;
+  onHeartbeat(handler: HeartbeatHandler): void { this.heartbeatHandler = handler; }
+  onActionReplay(handler: ActionReplayHandler): void { this.actionReplayHandler = handler; }
+  onConfigProfiles(handler: ConfigProfilesHandler): void { this.configProfilesHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2815,6 +2824,25 @@ ${BOLD}other:${RESET}
         if (!odArg) { console.error(`${DIM}usage: /output-diff <session>${RESET}`); break; }
         if (this.outputDiffHandler) this.outputDiffHandler(odArg);
         else console.error(`${DIM}output-diff not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/heartbeat":
+        if (this.heartbeatHandler) this.heartbeatHandler();
+        else console.error(`${DIM}heartbeat not available (no TUI)${RESET}`);
+        break;
+
+      case "/replay": {
+        const rpArg = line.slice("/replay".length).trim() || "stats";
+        if (this.actionReplayHandler) this.actionReplayHandler(rpArg);
+        else console.error(`${DIM}replay not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/profiles": {
+        const pfArg = line.slice("/profiles".length).trim();
+        if (this.configProfilesHandler) this.configProfilesHandler(pfArg);
+        else console.error(`${DIM}profiles not available (no TUI)${RESET}`);
         break;
       }
 

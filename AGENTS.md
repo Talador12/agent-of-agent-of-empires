@@ -167,6 +167,9 @@ The main loop is split into two layers:
 | `src/fleet-event-bus.ts` | Typed pub/sub event bus (22 event types, wildcard subs, history, error-resilient) |
 | `src/goal-completion-verifier.ts` | Post-completion regression scanner (7 positive + 8 negative output patterns) |
 | `src/session-output-diff.ts` | Line-level diff between consecutive captures (LCS + tail-diff, ANSI stripping) |
+| `src/session-heartbeat.ts` | Tmux pane crash detection via output hash tracking (alive/stale/unresponsive/dead) |
+| `src/action-replay.ts` | Step through daemon decision history with tick grouping, seek, filter-by-session |
+| `src/fleet-config-profiles.ts` | Named config presets (dev, ci, incident, conservative, overnight) + user profiles |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -194,7 +197,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Fifty-four modules run every daemon tick without LLM calls:
+Fifty-seven modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -369,6 +372,22 @@ Fifty-four modules run every daemon tick without LLM calls:
   (<500 lines), tail-diff for large. Context-window filtering (default 2 lines),
   ANSI code stripping. `/output-diff <session>`.
 
+- **Session heartbeat** (`session-heartbeat.ts`): detects tmux pane crashes
+  independent of AoE status. Tracks output hash changes per tick; escalates
+  through alive → stale → unresponsive → dead based on consecutive missed
+  ticks (configurable thresholds: 5/10/20 default). `/heartbeat`.
+
+- **Action replay** (`action-replay.ts`): post-mortem debugger for daemon
+  decisions. Loads action log JSONL, groups by tick via timestamp proximity,
+  supports seek/step/filter-by-session navigation. Stats: total ticks,
+  actions, failures, sessions involved. `/replay [stats|next|prev|N|session]`.
+
+- **Fleet config profiles** (`fleet-config-profiles.ts`): named config presets
+  for different workload types. 5 built-in profiles: dev (fast iteration),
+  ci (no confirmation, auto-destructive), incident (fastest polls, cautious),
+  conservative (dry run, confirm everything), overnight (unattended, budget-conscious).
+  User-defined profiles via config. `/profiles [name]`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -415,7 +434,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3690 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 3735 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -487,6 +506,21 @@ Shipped 3 features in v3.7.0 (36 new tests, 3 modules, 3 TUI commands):
 
 Running total: 96 source modules, 97 TUI commands, 3690 tests, zero runtime deps.
 
+### v3.8.0 Session Response
+
+Shipped 3 features in v3.8.0 (45 new tests, 3 modules, 3 TUI commands):
+1. **`session-heartbeat.ts`** + 14 tests — Tmux pane crash detection independent
+   of AoE status. Tracks output hash changes per tick, escalates through
+   alive → stale → unresponsive → dead (configurable at 5/10/20 ticks). `/heartbeat`.
+2. **`action-replay.ts`** + 17 tests — Post-mortem debugger for daemon decisions.
+   Loads action log JSONL, groups into ticks by timestamp, supports seek/step
+   forward+backward/filter-by-session navigation. Stats summary. `/replay`.
+3. **`fleet-config-profiles.ts`** + 14 tests — 5 built-in config presets (dev, ci,
+   incident, conservative, overnight) + user-defined profiles. Each preset
+   overrides poll intervals, policies, verbosity, confirm mode. `/profiles`.
+
+Milestone: **100 TUI commands, 99 source modules, 3735 tests, zero runtime deps.**
+
 ## AI Working Context
 
 Two files per repo:
@@ -516,9 +550,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v3.5 | Observability + DX | SessionHealthHistory, CostAnomalyThrottle, SmartSessionNaming |
 | v3.6 | Operations + Forecasting | OperatorShiftHandoff, SessionDepAutoDetect, CostForecastAlert |
 | v3.7 | Events + Verification | FleetEventBus, GoalCompletionVerifier, SessionOutputDiff |
+| v3.8 | Debugging + Config | SessionHeartbeat, ActionReplay, FleetConfigProfiles |
 
-**Totals**: 96 source modules, 120+ test files, 97 TUI commands, 20 CLI subcommands,
-3690 tests, ~26,000 lines added, zero runtime dependencies.
+**Totals**: 99 source modules, 120+ test files, 100 TUI commands, 20 CLI subcommands,
+3735 tests, ~27,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →
