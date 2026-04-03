@@ -174,6 +174,9 @@ import { celebrate, formatCelebrations } from "./goal-celebration.js";
 import type { CelebrationInput } from "./goal-celebration.js";
 import { evaluateReadiness, formatReadiness } from "./fleet-readiness-score.js";
 import { createSupervisor, formatSupervisor } from "./daemon-process-supervisor.js";
+import { buildDailyDigest, formatDigestTui } from "./fleet-daily-digest.js";
+import { parseGoal, formatParsedGoal } from "./goal-nl-parser.js";
+import { createHotSwapState, formatHotSwap } from "./daemon-hot-swap.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -734,6 +737,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const snapshotCompressionState = createCompressionState();
   const outputAnnotationState = createAnnotationState();
   const processSupervisorState = createSupervisor();
+  const hotSwapState = createHotSwapState();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3477,6 +3481,35 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     // wire /supervisor — process supervisor state
     input.onProcessSupervisor(() => {
       const lines = formatSupervisor(processSupervisorState);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /daily-digest — fleet daily summary
+    input.onDailyDigest(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const allCosts = tui!.getAllSessionCosts();
+      let totalCost = 0;
+      for (const [, costStr] of allCosts) totalCost += parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0;
+      const digest = buildDailyDigest({
+        periodLabel: new Date().toISOString().slice(0, 10),
+        completedGoals: tasks.filter((t) => t.status === "completed").map((t) => `${t.sessionTitle}: ${t.goal.slice(0, 40)}`),
+        failedGoals: tasks.filter((t) => t.status === "failed").map((t) => `${t.sessionTitle}: ${t.goal.slice(0, 40)}`),
+        activeGoals: tasks.filter((t) => t.status === "active").map((t) => `${t.sessionTitle}: ${t.goal.slice(0, 40)}`),
+        totalCostUsd: totalCost, avgHealthPct: 70, incidentCount: incidentTimeline.totalCount(),
+        topBurnSession: null, topBurnRatePerHr: 0, nudgesSent: 0,
+        reasonerCalls: 0, uptimeHours: (Date.now() - daemonStartedAt) / 3_600_000,
+      });
+      const lines = formatDigestTui(digest);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /parse-goal — natural language goal parser
+    input.onGoalParser((text) => {
+      const parsed = parseGoal(text);
+      const lines = formatParsedGoal(parsed);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /hot-swap — module hot-swapping state
+    input.onHotSwap(() => {
+      const lines = formatHotSwap(hotSwapState);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {

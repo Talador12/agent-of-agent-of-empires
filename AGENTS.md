@@ -209,6 +209,9 @@ The main loop is split into two layers:
 | `src/goal-celebration.ts` | Achievement summaries with badges for completed goals (7 badge types) |
 | `src/fleet-readiness-score.ts` | 10-check composite readiness metric (READY/CAUTION/NOT READY) |
 | `src/daemon-process-supervisor.ts` | Crash history + exponential backoff + max-restart window + uptime tracking |
+| `src/fleet-daily-digest.ts` | Auto-generated daily fleet summary (completions, failures, costs, health) |
+| `src/goal-nl-parser.ts` | Extract structured goals from freeform text (verbs, nouns, deps, tags, priority) |
+| `src/daemon-hot-swap.ts` | Module version registry with swap/rollback/validation/enable-disable |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -236,7 +239,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Ninety-six modules run every daemon tick without LLM calls:
+Ninety-nine modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -635,6 +638,22 @@ Ninety-six modules run every daemon tick without LLM calls:
   window (default 5 in 10m). Uptime tracking with longest streak.
   `/supervisor`.
 
+- **Fleet daily digest** (`fleet-daily-digest.ts`): auto-generated daily
+  fleet summary. Aggregates completions, failures, costs, health, incidents,
+  uptime, reasoner calls, nudges. Markdown + TUI output formats. Includes
+  conditional health warning and cost highlights. `/daily-digest`.
+
+- **Goal NL parser** (`goal-nl-parser.ts`): extract structured goals from
+  freeform natural language text. Detects action verbs (23 verbs), target
+  nouns, repo references, priority signals (critical/high/normal), dependency
+  mentions ("after X", "blocked by X"), and tags (#tag/@mention). Confidence
+  scoring (0-100). `/parse-goal <text>`.
+
+- **Daemon hot-swap** (`daemon-hot-swap.ts`): module version registry with
+  hot-swap capability. Register modules with version numbers, swap to new
+  versions with validation gates (rollback on failure), enable/disable per
+  module, swap history tracking, stats. `/hot-swap`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -681,7 +700,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4236 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4275 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -972,6 +991,20 @@ Shipped 3 features in v5.1.0 (33 new tests, 3 modules, 3 TUI commands):
 
 Running total: 138 source modules, 139 TUI commands, 4236 tests, zero runtime deps.
 
+### v5.2.0 Session Response
+
+Shipped 3 features in v5.2.0 (39 new tests, 3 modules, 3 TUI commands):
+1. **`fleet-daily-digest.ts`** + 10 tests — Auto-generated daily fleet summary.
+   Completions/failures/costs/health/incidents/uptime. Markdown + TUI. Conditional
+   health warning + cost highlights. `/daily-digest`.
+2. **`goal-nl-parser.ts`** + 15 tests — Extract structured goals from freeform text.
+   23 action verbs, target nouns, repo refs, priority signals, deps, tags.
+   Confidence scoring 0-100. `/parse-goal <text>`.
+3. **`daemon-hot-swap.ts`** + 14 tests — Module version registry with swap/rollback,
+   validation gates, enable/disable, swap history. `/hot-swap`.
+
+Running total: 141 source modules, 142 TUI commands, 4275 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -1015,9 +1048,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v4.9 | Export + Quality + Correlation | SessionTranscriptExport, GoalDecompQuality, FleetAnomalyCorrelation |
 | v5.0 | Graph + Storage + Metadata | GoalCriticalPath, FleetSnapshotCompression, SessionOutputAnnotations |
 | v5.1 | Celebration + Readiness | GoalCelebration, FleetReadinessScore, DaemonProcessSupervisor |
+| v5.2 | Digest + NLP + Hot-Swap | FleetDailyDigest, GoalNLParser, DaemonHotSwap |
 
-**Totals**: 138 source modules, 120+ test files, 139 TUI commands, 20 CLI subcommands,
-4236 tests, ~40,000 lines added, zero runtime dependencies.
+**Totals**: 141 source modules, 120+ test files, 142 TUI commands, 20 CLI subcommands,
+4275 tests, ~41,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

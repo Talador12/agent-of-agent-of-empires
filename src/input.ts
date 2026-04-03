@@ -229,6 +229,9 @@ export type OutputAnnotationsHandler = (args: string) => void; // manage output 
 export type CelebrationHandler = () => void; // show goal completion celebrations
 export type ReadinessHandler = () => void; // show fleet operational readiness score
 export type ProcessSupervisorHandler = () => void; // show process supervisor state
+export type DailyDigestHandler = () => void; // show fleet daily digest
+export type GoalParserHandler = (text: string) => void; // parse natural language goal
+export type HotSwapHandler = (args: string) => void; // manage module hot-swapping
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -998,6 +1001,12 @@ export class InputReader {
   onCelebration(handler: CelebrationHandler): void { this.celebrationHandler = handler; }
   onReadiness(handler: ReadinessHandler): void { this.readinessHandler = handler; }
   onProcessSupervisor(handler: ProcessSupervisorHandler): void { this.processSupervisorHandler = handler; }
+  private dailyDigestHandler: DailyDigestHandler | null = null;
+  private goalParserHandler: GoalParserHandler | null = null;
+  private hotSwapHandler: HotSwapHandler | null = null;
+  onDailyDigest(handler: DailyDigestHandler): void { this.dailyDigestHandler = handler; }
+  onGoalParser(handler: GoalParserHandler): void { this.goalParserHandler = handler; }
+  onHotSwap(handler: HotSwapHandler): void { this.hotSwapHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3178,6 +3187,26 @@ ${BOLD}other:${RESET}
         if (this.processSupervisorHandler) this.processSupervisorHandler();
         else console.error(`${DIM}supervisor not available (no TUI)${RESET}`);
         break;
+
+      case "/daily-digest":
+        if (this.dailyDigestHandler) this.dailyDigestHandler();
+        else console.error(`${DIM}daily-digest not available (no TUI)${RESET}`);
+        break;
+
+      case "/parse-goal": {
+        const pgArg = line.slice("/parse-goal".length).trim();
+        if (!pgArg) { console.error(`${DIM}usage: /parse-goal <freeform text>${RESET}`); break; }
+        if (this.goalParserHandler) this.goalParserHandler(pgArg);
+        else console.error(`${DIM}parse-goal not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/hot-swap": {
+        const hsArg = line.slice("/hot-swap".length).trim();
+        if (this.hotSwapHandler) this.hotSwapHandler(hsArg);
+        else console.error(`${DIM}hot-swap not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");
