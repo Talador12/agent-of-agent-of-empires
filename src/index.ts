@@ -57,10 +57,13 @@ import { detectAnomalies, formatAnomalies } from "./anomaly-detector.js";
 import type { SessionMetrics } from "./anomaly-detector.js";
 import { FleetSlaMonitor } from "./fleet-sla.js";
 import { ProgressVelocityTracker } from "./progress-velocity.js";
-import { computeSchedulingActions, formatSchedulingActions } from "./dep-scheduler.js";
+import { computeSchedulingActions, getActivatableTasks, formatSchedulingActions } from "./dep-scheduler.js";
 import { ObservationCache } from "./observation-cache.js";
 import { FleetRateLimiter } from "./fleet-rate-limiter.js";
 import { RecoveryPlaybookManager } from "./recovery-playbook.js";
+import { compressObservation } from "./context-compressor.js";
+import { filterByPriority } from "./priority-reasoning.js";
+import { estimateCallCost } from "./reasoner-cost.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -3497,6 +3500,11 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
           activityTracker,
           budgetPredictor,
           taskRetryManager,
+          observationCache,
+          fleetRateLimiter,
+          reasonerCostTracker,
+          nudgeTracker,
+          escalationManager,
           pushSupervisorEvent,
           refreshTaskSupervisorState,
         });
@@ -3527,6 +3535,49 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
             const outputLines = session ? (tui.getSessionOutput(session.id) ?? []) : [];
             const est = estimateProgress(task, outputLines.join("\n"));
             progressVelocityTracker.recordProgress(task.sessionTitle, est.percentComplete);
+          }
+        }
+
+        // recovery playbook: auto-execute recovery steps when health drops
+        if (tui && taskManager) {
+          const sessions = tui.getSessions();
+          for (const s of sessions) {
+            const healthScore = s.status === "working" || s.status === "running" ? 80 : s.status === "error" ? 20 : 50;
+            const recoveryActions = recoveryPlaybookManager.evaluate(s.title, healthScore);
+            for (const ra of recoveryActions) {
+              tui.log("status", `🏥 recovery: ${s.title} → ${ra.action}: ${ra.detail}`);
+              audit("session_restart", `recovery ${ra.action}: ${ra.detail}`, s.title, { action: ra.action });
+              // execute recovery action
+              if (ra.action === "pause") {
+                const task = taskManager.getTaskForSession(s.title);
+                if (task && task.status === "active") task.status = "paused";
+              }
+              // nudge and escalate are informational — logged but not auto-executed here
+              // restart would need the executor which isn't available in main loop
+            }
+          }
+        }
+
+        // dep scheduler: auto-activate pending tasks when prerequisites complete
+        if (taskManager) {
+          const tasks = taskManager.tasks;
+          const activatable = getActivatableTasks(tasks, sessionPoolManager.getStatus(tasks).maxConcurrent);
+          for (const title of activatable) {
+            const task = taskManager.getTaskForSession(title);
+            if (task && task.status === "pending") {
+              task.status = "active";
+              if (tui) tui.log("+ action", `dep-scheduler: activated "${title}" (dependencies met)`);
+              audit("task_created", `dep-scheduler activated: ${title}`, title);
+            }
+          }
+        }
+
+        // fleet utilization: record events for active sessions
+        if (tui) {
+          for (const s of tui.getSessions()) {
+            if (s.status === "working" || s.status === "running") {
+              fleetUtilizationTracker.recordEvent(s.title);
+            }
           }
         }
 
@@ -3642,6 +3693,11 @@ async function daemonTick(
     activityTracker: ActivityTracker;
     budgetPredictor: BudgetPredictor;
     taskRetryManager: TaskRetryManager;
+    observationCache: ObservationCache;
+    fleetRateLimiter: FleetRateLimiter;
+    reasonerCostTracker: ReasonerCostTracker;
+    nudgeTracker: NudgeTracker;
+    escalationManager: EscalationManager;
     pushSupervisorEvent: (detail: string) => void;
     refreshTaskSupervisorState: (reason?: string) => void;
   },
@@ -3668,17 +3724,72 @@ async function daemonTick(
   let reasonerActionCount: number | undefined;
   let reasonerSummary: string | undefined;
 
-  // wrap reasoner with timeout + interrupt support (passes AbortSignal to backends)
+  // wrap reasoner with timeout + interrupt + intelligence pipeline
   const wrappedReasoner: import("./types.js").Reasoner = {
     init: () => reasoner.init(),
     shutdown: () => reasoner.shutdown(),
     decide: async (obs) => {
+      // ── gate 1: fleet rate limiter — block if over API spend limits ──
+      if (intelligence?.fleetRateLimiter.isBlocked()) {
+        const status = intelligence.fleetRateLimiter.getStatus();
+        if (tui) tui.log("status", `⏸ reasoning blocked: ${status.reason}`);
+        audit("reasoner_action", `blocked by fleet rate limiter: ${status.reason}`);
+        return { actions: [{ action: "wait" as const, reason: `rate limited: ${status.reason}` }] };
+      }
+
+      // ── gate 2: observation cache — skip LLM for duplicate observations ──
+      const obsJson = JSON.stringify({ sessions: obs.sessions.map((s) => s.outputHash), changes: obs.changes.length });
+      const cached = intelligence?.observationCache.get(obsJson);
+      if (cached) {
+        if (tui) tui.log("status", `cache hit — skipping LLM call (${intelligence!.observationCache.getStats().totalHits} hits)`);
+        return cached;
+      }
+
+      // ── gate 3: priority filtering — only send highest-priority sessions ──
+      let filteredObs = obs;
+      if (tui && taskManager) {
+        const sessions = tui.getSessions();
+        const tasks = taskManager.tasks;
+        const priorityInputs = sessions.map((s) => {
+          const task = tasks.find((t) => t.sessionTitle === s.title);
+          const lastChange = tui.getAllLastChangeAt().get(s.id);
+          return {
+            sessionTitle: s.title,
+            healthScore: s.status === "working" || s.status === "running" ? 80 : s.status === "error" ? 20 : 50,
+            lastChangeMs: lastChange ? Date.now() - lastChange : 0,
+            lastProgressMs: task?.lastProgressAt ? Date.now() - task.lastProgressAt : 0,
+            taskStatus: task?.status ?? "unknown",
+            isStuck: (task?.stuckNudgeCount ?? 0) > 0,
+            hasError: s.status === "error",
+            isUserActive: s.userActive ?? false,
+          };
+        });
+        const ranked = rankSessionsByPriority(priorityInputs);
+        const changedTitles = new Set(obs.changes.map((c) => c.title));
+        const { filtered, excluded } = filterByPriority(obs, ranked, changedTitles);
+        if (excluded.length > 0) {
+          tui.log("status", `priority filter: ${excluded.length} session${excluded.length !== 1 ? "s" : ""} excluded from reasoning`);
+        }
+        filteredObs = filtered;
+      }
+
+      // ── gate 4: context compression — compress old pane output ──
+      const compressedObs = { ...filteredObs };
+      // compress session output for each snapshot to reduce token usage
+      for (const snap of compressedObs.sessions) {
+        const lines = snap.output.split("\n");
+        if (lines.length > 50) {
+          const compressed = compressObservation(lines, 30, 8);
+          snap.output = compressed.text;
+        }
+      }
+
       writeState("reasoning", { pollCount, pollIntervalMs: config.pollIntervalMs });
       if (tui) tui.updateState({ phase: "reasoning" }); else process.stdout.write(" | reasoning...");
 
       const startedAt = Date.now();
       const { result: r, interrupted } = await withTimeoutAndInterrupt(
-        (signal) => reasoner.decide(obs, signal),
+        (signal) => reasoner.decide(compressedObs, signal),
         90_000,
         { actions: [{ action: "wait" as const, reason: "reasoner timeout" }] }
       );
@@ -3690,6 +3801,16 @@ async function daemonTick(
       reasonerDurationMs = Date.now() - startedAt;
       reasonerActionCount = r.actions.length;
       reasonerSummary = r.actions.map((a) => a.action).join(", ");
+
+      // record cost + cache result
+      if (intelligence) {
+        const tokenEstimate = Math.ceil(JSON.stringify(compressedObs).length / 4);
+        const outputEstimate = Math.ceil(JSON.stringify(r).length / 4);
+        intelligence.reasonerCostTracker.recordCall("fleet", tokenEstimate, outputEstimate, reasonerDurationMs);
+        intelligence.fleetRateLimiter.recordCost(estimateCallCost(tokenEstimate, outputEstimate));
+        intelligence.observationCache.set(obsJson, r);
+      }
+
       return r;
     },
   };
@@ -4243,8 +4364,7 @@ async function daemonTick(
       }
     }
   }
-  // auto-pause tracking: record stuck nudges for send_input actions targeting stuck sessions.
-  // a "stuck nudge" = send_input to a session that hasn't had progress in >30 min.
+  // auto-pause tracking + smart nudge + nudge effectiveness + escalation
   if (taskManager) {
     const maxNudges = config.policies.maxStuckNudgesBeforePause ?? 0;
     const stuckThresholdMs = 30 * 60 * 1000;
@@ -4256,13 +4376,27 @@ async function daemonTick(
       if (!title) continue;
       const task = taskManager.getTaskForSession(title);
       if (!task || task.status !== "active") continue;
+
+      // track nudge for effectiveness measurement
+      const nudgeText = actionDetail(entry.action) ?? "";
+      if (intelligence) intelligence.nudgeTracker.recordNudge(title, nudgeText, now);
+
       const lastProgress = task.lastProgressAt ?? 0;
       if (lastProgress > 0 && (now - lastProgress) > stuckThresholdMs) {
+        // escalation: track stuck notifications
+        if (intelligence) {
+          const escalation = intelligence.escalationManager.recordStuck(title, now);
+          if (escalation) {
+            audit("stuck_nudge", escalation.message, title, { level: escalation.level });
+          }
+        }
+
         const paused = taskManager.recordStuckNudge(title, maxNudges);
         if (paused) {
           const msg = `auto-paused '${title}' after ${task.stuckNudgeCount} stuck nudges`;
           if (tui) tui.log("system", msg); else log(msg);
           appendSupervisorEvent({ at: Date.now(), detail: `auto-pause: ${title}` });
+          if (intelligence) intelligence.escalationManager.clearSession(title); // clear escalation on pause
           const nFilters = tui ? tui.getAllSessionNotifyFilters() : new Map();
           if (shouldNotifySession("task_stuck", title, nFilters, config.notifications?.events)) {
             sendNotification(config, {
@@ -4272,6 +4406,18 @@ async function daemonTick(
               detail: `auto-paused after ${task.stuckNudgeCount} stuck nudges with no progress`,
             });
           }
+        }
+      }
+    }
+
+    // record progress events for nudge effectiveness tracking
+    for (const entry of executed) {
+      if (entry.action.action === "report_progress" && entry.success) {
+        const sid = actionSession(entry.action);
+        const title = sid ? (sessionTitleMap.get(sid) ?? sid) : undefined;
+        if (title && intelligence) {
+          intelligence.nudgeTracker.recordProgress(title, now);
+          intelligence.escalationManager.clearSession(title); // progress = not stuck anymore
         }
       }
     }

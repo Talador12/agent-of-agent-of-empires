@@ -265,8 +265,22 @@ Forty-two modules run every daemon tick without LLM calls:
   Resets on health recovery, respects maxRetries. `/recovery`.
 
 All modules are instantiated in `main()`. `daemonTick()` receives the
-`intelligence` parameter for change-gated modules. SLA, velocity, adaptive
-poll, and fleet snapshots run in the main loop after each tick.
+`intelligence` parameter carrying all module instances. The reasoner pipeline
+(wrappedReasoner) uses intelligence gates in this order:
+1. Fleet rate limiter — blocks reasoning when hourly/daily API spend limits hit
+2. Observation cache — returns cached result for duplicate observations
+3. Priority filter — trims observation to highest-priority sessions only
+4. Context compressor — compresses old pane output to fit token budgets
+5. Reasoner call — send compressed, filtered observation to LLM
+6. Cost tracking — record tokens/cost, update rate limiter, cache result
+
+Post-tick in main loop: SLA monitor, velocity tracker, recovery playbook
+(auto-nudge/pause/escalate on health drop), dep scheduler (auto-activate
+pending tasks when prerequisites complete), fleet utilization, fleet snapshots.
+
+Stuck-task handler: tracks nudge effectiveness via NudgeTracker, escalates
+via EscalationManager (normal→elevated→critical), clears escalation on
+progress or pause.
 
 ### How to add a new TUI slash command
 
