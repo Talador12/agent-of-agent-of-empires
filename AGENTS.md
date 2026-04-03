@@ -142,9 +142,13 @@ The main loop is split into two layers:
 | `src/runbook-generator.ts` | Auto-generate operator runbooks from audit trail patterns |
 | `src/alert-rules.ts` | Custom fleet alerting rules with severity + cooldown |
 | `src/alert-rule-dsl.ts` | User-defined alert rules via config DSL |
+| `src/alert-composer.ts` | AND/OR composition of alert conditions |
 | `src/health-forecast.ts` | Linear regression health trend prediction + SLA breach ETA |
 | `src/session-tail.ts` | Live tail of session output with pattern highlighting |
 | `src/workflow-viz.ts` | ASCII DAG rendering for workflows + chains |
+| `src/metrics-export.ts` | Prometheus-compatible /metrics text exposition |
+| `src/fleet-grep.ts` | Regex search across gzipped output archives |
+| `src/runbook-executor.ts` | Step-by-step execution of generated runbooks |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -333,7 +337,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3470 unit + integration + property + stress tests across 106+ files, `node:test` (stdlib, zero deps)
+- 3491 unit + integration + property + stress tests across 110+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
