@@ -106,6 +106,10 @@ The main loop is split into two layers:
 | `src/fleet-rate-limiter.ts` | Fleet-wide API spend rate limiting (hourly + daily caps) |
 | `src/context-compressor.ts` | Observation compression: summarize old lines, keep recent |
 | `src/recovery-playbook.ts` | Auto-execute recovery steps when health drops |
+| `src/lifecycle-analytics.ts` | Task lifecycle stats: throughput, duration, success rate |
+| `src/cost-attribution.ts` | Cost breakdown by repo, status, efficiency |
+| `src/goal-decomposer.ts` | Auto-split complex goals into sub-tasks with dependencies |
+| `src/priority-reasoning.ts` | Priority-aware observation filtering for reasoner calls |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -133,7 +137,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Twenty-six modules run every daemon tick without LLM calls:
+Thirty modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -263,7 +267,7 @@ poll, and fleet snapshots run in the main loop after each tick.
    changes are available (inside the `if (intelligence && ...)` block).
 
 ### Testing
-- 3083 unit tests across 64+ files, `node:test` (stdlib, zero deps)
+- 3118 unit tests across 68+ files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.

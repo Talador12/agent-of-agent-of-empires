@@ -61,6 +61,9 @@ import { computeSchedulingActions, formatSchedulingActions } from "./dep-schedul
 import { ObservationCache } from "./observation-cache.js";
 import { FleetRateLimiter } from "./fleet-rate-limiter.js";
 import { RecoveryPlaybookManager } from "./recovery-playbook.js";
+import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
+import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
+import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown, formatTaskExportJson, formatTaskExportMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
@@ -2007,6 +2010,33 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     // wire /recovery — recovery playbook states
     input.onRecovery(() => {
       const lines = recoveryPlaybookManager.formatAll();
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /lifecycle — task lifecycle analytics
+    input.onLifecycle(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const records = buildLifecycleRecords(tasks);
+      const stats = computeLifecycleStats(records);
+      const lines = formatLifecycleStats(stats);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /cost-report — cost attribution breakdown
+    input.onCostReport(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const costMap = tui!.getAllSessionCosts();
+      const attrs = buildCostAttributions(tasks, costMap);
+      const report = computeCostReport(attrs);
+      const lines = formatCostReport(report);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /decompose — goal decomposition
+    input.onDecompose((target) => {
+      const tasks = taskManager?.tasks ?? [];
+      const num = /^\d+$/.test(target) ? parseInt(target, 10) : undefined;
+      const task = num !== undefined ? tasks[num - 1] : tasks.find((t) => t.sessionTitle.toLowerCase() === target.toLowerCase());
+      if (!task) { tui!.log("system", `decompose: task not found: ${target}`); return; }
+      const result = decomposeGoal(task.goal, task.sessionTitle);
+      const lines = formatDecomposition(result);
       for (const line of lines) tui!.log("system", line);
     });
     input.onCostSummary(() => {

@@ -125,6 +125,9 @@ export type ScheduleHandler = () => void; // show dependency-aware scheduling ac
 export type CacheHandler = () => void; // show observation cache stats
 export type RateLimitHandler = () => void; // show fleet rate limit status
 export type RecoveryHandler = () => void; // show recovery playbook states
+export type LifecycleHandler = () => void; // show task lifecycle analytics
+export type CostReportHandler = () => void; // show cost attribution report
+export type DecomposeHandler = (target: string) => void; // decompose a task's goal
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -331,6 +334,9 @@ export class InputReader {
   private cacheHandler: CacheHandler | null = null;
   private rateLimitHandler: RateLimitHandler | null = null;
   private recoveryHandler: RecoveryHandler | null = null;
+  private lifecycleHandler: LifecycleHandler | null = null;
+  private costReportHandler: CostReportHandler | null = null;
+  private decomposeHandler: DecomposeHandler | null = null;
   private sessionReportHandler: SessionReportHandler | null = null;
   private quietStatusHandler: QuietStatusHandler | null = null;
   private alertLogHandler: AlertLogHandler | null = null;
@@ -689,6 +695,9 @@ export class InputReader {
   onCache(handler: CacheHandler): void { this.cacheHandler = handler; }
   onRateLimit(handler: RateLimitHandler): void { this.rateLimitHandler = handler; }
   onRecovery(handler: RecoveryHandler): void { this.recoveryHandler = handler; }
+  onLifecycle(handler: LifecycleHandler): void { this.lifecycleHandler = handler; }
+  onCostReport(handler: CostReportHandler): void { this.costReportHandler = handler; }
+  onDecompose(handler: DecomposeHandler): void { this.decomposeHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -2256,6 +2265,24 @@ ${BOLD}other:${RESET}
         if (this.recoveryHandler) this.recoveryHandler();
         else console.error(`${DIM}recovery not available (no TUI)${RESET}`);
         break;
+
+      case "/lifecycle":
+        if (this.lifecycleHandler) this.lifecycleHandler();
+        else console.error(`${DIM}lifecycle not available (no TUI)${RESET}`);
+        break;
+
+      case "/cost-report":
+        if (this.costReportHandler) this.costReportHandler();
+        else console.error(`${DIM}cost-report not available (no TUI)${RESET}`);
+        break;
+
+      case "/decompose": {
+        const dcArg = line.slice("/decompose".length).trim();
+        if (!dcArg) { console.error(`${DIM}usage: /decompose <N|name>${RESET}`); break; }
+        if (this.decomposeHandler) this.decomposeHandler(dcArg);
+        else console.error(`${DIM}decompose not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");
