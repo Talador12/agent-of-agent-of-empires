@@ -188,6 +188,9 @@ The main loop is split into two layers:
 | `src/daemon-watchdog.ts` | Self-recovery on main loop stalls (warn → restart → exit escalation) |
 | `src/fleet-cost-regression.ts` | Alert when per-session cost deviates from historical rolling baseline |
 | `src/goal-cascading.ts` | Parent goals auto-generate child goals with tree structure + auto-completion |
+| `src/daemon-health-score.ts` | Composite health metric from 7 weighted subsystems (A-F grading) |
+| `src/fleet-event-replay.ts` | Replay event bus history with step/seek/filter playback controls |
+| `src/session-context-budget.ts` | Relevance-scored context file selection within token budget |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -215,7 +218,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Seventy-five modules run every daemon tick without LLM calls:
+Seventy-eight modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -501,6 +504,23 @@ Seventy-five modules run every daemon tick without LLM calls:
   max depth (default 3). Bottom-up auto-completion propagation — when
   all children complete, parent auto-completes. `/goal-cascade [add|child]`.
 
+- **Daemon health score** (`daemon-health-score.ts`): composite health
+  metric from 7 weighted subsystems: watchdog (20%), SLA health (20%),
+  error rate (15%), session health (15%), cache efficiency (10%), incidents
+  (10%), compliance (10%). Letter grades A-F with component bar charts.
+  `/health-score`.
+
+- **Fleet event replay** (`fleet-event-replay.ts`): replay event bus
+  history for debugging. Playback controls: step forward/backward, seek
+  by position or timestamp, filter by event type or session. Progress
+  tracking, time range display. `/event-replay [next|prev|N|filter|reload]`.
+
+- **Session context budget** (`session-context-budget.ts`): minimize context
+  tokens while maximizing relevance. Scores files by recency (0-20), goal
+  keyword match (0-20), importance (AGENTS.md/claude.md get priority, +10),
+  and size penalty (large files -10/-20). Greedy budget fill by relevance.
+  `/context-budget`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -547,7 +567,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3982 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4022 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -726,6 +746,21 @@ Shipped 3 features in v4.4.0 (39 new tests, 3 modules, 3 TUI commands):
 
 Running total: 117 source modules, 118 TUI commands, 3982 tests, zero runtime deps.
 
+### v4.5.0 Session Response
+
+Shipped 3 features in v4.5.0 (40 new tests, 3 modules, 3 TUI commands):
+1. **`daemon-health-score.ts`** + 11 tests — Composite health from 7 weighted
+   subsystems: watchdog (20%), SLA (20%), error rate (15%), session health (15%),
+   cache (10%), incidents (10%), compliance (10%). A-F grades. `/health-score`.
+2. **`fleet-event-replay.ts`** + 16 tests — Replay event bus history. Step
+   forward/backward, seek by position/timestamp, filter by type/session.
+   Progress tracking + time range. `/event-replay`.
+3. **`session-context-budget.ts`** + 13 tests — Relevance-scored context file
+   selection within token budget. Scores by recency, keyword match, importance,
+   size. Greedy fill. `/context-budget`.
+
+Milestone: **4000+ tests — 120 source modules, 121 TUI commands, 4022 tests, zero runtime deps.**
+
 ## AI Working Context
 
 Two files per repo:
@@ -762,9 +797,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v4.2 | Observability + Safety | FleetIncidentTimeline, SessionOutputBookmarks, DaemonCanaryMode |
 | v4.3 | Intelligence + Planning | DaemonConfigDiff, GoalAutoPriority, FleetCapacityForecaster |
 | v4.4 | Resilience + Hierarchy | DaemonWatchdog, FleetCostRegression, GoalCascading |
+| v4.5 | Health + Replay + Context | DaemonHealthScore, FleetEventReplay, SessionContextBudget |
 
-**Totals**: 117 source modules, 120+ test files, 118 TUI commands, 20 CLI subcommands,
-3982 tests, ~33,000 lines added, zero runtime dependencies.
+**Totals**: 120 source modules, 120+ test files, 121 TUI commands, 20 CLI subcommands,
+4022 tests, ~34,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

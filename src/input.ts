@@ -208,6 +208,9 @@ export type CapacityForecastHandler = () => void; // show fleet capacity forecas
 export type WatchdogStatusHandler = () => void; // show daemon watchdog status
 export type CostRegressionHandler = () => void; // show fleet cost regression alerts
 export type GoalCascadeHandler = (args: string) => void; // manage goal cascading
+export type HealthScoreHandler = () => void; // show daemon composite health score
+export type EventReplayHandler = (args: string) => void; // replay event bus history
+export type ContextBudgetHandler = () => void; // show context budget allocation
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -935,6 +938,12 @@ export class InputReader {
   onWatchdogStatus(handler: WatchdogStatusHandler): void { this.watchdogStatusHandler = handler; }
   onCostRegression(handler: CostRegressionHandler): void { this.costRegressionHandler = handler; }
   onGoalCascade(handler: GoalCascadeHandler): void { this.goalCascadeHandler = handler; }
+  private healthScoreHandler: HealthScoreHandler | null = null;
+  private eventReplayHandler: EventReplayHandler | null = null;
+  private contextBudgetHandler: ContextBudgetHandler | null = null;
+  onHealthScore(handler: HealthScoreHandler): void { this.healthScoreHandler = handler; }
+  onEventReplay(handler: EventReplayHandler): void { this.eventReplayHandler = handler; }
+  onContextBudget(handler: ContextBudgetHandler): void { this.contextBudgetHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3001,6 +3010,23 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}goal-cascade not available (no TUI)${RESET}`);
         break;
       }
+
+      case "/health-score":
+        if (this.healthScoreHandler) this.healthScoreHandler();
+        else console.error(`${DIM}health-score not available (no TUI)${RESET}`);
+        break;
+
+      case "/event-replay": {
+        const erArg = line.slice("/event-replay".length).trim();
+        if (this.eventReplayHandler) this.eventReplayHandler(erArg);
+        else console.error(`${DIM}event-replay not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/context-budget":
+        if (this.contextBudgetHandler) this.contextBudgetHandler();
+        else console.error(`${DIM}context-budget not available (no TUI)${RESET}`);
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

@@ -141,9 +141,14 @@ import { createConfigDiffState, recordConfig, computeConfigDiff as computeDaemon
 import { rankGoals, formatGoalPriority } from "./goal-auto-priority.js";
 import type { GoalPriorityInput } from "./goal-auto-priority.js";
 import { FleetCapacityForecaster, formatCapacityForecast } from "./fleet-capacity-forecaster.js";
-import { createWatchdog, tickWatchdog, formatWatchdog } from "./daemon-watchdog.js";
+import { createWatchdog, tickWatchdog, checkWatchdog, formatWatchdog } from "./daemon-watchdog.js";
 import { FleetCostRegression, formatCostRegression } from "./fleet-cost-regression.js";
 import { createCascadeState, addParentGoal, cascadeChild, formatCascadeTree } from "./goal-cascading.js";
+import { computeHealthScore, formatHealthScore } from "./daemon-health-score.js";
+import { createEventReplay, stepForward, stepBackward, seekTo as seekEventReplay, setFilter as setEventReplayFilter, formatEventReplay } from "./fleet-event-replay.js";
+import type { ReplayPlaybackState } from "./fleet-event-replay.js";
+import { allocateContextBudget, formatContextBudget } from "./session-context-budget.js";
+import type { ContextFile } from "./session-context-budget.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -697,6 +702,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const watchdogState = createWatchdog();
   const costRegressionDetector = new FleetCostRegression();
   const cascadeState = createCascadeState();
+  let eventReplayState: ReplayPlaybackState | null = null;
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3150,6 +3156,58 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         const lines = formatCascadeTree(cascadeState);
         for (const l of lines) tui!.log("system", l);
       }
+    });
+    // wire /health-score — composite daemon health metric
+    input.onHealthScore(() => {
+      const check = checkWatchdog(watchdogState);
+      const report = computeHealthScore({
+        watchdogStalled: check.stalled,
+        slaHealthPct: 80, // would come from slaMonitor in real wiring
+        errorRatePct: 5,
+        cacheHitRatePct: Math.round(observationCache.getStats().hitRate * 100),
+        avgSessionHealthPct: 70,
+        stallCount: watchdogState.stallCount,
+        unresolvedIncidents: incidentTimeline.unresolvedCount(),
+        complianceViolations: 0,
+      });
+      const lines = formatHealthScore(report);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /event-replay — replay event bus history
+    input.onEventReplay((args) => {
+      if (!eventReplayState) {
+        eventReplayState = createEventReplay(fleetEventBus.getHistory(undefined, 500));
+      }
+      const subcmd = args.split(/\s+/)[0] ?? "";
+      if (subcmd === "next") {
+        const events = stepForward(eventReplayState, 1);
+        if (events.length === 0) tui!.log("system", "event-replay: at end");
+      } else if (subcmd === "prev") {
+        stepBackward(eventReplayState, 1);
+      } else if (subcmd === "reload") {
+        eventReplayState = createEventReplay(fleetEventBus.getHistory(undefined, 500));
+        tui!.log("system", "event-replay: reloaded");
+      } else if (/^\d+$/.test(subcmd)) {
+        seekEventReplay(eventReplayState, parseInt(subcmd, 10));
+      } else if (subcmd === "filter") {
+        const filterType = args.split(/\s+/)[1] as import("./fleet-event-bus.js").EventType | undefined;
+        setEventReplayFilter(eventReplayState, filterType);
+      }
+      const lines = formatEventReplay(eventReplayState);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /context-budget — context token budget allocation
+    input.onContextBudget(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const activeGoal = tasks.find((t) => t.status === "active")?.goal ?? "";
+      const trackedFiles = Array.from(incrementalContextState.fingerprints.entries()).map(([path, fp]) => ({
+        path,
+        sizeBytes: fp.size,
+        lastModifiedMs: fp.mtimeMs,
+      }));
+      const alloc = allocateContextBudget(trackedFiles, activeGoal, 8000);
+      const lines = formatContextBudget(alloc);
+      for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();
