@@ -211,6 +211,9 @@ export type GoalCascadeHandler = (args: string) => void; // manage goal cascadin
 export type HealthScoreHandler = () => void; // show daemon composite health score
 export type EventReplayHandler = (args: string) => void; // replay event bus history
 export type ContextBudgetHandler = () => void; // show context budget allocation
+export type TickProfilerHandler = () => void; // show tick profiler stats
+export type GoalConfidenceHandler = () => void; // show goal confidence estimates
+export type BudgetPlanHandler = () => void; // show fleet budget allocation plan
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -944,6 +947,12 @@ export class InputReader {
   onHealthScore(handler: HealthScoreHandler): void { this.healthScoreHandler = handler; }
   onEventReplay(handler: EventReplayHandler): void { this.eventReplayHandler = handler; }
   onContextBudget(handler: ContextBudgetHandler): void { this.contextBudgetHandler = handler; }
+  private tickProfilerHandler: TickProfilerHandler | null = null;
+  private goalConfidenceHandler: GoalConfidenceHandler | null = null;
+  private budgetPlanHandler: BudgetPlanHandler | null = null;
+  onTickProfiler(handler: TickProfilerHandler): void { this.tickProfilerHandler = handler; }
+  onGoalConfidence(handler: GoalConfidenceHandler): void { this.goalConfidenceHandler = handler; }
+  onBudgetPlan(handler: BudgetPlanHandler): void { this.budgetPlanHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3026,6 +3035,21 @@ ${BOLD}other:${RESET}
       case "/context-budget":
         if (this.contextBudgetHandler) this.contextBudgetHandler();
         else console.error(`${DIM}context-budget not available (no TUI)${RESET}`);
+        break;
+
+      case "/tick-profiler":
+        if (this.tickProfilerHandler) this.tickProfilerHandler();
+        else console.error(`${DIM}tick-profiler not available (no TUI)${RESET}`);
+        break;
+
+      case "/goal-confidence":
+        if (this.goalConfidenceHandler) this.goalConfidenceHandler();
+        else console.error(`${DIM}goal-confidence not available (no TUI)${RESET}`);
+        break;
+
+      case "/budget-plan":
+        if (this.budgetPlanHandler) this.budgetPlanHandler();
+        else console.error(`${DIM}budget-plan not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

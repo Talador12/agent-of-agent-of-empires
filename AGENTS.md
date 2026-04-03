@@ -191,6 +191,9 @@ The main loop is split into two layers:
 | `src/daemon-health-score.ts` | Composite health metric from 7 weighted subsystems (A-F grading) |
 | `src/fleet-event-replay.ts` | Replay event bus history with step/seek/filter playback controls |
 | `src/session-context-budget.ts` | Relevance-scored context file selection within token budget |
+| `src/daemon-tick-profiler.ts` | Per-phase tick timing breakdown with bottleneck identification |
+| `src/goal-confidence-estimator.ts` | Predict goal completion probability from 6 weighted factors |
+| `src/fleet-budget-planner.ts` | Distribute cost budget across sessions by priority + progress |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -218,7 +221,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Seventy-eight modules run every daemon tick without LLM calls:
+Eighty-one modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -521,6 +524,23 @@ Seventy-eight modules run every daemon tick without LLM calls:
   and size penalty (large files -10/-20). Greedy budget fill by relevance.
   `/context-budget`.
 
+- **Daemon tick profiler** (`daemon-tick-profiler.ts`): per-phase timing
+  breakdown for each daemon tick. Records poll/reason/execute/post-tick
+  durations, computes per-phase stats (avg/max/% of total), identifies
+  bottleneck phase, finds slowest tick. `/tick-profiler`.
+
+- **Goal confidence estimator** (`goal-confidence-estimator.ts`): predict
+  goal completion probability (0-100%) from 6 weighted factors: progress
+  (±25), velocity (±15), errors (0 to -20), signal balance (±10), stuck
+  duration (0 to -15), time pressure (0 to -5). Trend detection
+  (rising/falling/steady). ETA from velocity. `/goal-confidence`.
+
+- **Fleet budget planner** (`fleet-budget-planner.ts`): distribute total
+  cost budget across sessions by priority and progress. Higher priority
+  sessions get proportionally more budget; near-complete tasks get less
+  (anti-waste). Emergency reserve (default 10%). Min allocation per
+  session to prevent starvation. `/budget-plan`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -567,7 +587,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4022 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4060 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -761,6 +781,20 @@ Shipped 3 features in v4.5.0 (40 new tests, 3 modules, 3 TUI commands):
 
 Milestone: **4000+ tests — 120 source modules, 121 TUI commands, 4022 tests, zero runtime deps.**
 
+### v4.6.0 Session Response
+
+Shipped 3 features in v4.6.0 (38 new tests, 3 modules, 3 TUI commands):
+1. **`daemon-tick-profiler.ts`** + 11 tests — Per-phase tick timing breakdown.
+   Records poll/reason/execute/post-tick durations, computes avg/max/% of total,
+   identifies bottleneck phase, finds slowest tick. `/tick-profiler`.
+2. **`goal-confidence-estimator.ts`** + 14 tests — Predict completion probability
+   (0-100%) from 6 factors: progress, velocity, errors, signals, stuck duration,
+   time pressure. Trend detection + ETA. `/goal-confidence`.
+3. **`fleet-budget-planner.ts`** + 13 tests — Distribute cost budget by priority
+   + progress. Emergency reserve (10%). Min allocation anti-starvation. `/budget-plan`.
+
+Running total: 123 source modules, 124 TUI commands, 4060 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -798,9 +832,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v4.3 | Intelligence + Planning | DaemonConfigDiff, GoalAutoPriority, FleetCapacityForecaster |
 | v4.4 | Resilience + Hierarchy | DaemonWatchdog, FleetCostRegression, GoalCascading |
 | v4.5 | Health + Replay + Context | DaemonHealthScore, FleetEventReplay, SessionContextBudget |
+| v4.6 | Profiling + Prediction | DaemonTickProfiler, GoalConfidenceEstimator, FleetBudgetPlanner |
 
-**Totals**: 120 source modules, 120+ test files, 121 TUI commands, 20 CLI subcommands,
-4022 tests, ~34,000 lines added, zero runtime dependencies.
+**Totals**: 123 source modules, 120+ test files, 124 TUI commands, 20 CLI subcommands,
+4060 tests, ~35,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

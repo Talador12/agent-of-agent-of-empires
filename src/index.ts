@@ -149,6 +149,11 @@ import { createEventReplay, stepForward, stepBackward, seekTo as seekEventReplay
 import type { ReplayPlaybackState } from "./fleet-event-replay.js";
 import { allocateContextBudget, formatContextBudget } from "./session-context-budget.js";
 import type { ContextFile } from "./session-context-budget.js";
+import { DaemonTickProfiler, formatTickProfiler } from "./daemon-tick-profiler.js";
+import { estimateFleetConfidence, formatConfidence } from "./goal-confidence-estimator.js";
+import type { ConfidenceInput } from "./goal-confidence-estimator.js";
+import { planBudget, formatBudgetPlan } from "./fleet-budget-planner.js";
+import type { BudgetPlanInput } from "./fleet-budget-planner.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -703,6 +708,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const costRegressionDetector = new FleetCostRegression();
   const cascadeState = createCascadeState();
   let eventReplayState: ReplayPlaybackState | null = null;
+  const tickProfiler = new DaemonTickProfiler();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3207,6 +3213,53 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       }));
       const alloc = allocateContextBudget(trackedFiles, activeGoal, 8000);
       const lines = formatContextBudget(alloc);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /tick-profiler — per-phase tick timing breakdown
+    input.onTickProfiler(() => {
+      const lines = formatTickProfiler(tickProfiler);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /goal-confidence — completion probability estimates
+    input.onGoalConfidence(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const inputs: ConfidenceInput[] = tasks.filter((t) => t.status === "active").map((t) => {
+        const vel = progressVelocityTracker.estimate(t.sessionTitle);
+        return {
+          sessionTitle: t.sessionTitle,
+          goal: t.goal,
+          progressPct: t.progress.length * 15,
+          velocityPctPerHr: vel?.velocityPerHour ?? 0,
+          errorCount: 0,
+          elapsedHours: t.createdAt ? (Date.now() - t.createdAt) / 3_600_000 : 0,
+          positiveSignals: 0,
+          negativeSignals: 0,
+          stuckTicks: 0,
+        };
+      });
+      const results = estimateFleetConfidence(inputs);
+      const lines = formatConfidence(results);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /budget-plan — fleet budget allocation
+    input.onBudgetPlan(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const allCosts = tui!.getAllSessionCosts();
+      const inputs: BudgetPlanInput[] = tasks.map((t) => {
+        const costStr = allCosts.get(t.sessionTitle) ?? "0";
+        const costUsd = parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0;
+        const burnRate = costThrottleState.burnRates.get(t.sessionTitle) ?? 0;
+        return {
+          sessionTitle: t.sessionTitle,
+          priorityScore: 50,
+          progressPct: Math.min(100, t.progress.length * 15),
+          costUsd,
+          burnRatePerHr: burnRate,
+          status: t.status,
+        };
+      });
+      const plan = planBudget(inputs, config.costBudgets?.globalBudgetUsd ?? 100);
+      const lines = formatBudgetPlan(plan);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
