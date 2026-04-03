@@ -199,6 +199,9 @@ export type WarmStandbyHandler = (args: string) => void; // manage warm standby 
 export type RedactionStatsHandler = () => void; // show output redaction stats
 export type ComplianceHandler = () => void; // run fleet compliance check
 export type PluginHooksHandler = () => void; // show daemon plugin hooks state
+export type IncidentTimelineHandler = () => void; // show fleet incident timeline
+export type BookmarkHandler = (args: string) => void; // manage output bookmarks
+export type CanaryModeHandler = (args: string) => void; // manage canary mode
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -908,6 +911,12 @@ export class InputReader {
   onRedactionStats(handler: RedactionStatsHandler): void { this.redactionStatsHandler = handler; }
   onCompliance(handler: ComplianceHandler): void { this.complianceHandler = handler; }
   onPluginHooks(handler: PluginHooksHandler): void { this.pluginHooksHandler = handler; }
+  private incidentTimelineHandler: IncidentTimelineHandler | null = null;
+  private bookmarkHandler: BookmarkHandler | null = null;
+  private canaryModeHandler: CanaryModeHandler | null = null;
+  onIncidentTimeline(handler: IncidentTimelineHandler): void { this.incidentTimelineHandler = handler; }
+  onBookmark(handler: BookmarkHandler): void { this.bookmarkHandler = handler; }
+  onCanaryMode(handler: CanaryModeHandler): void { this.canaryModeHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2923,6 +2932,25 @@ ${BOLD}other:${RESET}
         if (this.pluginHooksHandler) this.pluginHooksHandler();
         else console.error(`${DIM}plugin-hooks not available (no TUI)${RESET}`);
         break;
+
+      case "/incidents":
+        if (this.incidentTimelineHandler) this.incidentTimelineHandler();
+        else console.error(`${DIM}incidents not available (no TUI)${RESET}`);
+        break;
+
+      case "/bookmark": {
+        const bmArg = line.slice("/bookmark".length).trim();
+        if (this.bookmarkHandler) this.bookmarkHandler(bmArg);
+        else console.error(`${DIM}bookmark not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/canary": {
+        const cnArg = line.slice("/canary".length).trim();
+        if (this.canaryModeHandler) this.canaryModeHandler(cnArg);
+        else console.error(`${DIM}canary not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

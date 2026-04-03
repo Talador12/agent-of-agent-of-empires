@@ -134,6 +134,9 @@ import { OutputRedactor, formatRedactionStats } from "./session-output-redaction
 import { checkFleetCompliance, formatComplianceReport } from "./fleet-compliance-checker.js";
 import type { SessionForCompliance } from "./fleet-compliance-checker.js";
 import { DaemonPluginHooks, formatPluginHooks } from "./daemon-plugin-hooks.js";
+import { FleetIncidentTimeline, formatIncidentTimeline } from "./fleet-incident-timeline.js";
+import { createBookmarkState, addBookmark, removeBookmark, getBookmarks, searchBookmarks, formatBookmarks } from "./session-output-bookmarks.js";
+import { createCanaryState, startCanary, recordCanaryHealth, evaluateCanary, promoteCanary, rollbackCanary, formatCanaryState } from "./daemon-canary-mode.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -679,6 +682,9 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const warmStandbyState = createWarmStandby();
   const outputRedactor = new OutputRedactor();
   const daemonPluginHooks = new DaemonPluginHooks();
+  const incidentTimeline = new FleetIncidentTimeline();
+  const bookmarkState = createBookmarkState();
+  const canaryState = createCanaryState();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3006,6 +3012,59 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     input.onPluginHooks(() => {
       const lines = formatPluginHooks(daemonPluginHooks);
       for (const l of lines) tui!.log("system", l);
+    });
+    // wire /incidents — fleet incident timeline
+    input.onIncidentTimeline(() => {
+      const lines = formatIncidentTimeline(incidentTimeline);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /bookmark — session output bookmarks
+    input.onBookmark((args) => {
+      const parts = args.split(/\s+/);
+      const subcmd = parts[0] ?? "";
+      if (subcmd === "add" && parts.length >= 3) {
+        const session = parts[1];
+        const label = parts.slice(2).join(" ");
+        const output = (tui!.getSessionOutput(session) ?? []);
+        const lastLine = output.length > 0 ? output[output.length - 1] : "";
+        const bm = addBookmark(bookmarkState, session, lastLine, label);
+        tui!.log("system", `bookmark: #${bm.id} added for ${session} "${label}"`);
+      } else if (subcmd === "rm" && parts[1]) {
+        const id = parseInt(parts[1], 10);
+        if (removeBookmark(bookmarkState, id)) tui!.log("system", `bookmark: #${id} removed`);
+        else tui!.log("system", `bookmark: #${id} not found`);
+      } else if (subcmd === "search" && parts[1]) {
+        const results = searchBookmarks(bookmarkState, parts.slice(1).join(" "));
+        const lines = formatBookmarks(results);
+        for (const l of lines) tui!.log("system", l);
+      } else {
+        const session = subcmd || undefined;
+        const bms = getBookmarks(bookmarkState, session);
+        const lines = formatBookmarks(bms);
+        for (const l of lines) tui!.log("system", l);
+      }
+    });
+    // wire /canary — canary mode management
+    input.onCanaryMode((args) => {
+      const parts = args.split(/\s+/);
+      const subcmd = parts[0] ?? "";
+      if (subcmd === "start" && parts[1]) {
+        const sessions = tui!.getSessions();
+        const avgHealth = sessions.length > 0 ? 70 : 0;
+        const avgCost = 1.0;
+        startCanary(canaryState, parts[1], {}, avgHealth, avgCost);
+        tui!.log("system", `canary: started on ${parts[1]}`);
+      } else if (subcmd === "promote") {
+        const overrides = promoteCanary(canaryState);
+        if (overrides) tui!.log("system", `canary: promoted — overrides: ${JSON.stringify(overrides)}`);
+        else tui!.log("system", "canary: nothing to promote");
+      } else if (subcmd === "rollback") {
+        rollbackCanary(canaryState);
+        tui!.log("system", "canary: rolled back");
+      } else {
+        const lines = formatCanaryState(canaryState);
+        for (const l of lines) tui!.log("system", l);
+      }
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

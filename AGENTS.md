@@ -179,6 +179,9 @@ The main loop is split into two layers:
 | `src/session-output-redaction.ts` | Auto-strip secrets/PII (11 default rules: tokens, keys, JWTs, emails, IPs) |
 | `src/fleet-compliance-checker.ts` | Verify sessions follow org policy (naming, budgets, tags, idle, goals) |
 | `src/daemon-plugin-hooks.ts` | Lifecycle hooks (7 phases) with priority ordering + error isolation |
+| `src/fleet-incident-timeline.ts` | Chronological error/failure/recovery timeline with hot-session ranking |
+| `src/session-output-bookmarks.ts` | Mark output lines with labels for later reference, search, per-session filter |
+| `src/daemon-canary-mode.ts` | Run new config on canary session, compare health/cost vs baseline, promote/rollback |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -206,7 +209,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Sixty-six modules run every daemon tick without LLM calls:
+Sixty-nine modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -447,6 +450,22 @@ Sixty-six modules run every daemon tick without LLM calls:
   enable/disable per hook, error isolation (one bad hook doesn't kill
   others). `/plugin-hooks`.
 
+- **Fleet incident timeline** (`fleet-incident-timeline.ts`): chronological
+  view of all errors, failures, recoveries, stuck/idle/budget events
+  across sessions. Filterable by session, type, time range, resolved
+  status. Hot-session ranking, type counts. `/incidents`.
+
+- **Session output bookmarks** (`session-output-bookmarks.ts`): mark
+  interesting output lines with labels for later reference. Add/remove
+  bookmarks, search by label or text, filter by session, count per
+  session. Max 200 bookmarks. `/bookmark [add|rm|search]`.
+
+- **Daemon canary mode** (`daemon-canary-mode.ts`): test new config on
+  a single canary session before fleet-wide rollout. Tracks canary health
+  vs fleet baseline, monitors cost rate (rollback if >2x baseline).
+  Auto-recommends promote (after duration) / rollback (if degraded) /
+  continue (pending). `/canary [start|promote|rollback]`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -493,7 +512,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3865 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 3906 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -627,6 +646,21 @@ Shipped 3 features in v4.1.0 (46 new tests, 3 modules, 3 TUI commands):
 
 Running total: 108 source modules, 109 TUI commands, 3865 tests, zero runtime deps.
 
+### v4.2.0 Session Response
+
+Shipped 3 features in v4.2.0 (41 new tests, 3 modules, 3 TUI commands):
+1. **`fleet-incident-timeline.ts`** + 14 tests — Chronological error/failure/
+   recovery timeline across sessions. Filterable by session, type, time range,
+   resolved status. Hot-session ranking, type counts. `/incidents`.
+2. **`session-output-bookmarks.ts`** + 13 tests — Mark output lines with labels
+   for later reference. Add/remove/search bookmarks, filter by session,
+   per-session counts. Max 200. `/bookmark [add|rm|search]`.
+3. **`daemon-canary-mode.ts`** + 14 tests — Test new config on single canary
+   session. Tracks health vs baseline, monitors cost rate. Auto-recommends
+   promote/rollback/continue. `/canary [start|promote|rollback]`.
+
+Running total: 111 source modules, 112 TUI commands, 3906 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -660,9 +694,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v3.9 | Quality + Lifecycle | DaemonDiagnostics, SessionStateMachine, IncrementalContext |
 | v4.0 | Performance + Governance | DaemonMetricsHistogram, SessionPeerReview, FleetWarmStandby |
 | v4.1 | Security + Compliance | SessionOutputRedaction, FleetComplianceChecker, DaemonPluginHooks |
+| v4.2 | Observability + Safety | FleetIncidentTimeline, SessionOutputBookmarks, DaemonCanaryMode |
 
-**Totals**: 108 source modules, 120+ test files, 109 TUI commands, 20 CLI subcommands,
-3865 tests, ~30,000 lines added, zero runtime dependencies.
+**Totals**: 111 source modules, 120+ test files, 112 TUI commands, 20 CLI subcommands,
+3906 tests, ~31,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →
