@@ -155,6 +155,10 @@ export type WorkflowNewHandler = (template: string) => void; // create workflow 
 export type ABStatsHandler = () => void; // show A/B reasoning stats
 export type WorkflowChainHandler = () => void; // show workflow chain state
 export type WorkflowForecastHandler = (template: string) => void; // show workflow cost forecast
+export type FederationHandler = () => void; // show federation overview
+export type ArchivesHandler = () => void; // show output archives
+export type RunbookGenHandler = () => void; // generate runbooks from audit trail
+export type AlertRulesHandler = () => void; // show alert rules status
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -776,6 +780,14 @@ export class InputReader {
   onABStats(handler: ABStatsHandler): void { this.abStatsHandler = handler; }
   onWorkflowChain(handler: WorkflowChainHandler): void { this.workflowChainHandler = handler; }
   onWorkflowForecast(handler: WorkflowForecastHandler): void { this.workflowForecastHandler = handler; }
+  private federationHandler: FederationHandler | null = null;
+  private archivesHandler: ArchivesHandler | null = null;
+  private runbookGenHandler: RunbookGenHandler | null = null;
+  private alertRulesHandler: AlertRulesHandler | null = null;
+  onFederation(handler: FederationHandler): void { this.federationHandler = handler; }
+  onArchives(handler: ArchivesHandler): void { this.archivesHandler = handler; }
+  onRunbookGen(handler: RunbookGenHandler): void { this.runbookGenHandler = handler; }
+  onAlertRules(handler: AlertRulesHandler): void { this.alertRulesHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2531,6 +2543,26 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}workflow-forecast not available (no TUI)${RESET}`);
         break;
       }
+
+      case "/federation":
+        if (this.federationHandler) this.federationHandler();
+        else console.error(`${DIM}federation not available (no TUI)${RESET}`);
+        break;
+
+      case "/archives":
+        if (this.archivesHandler) this.archivesHandler();
+        else console.error(`${DIM}archives not available (no TUI)${RESET}`);
+        break;
+
+      case "/runbook-gen":
+        if (this.runbookGenHandler) this.runbookGenHandler();
+        else console.error(`${DIM}runbook-gen not available (no TUI)${RESET}`);
+        break;
+
+      case "/alert-rules":
+        if (this.alertRulesHandler) this.alertRulesHandler();
+        else console.error(`${DIM}alert-rules not available (no TUI)${RESET}`);
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

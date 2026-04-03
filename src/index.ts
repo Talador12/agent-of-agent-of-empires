@@ -80,6 +80,12 @@ import { ABReasoningTracker } from "./ab-reasoning.js";
 import { forecastWorkflowCost, formatWorkflowCostForecast } from "./workflow-cost-forecast.js";
 import { createWorkflowChain, advanceChain, formatWorkflowChain } from "./workflow-chain.js";
 import type { WorkflowChain } from "./workflow-chain.js";
+import { aggregateFederation, formatFederationOverview } from "./fleet-federation.js";
+import type { FederatedFleetState } from "./fleet-federation.js";
+import { archiveSessionOutput, formatArchiveList } from "./output-archival.js";
+import { generateRunbooks, formatGeneratedRunbooks } from "./runbook-generator.js";
+import { defaultAlertRules, evaluateAlertRules, formatFiredAlerts, formatAlertRules } from "./alert-rules.js";
+import type { AlertContext } from "./alert-rules.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -609,6 +615,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   let activeWorkflowChain: WorkflowChain | null = null;
   const tokenQuotaManager = new TokenQuotaManager();
   const abReasoningTracker = new ABReasoningTracker(config.reasoner, "claude-code");
+  const alertRules = defaultAlertRules();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -2357,6 +2364,36 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const lines = formatWorkflowCostForecast(forecast);
       for (const l of lines) tui!.log("system", l);
     });
+    // wire /federation — multi-host fleet overview
+    input.onFederation(() => {
+      // in practice, would fetch from configured peers; show local state as single peer
+      const sessions = tui!.getSessions();
+      const tasks = taskManager?.tasks ?? [];
+      const scores = sessions.map((s) => s.status === "working" || s.status === "running" ? 80 : s.status === "error" ? 20 : 50);
+      const health = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 100;
+      let cost = 0;
+      for (const s of sessions) { const m = s.costStr?.match(/\$(\d+(?:\.\d+)?)/); if (m) cost += parseFloat(m[1]); }
+      const localState: FederatedFleetState = { peer: "local", sessions: sessions.length, activeTasks: tasks.filter((t) => t.status === "active").length, fleetHealth: health, totalCostUsd: cost, lastUpdatedAt: Date.now() };
+      const overview = aggregateFederation([localState]);
+      const lines = formatFederationOverview(overview);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /archives — show output archive list
+    input.onArchives(() => {
+      const lines = formatArchiveList();
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /runbook-gen — generate runbooks from audit trail
+    input.onRunbookGen(() => {
+      const runbooks = generateRunbooks();
+      const lines = formatGeneratedRunbooks(runbooks);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /alert-rules — show alert rules and their status
+    input.onAlertRules(() => {
+      const lines = formatAlertRules(alertRules);
+      for (const l of lines) tui!.log("system", l);
+    });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();
       const summary = computeCostSummary(sessions, tui!.getAllSessionCosts());
@@ -3825,6 +3862,25 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
           }
           if (chainFailed) {
             tui.log("status", `workflow chain "${chain.name}" has failures`);
+          }
+        }
+
+        // custom alert rules: evaluate fleet conditions per tick
+        if (tui) {
+          const sessions = tui.getSessions();
+          const tasks = taskManager?.tasks ?? [];
+          const scores = sessions.map((s) => s.status === "working" || s.status === "running" ? 80 : s.status === "error" ? 20 : 50);
+          const fleetHealth = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 100;
+          const activeSessions = sessions.filter((s) => s.status === "working" || s.status === "running").length;
+          const errorSessions = sessions.filter((s) => s.status === "error").length;
+          const stuckSessions = tasks.filter((t) => t.status === "active" && (t.stuckNudgeCount ?? 0) > 0).length;
+          let hourlyCost = 0;
+          for (const s of sessions) { const m = s.costStr?.match(/\$(\d+(?:\.\d+)?)/); if (m) hourlyCost += parseFloat(m[1]); }
+          const alertCtx: AlertContext = { fleetHealth, activeSessions, errorSessions, totalCostUsd: hourlyCost, hourlyCostRate: hourlyCost, stuckSessions, idleMinutes: new Map() };
+          const firedAlerts = evaluateAlertRules(alertRules, alertCtx);
+          for (const alert of firedAlerts) {
+            tui.log("status", `${alert.severity === "critical" ? "🚨" : alert.severity === "warning" ? "⚠" : "ℹ"} ALERT: ${alert.message}`);
+            audit("session_error", `alert fired: ${alert.ruleName} — ${alert.message}`, undefined, { severity: alert.severity });
           }
         }
 
