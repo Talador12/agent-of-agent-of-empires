@@ -130,6 +130,10 @@ import { createIncrementalState, detectChanges, formatIncrementalContext } from 
 import { DaemonMetricsHistogram, formatMetricsHistogram } from "./daemon-metrics-histogram.js";
 import { createPeerReviewState, formatPeerReviews, requestReview, resolveReview, expireStaleReviews } from "./session-peer-review.js";
 import { createWarmStandby, warmSlot, claimSlot, formatWarmStandby } from "./fleet-warm-standby.js";
+import { OutputRedactor, formatRedactionStats } from "./session-output-redaction.js";
+import { checkFleetCompliance, formatComplianceReport } from "./fleet-compliance-checker.js";
+import type { SessionForCompliance } from "./fleet-compliance-checker.js";
+import { DaemonPluginHooks, formatPluginHooks } from "./daemon-plugin-hooks.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -673,6 +677,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const daemonMetrics = new DaemonMetricsHistogram();
   const peerReviewState = createPeerReviewState();
   const warmStandbyState = createWarmStandby();
+  const outputRedactor = new OutputRedactor();
+  const daemonPluginHooks = new DaemonPluginHooks();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -2969,6 +2975,37 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         const lines = formatWarmStandby(warmStandbyState);
         for (const l of lines) tui!.log("system", l);
       }
+    });
+    // wire /redaction-stats — output redaction stats
+    input.onRedactionStats(() => {
+      const lines = formatRedactionStats(outputRedactor);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /compliance — fleet compliance check
+    input.onCompliance(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const sessions = tui!.getSessions();
+      const allCosts = tui!.getAllSessionCosts();
+      const compSessions: SessionForCompliance[] = tasks.map((t) => {
+        const costStr = allCosts.get(t.sessionTitle) ?? "0";
+        const costUsd = parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0;
+        return {
+          title: t.sessionTitle,
+          goal: t.goal,
+          repo: t.repo,
+          costUsd,
+          tags: new Map<string, string>(),
+          idleMinutes: 0,
+        };
+      });
+      const violations = checkFleetCompliance(compSessions);
+      const lines = formatComplianceReport(violations, compSessions.length);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /plugin-hooks — show plugin hooks state
+    input.onPluginHooks(() => {
+      const lines = formatPluginHooks(daemonPluginHooks);
+      for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

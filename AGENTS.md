@@ -176,6 +176,9 @@ The main loop is split into two layers:
 | `src/daemon-metrics-histogram.ts` | Per-tick latency distribution (p50/p90/p99) with ASCII histograms |
 | `src/session-peer-review.ts` | Cross-session code review gating with approve/reject/expire workflow |
 | `src/fleet-warm-standby.ts` | Pre-warm session slots with loaded context for instant task activation |
+| `src/session-output-redaction.ts` | Auto-strip secrets/PII (11 default rules: tokens, keys, JWTs, emails, IPs) |
+| `src/fleet-compliance-checker.ts` | Verify sessions follow org policy (naming, budgets, tags, idle, goals) |
+| `src/daemon-plugin-hooks.ts` | Lifecycle hooks (7 phases) with priority ordering + error isolation |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -203,7 +206,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Sixty-three modules run every daemon tick without LLM calls:
+Sixty-six modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -426,6 +429,24 @@ Sixty-three modules run every daemon tick without LLM calls:
   TTL-based expiry, repo-matched claiming. Reduces cold-start time for
   new tasks. `/warm-standby [warm|claim]`.
 
+- **Session output redaction** (`session-output-redaction.ts`): auto-strip
+  secrets and PII from captured pane output before logging. 11 default
+  rules: bearer tokens, API keys, AWS keys, JWTs, private keys, passwords,
+  connection strings, emails, IPv4 addresses, hex secrets. Custom rule
+  support, per-rule hit tracking. `/redaction-stats`.
+
+- **Fleet compliance checker** (`fleet-compliance-checker.ts`): verify all
+  sessions follow org policy. 7 check types: naming convention (regex),
+  required tags, budget cap, max idle, require goal, require repo, banned
+  goal patterns. Severity-ranked (error/warning/info) with remediation
+  suggestions. `/compliance`.
+
+- **Daemon plugin hooks** (`daemon-plugin-hooks.ts`): lifecycle hooks for
+  custom logic injection. 7 phases: pre-tick, post-tick, pre-reason,
+  post-reason, pre-execute, post-execute, on-error. Priority ordering,
+  enable/disable per hook, error isolation (one bad hook doesn't kill
+  others). `/plugin-hooks`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -472,7 +493,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3819 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 3865 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -590,6 +611,22 @@ Shipped 3 features in v4.0.0 (41 new tests, 3 modules, 3 TUI commands):
 
 Milestone: **v4.0.0 — 105 source modules, 106 TUI commands, 3819 tests, zero runtime deps.**
 
+### v4.1.0 Session Response
+
+Shipped 3 features in v4.1.0 (46 new tests, 3 modules, 3 TUI commands):
+1. **`session-output-redaction.ts`** + 16 tests — Auto-strip secrets/PII from
+   pane output. 11 default rules (bearer tokens, API keys, AWS keys, JWTs,
+   private keys, passwords, connection strings, emails, IPs, hex secrets).
+   Custom rules, per-rule hit tracking. `/redaction-stats`.
+2. **`fleet-compliance-checker.ts`** + 15 tests — Verify sessions follow org
+   policy. 7 checks: naming convention, required tags, budget cap, max idle,
+   require goal, require repo, banned patterns. Severity-ranked. `/compliance`.
+3. **`daemon-plugin-hooks.ts`** + 15 tests — Lifecycle hooks for custom logic.
+   7 phases (pre-tick through on-error). Priority ordering, enable/disable,
+   error isolation. `/plugin-hooks`.
+
+Running total: 108 source modules, 109 TUI commands, 3865 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -622,9 +659,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v3.8 | Debugging + Config | SessionHeartbeat, ActionReplay, FleetConfigProfiles |
 | v3.9 | Quality + Lifecycle | DaemonDiagnostics, SessionStateMachine, IncrementalContext |
 | v4.0 | Performance + Governance | DaemonMetricsHistogram, SessionPeerReview, FleetWarmStandby |
+| v4.1 | Security + Compliance | SessionOutputRedaction, FleetComplianceChecker, DaemonPluginHooks |
 
-**Totals**: 105 source modules, 120+ test files, 106 TUI commands, 20 CLI subcommands,
-3819 tests, ~29,000 lines added, zero runtime dependencies.
+**Totals**: 108 source modules, 120+ test files, 109 TUI commands, 20 CLI subcommands,
+3865 tests, ~30,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

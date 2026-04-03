@@ -5,32 +5,32 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v4.0.0
+## Version: v4.1.0
+
+## What shipped in v4.1.0
+
+**v4.1.0 — Output Redaction, Fleet Compliance, Plugin Hooks**:
+- `session-output-redaction.ts`: Auto-strip secrets/PII from captured pane output. 11 default rules: bearer tokens, API keys, AWS keys, JWTs, private keys, passwords, connection strings, emails, IPv4 addresses, hex secrets. Custom rule support, per-rule hit tracking. **`/redaction-stats`** command.
+- `fleet-compliance-checker.ts`: Verify all sessions follow org policy. 7 check types: naming convention, required tags, budget cap, max idle, require goal, require repo, banned goal patterns. Severity-ranked (error/warning/info) with remediation. **`/compliance`** command.
+- `daemon-plugin-hooks.ts`: Lifecycle hooks for custom logic. 7 hook phases: pre-tick, post-tick, pre-reason, post-reason, pre-execute, post-execute, on-error. Priority ordering, enable/disable, error isolation. **`/plugin-hooks`** command.
+
+109 TUI commands. 108 source modules. 3865 tests. 0 runtime deps.
 
 ## What shipped in v4.0.0
 
 **v4.0.0 — Metrics Histogram, Peer Review, Warm Standby**:
-- `daemon-metrics-histogram.ts`: Per-tick latency distribution for poll, reason, execute, and tick-total phases. Records timing samples, computes percentiles (p50/p90/p99), renders ASCII histograms with 8 buckets. Capped at 500 samples per phase. **`/metrics-hist`** command.
-- `session-peer-review.ts`: Cross-session code review gating. Request reviews, approve/reject with feedback, expire stale reviews. Gates task completion on peer approval. **`/peer-review [request|approve|reject]`** command.
-- `fleet-warm-standby.ts`: Pre-warm session slots with loaded context for instant task activation. Pool-limited, TTL-based expiry, repo-matched claiming. **`/warm-standby [warm|claim]`** command.
-
-106 TUI commands. 105 source modules. 3819 tests. 0 runtime deps.
+- `daemon-metrics-histogram.ts`: Per-tick latency percentiles + ASCII histograms. **`/metrics-hist`** command.
+- `session-peer-review.ts`: Cross-session review gating. **`/peer-review`** command.
+- `fleet-warm-standby.ts`: Pre-warm session slots. **`/warm-standby`** command.
 
 ## What shipped in v3.9.0
 
 **v3.9.0 — Self-Diagnostics, State Machine, Incremental Context**:
 - `daemon-diagnostics.ts`: `/doctor` self-diagnostics. **`/doctor`** command.
-- `session-state-machine.ts`: 11-state lifecycle with 31 guarded transitions. **`/state-machine`** command.
-- `incremental-context.ts`: Mtime/size fingerprinting for skip-unchanged reloads. **`/context-stats`** command.
+- `session-state-machine.ts`: 11-state lifecycle. **`/state-machine`** command.
+- `incremental-context.ts`: Skip-unchanged context reloads. **`/context-stats`** command.
 
-## What shipped in v3.8.0
-
-**v3.8.0 — Session Heartbeat, Action Replay, Fleet Config Profiles**:
-- `session-heartbeat.ts`: Pane crash detection. **`/heartbeat`** command.
-- `action-replay.ts`: Decision history debugger. **`/replay`** command.
-- `fleet-config-profiles.ts`: Named config presets. **`/profiles`** command.
-
-## Ideas Backlog (v4.1+)
+## Ideas Backlog (v4.2+)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
@@ -59,7 +59,9 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Goal template marketplace** — share goal + decomposition templates across teams
 - **Reasoner chain-of-thought logger** — capture and display LLM reasoning steps for transparency
 - **Session sandbox mode** — run sessions in isolated environments with rollback on failure
-- **Fleet compliance checker** — verify all sessions follow org policy (naming, budgets, tags)
-- **Daemon plugin hooks** — lifecycle hooks (pre-tick, post-reason, pre-execute) for custom logic
-- **Session output redaction** — auto-strip secrets/PII from captured pane output before logging
 - **Goal progress dashboard** — visual progress bars + ETA for all active sessions in one view
+- **Fleet incident timeline** — chronological view of all errors/failures/recoveries across sessions
+- **Session output bookmarks** — mark interesting output lines for later reference
+- **Daemon canary mode** — run new config/rules on one session before fleet-wide rollout
+- **Reasoner cost budget splits** — allocate LLM cost budgets per-phase (reason vs nudge vs review)
+- **Session dependency graph viz** — ASCII/browser rendering of auto-detected dep graph

@@ -196,6 +196,9 @@ export type ContextStatsHandler = () => void; // show incremental context stats
 export type MetricsHistHandler = () => void; // show daemon metrics histogram
 export type PeerReviewHandler = (args: string) => void; // manage peer reviews
 export type WarmStandbyHandler = (args: string) => void; // manage warm standby slots
+export type RedactionStatsHandler = () => void; // show output redaction stats
+export type ComplianceHandler = () => void; // run fleet compliance check
+export type PluginHooksHandler = () => void; // show daemon plugin hooks state
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -899,6 +902,12 @@ export class InputReader {
   onMetricsHist(handler: MetricsHistHandler): void { this.metricsHistHandler = handler; }
   onPeerReview(handler: PeerReviewHandler): void { this.peerReviewHandler = handler; }
   onWarmStandby(handler: WarmStandbyHandler): void { this.warmStandbyHandler = handler; }
+  private redactionStatsHandler: RedactionStatsHandler | null = null;
+  private complianceHandler: ComplianceHandler | null = null;
+  private pluginHooksHandler: PluginHooksHandler | null = null;
+  onRedactionStats(handler: RedactionStatsHandler): void { this.redactionStatsHandler = handler; }
+  onCompliance(handler: ComplianceHandler): void { this.complianceHandler = handler; }
+  onPluginHooks(handler: PluginHooksHandler): void { this.pluginHooksHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2899,6 +2908,21 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}warm-standby not available (no TUI)${RESET}`);
         break;
       }
+
+      case "/redaction-stats":
+        if (this.redactionStatsHandler) this.redactionStatsHandler();
+        else console.error(`${DIM}redaction-stats not available (no TUI)${RESET}`);
+        break;
+
+      case "/compliance":
+        if (this.complianceHandler) this.complianceHandler();
+        else console.error(`${DIM}compliance not available (no TUI)${RESET}`);
+        break;
+
+      case "/plugin-hooks":
+        if (this.pluginHooksHandler) this.pluginHooksHandler();
+        else console.error(`${DIM}plugin-hooks not available (no TUI)${RESET}`);
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");
