@@ -175,6 +175,9 @@ export type CloneHandler = (args: string) => void; // clone a session
 export type SimilarGoalsHandler = () => void; // find similar goals
 export type CostTagsHandler = (tagKey: string) => void; // group costs by tag
 export type ScalingHandler = () => void; // show scaling recommendation
+export type IdleDetectHandler = () => void; // show idle session alerts
+export type GoalConflictsHandler = () => void; // show goal conflict analysis
+export type LeaderboardHandler = () => void; // show fleet productivity leaderboard
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -836,6 +839,12 @@ export class InputReader {
   onSimilarGoals(handler: SimilarGoalsHandler): void { this.similarGoalsHandler = handler; }
   onCostTags(handler: CostTagsHandler): void { this.costTagsHandler = handler; }
   onScaling(handler: ScalingHandler): void { this.scalingHandler = handler; }
+  private idleDetectHandler: IdleDetectHandler | null = null;
+  private goalConflictsHandler2: GoalConflictsHandler | null = null;
+  private leaderboardHandler: LeaderboardHandler | null = null;
+  onIdleDetect(handler: IdleDetectHandler): void { this.idleDetectHandler = handler; }
+  onGoalConflicts2(handler: GoalConflictsHandler): void { this.goalConflictsHandler2 = handler; }
+  onLeaderboard(handler: LeaderboardHandler): void { this.leaderboardHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2714,6 +2723,21 @@ ${BOLD}other:${RESET}
       case "/scaling":
         if (this.scalingHandler) this.scalingHandler();
         else console.error(`${DIM}scaling not available (no TUI)${RESET}`);
+        break;
+
+      case "/idle-detect":
+        if (this.idleDetectHandler) this.idleDetectHandler();
+        else console.error(`${DIM}idle-detect not available (no TUI)${RESET}`);
+        break;
+
+      case "/goal-conflicts":
+        if (this.goalConflictsHandler2) this.goalConflictsHandler2();
+        else console.error(`${DIM}goal-conflicts not available (no TUI)${RESET}`);
+        break;
+
+      case "/leaderboard":
+        if (this.leaderboardHandler) this.leaderboardHandler();
+        else console.error(`${DIM}leaderboard not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

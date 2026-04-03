@@ -104,6 +104,11 @@ import { compareSessions, formatComparison } from "./session-compare.js";
 import { buildFleetSummary, formatFleetSummaryText, formatFleetSummaryTui } from "./fleet-summary-report.js";
 import { buildTimeline, formatTimeline } from "./session-timeline.js";
 import { generateChangelog, formatChangelog } from "./fleet-changelog.js";
+import { createIdleDetector, recordActivity, detectIdleSessions, formatIdleAlerts } from "./session-idle-detector.js";
+import { detectGoalConflicts, formatGoalConflicts } from "./goal-conflict-resolver.js";
+import type { GoalInfo } from "./goal-conflict-resolver.js";
+import { computeLeaderboard, formatLeaderboard } from "./fleet-leaderboard.js";
+import type { LeaderboardInput } from "./fleet-leaderboard.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -636,6 +641,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const alertRules = defaultAlertRules();
   let activeRunbookExec: RunbookExecution | null = null;
   const sessionTagStore = createTagStore();
+  const idleDetectorState = createIdleDetector();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -2638,6 +2644,55 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       }
       const entries = generateChangelog(sinceMs);
       const lines = formatChangelog(entries, durationStr);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /idle-detect — show idle session alerts
+    input.onIdleDetect(() => {
+      const sessions = tui!.getSessions();
+      const activeTitles = sessions.filter((s) => s.status === "working" || s.status === "running").map((s) => s.title);
+      // record activity for sessions that have recent output changes
+      for (const s of sessions) {
+        if (s.status === "working" || s.status === "running") {
+          recordActivity(idleDetectorState, s.title);
+        }
+      }
+      const idles = detectIdleSessions(idleDetectorState, activeTitles);
+      const lines = formatIdleAlerts(idles);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /goal-conflicts — detect conflicting goals across sessions
+    input.onGoalConflicts2(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const goalInfos: GoalInfo[] = tasks.filter((t) => t.status === "active").map((t) => ({
+        sessionTitle: t.sessionTitle,
+        goal: t.goal,
+        repo: t.repo,
+      }));
+      const deps = new Map<string, string[]>();
+      for (const t of tasks) {
+        if (t.dependsOn && t.dependsOn.length > 0) deps.set(t.sessionTitle, t.dependsOn);
+      }
+      const conflicts = detectGoalConflicts(goalInfos, deps);
+      const lines = formatGoalConflicts(conflicts);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /leaderboard — fleet productivity rankings
+    input.onLeaderboard(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const inputs: LeaderboardInput[] = [];
+      const sessionTitles = new Set(tasks.map((t) => t.sessionTitle));
+      for (const title of sessionTitles) {
+        const sessionTasks = tasks.filter((t) => t.sessionTitle === title);
+        const completed = sessionTasks.filter((t) => t.status === "completed").length;
+        const total = sessionTasks.length;
+        // get velocity from progress velocity tracker if available
+        const vel = progressVelocityTracker.estimate(title);
+        const costStr = tui!.getAllSessionCosts().get(title) ?? "0";
+        const costUsd = parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0;
+        inputs.push({ sessionTitle: title, completedTasks: completed, totalTasks: total, velocityPctPerHr: vel?.velocityPerHour ?? 0, costUsd });
+      }
+      const board = computeLeaderboard(inputs);
+      const lines = formatLeaderboard(board);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {

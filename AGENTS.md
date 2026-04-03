@@ -155,6 +155,9 @@ The main loop is split into two layers:
 | `src/predictive-scaling.ts` | Auto-adjust pool size from utilization patterns |
 | `src/session-snapshot-diff.ts` | Line-level diff between session output snapshots |
 | `src/session-tag-manager.ts` | Key-value tag store for sessions (team, project, etc.) |
+| `src/session-idle-detector.ts` | Detect prolonged idle sessions, escalate nudge → pause → reclaim |
+| `src/goal-conflict-resolver.ts` | Cross-session goal conflict analysis via keyword + file + dependency overlap |
+| `src/fleet-leaderboard.ts` | Rank sessions by composite productivity score (completion, velocity, cost) |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -182,7 +185,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Forty-two modules run every daemon tick without LLM calls:
+Forty-five modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -297,6 +300,20 @@ Forty-two modules run every daemon tick without LLM calls:
   steps when health drops. 4-step default: nudge → restart → pause → escalate.
   Resets on health recovery, respects maxRetries. `/recovery`.
 
+- **Session idle detector** (`session-idle-detector.ts`): tracks per-session
+  last-activity timestamps. Flags sessions idle beyond configurable threshold
+  with escalating recommendations: nudge (1x), pause (2x), reclaim (3x).
+  Stateful via `createIdleDetector()`. `/idle-detect`.
+
+- **Goal conflict resolver** (`goal-conflict-resolver.ts`): cross-session
+  goal conflict analysis. Extracts keywords from goals, computes Jaccard
+  similarity, checks file overlap, detects dependency cycles. Severity
+  ranking (low/medium/high) with actionable suggestions. `/goal-conflicts`.
+
+- **Fleet leaderboard** (`fleet-leaderboard.ts`): ranks sessions by composite
+  productivity score: 40% completion rate, 30% velocity (normalized), 30%
+  cost efficiency. Medal emojis for top 3. `/leaderboard`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -343,7 +360,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3536 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 3576 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -363,6 +380,20 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 - GitHub Actions: build + test on Node 20 + 22
 - On tag push (v*): npm publish + GitHub Release
 - Homebrew tap auto-updates on release via repository-dispatch
+
+## Session Workflow
+
+When asked to continue work on this project:
+- **Do multiple roadmap items per request.** Ship 2-4 features in a single pass:
+  module + tests + wiring + docs. Don't stop at one.
+- **Add new roadmap ideas** to `claude.md` Ideas Backlog that are in line with the
+  project's direction (fleet intelligence, observability, cost management,
+  workflow orchestration, developer experience). Keep the backlog at 15-25 items.
+- **Update both files every commit**: `claude.md` (version, shipped items, counts)
+  and `AGENTS.md` (source layout table, intelligence module descriptions, test counts).
+- Follow the established pattern: standalone module → test → wire into input.ts +
+  index.ts → update docs. Each module is a pure function or stateful class,
+  zero runtime deps, includes a `format*()` function returning `string[]` for TUI.
 
 ## AI Working Context
 
@@ -388,9 +419,11 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v1.9–v2.0 | Federation + Alerts | FleetFederation, OutputArchival, RunbookGenerator, CustomAlertRules + wiring, v2 tag |
 | v2.1–v2.2 | DSL + Viz | AlertRuleDSL, HealthForecast, SessionTail, WorkflowViz + wiring |
 | v2.5 | Platform Completion | MetricsExport, AlertComposer, FleetGrep, RunbookExecutor |
+| v2.6–v3.3 | Deep Features | SessionClone, GoalSimilarity, CostAllocationTags, PredictiveScaling, SessionTagManager, SessionCompare, FleetSummaryReport, SessionTimeline, FleetChangelog |
+| v3.4 | Fleet Intelligence | SessionIdleDetector, GoalConflictResolver, FleetLeaderboard |
 
-**Totals**: 74 source modules, 110 test files, 72 TUI commands, 20 CLI subcommands,
-3491 tests, ~22,000 lines added, zero runtime dependencies.
+**Totals**: 87 source modules, 120+ test files, 88 TUI commands, 20 CLI subcommands,
+3576 tests, ~23,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →
