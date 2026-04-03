@@ -4,7 +4,7 @@
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml"><img src="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="https://www.npmjs.com/package/aoaoe"><img src="https://img.shields.io/npm/v/aoaoe" alt="npm version"></a>
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/releases"><img src="https://img.shields.io/github/v/release/Talador12/agent-of-agent-of-empires" alt="GitHub release"></a>
-    <img src="https://img.shields.io/badge/tests-2427-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/tests-3332-brightgreen" alt="tests">
     <img src="https://img.shields.io/badge/node-%3E%3D20-blue" alt="Node.js >= 20">
     <img src="https://img.shields.io/badge/runtime%20deps-0-brightgreen" alt="zero runtime dependencies">
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
@@ -821,6 +821,28 @@ The daemon and chat UI communicate via files in `~/.aoaoe/`:
 | `interrupt` | chat UI | daemon | Flag file -- presence triggers interrupt |
 | `chat.pid` | chat UI | daemon | Chat process PID for detection |
 | `actions.log` | daemon | -- | Persistent action history (JSONL) |
+
+## Intelligence Modules
+
+aoaoe includes 55 intelligence modules that run every daemon tick without LLM calls. They handle observability, automation, and fleet management autonomously:
+
+**Reasoning Pipeline** (7 gates, runs before every LLM call):
+- Fleet rate limiter, observation cache, priority filter, context compressor, LLM call, approval workflow, cost tracker
+
+**Per-Tick Autonomous Systems**:
+- Session summarizer, conflict detector + auto-resolver, goal completion detector, cost budget enforcer
+- Activity heatmap, budget predictor, task retry with backoff, adaptive poll controller
+- Fleet SLA monitor, progress velocity tracker, recovery playbook, dependency scheduler
+- Session graduation (trust ladder), fleet utilization tracker, anomaly detector
+- Workflow engine (fan-out/fan-in stage orchestration)
+
+**On-Demand Analytics** (via TUI commands):
+- Audit trail + search, fleet snapshots + diff, lifecycle analytics, cost attribution
+- Goal decomposition, difficulty scoring, smart nudge generation, template auto-detection
+- Fleet-wide search, nudge effectiveness tracking, difficulty-based allocation
+- Goal refinement from completed task patterns, fleet HTML export, session replay
+
+See `AGENTS.md` for the full source layout with all 55 modules described.
 
 ## Project Structure
 

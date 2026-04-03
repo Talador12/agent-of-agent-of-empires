@@ -313,7 +313,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 - `aoaoe completions <bash|zsh|fish>` — generate shell autocomplete script
 
 ### Testing
-- 3332 unit + integration tests across 90+ files, `node:test` (stdlib, zero deps)
+- 3358 unit + integration + property tests across 91+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
