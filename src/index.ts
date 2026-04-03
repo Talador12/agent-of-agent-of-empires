@@ -68,6 +68,10 @@ import { GraduationManager } from "./session-graduation.js";
 import { filterThroughApproval, formatApprovalWorkflowStatus } from "./approval-workflow.js";
 import { analyzeCompletedTasks, refineGoal, formatGoalRefinement } from "./goal-refiner.js";
 import { generateHtmlReport, buildReportData } from "./fleet-export.js";
+import { installService } from "./service-generator.js";
+import { buildSessionReplay, formatReplay, summarizeReplay } from "./session-replay.js";
+import { createWorkflowState, advanceWorkflow, formatWorkflow } from "./workflow-engine.js";
+import type { WorkflowState } from "./workflow-engine.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -99,7 +103,7 @@ const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.t
 const TASK_RECONCILE_EVERY_POLLS = 6;
 
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, runAdopt, adoptTemplate, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runBackup, backupOutput, runRestore, restoreInput, runSync, syncAction, syncRemote, runWeb, webPort, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, runAdopt, adoptTemplate, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runBackup, backupOutput, runRestore, restoreInput, runSync, syncAction, syncRemote, runWeb, webPort, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle, runService, runCompletions, completionsShell } = parseCliArgs(process.argv);
 
   if (help) {
     printHelp();
@@ -259,6 +263,19 @@ async function main() {
 
   if (runDoctor) {
     await runDoctorCheck();
+    return;
+  }
+
+  if (runService) {
+    const lines = installService({ workingDir: process.cwd() });
+    for (const l of lines) console.log(l);
+    return;
+  }
+
+  if (runCompletions) {
+    const { generateCompletion } = await import("./cli-completions.js");
+    const shell = (completionsShell ?? "bash") as "bash" | "zsh" | "fish";
+    console.log(generateCompletion(shell));
     return;
   }
 
@@ -580,6 +597,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const recoveryPlaybookManager = new RecoveryPlaybookManager();
   const approvalQueue = new ApprovalQueue();
   const graduationManager = new GraduationManager();
+  let activeWorkflow: WorkflowState | null = null;
 
   // audit: log daemon start
   audit("daemon_start", `daemon started (v${pkg ?? "dev"}, reasoner=${config.reasoner})`);
@@ -2219,6 +2237,33 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       writeFileSync(filepath, html);
       tui!.log("system", `fleet report exported: ${filepath}`);
     });
+    // wire /service — generate systemd/launchd service file
+    input.onService(() => {
+      const lines = installService({ workingDir: process.cwd() });
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /session-replay — session activity timeline replay
+    input.onSessionReplay((target) => {
+      const replay = buildSessionReplay(target);
+      if (replay.events.length === 0) {
+        tui!.log("system", `replay: no events for "${target}" — run the daemon to generate audit data first`);
+        return;
+      }
+      const summary = summarizeReplay(replay);
+      for (const l of summary) tui!.log("system", l);
+      tui!.log("system", "");
+      const detailed = formatReplay(replay);
+      for (const l of detailed) tui!.log("system", l);
+    });
+    // wire /workflow — show active workflow state
+    input.onWorkflow(() => {
+      if (!activeWorkflow) {
+        tui!.log("system", "workflow: no active workflow (define one in aoaoe.tasks.json with workflow stages)");
+        return;
+      }
+      const lines = formatWorkflow(activeWorkflow);
+      for (const l of lines) tui!.log("system", l);
+    });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();
       const summary = computeCostSummary(sessions, tui!.getAllSessionCosts());
@@ -3627,6 +3672,25 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
               tui.log("status", `⬇ demoted "${s.title}": ${result.from} → ${result.to}`);
               audit("config_change", `graduation: ${s.title} demoted ${result.from} → ${result.to}`, s.title);
             }
+          }
+        }
+
+        // workflow engine: advance active workflow based on task states
+        if (activeWorkflow && taskManager && tui) {
+          const wf = activeWorkflow; // capture before potential null assignment
+          const taskStates = new Map(taskManager.tasks.map((t) => [t.sessionTitle, t.status]));
+          const { actions: wfActions, completed } = advanceWorkflow(wf, taskStates);
+          for (const a of wfActions) {
+            if (a.type === "activate_task") {
+              const task = taskManager.getTaskForSession(a.detail);
+              if (task && task.status === "pending") task.status = "active";
+            }
+            tui.log("status", `workflow: ${a.type} — ${a.detail}`);
+            audit("task_created", `workflow ${a.type}: ${a.detail}`, a.detail);
+          }
+          if (completed) {
+            tui.log("+ action", `workflow "${wf.name}" completed`);
+            activeWorkflow = null;
           }
         }
 

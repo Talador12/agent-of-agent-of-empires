@@ -308,6 +308,10 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 4. For per-tick processing, add logic in `daemonTick()` after observation
    changes are available (inside the `if (intelligence && ...)` block).
 
+### CLI subcommands
+- `aoaoe service` — generate systemd/launchd service file for boot start
+- `aoaoe completions <bash|zsh|fish>` — generate shell autocomplete script
+
 ### Testing
 - 3332 unit + integration tests across 90+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline

@@ -458,6 +458,9 @@ export function parseCliArgs(argv: string[]): {
   replaySpeed?: number;
   replayLast?: string;
   registerTitle?: string;
+  runService: boolean;
+  runCompletions: boolean;
+  completionsShell?: string;
 } {
   const overrides: Partial<AoaoeConfig> = {};
   let help = false;
@@ -471,7 +474,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showTasksJson: false, runProgress: false, progressSince: undefined as string | undefined, progressJson: false, runHealth: false, healthJson: false, runSummary: false, runAdopt: false, adoptTemplate: undefined as string | undefined, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined as string | undefined, runIncident: false, incidentSince: undefined as string | undefined, incidentLimit: undefined as number | undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined as number | undefined, incidentIntervalMs: undefined as number | undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined as string | undefined, supervisorLimit: undefined as number | undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined as number | undefined, supervisorIntervalMs: undefined as number | undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runBackup: false, backupOutput: undefined as string | undefined, runRestore: false, restoreInput: undefined as string | undefined, runSync: false, syncAction: undefined as string | undefined, syncRemote: undefined as string | undefined, runWeb: false, webPort: undefined as number | undefined, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, exportTasks: false, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined as number | undefined, runStats: false, statsLast: undefined as string | undefined, runReplay: false, replaySpeed: undefined as number | undefined, replayLast: undefined as string | undefined };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showTasksJson: false, runProgress: false, progressSince: undefined as string | undefined, progressJson: false, runHealth: false, healthJson: false, runSummary: false, runAdopt: false, adoptTemplate: undefined as string | undefined, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined as string | undefined, runIncident: false, incidentSince: undefined as string | undefined, incidentLimit: undefined as number | undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined as number | undefined, incidentIntervalMs: undefined as number | undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined as string | undefined, supervisorLimit: undefined as number | undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined as number | undefined, supervisorIntervalMs: undefined as number | undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runBackup: false, backupOutput: undefined as string | undefined, runRestore: false, restoreInput: undefined as string | undefined, runSync: false, syncAction: undefined as string | undefined, syncRemote: undefined as string | undefined, runWeb: false, webPort: undefined as number | undefined, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, exportTasks: false, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined as number | undefined, runStats: false, statsLast: undefined as string | undefined, runReplay: false, replaySpeed: undefined as number | undefined, replayLast: undefined as string | undefined, runService: false, runCompletions: false, completionsShell: undefined as string | undefined };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "test-context") {
@@ -650,6 +653,13 @@ export function parseCliArgs(argv: string[]): {
   }
   if (argv[2] === "doctor") {
     return { ...defaults, runDoctor: true };
+  }
+  if (argv[2] === "service") {
+    return { ...defaults, runService: true };
+  }
+  if (argv[2] === "completions") {
+    const shell = argv[3] ?? "bash";
+    return { ...defaults, runCompletions: true, completionsShell: shell };
   }
   if (argv[2] === "backup") {
     const output = argv[3] && !argv[3].startsWith("-") ? argv[3] : undefined;

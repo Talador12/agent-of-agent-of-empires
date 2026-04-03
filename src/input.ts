@@ -145,6 +145,9 @@ export type AllocationHandler = () => void; // show difficulty-based allocation
 export type GraduationHandler = () => void; // show session graduation states
 export type RefineHandler = (target: string) => void; // suggest goal refinements
 export type ExportHandler = () => void; // generate fleet HTML report
+export type ServiceHandler = () => void; // generate service file for boot
+export type SessionReplayHandler = (target: string) => void; // replay session activity
+export type WorkflowHandler = () => void; // show workflow state
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -746,6 +749,12 @@ export class InputReader {
   onGraduation(handler: GraduationHandler): void { this.graduationHandler = handler; }
   onRefine(handler: RefineHandler): void { this.refineHandler = handler; }
   onExport(handler: ExportHandler): void { this.exportHandler = handler; }
+  private serviceHandler: ServiceHandler | null = null;
+  private sessionReplayHandler: SessionReplayHandler | null = null;
+  private workflowHandler: WorkflowHandler | null = null;
+  onService(handler: ServiceHandler): void { this.serviceHandler = handler; }
+  onSessionReplay(handler: SessionReplayHandler): void { this.sessionReplayHandler = handler; }
+  onWorkflow(handler: WorkflowHandler): void { this.workflowHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2441,6 +2450,24 @@ ${BOLD}other:${RESET}
       case "/export":
         if (this.exportHandler) this.exportHandler();
         else console.error(`${DIM}export not available (no TUI)${RESET}`);
+        break;
+
+      case "/service":
+        if (this.serviceHandler) this.serviceHandler();
+        else console.error(`${DIM}service not available (no TUI)${RESET}`);
+        break;
+
+      case "/session-replay": {
+        const rpArg = line.slice("/session-replay".length).trim();
+        if (!rpArg) { console.error(`${DIM}usage: /session-replay <session-name>${RESET}`); break; }
+        if (this.sessionReplayHandler) this.sessionReplayHandler(rpArg);
+        else console.error(`${DIM}session-replay not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/workflow":
+        if (this.workflowHandler) this.workflowHandler();
+        else console.error(`${DIM}workflow not available (no TUI)${RESET}`);
         break;
 
       case "/clear":
