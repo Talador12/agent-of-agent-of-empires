@@ -286,6 +286,14 @@ Stuck-task handler: tracks nudge effectiveness via NudgeTracker, escalates
 via EscalationManager (normal→elevated→critical), clears escalation on
 progress or pause.
 
+Post-reasoning: approval workflow gates risky/low-confidence actions
+through the ApprovalQueue. `remove_agent`/`stop_session` always require
+approval. Low-confidence actions are queued for operator review.
+
+Per-tick in main loop: GraduationManager evaluates each session and
+auto-promotes (confirm→auto) or demotes (auto→confirm) based on success
+rate. Goal refiner available via `/refine`. Fleet export via `/export`.
+
 ### How to add a new TUI slash command
 
 1. **`src/input.ts`**: Add handler type, private field, `on<Name>(handler)`

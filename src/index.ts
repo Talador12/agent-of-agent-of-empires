@@ -64,6 +64,10 @@ import { RecoveryPlaybookManager } from "./recovery-playbook.js";
 import { compressObservation } from "./context-compressor.js";
 import { filterByPriority } from "./priority-reasoning.js";
 import { estimateCallCost } from "./reasoner-cost.js";
+import { GraduationManager } from "./session-graduation.js";
+import { filterThroughApproval, formatApprovalWorkflowStatus } from "./approval-workflow.js";
+import { analyzeCompletedTasks, refineGoal, formatGoalRefinement } from "./goal-refiner.js";
+import { generateHtmlReport, buildReportData } from "./fleet-export.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -575,6 +579,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const fleetRateLimiter = new FleetRateLimiter();
   const recoveryPlaybookManager = new RecoveryPlaybookManager();
   const approvalQueue = new ApprovalQueue();
+  const graduationManager = new GraduationManager();
 
   // audit: log daemon start
   audit("daemon_start", `daemon started (v${pkg ?? "dev"}, reasoner=${config.reasoner})`);
@@ -2186,6 +2191,34 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const lines = formatAllocation(results);
       for (const l of lines) tui!.log("system", l);
     });
+    // wire /graduation — session trust graduation states
+    input.onGraduation(() => {
+      const lines = graduationManager.formatAll();
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /refine — goal refinement suggestions
+    input.onRefine((target) => {
+      const tasks = taskManager?.tasks ?? [];
+      const task = tasks.find((t) => t.sessionTitle.toLowerCase() === target.toLowerCase());
+      if (!task) { tui!.log("system", `refine: task not found: ${target}`); return; }
+      const patterns = analyzeCompletedTasks(tasks);
+      const refinement = refineGoal(task.goal, patterns);
+      const lines = formatGoalRefinement(refinement);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /export — generate fleet HTML report
+    input.onExport(() => {
+      const sessions = tui!.getSessions();
+      const tasks = taskManager?.tasks ?? [];
+      const data = buildReportData(sessions, tasks, pkg ?? "dev");
+      const html = generateHtmlReport(data);
+      const { writeFileSync } = require("node:fs");
+      const { join } = require("node:path");
+      const { homedir } = require("node:os");
+      const filepath = join(homedir(), ".aoaoe", `fleet-report-${new Date().toISOString().slice(0, 10)}.html`);
+      writeFileSync(filepath, html);
+      tui!.log("system", `fleet report exported: ${filepath}`);
+    });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();
       const summary = computeCostSummary(sessions, tui!.getAllSessionCosts());
@@ -3505,6 +3538,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
           reasonerCostTracker,
           nudgeTracker,
           escalationManager,
+          graduationManager,
+          approvalQueue,
           pushSupervisorEvent,
           refreshTaskSupervisorState,
         });
@@ -3577,6 +3612,20 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
           for (const s of tui.getSessions()) {
             if (s.status === "working" || s.status === "running") {
               fleetUtilizationTracker.recordEvent(s.title);
+            }
+          }
+        }
+
+        // session graduation: evaluate per tick and log promotions/demotions
+        if (tui) {
+          for (const s of tui.getSessions()) {
+            const result = graduationManager.evaluate(s.title);
+            if (result.action === "promote") {
+              tui.log("+ action", `🎓 graduated "${s.title}": ${result.from} → ${result.to}`);
+              audit("config_change", `graduation: ${s.title} promoted ${result.from} → ${result.to}`, s.title);
+            } else if (result.action === "demote") {
+              tui.log("status", `⬇ demoted "${s.title}": ${result.from} → ${result.to}`);
+              audit("config_change", `graduation: ${s.title} demoted ${result.from} → ${result.to}`, s.title);
             }
           }
         }
@@ -3698,6 +3747,8 @@ async function daemonTick(
     reasonerCostTracker: ReasonerCostTracker;
     nudgeTracker: NudgeTracker;
     escalationManager: EscalationManager;
+    graduationManager: GraduationManager;
+    approvalQueue: ApprovalQueue;
     pushSupervisorEvent: (detail: string) => void;
     refreshTaskSupervisorState: (reason?: string) => void;
   },
@@ -3809,6 +3860,17 @@ async function daemonTick(
         intelligence.reasonerCostTracker.recordCall("fleet", tokenEstimate, outputEstimate, reasonerDurationMs);
         intelligence.fleetRateLimiter.recordCost(estimateCallCost(tokenEstimate, outputEstimate));
         intelligence.observationCache.set(obsJson, r);
+
+        // approval workflow: gate risky/low-confidence actions through approval queue
+        if (config.confirm || r.confidence === "low") {
+          const { immediate, queued } = filterThroughApproval(r, intelligence.approvalQueue);
+          if (queued.length > 0) {
+            const status = formatApprovalWorkflowStatus(queued.length, immediate.length);
+            if (tui) tui.log("status", `🔒 approval: ${status}`);
+            audit("operator_command", `approval workflow: ${status}`);
+          }
+          return { ...r, actions: immediate };
+        }
       }
 
       return r;
@@ -4364,6 +4426,18 @@ async function daemonTick(
       }
     }
   }
+  // session graduation: record action outcomes for trust tracking
+  if (intelligence) {
+    for (const entry of executed) {
+      if (entry.action.action === "wait") continue;
+      const sid = actionSession(entry.action);
+      const title = sid ? (sessionTitleMap.get(sid) ?? sid) : undefined;
+      if (!title) continue;
+      if (entry.success) intelligence.graduationManager.recordSuccess(title);
+      else intelligence.graduationManager.recordFailure(title);
+    }
+  }
+
   // auto-pause tracking + smart nudge + nudge effectiveness + escalation
   if (taskManager) {
     const maxNudges = config.policies.maxStuckNudgesBeforePause ?? 0;

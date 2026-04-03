@@ -142,6 +142,9 @@ export type DetectTemplateHandler = (target: string) => void; // detect template
 export type FleetSearchHandler = (query: string) => void; // search all session outputs
 export type NudgeStatsHandler = () => void; // show nudge effectiveness stats
 export type AllocationHandler = () => void; // show difficulty-based allocation
+export type GraduationHandler = () => void; // show session graduation states
+export type RefineHandler = (target: string) => void; // suggest goal refinements
+export type ExportHandler = () => void; // generate fleet HTML report
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -736,7 +739,13 @@ export class InputReader {
   private fleetSearchHandler: FleetSearchHandler | null = null;
   private nudgeStatsHandler: NudgeStatsHandler | null = null;
   private allocationHandler: AllocationHandler | null = null;
+  private graduationHandler: GraduationHandler | null = null;
+  private refineHandler: RefineHandler | null = null;
+  private exportHandler: ExportHandler | null = null;
   onDetectTemplate(handler: DetectTemplateHandler): void { this.detectTemplateHandler = handler; }
+  onGraduation(handler: GraduationHandler): void { this.graduationHandler = handler; }
+  onRefine(handler: RefineHandler): void { this.refineHandler = handler; }
+  onExport(handler: ExportHandler): void { this.exportHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2414,6 +2423,24 @@ ${BOLD}other:${RESET}
       case "/allocation":
         if (this.allocationHandler) this.allocationHandler();
         else console.error(`${DIM}allocation not available (no TUI)${RESET}`);
+        break;
+
+      case "/graduation":
+        if (this.graduationHandler) this.graduationHandler();
+        else console.error(`${DIM}graduation not available (no TUI)${RESET}`);
+        break;
+
+      case "/refine": {
+        const rfArg = line.slice("/refine".length).trim();
+        if (!rfArg) { console.error(`${DIM}usage: /refine <N|name>${RESET}`); break; }
+        if (this.refineHandler) this.refineHandler(rfArg);
+        else console.error(`${DIM}refine not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/export":
+        if (this.exportHandler) this.exportHandler();
+        else console.error(`${DIM}export not available (no TUI)${RESET}`);
         break;
 
       case "/clear":
