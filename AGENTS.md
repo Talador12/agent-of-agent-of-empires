@@ -194,6 +194,9 @@ The main loop is split into two layers:
 | `src/daemon-tick-profiler.ts` | Per-phase tick timing breakdown with bottleneck identification |
 | `src/goal-confidence-estimator.ts` | Predict goal completion probability from 6 weighted factors |
 | `src/fleet-budget-planner.ts` | Distribute cost budget across sessions by priority + progress |
+| `src/session-sentiment.ts` | Classify output tone (17 patterns, 7 sentiments: success/progress/blocked/etc) |
+| `src/fleet-workload-balancer.ts` | Detect uneven loads, classify overloaded/underloaded, suggest moves |
+| `src/daemon-crash-report.ts` | Auto-generate diagnostic report on exit (state, errors, memory, config) |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -221,7 +224,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Eighty-one modules run every daemon tick without LLM calls:
+Eighty-four modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -541,6 +544,22 @@ Eighty-one modules run every daemon tick without LLM calls:
   (anti-waste). Emergency reserve (default 10%). Min allocation per
   session to prevent starvation. `/budget-plan`.
 
+- **Session sentiment** (`session-sentiment.ts`): classify session output
+  tone using 17 keyword patterns across 7 sentiment types: success,
+  progress, blocked, frustration, error, idle, neutral. Priority-weighted
+  (error > blocked > frustration). Confidence scoring. `/sentiment`.
+
+- **Fleet workload balancer** (`fleet-workload-balancer.ts`): detect uneven
+  session loads from task count + burn rate + health. Classify sessions as
+  overloaded/normal/underloaded. Generate move or pause recommendations.
+  `/workload-balance`.
+
+- **Daemon crash report** (`daemon-crash-report.ts`): auto-generate
+  diagnostic report on unexpected exit. Captures uptime, tick count,
+  error + stack trace, recent events, active sessions, health score,
+  memory usage (heap + RSS), sanitized config (secrets redacted).
+  `/crash-report`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -587,7 +606,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4060 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4095 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -795,6 +814,29 @@ Shipped 3 features in v4.6.0 (38 new tests, 3 modules, 3 TUI commands):
 
 Running total: 123 source modules, 124 TUI commands, 4060 tests, zero runtime deps.
 
+### v4.7.0 Session Response
+
+Shipped 6 features in v4.7.0 across 2 batches (73 new tests, 6 modules, 6 TUI commands):
+
+Batch 1 — v4.6.0 (38 tests, 3 modules):
+1. **`daemon-tick-profiler.ts`** + 11 tests — Per-phase tick timing (poll/reason/
+   execute/post-tick). Avg/max/% stats, bottleneck ID, slowest tick. `/tick-profiler`.
+2. **`goal-confidence-estimator.ts`** + 14 tests — Completion probability from 6
+   factors: progress, velocity, errors, signals, stuck, time pressure. `/goal-confidence`.
+3. **`fleet-budget-planner.ts`** + 13 tests — Distribute budget by priority + progress.
+   Emergency reserve, min allocation anti-starvation. `/budget-plan`.
+
+Batch 2 — v4.7.0 (35 tests, 3 modules):
+4. **`session-sentiment.ts`** + 13 tests — Classify output tone: 17 patterns,
+   7 sentiments (success/progress/blocked/frustration/error/idle/neutral).
+   Priority-weighted with confidence scoring. `/sentiment`.
+5. **`fleet-workload-balancer.ts`** + 10 tests — Detect uneven loads, classify
+   overloaded/underloaded, suggest move/pause recommendations. `/workload-balance`.
+6. **`daemon-crash-report.ts`** + 12 tests — Auto-generate diagnostic report on exit.
+   Captures state, errors, memory, sanitized config. `/crash-report`.
+
+Running total: 126 source modules, 127 TUI commands, 4095 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -833,9 +875,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v4.4 | Resilience + Hierarchy | DaemonWatchdog, FleetCostRegression, GoalCascading |
 | v4.5 | Health + Replay + Context | DaemonHealthScore, FleetEventReplay, SessionContextBudget |
 | v4.6 | Profiling + Prediction | DaemonTickProfiler, GoalConfidenceEstimator, FleetBudgetPlanner |
+| v4.7 | Sentiment + Balance | SessionSentiment, FleetWorkloadBalancer, DaemonCrashReport |
 
-**Totals**: 123 source modules, 120+ test files, 124 TUI commands, 20 CLI subcommands,
-4060 tests, ~35,000 lines added, zero runtime dependencies.
+**Totals**: 126 source modules, 120+ test files, 127 TUI commands, 20 CLI subcommands,
+4095 tests, ~36,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

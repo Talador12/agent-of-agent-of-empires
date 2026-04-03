@@ -214,6 +214,9 @@ export type ContextBudgetHandler = () => void; // show context budget allocation
 export type TickProfilerHandler = () => void; // show tick profiler stats
 export type GoalConfidenceHandler = () => void; // show goal confidence estimates
 export type BudgetPlanHandler = () => void; // show fleet budget allocation plan
+export type SentimentHandler = () => void; // show session output sentiment analysis
+export type WorkloadBalanceHandler = () => void; // show fleet workload balance report
+export type CrashReportHandler = () => void; // show crash report preview
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -953,6 +956,12 @@ export class InputReader {
   onTickProfiler(handler: TickProfilerHandler): void { this.tickProfilerHandler = handler; }
   onGoalConfidence(handler: GoalConfidenceHandler): void { this.goalConfidenceHandler = handler; }
   onBudgetPlan(handler: BudgetPlanHandler): void { this.budgetPlanHandler = handler; }
+  private sentimentHandler: SentimentHandler | null = null;
+  private workloadBalanceHandler: WorkloadBalanceHandler | null = null;
+  private crashReportHandler: CrashReportHandler | null = null;
+  onSentiment(handler: SentimentHandler): void { this.sentimentHandler = handler; }
+  onWorkloadBalance(handler: WorkloadBalanceHandler): void { this.workloadBalanceHandler = handler; }
+  onCrashReport(handler: CrashReportHandler): void { this.crashReportHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3050,6 +3059,21 @@ ${BOLD}other:${RESET}
       case "/budget-plan":
         if (this.budgetPlanHandler) this.budgetPlanHandler();
         else console.error(`${DIM}budget-plan not available (no TUI)${RESET}`);
+        break;
+
+      case "/sentiment":
+        if (this.sentimentHandler) this.sentimentHandler();
+        else console.error(`${DIM}sentiment not available (no TUI)${RESET}`);
+        break;
+
+      case "/workload-balance":
+        if (this.workloadBalanceHandler) this.workloadBalanceHandler();
+        else console.error(`${DIM}workload-balance not available (no TUI)${RESET}`);
+        break;
+
+      case "/crash-report":
+        if (this.crashReportHandler) this.crashReportHandler();
+        else console.error(`${DIM}crash-report not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

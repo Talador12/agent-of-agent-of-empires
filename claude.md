@@ -5,32 +5,32 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v4.6.0
+## Version: v4.7.0
+
+## What shipped in v4.7.0
+
+**v4.7.0 — Session Sentiment, Workload Balancer, Crash Reports**:
+- `session-sentiment.ts`: Classify session output tone using 17 keyword patterns across 7 sentiment types (success, progress, blocked, frustration, error, idle, neutral). Priority-weighted with error > blocked > frustration. **`/sentiment`** command.
+- `fleet-workload-balancer.ts`: Detect uneven session loads, classify as overloaded/normal/underloaded, suggest move or pause recommendations. Load score from tasks + burn rate + health. **`/workload-balance`** command.
+- `daemon-crash-report.ts`: Auto-generate diagnostic report on unexpected exit. Captures uptime, ticks, error + stack, recent events, active sessions, health, memory usage, sanitized config. **`/crash-report`** command.
+
+127 TUI commands. 126 source modules. 4095 tests. 0 runtime deps.
 
 ## What shipped in v4.6.0
 
 **v4.6.0 — Tick Profiler, Goal Confidence, Budget Planner**:
-- `daemon-tick-profiler.ts`: Per-phase timing breakdown for each tick. Records poll/reason/execute/post-tick durations, computes per-phase stats (avg/max/% of total), identifies bottleneck phase, finds slowest tick. **`/tick-profiler`** command.
-- `goal-confidence-estimator.ts`: Predict goal completion probability (0-100%) from 6 factors: progress, velocity, errors, signal balance, stuck duration, time pressure. Trend detection (rising/falling/steady), ETA from velocity. **`/goal-confidence`** command.
-- `fleet-budget-planner.ts`: Distribute total cost budget across sessions by priority and progress. Higher priority = more budget, near-complete tasks get less. Emergency reserve (default 10%). **`/budget-plan`** command.
-
-124 TUI commands. 123 source modules. 4060 tests. 0 runtime deps.
+- `daemon-tick-profiler.ts`: Per-phase tick timing. **`/tick-profiler`** command.
+- `goal-confidence-estimator.ts`: Completion probability estimator. **`/goal-confidence`** command.
+- `fleet-budget-planner.ts`: Priority-weighted budget distribution. **`/budget-plan`** command.
 
 ## What shipped in v4.5.0
 
-**v4.5.0 — Daemon Health Score, Event Replay, Context Budget Optimizer**:
+**v4.5.0 — Daemon Health Score, Event Replay, Context Budget**:
 - `daemon-health-score.ts`: Composite A-F health grade. **`/health-score`** command.
 - `fleet-event-replay.ts`: Event bus playback debugger. **`/event-replay`** command.
 - `session-context-budget.ts`: Relevance-scored context selection. **`/context-budget`** command.
 
-## What shipped in v4.4.0
-
-**v4.4.0 — Daemon Watchdog, Cost Regression Detector, Goal Cascading**:
-- `daemon-watchdog.ts`: Self-recovery on stalls. **`/watchdog-status`** command.
-- `fleet-cost-regression.ts`: Cost deviation alerts. **`/cost-regression`** command.
-- `goal-cascading.ts`: Hierarchical goal trees. **`/goal-cascade`** command.
-
-## Ideas Backlog (v4.7+)
+## Ideas Backlog (v4.8+)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
@@ -58,8 +58,10 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Goal template versioning** — version control for decomposition templates
 - **Session output correlation** — cross-session output pattern matching
 - **Fleet topology auto-layout** — auto-arrange dep graphs for minimal crossing
-- **Session output sentiment analysis** — classify output tone (progress, frustration, blocked)
-- **Fleet workload balancer** — redistribute tasks when session load is uneven
-- **Daemon crash report** — auto-generate diagnostic report on unexpected exit
-- **Goal dependency graph pruning** — auto-remove completed deps from active task graphs
+- **Goal dependency graph pruning** — auto-remove completed deps from task graphs
 - **Session context diff** — show what changed in context files between ticks
+- **Fleet anomaly correlation** — correlate anomalies across sessions for root cause
+- **Daemon config schema validator** — JSON Schema validation with helpful error messages
+- **Session output transcript export** — export full session transcript as markdown
+- **Goal decomposition quality scorer** — rate how well sub-goals cover the parent
+- **Fleet session grouping** — logical groups (frontend/backend/infra) with group-level stats

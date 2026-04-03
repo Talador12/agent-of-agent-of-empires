@@ -154,6 +154,10 @@ import { estimateFleetConfidence, formatConfidence } from "./goal-confidence-est
 import type { ConfidenceInput } from "./goal-confidence-estimator.js";
 import { planBudget, formatBudgetPlan } from "./fleet-budget-planner.js";
 import type { BudgetPlanInput } from "./fleet-budget-planner.js";
+import { analyzeFleetSentiment, formatSentiment } from "./session-sentiment.js";
+import { analyzeBalance, formatBalanceReport } from "./fleet-workload-balancer.js";
+import type { SessionLoad } from "./fleet-workload-balancer.js";
+import { generateCrashReport, formatCrashReportTui } from "./daemon-crash-report.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -3260,6 +3264,43 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       });
       const plan = planBudget(inputs, config.costBudgets?.globalBudgetUsd ?? 100);
       const lines = formatBudgetPlan(plan);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /sentiment — session output sentiment analysis
+    input.onSentiment(() => {
+      const sessions = tui!.getSessions();
+      const sentimentInputs = sessions.map((s) => ({
+        title: s.title,
+        output: (tui!.getSessionOutput(s.id) ?? []).join("\n"),
+      }));
+      const results = analyzeFleetSentiment(sentimentInputs);
+      const lines = formatSentiment(results);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /workload-balance — fleet workload balance report
+    input.onWorkloadBalance(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const allCosts = tui!.getAllSessionCosts();
+      const sessionTitles = new Set(tasks.map((t) => t.sessionTitle));
+      const loads: SessionLoad[] = Array.from(sessionTitles).map((title) => {
+        const sessionTasks = tasks.filter((t) => t.sessionTitle === title && t.status === "active");
+        const burnRate = costThrottleState.burnRates.get(title) ?? 0;
+        return { sessionTitle: title, activeTasks: sessionTasks.length, burnRatePerHr: burnRate, healthScore: 70, repo: tasks.find((t) => t.sessionTitle === title)?.repo ?? "" };
+      });
+      const report = analyzeBalance(loads);
+      const lines = formatBalanceReport(report);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /crash-report — preview crash diagnostic report
+    input.onCrashReport(() => {
+      const report = generateCrashReport({
+        uptimeMs: Date.now() - daemonStartedAt,
+        tickCount: pollCount,
+        activeSessions: tui!.getSessions().map((s) => s.title),
+        unresolvedIncidents: incidentTimeline.unresolvedCount(),
+        healthScore: 70,
+      });
+      const lines = formatCrashReportTui(report);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
