@@ -122,6 +122,10 @@ The main loop is split into two layers:
 | `src/fleet-search.ts` | Ranked full-text search across all session outputs |
 | `src/nudge-tracker.ts` | Nudge effectiveness tracking with response time stats |
 | `src/difficulty-allocator.ts` | Difficulty-weighted pool slot allocation |
+| `src/session-graduation.ts` | Auto-promote sessions confirm→auto based on track record |
+| `src/approval-workflow.ts` | Route low-confidence decisions through approval queue |
+| `src/goal-refiner.ts` | Learn from completed tasks to suggest goal improvements |
+| `src/fleet-export.ts` | Generate self-contained HTML fleet report |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -293,7 +297,7 @@ progress or pause.
    changes are available (inside the `if (intelligence && ...)` block).
 
 ### Testing
-- 3228 unit tests across 80+ files, `node:test` (stdlib, zero deps)
+- 3267 unit tests across 84+ files, `node:test` (stdlib, zero deps)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.
