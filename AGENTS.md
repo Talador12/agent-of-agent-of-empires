@@ -149,6 +149,10 @@ The main loop is split into two layers:
 | `src/metrics-export.ts` | Prometheus-compatible /metrics text exposition |
 | `src/fleet-grep.ts` | Regex search across gzipped output archives |
 | `src/runbook-executor.ts` | Step-by-step execution of generated runbooks |
+| `src/session-clone.ts` | Clone sessions for A/B experimentation |
+| `src/goal-similarity.ts` | Jaccard similarity detection for overlapping goals |
+| `src/cost-allocation-tags.ts` | Tag sessions by team/project for cost grouping |
+| `src/predictive-scaling.ts` | Auto-adjust pool size from utilization patterns |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -337,7 +341,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3491 unit + integration + property + stress tests across 110+ files, `node:test` (stdlib, zero deps)
+- 3518 unit + integration + property + stress tests across 114+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
