@@ -116,6 +116,9 @@ import { buildShiftHandoff, formatHandoffTui } from "./operator-shift-handoff.js
 import { detectDependencies, formatDetectedDeps } from "./session-dep-auto-detect.js";
 import type { SessionInfo as DepSessionInfo } from "./session-dep-auto-detect.js";
 import { projectCosts, evaluateCostAlerts, formatCostForecastAlerts, formatCostProjections } from "./cost-forecast-alert.js";
+import { FleetEventBus, formatEventBus } from "./fleet-event-bus.js";
+import { verifyCompletion, formatVerification } from "./goal-completion-verifier.js";
+import { computeOutputDiff, formatOutputDiff } from "./session-output-diff.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -651,6 +654,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const idleDetectorState = createIdleDetector();
   const sessionHealthHistory = new SessionHealthHistory();
   const costThrottleState = createThrottleState();
+  const fleetEventBus = new FleetEventBus();
+  const previousOutputs = new Map<string, string>(); // session -> last captured output for diff
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -2771,6 +2776,35 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const projLines = formatCostProjections(projections);
       for (const l of alertLines) tui!.log("system", l);
       for (const l of projLines) tui!.log("system", l);
+    });
+    // wire /event-bus — show fleet event bus state
+    input.onEventBus(() => {
+      const lines = formatEventBus(fleetEventBus);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /verify-goals — double-check completed goals for regressions
+    input.onVerifyGoals(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const recentlyCompleted = tasks.filter((t) => t.status === "completed" && t.completedAt && Date.now() - t.completedAt < 3_600_000);
+      if (recentlyCompleted.length === 0) { tui!.log("system", "verify-goals: no recently completed tasks (last 1h)"); return; }
+      const results = recentlyCompleted.map((t) => {
+        const output = tui!.getSessionOutput(t.sessionId ?? "") ?? [];
+        return verifyCompletion(t.sessionTitle, t.goal, output.join("\n"));
+      });
+      const lines = formatVerification(results);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /output-diff — show line-level diff for a session
+    input.onOutputDiff((target) => {
+      const sessions = tui!.getSessions();
+      const session = sessions.find((s) => s.title.toLowerCase() === target.toLowerCase());
+      if (!session) { tui!.log("system", `output-diff: "${target}" not found`); return; }
+      const currentOutput = (tui!.getSessionOutput(session.id) ?? []).join("\n");
+      const prevOutput = previousOutputs.get(session.title) ?? "";
+      const diff = computeOutputDiff(session.title, prevOutput, currentOutput);
+      previousOutputs.set(session.title, currentOutput);
+      const lines = formatOutputDiff(diff);
+      for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

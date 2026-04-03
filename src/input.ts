@@ -184,6 +184,9 @@ export type SuggestNameHandler = (args: string) => void; // suggest session name
 export type ShiftHandoffHandler = () => void; // generate operator shift handoff notes
 export type AutoDepsHandler = () => void; // auto-detect session dependencies
 export type CostForecastHandler = () => void; // show cost forecast alerts + projections
+export type EventBusHandler = () => void; // show fleet event bus state
+export type VerifyGoalsHandler = () => void; // verify completed goals for regressions
+export type OutputDiffHandler = (target: string) => void; // show output diff for a session
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -863,6 +866,12 @@ export class InputReader {
   onShiftHandoff(handler: ShiftHandoffHandler): void { this.shiftHandoffHandler = handler; }
   onAutoDeps(handler: AutoDepsHandler): void { this.autoDepsHandler = handler; }
   onCostForecast(handler: CostForecastHandler): void { this.costForecastHandler = handler; }
+  private eventBusHandler: EventBusHandler | null = null;
+  private verifyGoalsHandler: VerifyGoalsHandler | null = null;
+  private outputDiffHandler: OutputDiffHandler | null = null;
+  onEventBus(handler: EventBusHandler): void { this.eventBusHandler = handler; }
+  onVerifyGoals(handler: VerifyGoalsHandler): void { this.verifyGoalsHandler = handler; }
+  onOutputDiff(handler: OutputDiffHandler): void { this.outputDiffHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2790,6 +2799,24 @@ ${BOLD}other:${RESET}
         if (this.costForecastHandler) this.costForecastHandler();
         else console.error(`${DIM}cost-forecast not available (no TUI)${RESET}`);
         break;
+
+      case "/event-bus":
+        if (this.eventBusHandler) this.eventBusHandler();
+        else console.error(`${DIM}event-bus not available (no TUI)${RESET}`);
+        break;
+
+      case "/verify-goals":
+        if (this.verifyGoalsHandler) this.verifyGoalsHandler();
+        else console.error(`${DIM}verify-goals not available (no TUI)${RESET}`);
+        break;
+
+      case "/output-diff": {
+        const odArg = line.slice("/output-diff".length).trim();
+        if (!odArg) { console.error(`${DIM}usage: /output-diff <session>${RESET}`); break; }
+        if (this.outputDiffHandler) this.outputDiffHandler(odArg);
+        else console.error(`${DIM}output-diff not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

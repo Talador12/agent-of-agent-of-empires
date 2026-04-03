@@ -164,6 +164,9 @@ The main loop is split into two layers:
 | `src/operator-shift-handoff.ts` | Structured handoff notes with fleet state, alerts, recommendations (TUI + markdown) |
 | `src/session-dep-auto-detect.ts` | Infer inter-session dependencies from goals, files, repos, explicit declarations |
 | `src/cost-forecast-alert.ts` | Project costs at daily/weekly/monthly intervals + fire alerts on threshold breach |
+| `src/fleet-event-bus.ts` | Typed pub/sub event bus (22 event types, wildcard subs, history, error-resilient) |
+| `src/goal-completion-verifier.ts` | Post-completion regression scanner (7 positive + 8 negative output patterns) |
+| `src/session-output-diff.ts` | Line-level diff between consecutive captures (LCS + tail-diff, ANSI stripping) |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -191,7 +194,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Fifty-one modules run every daemon tick without LLM calls:
+Fifty-four modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -350,6 +353,22 @@ Fifty-one modules run every daemon tick without LLM calls:
   alerts when projections exceed configurable thresholds ($25/day, $100/week,
   $300/month default). Critical severity for imminent breaches (<2h). `/cost-forecast`.
 
+- **Fleet event bus** (`fleet-event-bus.ts`): typed pub/sub event system
+  with 22 event types covering sessions, tasks, costs, health, fleet, approvals,
+  and reasoner activity. Wildcard subscriptions, bounded history buffer with
+  type filtering, event counting, error-resilient delivery. `/event-bus`.
+
+- **Goal completion verifier** (`goal-completion-verifier.ts`): post-completion
+  regression scanner. Checks last 50 lines of output against 7 positive
+  patterns (tests passing, build success, git push, PR activity, zero errors)
+  and 8 negative patterns (failures, crashes, conflicts, reverts, permission
+  errors). Returns confirm-complete / revert-to-active / needs-review. `/verify-goals`.
+
+- **Session output diff** (`session-output-diff.ts`): line-level diff between
+  consecutive session output captures. LCS-based matching for small outputs
+  (<500 lines), tail-diff for large. Context-window filtering (default 2 lines),
+  ANSI code stripping. `/output-diff <session>`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -396,7 +415,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3654 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 3690 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -452,6 +471,22 @@ Also shipped in prior session (v3.4.0 + v3.5.0):
 
 Running total: 93 source modules, 94 TUI commands, 3654 tests, zero runtime deps.
 
+### v3.7.0 Session Response
+
+Shipped 3 features in v3.7.0 (36 new tests, 3 modules, 3 TUI commands):
+1. **`fleet-event-bus.ts`** + 14 tests — Typed pub/sub event system with 22 event
+   types (session/task/cost/health/fleet/approval/reasoner). Wildcard `*`
+   subscriptions, bounded history buffer, type-filtered queries, event counting,
+   error-resilient delivery that swallows subscriber exceptions. `/event-bus`.
+2. **`goal-completion-verifier.ts`** + 11 tests — Post-completion regression
+   scanner. Checks last 50 output lines against 7 positive + 8 negative patterns.
+   Outputs confirm-complete / revert-to-active / needs-review with signal details. `/verify-goals`.
+3. **`session-output-diff.ts`** + 11 tests — Line-level diff between consecutive
+   session captures. LCS-based for small outputs, tail-diff for large (>500 lines).
+   Context-window filtering, ANSI stripping, +/- display. `/output-diff <session>`.
+
+Running total: 96 source modules, 97 TUI commands, 3690 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -480,9 +515,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v3.4 | Fleet Intelligence | SessionIdleDetector, GoalConflictResolver, FleetLeaderboard |
 | v3.5 | Observability + DX | SessionHealthHistory, CostAnomalyThrottle, SmartSessionNaming |
 | v3.6 | Operations + Forecasting | OperatorShiftHandoff, SessionDepAutoDetect, CostForecastAlert |
+| v3.7 | Events + Verification | FleetEventBus, GoalCompletionVerifier, SessionOutputDiff |
 
-**Totals**: 93 source modules, 120+ test files, 94 TUI commands, 20 CLI subcommands,
-3654 tests, ~25,000 lines added, zero runtime dependencies.
+**Totals**: 96 source modules, 120+ test files, 97 TUI commands, 20 CLI subcommands,
+3690 tests, ~26,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

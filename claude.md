@@ -5,36 +5,37 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v3.6.0
+## Version: v3.7.0
+
+## What shipped in v3.7.0
+
+**v3.7.0 — Event Bus, Goal Verification, Output Diffs**:
+- `fleet-event-bus.ts`: Typed pub/sub event system with 22 event types (session/task/cost/health/fleet/approval/reasoner). Wildcard subscriptions, history buffer with type filtering, event counts, error-resilient delivery. **`/event-bus`** command.
+- `goal-completion-verifier.ts`: Post-completion regression scanner. Checks recent output for 7 positive patterns (tests passing, build success, git push, PR activity) and 8 negative patterns (failures, crashes, conflicts, reverts). Outputs confirm/revert/review recommendation. **`/verify-goals`** command.
+- `session-output-diff.ts`: Line-level diff between consecutive session captures. LCS-based for small outputs, tail-diff for large (>500 lines). Context-window filtering, ANSI stripping. **`/output-diff <session>`** command.
+
+97 TUI commands. 96 source modules. 3690 tests. 0 runtime deps.
 
 ## What shipped in v3.6.0
 
 **v3.6.0 — Shift Handoffs, Dependency Auto-Detection, Cost Forecast Alerts**:
-- `operator-shift-handoff.ts`: Structured handoff notes for operator shift changes. Aggregates fleet state, session health/cost, failed/paused task alerts, pending approvals, and actionable recommendations into a scannable summary. TUI + markdown output. **`/handoff`** command.
-- `session-dep-auto-detect.ts`: Infer inter-session dependencies from explicit declarations, goal text references ("after X", "blocked by X"), shared file edits, and repo path overlap. Confidence-ranked, deduplicated. **`/auto-deps`** command.
-- `cost-forecast-alert.ts`: Project costs at daily/weekly/monthly intervals from current spend + burn rate. Fires alerts when projections exceed configurable thresholds. Critical severity for imminent breaches (<2h). **`/cost-forecast`** command.
-
-94 TUI commands. 93 source modules. 3654 tests. 0 runtime deps.
+- `operator-shift-handoff.ts`: Structured handoff notes. **`/handoff`** command.
+- `session-dep-auto-detect.ts`: Infer session dependencies. **`/auto-deps`** command.
+- `cost-forecast-alert.ts`: Proactive cost forecast alerts. **`/cost-forecast`** command.
 
 ## What shipped in v3.5.0
 
 **v3.5.0 — Health History, Cost Anomaly Throttling, Smart Session Naming**:
-- `session-health-history.ts`: Rolling-window health score sparklines + trend detection. **`/health-history`** command.
-- `cost-anomaly-throttle.ts`: EMA-smoothed burn rate monitoring + auto-throttle. **`/cost-throttle`** command.
-- `smart-session-naming.ts`: Generate descriptive titles from repo + goal. **`/suggest-name <repo> [goal]`** command.
+- `session-health-history.ts`: Health sparklines. **`/health-history`** command.
+- `cost-anomaly-throttle.ts`: EMA burn rate auto-throttle. **`/cost-throttle`** command.
+- `smart-session-naming.ts`: Smart title generation. **`/suggest-name <repo> [goal]`** command.
 
 ## What shipped in v3.4.0
 
 **v3.4.0 — Idle Detection, Goal Conflict Resolution, Fleet Leaderboard**:
-- `session-idle-detector.ts`: Idle escalation (nudge/pause/reclaim). **`/idle-detect`** command.
-- `goal-conflict-resolver.ts`: Cross-session goal conflict analysis. **`/goal-conflicts`** command.
+- `session-idle-detector.ts`: Idle escalation. **`/idle-detect`** command.
+- `goal-conflict-resolver.ts`: Goal conflict analysis. **`/goal-conflicts`** command.
 - `fleet-leaderboard.ts`: Productivity rankings. **`/leaderboard`** command.
-
-## What shipped in v3.3.0
-
-**v3.3.0 — Session Timeline + Fleet Changelog**:
-- `session-timeline.ts`: Task lifecycle timeline. **`/task-timeline <name>`** command.
-- `fleet-changelog.ts`: Fleet event changelog. **`/changelog [duration]`** command.
 
 ## Ideas Backlog (v4.0+)
 - **Web dashboard v2** — real-time browser UI via SSE
@@ -59,8 +60,10 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Workflow replay** — replay completed workflow DAGs for post-mortem analysis
 - **Task priority inheritance** — child tasks inherit parent session priority + escalation state
 - **Session resource profiling** — track CPU/memory usage per tmux pane for resource-aware scheduling
-- **Fleet event bus** — pub/sub event system for decoupled module communication
-- **Session output diff highlights** — color-coded diff view between consecutive captures
 - **Reasoner prompt tuning** — auto-adjust system prompt parameters based on action success rates
-- **Goal completion verification** — double-check completed goals by re-scanning output for regressions
 - **Fleet config profiles** — named config presets for different workload types (dev, CI, incident)
+- **Session output watermarking** — embed daemon tick ID in injected messages for trace correlation
+- **Parallel goal execution** — split a single goal into sub-goals and run across multiple sessions
+- **Fleet-wide rollback** — coordinated revert of recent actions across all sessions
+- **Action replay debugger** — step through daemon decision history with what-if analysis
+- **Session heartbeat monitor** — detect tmux pane crashes independent of AoE status reporting
