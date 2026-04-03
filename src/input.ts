@@ -223,6 +223,9 @@ export type ConfigSchemaHandler = () => void; // validate config against schema
 export type TranscriptExportHandler = (session: string) => void; // export session transcript
 export type DecompQualityHandler = () => void; // show goal decomposition quality
 export type AnomalyCorrelationHandler = () => void; // show correlated anomalies
+export type CriticalPathHandler = () => void; // show goal dependency critical path
+export type SnapshotCompressionHandler = () => void; // show snapshot compression stats
+export type OutputAnnotationsHandler = (args: string) => void; // manage output annotations
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -980,6 +983,12 @@ export class InputReader {
   onTranscriptExport(handler: TranscriptExportHandler): void { this.transcriptExportHandler = handler; }
   onDecompQuality(handler: DecompQualityHandler): void { this.decompQualityHandler = handler; }
   onAnomalyCorrelation(handler: AnomalyCorrelationHandler): void { this.anomalyCorrelationHandler = handler; }
+  private criticalPathHandler: CriticalPathHandler | null = null;
+  private snapshotCompressionHandler: SnapshotCompressionHandler | null = null;
+  private outputAnnotationsHandler: OutputAnnotationsHandler | null = null;
+  onCriticalPath(handler: CriticalPathHandler): void { this.criticalPathHandler = handler; }
+  onSnapshotCompression(handler: SnapshotCompressionHandler): void { this.snapshotCompressionHandler = handler; }
+  onOutputAnnotations(handler: OutputAnnotationsHandler): void { this.outputAnnotationsHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3128,6 +3137,23 @@ ${BOLD}other:${RESET}
         if (this.anomalyCorrelationHandler) this.anomalyCorrelationHandler();
         else console.error(`${DIM}anomaly-corr not available (no TUI)${RESET}`);
         break;
+
+      case "/critical-path":
+        if (this.criticalPathHandler) this.criticalPathHandler();
+        else console.error(`${DIM}critical-path not available (no TUI)${RESET}`);
+        break;
+
+      case "/snap-compress":
+        if (this.snapshotCompressionHandler) this.snapshotCompressionHandler();
+        else console.error(`${DIM}snap-compress not available (no TUI)${RESET}`);
+        break;
+
+      case "/annotate": {
+        const annArg = line.slice("/annotate".length).trim();
+        if (this.outputAnnotationsHandler) this.outputAnnotationsHandler(annArg);
+        else console.error(`${DIM}annotate not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

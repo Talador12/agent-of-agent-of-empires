@@ -203,6 +203,9 @@ The main loop is split into two layers:
 | `src/session-transcript-export.ts` | Export session transcript as self-contained markdown (metadata+progress+output) |
 | `src/goal-decomp-quality.ts` | Rate sub-goal keyword coverage of parent goal (A-F grades + suggestions) |
 | `src/fleet-anomaly-correlation.ts` | Correlate anomalies by time proximity to detect fleet-wide root causes |
+| `src/goal-critical-path.ts` | Longest dependency chain via topo-sort + DP (bottleneck ID, parallelizable count) |
+| `src/fleet-snapshot-compression.ts` | Delta-encode fleet snapshots (added/removed/modified) with auto-compaction |
+| `src/session-output-annotations.ts` | Programmatic output line annotations with label/severity/note/creator |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -230,7 +233,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Ninety modules run every daemon tick without LLM calls:
+Ninety-three modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -596,6 +599,21 @@ Ninety modules run every daemon tick without LLM calls:
   multiple types), shared dependency problems. Hot-session ranking.
   `/anomaly-corr`.
 
+- **Goal critical path** (`goal-critical-path.ts`): identify the longest
+  dependency chain in the task graph using topological sort + longest-path
+  dynamic programming. Finds bottleneck node (longest single task on the
+  critical path), counts parallelizable tasks off the path. `/critical-path`.
+
+- **Fleet snapshot compression** (`fleet-snapshot-compression.ts`): delta-
+  encode fleet snapshots. Only stores field-level changes (added/removed/
+  modified) vs full snapshots. Auto-falls back to full when delta >60% of
+  full size. Auto-compaction after max deltas. `/snap-compress`.
+
+- **Session output annotations** (`session-output-annotations.ts`):
+  programmatic annotation of output lines with labels, severity (info/
+  warning/error/critical), notes, and creator attribution. Filter by
+  session, severity, or label. Max 500 annotations. `/annotate [add|session]`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -642,7 +660,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4167 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4203 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -903,6 +921,21 @@ Shipped 3 features in v4.9.0 (32 new tests, 3 modules, 3 TUI commands):
 
 Running total: 132 source modules, 133 TUI commands, 4167 tests, zero runtime deps.
 
+### v5.0.0 Session Response
+
+Shipped 3 features in v5.0.0 (36 new tests, 3 modules, 3 TUI commands):
+1. **`goal-critical-path.ts`** + 10 tests — Longest dependency chain via
+   topo-sort + longest-path DP. Bottleneck identification, parallelizable
+   task count. `/critical-path`.
+2. **`fleet-snapshot-compression.ts`** + 13 tests — Delta-encode snapshots
+   (added/removed/modified). Auto-fallback to full when delta >60%. Auto-
+   compaction after max deltas. `/snap-compress`.
+3. **`session-output-annotations.ts`** + 13 tests — Annotate output lines
+   with label/severity/note/creator. Filter by session/severity/label.
+   Max 500 annotations. `/annotate`.
+
+Milestone: **v5.0.0 — 135 source modules, 136 TUI commands, 4203 tests, zero runtime deps.**
+
 ## AI Working Context
 
 Two files per repo:
@@ -944,9 +977,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v4.7 | Sentiment + Balance | SessionSentiment, FleetWorkloadBalancer, DaemonCrashReport |
 | v4.8 | Grouping + Validation | FleetSessionGrouping, SessionContextDiff, DaemonConfigSchema |
 | v4.9 | Export + Quality + Correlation | SessionTranscriptExport, GoalDecompQuality, FleetAnomalyCorrelation |
+| v5.0 | Graph + Storage + Metadata | GoalCriticalPath, FleetSnapshotCompression, SessionOutputAnnotations |
 
-**Totals**: 132 source modules, 120+ test files, 133 TUI commands, 20 CLI subcommands,
-4167 tests, ~38,000 lines added, zero runtime dependencies.
+**Totals**: 135 source modules, 120+ test files, 136 TUI commands, 20 CLI subcommands,
+4203 tests, ~39,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

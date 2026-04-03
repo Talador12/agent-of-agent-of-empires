@@ -166,6 +166,10 @@ import type { TranscriptInput } from "./session-transcript-export.js";
 import { scoreDecomposition, formatDecompQuality } from "./goal-decomp-quality.js";
 import { correlateAnomalies, formatCorrelations } from "./fleet-anomaly-correlation.js";
 import type { AnomalyEvent } from "./fleet-anomaly-correlation.js";
+import { computeCriticalPath, formatCriticalPath } from "./goal-critical-path.js";
+import type { CriticalPathNode } from "./goal-critical-path.js";
+import { createCompressionState, recordSnapshot as recordCompressedSnapshot, formatCompressionStats } from "./fleet-snapshot-compression.js";
+import { createAnnotationState, annotate, getSessionAnnotations, formatAnnotations } from "./session-output-annotations.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -723,6 +727,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const tickProfiler = new DaemonTickProfiler();
   const sessionGroupingState = createGroupingState();
   const contextDiffState = createContextDiffState();
+  const snapshotCompressionState = createCompressionState();
+  const outputAnnotationState = createAnnotationState();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3385,6 +3391,46 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const clusters = correlateAnomalies(anomalyEvents);
       const lines = formatCorrelations(clusters);
       for (const l of lines) tui!.log("system", l);
+    });
+    // wire /critical-path — goal dependency critical path
+    input.onCriticalPath(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const nodes: CriticalPathNode[] = tasks.map((t) => ({
+        sessionTitle: t.sessionTitle,
+        goal: t.goal,
+        durationEstHours: t.createdAt ? Math.max(0.5, (Date.now() - t.createdAt) / 3_600_000) : 2,
+        dependsOn: t.dependsOn ?? [],
+        depth: 0,
+      }));
+      const result = computeCriticalPath(nodes);
+      const lines = formatCriticalPath(result);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /snap-compress — snapshot compression stats
+    input.onSnapshotCompression(() => {
+      const lines = formatCompressionStats(snapshotCompressionState);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /annotate — output annotations
+    input.onOutputAnnotations((args) => {
+      const parts = args.split(/\s+/);
+      const subcmd = parts[0] ?? "";
+      if (subcmd === "add" && parts.length >= 4) {
+        const session = parts[1];
+        const label = parts[2];
+        const note = parts.slice(3).join(" ");
+        const output = tui!.getSessionOutput(session) ?? [];
+        const lastLine = output.length > 0 ? output[output.length - 1] : "";
+        const ann = annotate(outputAnnotationState, session, output.length - 1, lastLine, label, "info", "operator", note);
+        tui!.log("system", `annotate: #${ann.id} added to ${session}`);
+      } else if (parts[0]) {
+        const anns = getSessionAnnotations(outputAnnotationState, parts[0]);
+        const lines = formatAnnotations(anns);
+        for (const l of lines) tui!.log("system", l);
+      } else {
+        const lines = formatAnnotations(outputAnnotationState.annotations);
+        for (const l of lines) tui!.log("system", l);
+      }
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();
