@@ -98,6 +98,10 @@ import { cloneSession, formatCloneResult } from "./session-clone.js";
 import { findSimilarGoals, formatSimilarGoals } from "./goal-similarity.js";
 import { groupByTag, formatTagReport, parseTags } from "./cost-allocation-tags.js";
 import { recommendScaling, formatScalingRecommendation } from "./predictive-scaling.js";
+import { createTagStore, setTag, formatTagStore } from "./session-tag-manager.js";
+import type { SessionTagStore } from "./session-tag-manager.js";
+import { compareSessions, formatComparison } from "./session-compare.js";
+import { buildFleetSummary, formatFleetSummaryText, formatFleetSummaryTui } from "./fleet-summary-report.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -629,6 +633,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const abReasoningTracker = new ABReasoningTracker(config.reasoner, "claude-code");
   const alertRules = defaultAlertRules();
   let activeRunbookExec: RunbookExecution | null = null;
+  const sessionTagStore = createTagStore();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -2551,6 +2556,63 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       });
       const lines = formatScalingRecommendation(rec);
       for (const l of lines) tui!.log("system", l);
+    });
+    // wire /session-diff — show recent session output changes
+    input.onSessionDiff((args) => {
+      const sessionTitle = args.trim();
+      const sessions = tui!.getSessions();
+      const session = sessions.find((s) => s.title.toLowerCase() === sessionTitle.toLowerCase());
+      if (!session) { tui!.log("system", `session-diff: "${sessionTitle}" not found`); return; }
+      const output = tui!.getSessionOutput(session.id) ?? [];
+      // show last 20 lines as recent output
+      const recent = output.slice(-20);
+      tui!.log("system", `session-diff: "${session.title}" last ${recent.length} lines:`);
+      for (const l of recent) tui!.log("system", `  ${l.replace(/\x1b\[[0-9;]*[mABCDHJKST]/g, "").slice(0, 120)}`);
+    });
+    // wire /session-tag — set/show session tags
+    input.onSessionTag((args) => {
+      const parts = args.split(/\s+/);
+      if (parts.length === 0 || !parts[0]) {
+        const lines = formatTagStore(sessionTagStore);
+        for (const l of lines) tui!.log("system", l);
+        return;
+      }
+      if (parts.length >= 3) {
+        // /tag <session> <key>=<value>
+        const [sessionTitle, ...tagParts] = parts;
+        for (const tp of tagParts) {
+          const [k, ...v] = tp.split("=");
+          if (k && v.length > 0) setTag(sessionTagStore, sessionTitle, k, v.join("="));
+        }
+        tui!.log("system", `tag: updated tags for "${sessionTitle}"`);
+      } else {
+        const lines = formatTagStore(sessionTagStore);
+        for (const l of lines) tui!.log("system", l);
+      }
+    });
+    // wire /compare — side-by-side session comparison
+    input.onCompare((args) => {
+      const [titleA, titleB] = args.split(/\s+/);
+      if (!titleA || !titleB) { tui!.log("system", "compare: usage: /compare <session-a> <session-b>"); return; }
+      const sessions = tui!.getSessions();
+      const tasks = taskManager?.tasks ?? [];
+      const sA = sessions.find((s) => s.title.toLowerCase() === titleA.toLowerCase());
+      const sB = sessions.find((s) => s.title.toLowerCase() === titleB.toLowerCase());
+      if (!sA || !sB) { tui!.log("system", `compare: session not found`); return; }
+      const tA = tasks.find((t) => t.sessionTitle === sA.title);
+      const tB = tasks.find((t) => t.sessionTitle === sB.title);
+      const cmp = compareSessions({ session: sA, task: tA }, { session: sB, task: tB });
+      const lines = formatComparison(cmp);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /fleet-report — compact text summary for Slack/clipboard
+    input.onFleetReport(() => {
+      const sessions = tui!.getSessions();
+      const tasks = taskManager?.tasks ?? [];
+      const summary = buildFleetSummary(sessions, tasks);
+      const lines = formatFleetSummaryTui(summary);
+      for (const l of lines) tui!.log("system", l);
+      tui!.log("system", `  (copy text: ${formatFleetSummaryText(summary).replace(/\n/g, " | ")})`);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

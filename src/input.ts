@@ -162,6 +162,10 @@ export type AlertRulesHandler = () => void; // show alert rules status
 export type SessionTailHandler = (args: string) => void; // tail session output
 export type HealthForecastHandler = () => void; // show health trend forecast
 export type WorkflowVizHandler = () => void; // show workflow ASCII DAG
+export type SessionDiffHandler = (args: string) => void; // diff session output
+export type SessionTagHandler = (args: string) => void; // set/show session tags
+export type CompareHandler = (args: string) => void; // compare two sessions
+export type FleetReportHandler = () => void; // generate fleet summary report
 export type MetricsHandler = () => void; // show Prometheus metrics
 export type FleetGrepHandler = (pattern: string) => void; // grep archived outputs
 export type RunbookExecHandler = () => void; // execute/advance runbook
@@ -811,6 +815,14 @@ export class InputReader {
   private similarGoalsHandler: SimilarGoalsHandler | null = null;
   private costTagsHandler: CostTagsHandler | null = null;
   private scalingHandler: ScalingHandler | null = null;
+  private sessionDiffHandler: SessionDiffHandler | null = null;
+  private sessionTagHandler: SessionTagHandler | null = null;
+  private compareHandler: CompareHandler | null = null;
+  private fleetReportHandler: FleetReportHandler | null = null;
+  onSessionDiff(handler: SessionDiffHandler): void { this.sessionDiffHandler = handler; }
+  onSessionTag(handler: SessionTagHandler): void { this.sessionTagHandler = handler; }
+  onCompare(handler: CompareHandler): void { this.compareHandler = handler; }
+  onFleetReport(handler: FleetReportHandler): void { this.fleetReportHandler = handler; }
   onMetrics(handler: MetricsHandler): void { this.metricsHandler = handler; }
   onFleetGrep(handler: FleetGrepHandler): void { this.fleetGrepHandler = handler; }
   onRunbookExec(handler: RunbookExecHandler): void { this.runbookExecHandler = handler; }
@@ -2610,6 +2622,34 @@ ${BOLD}other:${RESET}
       case "/workflow-viz":
         if (this.workflowVizHandler) this.workflowVizHandler();
         else console.error(`${DIM}workflow-viz not available (no TUI)${RESET}`);
+        break;
+
+      case "/session-diff": {
+        const sdArg = line.slice("/session-diff".length).trim();
+        if (!sdArg) { console.error(`${DIM}usage: /session-diff <session>${RESET}`); break; }
+        if (this.sessionDiffHandler) this.sessionDiffHandler(sdArg);
+        else console.error(`${DIM}session-diff not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/session-tag": {
+        const tgArg = line.slice("/session-tag".length).trim();
+        if (this.sessionTagHandler) this.sessionTagHandler(tgArg);
+        else console.error(`${DIM}session-tag not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/compare": {
+        const cpArg = line.slice("/compare".length).trim();
+        if (!cpArg) { console.error(`${DIM}usage: /compare <session-a> <session-b>${RESET}`); break; }
+        if (this.compareHandler) this.compareHandler(cpArg);
+        else console.error(`${DIM}compare not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/fleet-report":
+        if (this.fleetReportHandler) this.fleetReportHandler();
+        else console.error(`${DIM}fleet-report not available (no TUI)${RESET}`);
         break;
 
       case "/metrics":
