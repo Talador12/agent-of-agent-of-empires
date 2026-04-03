@@ -130,6 +130,10 @@ The main loop is split into two layers:
 | `src/cli-completions.ts` | Shell autocomplete scripts (bash, zsh, fish) |
 | `src/session-replay.ts` | Replay session activity timeline from audit trail |
 | `src/workflow-engine.ts` | Multi-session workflow DAG with fan-out/fan-in stages |
+| `src/multi-reasoner.ts` | Route sessions to different LLM backends by config/template/difficulty |
+| `src/workflow-templates.ts` | Pre-built workflow definitions (CI/CD, feature-dev, refactor, incident) |
+| `src/session-checkpoint.ts` | Save + restore transient daemon state across restarts |
+| `src/token-quota.ts` | Per-model token quotas for fleet-wide rate limiting |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -313,7 +317,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 - `aoaoe completions <bash|zsh|fish>` — generate shell autocomplete script
 
 ### Testing
-- 3358 unit + integration + property tests across 91+ files, `node:test` (stdlib, zero deps)
+- 3387 unit + integration + property tests across 95+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,

@@ -5,24 +5,33 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Supervisor Notes
-- When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
+## Version: v1.4.0
 
-## Version: v1.3.0
+## Status: Active development
 
-## Status: PARKED — feature-complete, fuzz-tested, documented
+### What shipped in v1.4.0
 
-### What shipped in v1.3.0
+**v1.4.0 — Multi-Reasoner, Workflow Templates, Checkpoints, Token Quotas**:
+- `multi-reasoner.ts`: route sessions to different LLM backends. `assignReasonerBackends()` uses explicit overrides → template mappings → difficulty-based routing (hard→premium, easy→economy). `routeObservation()` splits observation by backend. `mergeReasonerResults()` combines responses.
+- `workflow-templates.ts`: 5 built-in workflow templates: ci-cd (build→test→deploy), feature-dev (implement→test→review→merge), refactor (analyze→refactor→test→cleanup), incident-response (triage→fix→test→postmortem), multi-repo (parallel→integration→release). `instantiateWorkflow()` creates unique session titles.
+- `session-checkpoint.ts`: serialize transient daemon state (graduation, escalation, velocity, nudges, budgets, cache stats, SLA, poll interval) to `~/.aoaoe/checkpoints/`. `saveCheckpoint()` + `loadCheckpoint()` + `shouldRestoreCheckpoint()` for daemon restart continuity.
+- `token-quota.ts`: per-model token quotas. `TokenQuotaManager` tracks input/output tokens per model in hourly windows. `isBlocked()` checks quota, `getStatus()` reports usage percentages. Complements USD-based fleet rate limiter with token-level granularity.
 
-**v1.3.0 — Quality: README Update + Property-Based Testing**:
-- **README.md**: updated test badge (2427→3358), added "Intelligence Modules" section documenting the 55 modules organized by category (reasoning pipeline, per-tick autonomous, on-demand analytics).
-- **Property-based testing**: 26 new fuzz tests across 17 modules using randomized inputs. Tests verify invariants: stats always in range, overlap always [0,1], sparklines match input length, costs non-negative, difficulty scores 1-10, retry delays monotonic, confidence aggregation monotonic, compression never exceeds original, cache never returns wrong values, pool slots never negative, SLA health always [0,100], burn rate non-negative. Zero bugs found — modules are solid.
+New files: 4 source + 4 test files
+Modified: `AGENTS.md`, `claude.md`, `package.json`
+Test changes: +29 new tests, net 3387 tests across 95 files.
 
-New file: `src/property-tests.test.ts` (26 tests)
-Modified: `README.md`, `AGENTS.md`, `claude.md`, `package.json`
-Net: 3358 tests across 91 files.
+### Stats
+- 59 source modules, 58 test files, 58 TUI commands, 20 CLI subcommands, 3387 tests, 0 runtime deps
 
-### If resuming work
-1. Multi-reasoner support (different LLM backends per session)
-2. Web dashboard v2 (real-time browser UI)
-3. Workflow templates (pre-built definitions for CI/CD, feature dev)
+## Ideas Backlog
+- **Wire multi-reasoner into daemon** — split observations and call backends in parallel
+- **Wire token quotas into reasoning pipeline** — block per-model when over quota
+- **Wire checkpoint save/restore into daemon startup/shutdown**
+- **Wire workflow templates into /workflow-new TUI command**
+- **A/B reasoning** — compare two backends on same observation, track which performs better
+- **Fleet federation** — coordinate across multiple aoaoe daemons via HTTP
+- **Web dashboard v2** — real-time browser UI via SSE
+- **Reasoner plugin system** — load custom backends as ESM modules
+- **Workflow cost forecasting** — estimate total workflow cost before starting
+- **Session replay TUI player** — animated step-through with timing controls
