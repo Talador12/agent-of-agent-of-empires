@@ -8,66 +8,97 @@ See `AGENTS.md` for architecture, build commands, and conventions.
 ## Supervisor Notes
 - When aoaoe is started via `npm start` or `npm run build && node dist/index.js`, the initial pane output shows a build/compile spinner followed by live daemon output (TUI, polling logs, etc.). This is **normal** — it is not a build error. Do not attempt to restart or fix it.
 
-## Version: v0.210.0
+## Version: v0.211.0
 
 ## Current Focus
 
 North-star goal: aoaoe should let one reasoner run AoE for any number of sessions/tasks, make its actions obvious, and make it trivial for a human to step in with new info or new tasks at any time.
 
 ### What's working end-to-end now
-- **Fully autonomous 7-gate reasoning pipeline**: rate limit → cache → priority filter → compress → LLM → approval gate → cost track
-- **Session graduation** wired into main loop: auto-promotes/demotes per tick based on success rate
-- **Approval workflow** wired into reasoner: destructive + low-confidence actions require human approval
-- **Goal refinement** available via `/refine` for active goal improvement suggestions
-- **Fleet HTML export** via `/export` generates shareable dark-themed dashboard reports
-- 46 intelligence modules, 55 TUI slash commands, 3267 tests
+- Fully autonomous 7-gate reasoning pipeline — **now integration-tested end-to-end**
+- 46 intelligence modules, 55 TUI slash commands, 3295 tests (28 new integration tests)
+- Pipeline integration test suite proves the full wiring: cache → filter → compress → LLM → approval → cost track → graduation → recovery → scheduling → escalation → SLA → budgets → completion detection → summarization → conflicts → velocity → goal refinement
 
-### Operator surface (55 TUI commands)
-All previous 52 + `/graduation /refine /export`
+### What shipped in v0.211.0
 
-### What shipped in v0.210.0
+**v0.211.0 — Pipeline Integration Test Suite: Proving the Wiring Works**
 
-**v0.210.0 — Deep Integration Pass 2: Graduation, Approval Workflow, Goal Refiner, Fleet Export Wired**
+28 new integration tests that exercise the full autonomous pipeline end-to-end using real module instances (not mocks):
 
-Like v0.208, this is a *wiring* release — the 4 modules from v0.209 are now autonomous:
+1. **Reasoning gate chain (6 tests):**
+   - Rate limiter blocks when hourly budget exhausted
+   - Observation cache returns hit for duplicate observations
+   - Priority filter excludes low-priority sessions, computes savings
+   - Context compressor reduces 100-line output to compact form
+   - Approval workflow gates destructive actions through queue
+   - Full 5-step pipeline chain: rate limit → cache → filter → compress → approval → cost track
 
-**Reasoner pipeline — new gate 6 (approval workflow):**
-- After LLM returns actions but before execution, `filterThroughApproval()` gates risky actions. `wait`/`report_progress` always auto-approved. `remove_agent`/`stop_session` always require human approval. Low-confidence actions from the LLM are queued for operator review via the existing ApprovalQueue. Active in `confirm` mode or when confidence is "low".
+2. **Graduation lifecycle (3 tests):**
+   - Promotes session after 10+ successes at 90%+ rate
+   - Demotes session after failure rate drops below 50%
+   - Graduation + approval interact: demoted sessions are more restricted
 
-**Execution results — graduation tracking:**
-- Every executed action's success/failure is recorded into `GraduationManager` per session. The manager maintains running success rates.
+3. **Recovery playbook (2 tests):**
+   - Triggers nudge at health 55, pause at 15
+   - Resets and re-triggers after health recovery
 
-**Main loop per-tick — graduation evaluation:**
-- `GraduationManager.evaluate()` runs each tick for every session. Sessions with 90%+ success rate after 10+ actions auto-promote (observe→confirm→auto). Sessions with <50% auto-demote. Promotions/demotions logged to TUI + audit trail.
+4. **Dependency scheduling (3 tests):**
+   - Activates task when prerequisite completes
+   - Blocks when prerequisite still active
+   - Respects pool capacity limits
 
-**New TUI commands:**
-- `/graduation` — show all session trust levels, success rates, promotion history
-- `/refine <name>` — analyze completed tasks and suggest improvements for a task's goal
-- `/export` — generate self-contained HTML fleet report at `~/.aoaoe/fleet-report-YYYY-MM-DD.html`
+5. **Nudge effectiveness + escalation (3 tests):**
+   - Tracks nudge → progress correlation with response time
+   - Escalation progresses normal → elevated → critical
+   - Escalation clears on progress
 
-Modified: `src/index.ts` (major), `src/input.ts`, `AGENTS.md`, `claude.md`, `package.json`
-No new test files — all 3267 existing tests pass.
+6. **Fleet SLA (2 tests):**
+   - Detects breach when health drops below threshold
+   - Respects alert cooldown
+
+7. **Budget enforcement + prediction (2 tests):**
+   - Auto-identifies over-budget sessions
+   - Predictor estimates exhaustion time from burn rate
+
+8. **Goal completion (1 test):**
+   - Detects completion from git push + tests passing + done message
+
+9. **Summarizer + conflicts (2 tests):**
+   - Summarizes session activity from output
+   - Detects cross-session file conflicts
+
+10. **Velocity tracking (1 test):**
+    - Computes velocity from progress samples
+
+11. **Goal refinement (1 test):**
+    - Suggests improvements based on completed task patterns
+
+12. **Full multi-module scenario (1 test):**
+    - Simulates a complete daemon tick with ALL intelligence modules active simultaneously: 3 sessions (healthy, testing, erroring), SLA check, recovery actions, rate limit, LLM simulation, approval, graduation, velocity — verifies they all compose correctly.
+
+New file: `src/pipeline-integration.test.ts` (28 tests)
+Modified: `AGENTS.md`, `claude.md`, `package.json`
+Test changes: +28 new tests, net 3295 tests across 85 files.
 
 ### Older versions
-- v0.209.0: session graduation, approval workflow, goal refinement, fleet HTML export (standalone modules)
-- v0.208.0: deep integration — autonomous reasoning pipeline, recovery, scheduling, escalation wiring
+- v0.210.0: deep integration pass 2 — graduation, approval, refiner, export wired
+- v0.209.0: session graduation, approval workflow, goal refinement, fleet HTML export
+- v0.208.0: deep integration — autonomous reasoning pipeline, recovery, scheduling, escalation
 - v0.207.0–v0.196.0: 12 releases building 51 intelligence modules
 - v0.1–v0.195: scaffolding → full orchestration (195 releases)
 
 ## Ideas Backlog
+- **Fix real blockers** — session error misdetection, legacy dashboard paths, task-session linking
+- **Cut v1.0.0** — squash, tag, proper release notes, npm publish
 - **Session replay from history** — replay activity timeline for post-mortem
 - **Multi-reasoner support** — different backends for different sessions
 - **Daemon systemd/launchd integration** — generate service files for boot
-- **Cross-repo impact analysis** — detect when one session breaks another's tests
-- **Session forking** — clone a session to try alternative approaches
-- **Goal similarity grouping** — auto-detect overlapping goals for coordination
-- **Multi-host fleet dashboard** — aggregate data from multiple daemons
-- **Predictive scaling** — auto-adjust pool size based on workload patterns
-- **Session checkpoint/restore** — save + resume session state across restarts
-- **Fleet-wide rollback** — revert all sessions to last known-good snapshot
 - **Workflow orchestration** — define multi-session workflows with fan-out/fan-in
 - **A/B reasoning** — test two reasoner strategies and compare outcomes
-- **Auto-template application** — apply detected templates on session creation
-- **Goal library** — curated reusable goal templates for common tasks
-- **Graduation-aware pool scheduling** — prioritize graduated (auto-mode) sessions for harder tasks
-- **Fleet cost projections** — weekly/monthly cost projections from velocity + burn rate data
+- **Cross-repo impact analysis** — detect when one session breaks another's tests
+- **Graduation-aware pool scheduling** — prioritize graduated sessions for harder tasks
+- **Fleet cost projections** — weekly/monthly projections from velocity + burn rate
+- **Mutation testing** — verify test quality by introducing bugs and checking test failures
+- **Property-based testing** — fuzz intelligence modules with random inputs
+- **Load testing** — simulate 50+ concurrent sessions to find bottlenecks
+- **CLI completions** — shell autocomplete for all aoaoe commands and TUI slash commands

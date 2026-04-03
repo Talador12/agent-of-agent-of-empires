@@ -305,7 +305,11 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
    changes are available (inside the `if (intelligence && ...)` block).
 
 ### Testing
-- 3267 unit tests across 84+ files, `node:test` (stdlib, zero deps)
+- 3295 unit + integration tests across 85+ files, `node:test` (stdlib, zero deps)
+- `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
+  end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
+  SLA, budgets, goal completion, summarization, conflict detection, velocity,
+  and goal refinement — using real module instances (not mocks)
 - Includes e2e loop tests with MockPoller/MockReasoner/MockExecutor
 - Integration test (`npm run integration-test`): creates real AoE sessions,
   starts daemon, verifies observation + send-keys + context discovery, cleans up.
