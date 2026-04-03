@@ -182,6 +182,9 @@ The main loop is split into two layers:
 | `src/fleet-incident-timeline.ts` | Chronological error/failure/recovery timeline with hot-session ranking |
 | `src/session-output-bookmarks.ts` | Mark output lines with labels for later reference, search, per-session filter |
 | `src/daemon-canary-mode.ts` | Run new config on canary session, compare health/cost vs baseline, promote/rollback |
+| `src/daemon-config-diff.ts` | Track config snapshots, compute field-level diffs (added/removed/changed) |
+| `src/goal-auto-priority.ts` | Rank goals by urgency keywords, impact keywords, deps, age, priority tags |
+| `src/fleet-capacity-forecaster.ts` | Predict pool exhaustion from utilization, queue depth, completion/arrival rates |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -209,7 +212,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-Sixty-nine modules run every daemon tick without LLM calls:
+Seventy-two modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -466,6 +469,20 @@ Sixty-nine modules run every daemon tick without LLM calls:
   Auto-recommends promote (after duration) / rollback (if degraded) /
   continue (pending). `/canary [start|promote|rollback]`.
 
+- **Daemon config diff** (`daemon-config-diff.ts`): tracks config snapshots
+  and computes field-level diffs (added/removed/changed) including nested
+  objects. Recent diff history (last N reloads). `/config-diff`.
+
+- **Goal auto-priority** (`goal-auto-priority.ts`): rank goals by composite
+  score from urgency keywords (fix/critical/security, 0-30), impact keywords
+  (deploy/production/auth, 0-20), dependency count (0-20), age anti-starvation
+  (0-15), and explicit priority tags (0-15). Capped at 100. `/goal-priority`.
+
+- **Fleet capacity forecaster** (`fleet-capacity-forecaster.ts`): predict
+  pool slot exhaustion from current utilization, queue depth, and historical
+  completion/arrival rates. Recommends ok / scale-up / throttle-intake /
+  critical. Computes ETA to exhaustion. `/capacity-forecast`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -512,7 +529,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3906 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 3943 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -661,6 +678,21 @@ Shipped 3 features in v4.2.0 (41 new tests, 3 modules, 3 TUI commands):
 
 Running total: 111 source modules, 112 TUI commands, 3906 tests, zero runtime deps.
 
+### v4.3.0 Session Response
+
+Shipped 3 features in v4.3.0 (37 new tests, 3 modules, 3 TUI commands):
+1. **`daemon-config-diff.ts`** + 12 tests — Track config snapshots, compute
+   field-level diffs (added/removed/changed) for nested objects. Recent
+   diff history for audit. `/config-diff`.
+2. **`goal-auto-priority.ts`** + 12 tests — Rank goals by composite score:
+   urgency keywords (0-30), impact keywords (0-20), dependency count (0-20),
+   age anti-starvation (0-15), priority tags (0-15). `/goal-priority`.
+3. **`fleet-capacity-forecaster.ts`** + 13 tests — Predict pool exhaustion
+   from utilization, queue depth, completion/arrival rates. Recommends
+   ok/scale-up/throttle-intake/critical. ETA to exhaustion. `/capacity-forecast`.
+
+Running total: 114 source modules, 115 TUI commands, 3943 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -695,9 +727,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v4.0 | Performance + Governance | DaemonMetricsHistogram, SessionPeerReview, FleetWarmStandby |
 | v4.1 | Security + Compliance | SessionOutputRedaction, FleetComplianceChecker, DaemonPluginHooks |
 | v4.2 | Observability + Safety | FleetIncidentTimeline, SessionOutputBookmarks, DaemonCanaryMode |
+| v4.3 | Intelligence + Planning | DaemonConfigDiff, GoalAutoPriority, FleetCapacityForecaster |
 
-**Totals**: 111 source modules, 120+ test files, 112 TUI commands, 20 CLI subcommands,
-3906 tests, ~31,000 lines added, zero runtime dependencies.
+**Totals**: 114 source modules, 120+ test files, 115 TUI commands, 20 CLI subcommands,
+3943 tests, ~32,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

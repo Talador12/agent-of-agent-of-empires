@@ -202,6 +202,9 @@ export type PluginHooksHandler = () => void; // show daemon plugin hooks state
 export type IncidentTimelineHandler = () => void; // show fleet incident timeline
 export type BookmarkHandler = (args: string) => void; // manage output bookmarks
 export type CanaryModeHandler = (args: string) => void; // manage canary mode
+export type ConfigDiffHandler = () => void; // show config diff between reloads
+export type GoalPriorityHandler = () => void; // show auto-prioritized goals
+export type CapacityForecastHandler = () => void; // show fleet capacity forecast
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -917,6 +920,12 @@ export class InputReader {
   onIncidentTimeline(handler: IncidentTimelineHandler): void { this.incidentTimelineHandler = handler; }
   onBookmark(handler: BookmarkHandler): void { this.bookmarkHandler = handler; }
   onCanaryMode(handler: CanaryModeHandler): void { this.canaryModeHandler = handler; }
+  private configDiffHandler: ConfigDiffHandler | null = null;
+  private goalPriorityHandler: GoalPriorityHandler | null = null;
+  private capacityForecastHandler: CapacityForecastHandler | null = null;
+  onConfigDiff(handler: ConfigDiffHandler): void { this.configDiffHandler = handler; }
+  onGoalPriority(handler: GoalPriorityHandler): void { this.goalPriorityHandler = handler; }
+  onCapacityForecast(handler: CapacityForecastHandler): void { this.capacityForecastHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2951,6 +2960,21 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}canary not available (no TUI)${RESET}`);
         break;
       }
+
+      case "/config-diff":
+        if (this.configDiffHandler) this.configDiffHandler();
+        else console.error(`${DIM}config-diff not available (no TUI)${RESET}`);
+        break;
+
+      case "/goal-priority":
+        if (this.goalPriorityHandler) this.goalPriorityHandler();
+        else console.error(`${DIM}goal-priority not available (no TUI)${RESET}`);
+        break;
+
+      case "/capacity-forecast":
+        if (this.capacityForecastHandler) this.capacityForecastHandler();
+        else console.error(`${DIM}capacity-forecast not available (no TUI)${RESET}`);
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

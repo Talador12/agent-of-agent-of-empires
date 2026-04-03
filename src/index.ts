@@ -137,6 +137,10 @@ import { DaemonPluginHooks, formatPluginHooks } from "./daemon-plugin-hooks.js";
 import { FleetIncidentTimeline, formatIncidentTimeline } from "./fleet-incident-timeline.js";
 import { createBookmarkState, addBookmark, removeBookmark, getBookmarks, searchBookmarks, formatBookmarks } from "./session-output-bookmarks.js";
 import { createCanaryState, startCanary, recordCanaryHealth, evaluateCanary, promoteCanary, rollbackCanary, formatCanaryState } from "./daemon-canary-mode.js";
+import { createConfigDiffState, recordConfig, computeConfigDiff as computeDaemonConfigDiff, formatConfigDiff } from "./daemon-config-diff.js";
+import { rankGoals, formatGoalPriority } from "./goal-auto-priority.js";
+import type { GoalPriorityInput } from "./goal-auto-priority.js";
+import { FleetCapacityForecaster, formatCapacityForecast } from "./fleet-capacity-forecaster.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -685,6 +689,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const incidentTimeline = new FleetIncidentTimeline();
   const bookmarkState = createBookmarkState();
   const canaryState = createCanaryState();
+  const configDiffState = createConfigDiffState();
+  const capacityForecaster = new FleetCapacityForecaster();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3065,6 +3071,36 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         const lines = formatCanaryState(canaryState);
         for (const l of lines) tui!.log("system", l);
       }
+    });
+    // wire /config-diff — show config changes
+    input.onConfigDiff(() => {
+      const diff = computeDaemonConfigDiff(configDiffState);
+      const lines = formatConfigDiff(diff);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /goal-priority — auto-prioritize goals
+    input.onGoalPriority(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const inputs: GoalPriorityInput[] = tasks.filter((t) => t.status === "active" || t.status === "pending").map((t) => {
+        const depCount = tasks.filter((d) => d.dependsOn?.includes(t.sessionTitle)).length;
+        return {
+          sessionTitle: t.sessionTitle,
+          goal: t.goal,
+          repo: t.repo,
+          createdAt: t.createdAt ?? Date.now(),
+          dependencyCount: depCount,
+          tags: new Map<string, string>(),
+          status: t.status,
+        };
+      });
+      const ranked = rankGoals(inputs);
+      const lines = formatGoalPriority(ranked);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /capacity-forecast — fleet capacity prediction
+    input.onCapacityForecast(() => {
+      const lines = formatCapacityForecast(capacityForecaster);
+      for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

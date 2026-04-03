@@ -5,32 +5,32 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v4.2.0
+## Version: v4.3.0
+
+## What shipped in v4.3.0
+
+**v4.3.0 — Config Diff, Goal Auto-Priority, Capacity Forecaster**:
+- `daemon-config-diff.ts`: Track config snapshots, compute field-level diffs (added/removed/changed) including nested objects. Recent diff history. **`/config-diff`** command.
+- `goal-auto-priority.ts`: Rank goals by composite score: urgency keywords (fix/critical/security), impact keywords (deploy/production/auth), dependency count, age (anti-starvation), explicit priority tags. **`/goal-priority`** command.
+- `fleet-capacity-forecaster.ts`: Predict pool exhaustion from utilization, queue depth, completion/arrival rates. Recommends ok/scale-up/throttle-intake/critical. ETA to exhaustion. **`/capacity-forecast`** command.
+
+115 TUI commands. 114 source modules. 3943 tests. 0 runtime deps.
 
 ## What shipped in v4.2.0
 
 **v4.2.0 — Incident Timeline, Output Bookmarks, Canary Mode**:
-- `fleet-incident-timeline.ts`: Chronological view of all fleet errors, failures, recoveries, stuck/idle/budget events. Filterable by session, type, time range, resolved status. Hot-session ranking, type counts. **`/incidents`** command.
-- `session-output-bookmarks.ts`: Mark interesting output lines with labels for later reference. Add/remove/search bookmarks, filter by session, count by session. **`/bookmark [add|rm|search]`** command.
-- `daemon-canary-mode.ts`: Run new config on a single canary session before fleet-wide rollout. Tracks canary health vs baseline, monitors cost rate, auto-recommends promote/rollback/continue. **`/canary [start|promote|rollback]`** command.
-
-112 TUI commands. 111 source modules. 3906 tests. 0 runtime deps.
+- `fleet-incident-timeline.ts`: Error/failure/recovery timeline. **`/incidents`** command.
+- `session-output-bookmarks.ts`: Mark output lines for reference. **`/bookmark`** command.
+- `daemon-canary-mode.ts`: Safe config rollout. **`/canary`** command.
 
 ## What shipped in v4.1.0
 
 **v4.1.0 — Output Redaction, Fleet Compliance, Plugin Hooks**:
-- `session-output-redaction.ts`: Auto-strip secrets/PII (11 rules). **`/redaction-stats`** command.
-- `fleet-compliance-checker.ts`: Org policy verification (7 checks). **`/compliance`** command.
-- `daemon-plugin-hooks.ts`: Lifecycle hooks (7 phases). **`/plugin-hooks`** command.
+- `session-output-redaction.ts`: Auto-strip secrets/PII. **`/redaction-stats`** command.
+- `fleet-compliance-checker.ts`: Org policy verification. **`/compliance`** command.
+- `daemon-plugin-hooks.ts`: Lifecycle hooks. **`/plugin-hooks`** command.
 
-## What shipped in v4.0.0
-
-**v4.0.0 — Metrics Histogram, Peer Review, Warm Standby**:
-- `daemon-metrics-histogram.ts`: Latency percentiles + ASCII histograms. **`/metrics-hist`** command.
-- `session-peer-review.ts`: Cross-session review gating. **`/peer-review`** command.
-- `fleet-warm-standby.ts`: Pre-warm session slots. **`/warm-standby`** command.
-
-## Ideas Backlog (v4.3+)
+## Ideas Backlog (v4.4+)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
@@ -51,18 +51,17 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Fleet health dashboard API** — REST API for external monitoring tools (Grafana, Datadog)
 - **Batch goal assignment** — assign goals to multiple sessions at once from a YAML manifest
 - **Workflow replay** — replay completed workflow DAGs for post-mortem analysis
-- **Task priority inheritance** — child tasks inherit parent session priority + escalation state
 - **Parallel goal execution** — split a single goal into sub-goals and run across multiple sessions
 - **Fleet-wide rollback** — coordinated revert of recent actions across all sessions
 - **Session output pattern library** — reusable regex patterns for common tool outputs
-- **Goal template marketplace** — share goal + decomposition templates across teams
 - **Reasoner chain-of-thought logger** — capture and display LLM reasoning steps for transparency
 - **Session sandbox mode** — run sessions in isolated environments with rollback on failure
 - **Goal progress dashboard** — visual progress bars + ETA for all active sessions in one view
-- **Reasoner cost budget splits** — allocate LLM cost budgets per-phase (reason vs nudge vs review)
-- **Session dependency graph viz** — ASCII/browser rendering of auto-detected dep graph
 - **Fleet time-travel** — rewind fleet state to any snapshot and compare with current
 - **Session output streaming API** — WebSocket endpoint for external consumers of live output
-- **Daemon config diff** — show what changed between config reloads
-- **Goal auto-prioritization** — rank goals by business impact + urgency from metadata
-- **Fleet capacity forecaster** — predict when pool slots will be exhausted from task queue depth
+- **Session dependency graph viz** — ASCII/browser rendering of auto-detected dep graph
+- **Daemon watchdog timer** — self-recovery if main loop stalls beyond configurable threshold
+- **Fleet cost regression detector** — alert when cost patterns deviate from historical baseline
+- **Session output summarizer v3** — multi-model summarization with quality voting
+- **Goal cascading** — parent goals auto-generate child goals across dependent sessions
+- **Daemon remote control API** — REST API for external tools to send commands to the daemon
