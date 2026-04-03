@@ -5,12 +5,26 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v1.8.0
+## Version: v1.9.0
 
-## What shipped in v1.8.0
+## What shipped in v1.9.0
 
-**v1.8.0 — Stress Tests + v1.6 Wiring: /ab-stats, /workflow-chain, /workflow-forecast**:
-- **16 stress tests** across 14 modules: graduation rapid cycling (200 iterations), SLA oscillating health (100 ticks), cache eviction (200 entries), rate limiter burst (50 costs), token quota multi-model (5 models), escalation to critical (10 sessions), nudge tracker (20 sessions), adaptive poll bounds (200 transitions), approval queue overflow (100 items), context compression edge cases, computeStats extremes, A/B 50 ties, workflow chain diamond dependency. **Zero bugs found under stress.**
-- **v1.6 modules fully wired**: `/ab-stats`, `/workflow-chain`, `/workflow-forecast`, cost forecast auto-shown on `/workflow-new`, workflow chain auto-advance per tick in main loop.
+**v1.9.0 — Fleet Federation, Output Archival, Runbook Generator, Custom Alert Rules**:
+- `fleet-federation.ts`: `fetchPeerState()` queries other daemons via `/health` endpoint. `aggregateFederation()` merges peer states into unified overview (total sessions, tasks, health, cost). Ready for `/federation` TUI command.
+- `output-archival.ts`: `archiveSessionOutput()` gzips old pane output to `~/.aoaoe/output-archive/`. Auto-prunes at 200 archives. `listArchives()` + `formatArchiveList()` for TUI. Ready for `/archives` command.
+- `runbook-generator.ts`: `generateRunbooks()` analyzes audit trail for recurring patterns (stuck sessions, budget overruns, error recovery, task completion) and produces step-by-step playbooks with confidence scores. Ready for `/runbook-gen` command.
+- `alert-rules.ts`: 5 built-in alert rules (fleet-health-critical, high-error-rate, cost-spike, all-stuck, no-active-sessions). `evaluateAlertRules()` checks conditions with configurable severity + cooldown. Ready for per-tick evaluation + `/alert-rules` command.
 
-65 TUI commands. 62 source modules. 3425 tests. 0 runtime deps.
+66 source modules. 102 test files. 3441 tests. 0 runtime deps.
+
+## Ideas Backlog
+- **Wire v1.9 modules into daemon** — /federation, /archives, /runbook-gen, /alert-rules + per-tick alert evaluation
+- **Web dashboard v2** — real-time browser UI via SSE from daemon
+- **Reasoner plugin system** — load custom backends as ESM modules
+- **Session replay TUI player** — animated step-through with timing controls
+- **Multi-reasoner parallel calls** — call backends concurrently, merge results
+- **Alert rule DSL** — user-defined alert rules via config file
+- **Federation auto-discovery** — daemons find each other via multicast/mDNS
+- **Output archival to R2/S3** — remote storage for long-term retention
+- **Runbook execution engine** — auto-execute generated runbooks step-by-step
+- **Fleet health forecasting** — predict health trends from historical data

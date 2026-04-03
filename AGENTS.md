@@ -137,6 +137,10 @@ The main loop is split into two layers:
 | `src/ab-reasoning.ts` | A/B reasoning: compare two backends, track which wins |
 | `src/workflow-cost-forecast.ts` | Estimate workflow cost from difficulty + historical rates |
 | `src/workflow-chain.ts` | Chain workflows with cross-workflow dependencies |
+| `src/fleet-federation.ts` | Multi-host fleet coordination via HTTP health endpoints |
+| `src/output-archival.ts` | Compress + archive old session outputs to gzipped files |
+| `src/runbook-generator.ts` | Auto-generate operator runbooks from audit trail patterns |
+| `src/alert-rules.ts` | Custom fleet alerting rules with severity + cooldown |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -325,7 +329,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 3409 unit + integration + property tests across 98+ files, `node:test` (stdlib, zero deps)
+- 3441 unit + integration + property + stress tests across 102+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
