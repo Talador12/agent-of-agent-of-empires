@@ -224,6 +224,9 @@ The main loop is split into two layers:
 | `src/fleet-alert-dashboard.ts` | Unified alert view with acknowledge/dismiss, severity counts, source filter |
 | `src/session-lang-detector.ts` | Detect programming language from output patterns (10 languages) |
 | `src/goal-sla-enforcement.ts` | Per-goal time limits with ok/warning/breached status + auto-escalation |
+| `src/fleet-auto-scaler.ts` | Scale session slots by utilization + queue depth (scale-up/down/hold) |
+| `src/goal-gamification.ts` | XP/levels/badges for sessions based on completions + streaks |
+| `src/daemon-audit-report.ts` | Compliance audit reports with action breakdown + grading |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -251,7 +254,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-One hundred and eleven modules run every daemon tick without LLM calls:
+One hundred and fourteen modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -761,7 +764,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4410 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4438 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -1139,6 +1142,21 @@ Shipped 3 features in v5.6.0 (36 new tests, 3 modules, 3 TUI commands):
 
 Running total: 153 source modules, 154 TUI commands, 4410 tests, zero runtime deps.
 
+### v5.7.0 Session Response
+
+Shipped 3 features in v5.7.0 (28 new tests, 3 modules, 3 TUI commands):
+1. **`fleet-auto-scaler.ts`** + 8 tests — Scale session slots by utilization +
+   queue depth. Scale-up/down/hold with cooldown, min/max limits, target util.
+   Scaling history. `/auto-scaler`.
+2. **`goal-gamification.ts`** + 11 tests — XP/levels for sessions. Base XP +
+   bonuses (fast/cheap/zero-error). Streak tracking, 6 badges (First Blood,
+   Speed Demon, Perfectionist, On Fire, Veteran, Legend). `/gamification`.
+3. **`daemon-audit-report.ts`** + 9 tests — Compliance audit reports. Action
+   breakdown, session activity, success rate, grading (pass/review-needed/
+   fail). Markdown + TUI. `/audit-report`.
+
+Running total: 156 source modules, 157 TUI commands, 4438 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -1187,9 +1205,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v5.4 | Dedup + Migration + Prediction | SessionOutputDedup, DaemonConfigMigration, GoalProgressPrediction |
 | v5.5 | Dashboard + Repair + Evolution | FleetOpsDashboard, GoalDepAutoRepair, SessionPatternEvolution |
 | v5.6 | Alerts + Language + SLA | FleetAlertDashboard, SessionLangDetector, GoalSlaEnforcement |
+| v5.7 | Scaling + Gamification + Audit | FleetAutoScaler, GoalGamification, DaemonAuditReport |
 
-**Totals**: 153 source modules, 120+ test files, 154 TUI commands, 20 CLI subcommands,
-4410 tests, ~45,000 lines added, zero runtime dependencies.
+**Totals**: 156 source modules, 120+ test files, 157 TUI commands, 20 CLI subcommands,
+4438 tests, ~46,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

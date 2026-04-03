@@ -190,6 +190,9 @@ import { createEvolutionState, recordWindow, formatPatternEvolution } from "./se
 import { createAlertDashboard, addAlert, acknowledgeAlert, formatAlertDashboard } from "./fleet-alert-dashboard.js";
 import { detectFleetLanguages, formatLangDetection } from "./session-lang-detector.js";
 import { createSlaState, registerGoalSla, checkGoalSlas, formatSlaChecks } from "./goal-sla-enforcement.js";
+import { createAutoScaler, computeScaling, formatAutoScaler } from "./fleet-auto-scaler.js";
+import { createXPState, formatGamification } from "./goal-gamification.js";
+import { generateAuditReport, formatAuditReportTui } from "./daemon-audit-report.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -755,6 +758,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const patternEvolutionState = createEvolutionState();
   const alertDashboardState = createAlertDashboard();
   const goalSlaState = createSlaState();
+  const autoScalerState = createAutoScaler();
+  const xpState = createXPState();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3661,6 +3666,36 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         const lines = formatSlaChecks(checks);
         for (const l of lines) tui!.log("system", l);
       }
+    });
+    // wire /auto-scaler — fleet auto-scaling
+    input.onAutoScaler(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const poolStatus = sessionPoolManager.getStatus(tasks);
+      const decision = computeScaling(autoScalerState, {
+        currentSlots: poolStatus.maxConcurrent,
+        activeSlots: poolStatus.activeCount,
+        queuedTasks: poolStatus.pendingCount,
+        completionsPerHour: 0,
+        arrivalsPerHour: 0,
+      });
+      const lines = formatAutoScaler(decision, autoScalerState);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /gamification — XP leaderboard
+    input.onGamification(() => {
+      const lines = formatGamification(xpState);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /audit-report — compliance audit report
+    input.onAuditReport(() => {
+      const report = generateAuditReport({
+        periodLabel: new Date().toISOString().slice(0, 10),
+        actions: [], approvals: [],
+        escalations: 0, errors: 0,
+        totalCostUsd: 0, reasonerCalls: 0,
+      });
+      const lines = formatAuditReportTui(report);
+      for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

@@ -244,6 +244,9 @@ export type PatternEvolutionHandler = () => void; // show output pattern evoluti
 export type AlertDashboardHandler = (args: string) => void; // manage alert dashboard
 export type LangDetectHandler = () => void; // detect programming languages
 export type GoalSlaHandler = (args: string) => void; // manage goal SLA enforcement
+export type AutoScalerHandler = () => void; // show auto-scaler state
+export type GamificationHandler = () => void; // show XP/level leaderboard
+export type AuditReportHandler = () => void; // generate audit compliance report
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1043,6 +1046,12 @@ export class InputReader {
   onAlertDashboard(handler: AlertDashboardHandler): void { this.alertDashboardHandler = handler; }
   onLangDetect(handler: LangDetectHandler): void { this.langDetectHandler = handler; }
   onGoalSla(handler: GoalSlaHandler): void { this.goalSlaHandler = handler; }
+  private autoScalerHandler: AutoScalerHandler | null = null;
+  private gamificationHandler: GamificationHandler | null = null;
+  private auditReportHandler: AuditReportHandler | null = null;
+  onAutoScaler(handler: AutoScalerHandler): void { this.autoScalerHandler = handler; }
+  onGamification(handler: GamificationHandler): void { this.gamificationHandler = handler; }
+  onAuditReport(handler: AuditReportHandler): void { this.auditReportHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3312,6 +3321,21 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}goal-sla not available (no TUI)${RESET}`);
         break;
       }
+
+      case "/auto-scaler":
+        if (this.autoScalerHandler) this.autoScalerHandler();
+        else console.error(`${DIM}auto-scaler not available (no TUI)${RESET}`);
+        break;
+
+      case "/gamification":
+        if (this.gamificationHandler) this.gamificationHandler();
+        else console.error(`${DIM}gamification not available (no TUI)${RESET}`);
+        break;
+
+      case "/audit-report":
+        if (this.auditReportHandler) this.auditReportHandler();
+        else console.error(`${DIM}audit-report not available (no TUI)${RESET}`);
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");
