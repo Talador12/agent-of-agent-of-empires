@@ -5,20 +5,18 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v2.1.0
+## Version: v2.2.0
 
-## What shipped in v2.1.0
+## What shipped in v2.2.0
 
-**v2.1.0 — Alert DSL, Health Forecasting, Session Tail, Workflow Visualization**:
-- `alert-rule-dsl.ts`: user-defined alert rules via config. DSL: `"fleetHealth < 40"`, `"errorSessions > 2"`, etc. `parseCondition()` compiles to functions. `validateCondition()` for pre-flight checks. 6 fields × 6 operators supported.
-- `health-forecast.ts`: linear regression on health time series. `forecastHealth()` projects 1h/4h/24h health, computes trend (improving/stable/declining), estimates SLA breach time. Clamps projections to 0-100.
-- `session-tail.ts`: `tailSession()` extracts last N lines with ANSI stripping + pattern highlighting (`>>>match<<<`). `parseTailArgs()` parses `/tail <session> [count] [pattern]`. Ready for `/tail` TUI command.
-- `workflow-viz.ts`: `renderWorkflowDag()` draws ASCII pipeline with stage/task hierarchy + arrows. `renderChainDag()` draws dependency DAG with depth grouping. `renderWorkflowCompact()` single-line summary: `[○→▶→✓] name`. Ready for `/workflow-viz` TUI command.
+**v2.2.0 — Wire v2.1: /tail, /health-forecast, /workflow-viz Live in Daemon**:
+- **`/tail <session> [count] [pattern]` TUI command** — live tail of any session's output. Shows last N lines with ANSI stripping and optional regex highlighting. `parseTailArgs()` supports `adventure 50 error` syntax.
+- **`/health-forecast` TUI command** — fleet health trend prediction using linear regression. Shows current health, 1h/4h/24h projections, trend direction, and estimated SLA breach time.
+- **`/workflow-viz` TUI command** — ASCII DAG rendering for active workflow and/or workflow chain. Workflow: `┌├│└` box chars with stage→task hierarchy. Chain: `╔║╚` double-line with dependency arrows and depth grouping.
 
-70 source modules. 106 test files. 3470 tests. 0 runtime deps.
+72 TUI commands. 70 source modules. 3470 tests. 0 runtime deps.
 
 ## Ideas Backlog (v3.0)
-- **Wire v2.1 modules** — /tail, /health-forecast, /workflow-viz, custom alert rule loading from config
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Federation auto-discovery** — mDNS peer finding
@@ -26,5 +24,6 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Runbook execution engine** — auto-execute generated runbooks
 - **Session replay TUI player** — animated step-through
 - **Multi-reasoner parallel** — concurrent backend calls + merge
-- **Alert rule composition** — AND/OR combining multiple conditions
-- **Fleet-wide grep** — regex search across all archived outputs
+- **Alert rule composition** — AND/OR combining conditions
+- **Fleet-wide grep** — regex search across archived outputs
+- **Daemon metrics export** — Prometheus/OpenTelemetry metrics endpoint

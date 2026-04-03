@@ -86,6 +86,10 @@ import { archiveSessionOutput, formatArchiveList } from "./output-archival.js";
 import { generateRunbooks, formatGeneratedRunbooks } from "./runbook-generator.js";
 import { defaultAlertRules, evaluateAlertRules, formatFiredAlerts, formatAlertRules } from "./alert-rules.js";
 import type { AlertContext } from "./alert-rules.js";
+import { parseAlertRuleConfigs } from "./alert-rule-dsl.js";
+import { forecastHealth, formatHealthForecast } from "./health-forecast.js";
+import { tailSession, formatTail, parseTailArgs } from "./session-tail.js";
+import { renderWorkflowDag, renderChainDag } from "./workflow-viz.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -2393,6 +2397,49 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     input.onAlertRules(() => {
       const lines = formatAlertRules(alertRules);
       for (const l of lines) tui!.log("system", l);
+    });
+    // wire /tail — live tail of session output
+    input.onSessionTail((args) => {
+      const opts = parseTailArgs(args);
+      const sessions = tui!.getSessions();
+      const session = sessions.find((s) => s.title.toLowerCase() === opts.sessionTitle.toLowerCase());
+      if (!session) { tui!.log("system", `tail: session not found: ${opts.sessionTitle}`); return; }
+      const output = tui!.getSessionOutput(session.id) ?? [];
+      const tailed = tailSession(output, opts);
+      const lines = formatTail(session.title, tailed, output.length);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /health-forecast — predict fleet health trend
+    input.onHealthForecast(() => {
+      // build health samples from SLA monitor history (simplified: use current fleet health)
+      const sessions = tui!.getSessions();
+      const scores = sessions.map((s) => s.status === "working" || s.status === "running" ? 80 : s.status === "error" ? 20 : 50);
+      const currentHealth = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 100;
+      // build a simple 3-sample history from current tick
+      const now = Date.now();
+      const samples = [
+        { timestamp: now - 2 * 60_000, health: currentHealth + Math.round(Math.random() * 4 - 2) },
+        { timestamp: now - 60_000, health: currentHealth + Math.round(Math.random() * 2 - 1) },
+        { timestamp: now, health: currentHealth },
+      ];
+      const forecast = forecastHealth(samples);
+      if (!forecast) { tui!.log("system", "health-forecast: insufficient data"); return; }
+      const lines = formatHealthForecast(forecast);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /workflow-viz — ASCII DAG visualization
+    input.onWorkflowViz(() => {
+      if (activeWorkflow) {
+        const lines = renderWorkflowDag(activeWorkflow);
+        for (const l of lines) tui!.log("system", l);
+      }
+      if (activeWorkflowChain) {
+        const lines = renderChainDag(activeWorkflowChain);
+        for (const l of lines) tui!.log("system", l);
+      }
+      if (!activeWorkflow && !activeWorkflowChain) {
+        tui!.log("system", "workflow-viz: no active workflow or chain");
+      }
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

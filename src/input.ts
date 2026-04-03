@@ -159,6 +159,9 @@ export type FederationHandler = () => void; // show federation overview
 export type ArchivesHandler = () => void; // show output archives
 export type RunbookGenHandler = () => void; // generate runbooks from audit trail
 export type AlertRulesHandler = () => void; // show alert rules status
+export type SessionTailHandler = (args: string) => void; // tail session output
+export type HealthForecastHandler = () => void; // show health trend forecast
+export type WorkflowVizHandler = () => void; // show workflow ASCII DAG
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -788,6 +791,12 @@ export class InputReader {
   onArchives(handler: ArchivesHandler): void { this.archivesHandler = handler; }
   onRunbookGen(handler: RunbookGenHandler): void { this.runbookGenHandler = handler; }
   onAlertRules(handler: AlertRulesHandler): void { this.alertRulesHandler = handler; }
+  private sessionTailHandler: SessionTailHandler | null = null;
+  private healthForecastHandler: HealthForecastHandler | null = null;
+  private workflowVizHandler: WorkflowVizHandler | null = null;
+  onSessionTail(handler: SessionTailHandler): void { this.sessionTailHandler = handler; }
+  onHealthForecast(handler: HealthForecastHandler): void { this.healthForecastHandler = handler; }
+  onWorkflowViz(handler: WorkflowVizHandler): void { this.workflowVizHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2562,6 +2571,24 @@ ${BOLD}other:${RESET}
       case "/alert-rules":
         if (this.alertRulesHandler) this.alertRulesHandler();
         else console.error(`${DIM}alert-rules not available (no TUI)${RESET}`);
+        break;
+
+      case "/tail": {
+        const tlArg = line.slice("/tail".length).trim();
+        if (!tlArg) { console.error(`${DIM}usage: /tail <session> [count] [pattern]${RESET}`); break; }
+        if (this.sessionTailHandler) this.sessionTailHandler(tlArg);
+        else console.error(`${DIM}tail not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/health-forecast":
+        if (this.healthForecastHandler) this.healthForecastHandler();
+        else console.error(`${DIM}health-forecast not available (no TUI)${RESET}`);
+        break;
+
+      case "/workflow-viz":
+        if (this.workflowVizHandler) this.workflowVizHandler();
+        else console.error(`${DIM}workflow-viz not available (no TUI)${RESET}`);
         break;
 
       case "/clear":
