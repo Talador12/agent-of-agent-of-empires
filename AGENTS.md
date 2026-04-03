@@ -316,6 +316,11 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 - `aoaoe service` — generate systemd/launchd service file for boot start
 - `aoaoe completions <bash|zsh|fish>` — generate shell autocomplete script
 
+### Reasoning Pipeline Gates (8 total)
+0. Token quota (per-model) → 1. Fleet rate limiter ($) → 2. Observation cache →
+3. Priority filter → 4. Context compressor → 5. LLM call → 6. Approval workflow →
+7. Cost + token tracking
+
 ### Testing
 - 3387 unit + integration + property tests across 95+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline

@@ -148,6 +148,10 @@ export type ExportHandler = () => void; // generate fleet HTML report
 export type ServiceHandler = () => void; // generate service file for boot
 export type SessionReplayHandler = (target: string) => void; // replay session activity
 export type WorkflowHandler = () => void; // show workflow state
+export type MultiReasonerHandler = () => void; // show reasoner assignments
+export type TokenQuotaHandler = () => void; // show per-model token quotas
+export type CheckpointHandler = () => void; // show checkpoint info
+export type WorkflowNewHandler = (template: string) => void; // create workflow from template
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -755,6 +759,14 @@ export class InputReader {
   onService(handler: ServiceHandler): void { this.serviceHandler = handler; }
   onSessionReplay(handler: SessionReplayHandler): void { this.sessionReplayHandler = handler; }
   onWorkflow(handler: WorkflowHandler): void { this.workflowHandler = handler; }
+  private multiReasonerHandler: MultiReasonerHandler | null = null;
+  private tokenQuotaHandler: TokenQuotaHandler | null = null;
+  private checkpointHandler: CheckpointHandler | null = null;
+  private workflowNewHandler: WorkflowNewHandler | null = null;
+  onMultiReasoner(handler: MultiReasonerHandler): void { this.multiReasonerHandler = handler; }
+  onTokenQuota(handler: TokenQuotaHandler): void { this.tokenQuotaHandler = handler; }
+  onCheckpoint(handler: CheckpointHandler): void { this.checkpointHandler = handler; }
+  onWorkflowNew(handler: WorkflowNewHandler): void { this.workflowNewHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -2469,6 +2481,29 @@ ${BOLD}other:${RESET}
         if (this.workflowHandler) this.workflowHandler();
         else console.error(`${DIM}workflow not available (no TUI)${RESET}`);
         break;
+
+      case "/multi-reasoner":
+        if (this.multiReasonerHandler) this.multiReasonerHandler();
+        else console.error(`${DIM}multi-reasoner not available (no TUI)${RESET}`);
+        break;
+
+      case "/token-quota":
+        if (this.tokenQuotaHandler) this.tokenQuotaHandler();
+        else console.error(`${DIM}token-quota not available (no TUI)${RESET}`);
+        break;
+
+      case "/checkpoint":
+        if (this.checkpointHandler) this.checkpointHandler();
+        else console.error(`${DIM}checkpoint not available (no TUI)${RESET}`);
+        break;
+
+      case "/workflow-new": {
+        const wnArg = line.slice("/workflow-new".length).trim();
+        if (!wnArg) { console.error(`${DIM}usage: /workflow-new <template> <prefix>${RESET}`); break; }
+        if (this.workflowNewHandler) this.workflowNewHandler(wnArg);
+        else console.error(`${DIM}workflow-new not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

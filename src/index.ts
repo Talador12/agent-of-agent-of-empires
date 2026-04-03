@@ -72,6 +72,10 @@ import { installService } from "./service-generator.js";
 import { buildSessionReplay, formatReplay, summarizeReplay } from "./session-replay.js";
 import { createWorkflowState, advanceWorkflow, formatWorkflow } from "./workflow-engine.js";
 import type { WorkflowState } from "./workflow-engine.js";
+import { assignReasonerBackends, formatAssignments } from "./multi-reasoner.js";
+import { TokenQuotaManager } from "./token-quota.js";
+import { saveCheckpoint, loadCheckpoint, buildCheckpoint, formatCheckpointInfo, shouldRestoreCheckpoint } from "./session-checkpoint.js";
+import { findWorkflowTemplate, instantiateWorkflow, formatWorkflowTemplateList } from "./workflow-templates.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -598,6 +602,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const approvalQueue = new ApprovalQueue();
   const graduationManager = new GraduationManager();
   let activeWorkflow: WorkflowState | null = null;
+  const tokenQuotaManager = new TokenQuotaManager();
 
   // audit: log daemon start
   audit("daemon_start", `daemon started (v${pkg ?? "dev"}, reasoner=${config.reasoner})`);
@@ -2264,6 +2269,43 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const lines = formatWorkflow(activeWorkflow);
       for (const l of lines) tui!.log("system", l);
     });
+    // wire /multi-reasoner — show reasoner assignments
+    input.onMultiReasoner(() => {
+      const sessions = tui!.getSessions();
+      const sessionInfos = sessions.map((s) => ({ title: s.title, template: undefined as string | undefined, difficultyScore: undefined as number | undefined }));
+      const assignments = assignReasonerBackends(sessionInfos, { defaultBackend: config.reasoner as any });
+      const lines = formatAssignments(assignments);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /token-quota — per-model token quotas
+    input.onTokenQuota(() => {
+      const lines = tokenQuotaManager.formatAll();
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /checkpoint — show checkpoint info
+    input.onCheckpoint(() => {
+      const lines = formatCheckpointInfo();
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /workflow-new — create workflow from template
+    input.onWorkflowNew((args) => {
+      const parts = args.split(/\s+/);
+      const templateName = parts[0];
+      const prefix = parts[1] ?? "wf";
+      const template = findWorkflowTemplate(templateName);
+      if (!template) {
+        tui!.log("system", `workflow-new: template "${templateName}" not found`);
+        const lines = formatWorkflowTemplateList();
+        for (const l of lines) tui!.log("system", l);
+        return;
+      }
+      const def = instantiateWorkflow(template, prefix);
+      activeWorkflow = createWorkflowState(def);
+      tui!.log("+ action", `workflow "${def.name}" created from template "${templateName}" (${def.stages.length} stages)`);
+      audit("task_created", `workflow created: ${def.name} from ${templateName}`, undefined, { stages: def.stages.length });
+      const lines = formatWorkflow(activeWorkflow);
+      for (const l of lines) tui!.log("system", l);
+    });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();
       const summary = computeCostSummary(sessions, tui!.getAllSessionCosts());
@@ -2737,9 +2779,31 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       .then(() => reasoner?.shutdown())
       .catch((err) => console.error(`[shutdown] error during cleanup: ${err}`))
       .finally(() => {
-        cleanupState();
-        process.exit(0);
-      });
+         // save daemon state checkpoint before exit
+         try {
+           const cp = buildCheckpoint({
+             graduation: Object.fromEntries(
+               [...(tui?.getSessions() ?? [])].map((s) => [s.title, {
+                 mode: graduationManager.getState(s.title)?.currentMode ?? "confirm",
+                 successes: graduationManager.getState(s.title)?.successfulActions ?? 0,
+                 failures: graduationManager.getState(s.title)?.failedActions ?? 0,
+                 rate: graduationManager.getState(s.title)?.successRate ?? 0,
+               }])
+             ),
+             escalation: {},
+             velocitySamples: {},
+             nudgeRecords: [],
+             budgetSamples: {},
+             cacheStats: { hits: observationCache.getStats().totalHits, misses: observationCache.getStats().totalMisses },
+             slaHistory: [],
+             pollInterval: adaptivePollController.intervalMs,
+           });
+           saveCheckpoint(cp);
+           audit("daemon_stop", "daemon stopped, checkpoint saved");
+         } catch { /* best-effort */ }
+         cleanupState();
+         process.exit(0);
+       });
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
@@ -3585,6 +3649,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
           escalationManager,
           graduationManager,
           approvalQueue,
+          tokenQuotaManager,
           pushSupervisorEvent,
           refreshTaskSupervisorState,
         });
@@ -3813,6 +3878,7 @@ async function daemonTick(
     escalationManager: EscalationManager;
     graduationManager: GraduationManager;
     approvalQueue: ApprovalQueue;
+    tokenQuotaManager: TokenQuotaManager;
     pushSupervisorEvent: (detail: string) => void;
     refreshTaskSupervisorState: (reason?: string) => void;
   },
@@ -3844,6 +3910,14 @@ async function daemonTick(
     init: () => reasoner.init(),
     shutdown: () => reasoner.shutdown(),
     decide: async (obs) => {
+      // ── gate 0: per-model token quota — block if model quota exceeded ──
+      if (intelligence?.tokenQuotaManager.isBlocked(config.reasoner)) {
+        const status = intelligence.tokenQuotaManager.getStatus(config.reasoner);
+        if (tui) tui.log("status", `⏸ token quota exceeded for ${config.reasoner}: ${status.reason}`);
+        audit("reasoner_action", `token quota blocked: ${config.reasoner} — ${status.reason}`);
+        return { actions: [{ action: "wait" as const, reason: `token quota: ${status.reason}` }] };
+      }
+
       // ── gate 1: fleet rate limiter — block if over API spend limits ──
       if (intelligence?.fleetRateLimiter.isBlocked()) {
         const status = intelligence.fleetRateLimiter.getStatus();
@@ -3924,6 +3998,8 @@ async function daemonTick(
         intelligence.reasonerCostTracker.recordCall("fleet", tokenEstimate, outputEstimate, reasonerDurationMs);
         intelligence.fleetRateLimiter.recordCost(estimateCallCost(tokenEstimate, outputEstimate));
         intelligence.observationCache.set(obsJson, r);
+        // per-model token quota tracking
+        intelligence.tokenQuotaManager.recordUsage(config.reasoner, tokenEstimate, outputEstimate);
 
         // approval workflow: gate risky/low-confidence actions through approval queue
         if (config.confirm || r.confidence === "low") {
