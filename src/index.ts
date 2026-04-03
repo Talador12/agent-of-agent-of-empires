@@ -64,6 +64,10 @@ import { RecoveryPlaybookManager } from "./recovery-playbook.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
+import { loadSessionMemory, formatSessionMemory, listSessionMemories } from "./session-memory.js";
+import { buildGraph, renderGraph, detectCycles, formatCycles } from "./dep-graph-viz.js";
+import { ApprovalQueue } from "./approval-queue.js";
+import { compareLatestSnapshots, formatFleetDiff } from "./fleet-diff.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown, formatTaskExportJson, formatTaskExportMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
@@ -557,6 +561,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const observationCache = new ObservationCache();
   const fleetRateLimiter = new FleetRateLimiter();
   const recoveryPlaybookManager = new RecoveryPlaybookManager();
+  const approvalQueue = new ApprovalQueue();
 
   // audit: log daemon start
   audit("daemon_start", `daemon started (v${pkg ?? "dev"}, reasoner=${config.reasoner})`);
@@ -2037,6 +2042,54 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       if (!task) { tui!.log("system", `decompose: task not found: ${target}`); return; }
       const result = decomposeGoal(task.goal, task.sessionTitle);
       const lines = formatDecomposition(result);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /memory — session memory viewer
+    input.onMemory((target) => {
+      const memory = loadSessionMemory(target);
+      const lines = formatSessionMemory(memory);
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /dep-graph — dependency graph visualization
+    input.onDepGraph(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const nodes = buildGraph(tasks);
+      const lines = renderGraph(nodes);
+      for (const line of lines) tui!.log("system", line);
+      const cycles = detectCycles(tasks);
+      const cycleLines = formatCycles(cycles);
+      for (const line of cycleLines) tui!.log("system", line);
+    });
+    // wire /approvals — approval queue viewer
+    input.onApprovalQueue(() => {
+      const lines = approvalQueue.formatQueue();
+      for (const line of lines) tui!.log("system", line);
+    });
+    // wire /approve — approve pending decision
+    input.onApprove((target) => {
+      if (target === "all") {
+        const count = approvalQueue.approveAll();
+        tui!.log("system", `approved ${count} pending decision${count !== 1 ? "s" : ""}`);
+      } else {
+        const ok = approvalQueue.approve(target);
+        tui!.log("system", ok ? `approved: ${target}` : `not found: ${target}`);
+      }
+    });
+    // wire /reject — reject pending decision
+    input.onReject((target) => {
+      if (target === "all") {
+        const count = approvalQueue.rejectAll();
+        tui!.log("system", `rejected ${count} pending decision${count !== 1 ? "s" : ""}`);
+      } else {
+        const ok = approvalQueue.reject(target);
+        tui!.log("system", ok ? `rejected: ${target}` : `not found: ${target}`);
+      }
+    });
+    // wire /fleet-diff — compare latest fleet snapshots
+    input.onFleetDiff(() => {
+      const result = compareLatestSnapshots();
+      if (!result) { tui!.log("system", "fleet-diff: need at least 2 fleet snapshots"); return; }
+      const lines = formatFleetDiff(result);
       for (const line of lines) tui!.log("system", line);
     });
     input.onCostSummary(() => {

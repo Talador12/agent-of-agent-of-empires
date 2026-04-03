@@ -128,6 +128,12 @@ export type RecoveryHandler = () => void; // show recovery playbook states
 export type LifecycleHandler = () => void; // show task lifecycle analytics
 export type CostReportHandler = () => void; // show cost attribution report
 export type DecomposeHandler = (target: string) => void; // decompose a task's goal
+export type MemoryHandler = (target: string) => void; // show session memory
+export type DepGraphHandler = () => void; // show dependency graph visualization
+export type ApprovalQueueHandler = () => void; // show approval queue
+export type ApproveHandler = (target: string) => void; // approve pending decision
+export type RejectHandler = (target: string) => void; // reject pending decision
+export type FleetDiffHandler = () => void; // compare latest fleet snapshots
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -337,6 +343,12 @@ export class InputReader {
   private lifecycleHandler: LifecycleHandler | null = null;
   private costReportHandler: CostReportHandler | null = null;
   private decomposeHandler: DecomposeHandler | null = null;
+  private memoryHandler: MemoryHandler | null = null;
+  private depGraphHandler: DepGraphHandler | null = null;
+  private approvalQueueHandler: ApprovalQueueHandler | null = null;
+  private approveHandler: ApproveHandler | null = null;
+  private rejectHandler: RejectHandler | null = null;
+  private fleetDiffHandler: FleetDiffHandler | null = null;
   private sessionReportHandler: SessionReportHandler | null = null;
   private quietStatusHandler: QuietStatusHandler | null = null;
   private alertLogHandler: AlertLogHandler | null = null;
@@ -698,6 +710,12 @@ export class InputReader {
   onLifecycle(handler: LifecycleHandler): void { this.lifecycleHandler = handler; }
   onCostReport(handler: CostReportHandler): void { this.costReportHandler = handler; }
   onDecompose(handler: DecomposeHandler): void { this.decomposeHandler = handler; }
+  onMemory(handler: MemoryHandler): void { this.memoryHandler = handler; }
+  onDepGraph(handler: DepGraphHandler): void { this.depGraphHandler = handler; }
+  onApprovalQueue(handler: ApprovalQueueHandler): void { this.approvalQueueHandler = handler; }
+  onApprove(handler: ApproveHandler): void { this.approveHandler = handler; }
+  onReject(handler: RejectHandler): void { this.rejectHandler = handler; }
+  onFleetDiff(handler: FleetDiffHandler): void { this.fleetDiffHandler = handler; }
 
   /** Set aliases from persisted prefs. */
   setAliases(aliases: Record<string, string>): void {
@@ -2283,6 +2301,45 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}decompose not available (no TUI)${RESET}`);
         break;
       }
+
+      case "/memory": {
+        const memArg = line.slice("/memory".length).trim();
+        if (!memArg) { console.error(`${DIM}usage: /memory <N|name>${RESET}`); break; }
+        if (this.memoryHandler) this.memoryHandler(memArg);
+        else console.error(`${DIM}memory not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/dep-graph":
+        if (this.depGraphHandler) this.depGraphHandler();
+        else console.error(`${DIM}dep-graph not available (no TUI)${RESET}`);
+        break;
+
+      case "/approvals":
+        if (this.approvalQueueHandler) this.approvalQueueHandler();
+        else console.error(`${DIM}approvals not available (no TUI)${RESET}`);
+        break;
+
+      case "/approve": {
+        const apArg = line.slice("/approve".length).trim();
+        if (!apArg) { console.error(`${DIM}usage: /approve <id|all>${RESET}`); break; }
+        if (this.approveHandler) this.approveHandler(apArg);
+        else console.error(`${DIM}approve not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/reject": {
+        const rjArg = line.slice("/reject".length).trim();
+        if (!rjArg) { console.error(`${DIM}usage: /reject <id|all>${RESET}`); break; }
+        if (this.rejectHandler) this.rejectHandler(rjArg);
+        else console.error(`${DIM}reject not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/fleet-diff":
+        if (this.fleetDiffHandler) this.fleetDiffHandler();
+        else console.error(`${DIM}fleet-diff not available (no TUI)${RESET}`);
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");
