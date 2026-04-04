@@ -206,6 +206,9 @@ import { generateComplianceReport as generateCompReport, formatComplianceReportT
 import { analyzeCostOptimizations, formatCostOptimizer } from "./fleet-cost-optimizer.js";
 import { createHeatmapState as createProgressHeatmap, formatProgressHeatmap } from "./goal-progress-heatmap.js";
 import { createModuleDepGraph, formatModuleDeps } from "./daemon-module-deps.js";
+import { FleetCostTrend, formatCostTrend } from "./fleet-cost-trend.js";
+import { tagFleetComplexity, formatComplexityTags } from "./goal-complexity-tagger.js";
+import { createEventStore, formatEventStore } from "./daemon-event-sourcing.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -777,6 +780,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const shutdownState = createShutdownState();
   const perfRegressionDetector = new DaemonPerfRegression();
   const progressHeatmapState = createProgressHeatmap();
+  const costTrendTracker = new FleetCostTrend();
+  const daemonEventStore = createEventStore();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3821,6 +3826,27 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         { moduleName: "intelligence", dependsOn: ["poller"], category: "intelligence" },
       ]);
       const lines = formatModuleDeps(graph);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /cost-trend — cost trend analysis
+    input.onCostTrend(() => {
+      const lines = formatCostTrend(costTrendTracker);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /complexity — goal complexity tagging
+    input.onComplexityTagger(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const inputs = tasks.filter((t) => t.status === "active" || t.status === "pending").map((t) => ({
+        sessionTitle: t.sessionTitle, goal: t.goal,
+        depCount: t.dependsOn?.length ?? 0, subGoalCount: 0,
+      }));
+      const tags = tagFleetComplexity(inputs);
+      const lines = formatComplexityTags(tags);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /event-store — daemon event store
+    input.onEventSourcing(() => {
+      const lines = formatEventStore(daemonEventStore);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {

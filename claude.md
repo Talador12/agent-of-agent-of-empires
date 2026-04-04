@@ -5,16 +5,23 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v6.1.0
+## Version: v6.2.0
+
+## What shipped in v6.2.0
+
+**v6.2.0 — Cost Trend, Complexity Tagger, Event Sourcing**:
+- `fleet-cost-trend.ts`: Week-over-week cost trend with daily snapshots, rolling averages, direction detection, sparkline, weekly/monthly projections. **`/cost-trend`** command.
+- `goal-complexity-tagger.ts`: Tag goals with complexity level (trivial→epic). Keyword scope analysis, description length, deps, multi-task indicators. Score 0-100. **`/complexity`** command.
+- `daemon-event-sourcing.ts`: Immutable event store with append, query (type/source/time-range), type counts, reducer-based replay for state reconstruction. **`/event-store`** command.
+
+172 TUI commands. 171 source modules. 4594 tests. 0 runtime deps.
 
 ## What shipped in v6.1.0
 
 **v6.1.0 — Cost Optimizer, Progress Heatmap, Module Deps**:
-- `fleet-cost-optimizer.ts`: Actionable cost reduction recommendations: throttle high-burn, pause idle, complete near-done, review cost hogs. Potential savings estimate, priority-sorted. **`/cost-optimizer`** command.
-- `goal-progress-heatmap.ts`: Hourly progress visualization. 24-column heatmap with Unicode heat characters (░▒▓█). Peak hour detection, normalized rendering. **`/progress-heatmap`** command.
-- `daemon-module-deps.ts`: Inter-module dependency graph. Roots/leaves, category breakdown (core/intelligence/tui/cli/utility), most-depended module identification. **`/module-deps`** command.
-
-169 TUI commands. 168 source modules. 4560 tests. 0 runtime deps.
+- `fleet-cost-optimizer.ts`: Cost reduction recommendations. **`/cost-optimizer`** command.
+- `goal-progress-heatmap.ts`: Hourly progress heatmap. **`/progress-heatmap`** command.
+- `daemon-module-deps.ts`: Module dependency graph. **`/module-deps`** command.
 
 ## What shipped in v6.0.0
 
@@ -23,14 +30,7 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - `daemon-perf-regression.ts`: Tick time regression detector. **`/perf-regression`** command.
 - `fleet-compliance-report.ts`: 5-section compliance report. **`/compliance-report`** command.
 
-## What shipped in v5.9.0
-
-**v5.9.0 — Graceful Shutdown, Dep Impact, Runbook Library**:
-- `daemon-graceful-shutdown.ts`: Phased shutdown. **`/shutdown-status`** command.
-- `goal-dep-impact.ts`: Downstream impact analysis. **`/dep-impact`** command.
-- `fleet-runbook-library.ts`: 6 operational runbooks. **`/runbook`** command.
-
-## Ideas Backlog (v6.2+)
+## Ideas Backlog (v6.3+)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
@@ -56,13 +56,13 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Daemon remote control API** — REST API for external commands
 - **Fleet time-travel** — rewind to any snapshot and compare
 - **Fleet session migration** — move sessions between hosts
-- **Daemon plugin marketplace** — discover and install community hooks
 - **Daemon heartbeat federation** — cross-host daemon health monitoring
 - **Session output AI summarizer** — opt-in LLM summaries for handoffs
 - **Fleet session priority matrix** — 2D urgency vs importance matrix
 - **Session output anomaly classifier** — categorize by root cause type
-- **Fleet cost trend analyzer** — week-over-week cost trend with projection
-- **Goal complexity auto-tagger** — tag goals with estimated complexity level
-- **Daemon event sourcing** — full event-sourced state reconstruction
-- **Session output search v2** — regex + fuzzy + semantic search across fleet
-- **Fleet utilization forecaster** — predict next-day utilization from patterns
+- **Fleet utilization forecaster** — predict next-day utilization
+- **Daemon config version control** — git-style config history with diff
+- **Session output correlation engine** — find related changes across sessions
+- **Fleet cost allocation optimizer** — minimize total cost while maintaining SLA
+- **Goal dependency auto-generator** — infer deps from code import analysis
+- **Daemon distributed lock** — prevent concurrent daemon instances

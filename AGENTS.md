@@ -239,6 +239,9 @@ The main loop is split into two layers:
 | `src/fleet-cost-optimizer.ts` | Actionable cost reduction recommendations (throttle/pause/complete/review) |
 | `src/goal-progress-heatmap.ts` | Hourly progress visualization with Unicode heat characters |
 | `src/daemon-module-deps.ts` | Inter-module dependency graph with roots/leaves/category breakdown |
+| `src/fleet-cost-trend.ts` | Week-over-week cost trend with sparkline + weekly/monthly projection |
+| `src/goal-complexity-tagger.ts` | Tag goals with complexity level (trivial→epic) from keyword + scope analysis |
+| `src/daemon-event-sourcing.ts` | Immutable event store with query/replay/type counts for state reconstruction |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -266,7 +269,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-One hundred and twenty-six modules run every daemon tick without LLM calls:
+One hundred and twenty-nine modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -776,7 +779,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4560 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4594 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -1229,6 +1232,21 @@ Shipped 3 features in v6.1.0 (30 new tests, 3 modules, 3 TUI commands):
 
 Milestone: **50,000+ lines — 168 source modules, 169 TUI commands, 4560 tests, zero runtime deps.**
 
+### v6.2.0 Session Response
+
+Shipped 3 features in v6.2.0 (34 new tests, 3 modules, 3 TUI commands):
+1. **`fleet-cost-trend.ts`** + 11 tests — Week-over-week cost trend analysis.
+   Daily snapshots, rolling 7-day averages, direction detection (increasing/
+   decreasing/stable). Weekly + monthly projections. Sparkline. `/cost-trend`.
+2. **`goal-complexity-tagger.ts`** + 12 tests — Tag goals with complexity
+   (trivial/simple/moderate/complex/epic). Keyword scope analysis, description
+   length, dependency count, multi-task indicators. Score 0-100. `/complexity`.
+3. **`daemon-event-sourcing.ts`** + 11 tests — Immutable event store. Append,
+   query by type/source/time-range, type counts, reducer-based replay for
+   state reconstruction, partial replay (upToId). `/event-store`.
+
+Running total: 171 source modules, 172 TUI commands, 4594 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -1282,9 +1300,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v5.9 | Shutdown + Impact + Runbooks | DaemonGracefulShutdown, GoalDepImpact, FleetRunbookLibrary |
 | v6.0 | Export + Perf + Compliance | GoalDepGraphExport, DaemonPerfRegression, FleetComplianceReport |
 | v6.1 | Optimizer + Heatmap + ModDeps | FleetCostOptimizer, GoalProgressHeatmap, DaemonModuleDeps |
+| v6.2 | Trends + Complexity + Events | FleetCostTrend, GoalComplexityTagger, DaemonEventSourcing |
 
-**Totals**: 168 source modules, 120+ test files, 169 TUI commands, 20 CLI subcommands,
-4560 tests, ~50,000 lines added, zero runtime dependencies.
+**Totals**: 171 source modules, 120+ test files, 172 TUI commands, 20 CLI subcommands,
+4594 tests, ~51,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

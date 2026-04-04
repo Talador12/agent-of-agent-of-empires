@@ -259,6 +259,9 @@ export type ComplianceReportHandler2 = () => void; // generate compliance report
 export type CostOptimizerHandler = () => void; // show cost optimization recommendations
 export type ProgressHeatmapHandler = () => void; // show progress heatmap
 export type ModuleDepsHandler = () => void; // show module dependency graph
+export type CostTrendHandler = () => void; // show cost trend analysis
+export type ComplexityTaggerHandler = () => void; // show goal complexity tags
+export type EventSourcingHandler = () => void; // show event store state
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1088,6 +1091,12 @@ export class InputReader {
   onCostOptimizer(handler: CostOptimizerHandler): void { this.costOptimizerHandler = handler; }
   onProgressHeatmap(handler: ProgressHeatmapHandler): void { this.progressHeatmapHandler = handler; }
   onModuleDeps(handler: ModuleDepsHandler): void { this.moduleDepsHandler = handler; }
+  private costTrendHandler: CostTrendHandler | null = null;
+  private complexityTaggerHandler: ComplexityTaggerHandler | null = null;
+  private eventSourcingHandler: EventSourcingHandler | null = null;
+  onCostTrend(handler: CostTrendHandler): void { this.costTrendHandler = handler; }
+  onComplexityTagger(handler: ComplexityTaggerHandler): void { this.complexityTaggerHandler = handler; }
+  onEventSourcing(handler: EventSourcingHandler): void { this.eventSourcingHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3441,6 +3450,21 @@ ${BOLD}other:${RESET}
       case "/module-deps":
         if (this.moduleDepsHandler) this.moduleDepsHandler();
         else console.error(`${DIM}module-deps not available (no TUI)${RESET}`);
+        break;
+
+      case "/cost-trend":
+        if (this.costTrendHandler) this.costTrendHandler();
+        else console.error(`${DIM}cost-trend not available (no TUI)${RESET}`);
+        break;
+
+      case "/complexity":
+        if (this.complexityTaggerHandler) this.complexityTaggerHandler();
+        else console.error(`${DIM}complexity not available (no TUI)${RESET}`);
+        break;
+
+      case "/event-store":
+        if (this.eventSourcingHandler) this.eventSourcingHandler();
+        else console.error(`${DIM}event-store not available (no TUI)${RESET}`);
         break;
 
       case "/clear":
