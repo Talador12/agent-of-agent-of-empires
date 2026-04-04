@@ -256,6 +256,9 @@ export type RunbookLibraryHandler = (args: string) => void; // browse/search run
 export type DepGraphExportHandler = (args: string) => void; // export dep graph
 export type PerfRegressionHandler = () => void; // show perf regression state
 export type ComplianceReportHandler2 = () => void; // generate compliance report
+export type CostOptimizerHandler = () => void; // show cost optimization recommendations
+export type ProgressHeatmapHandler = () => void; // show progress heatmap
+export type ModuleDepsHandler = () => void; // show module dependency graph
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1079,6 +1082,12 @@ export class InputReader {
   onDepGraphExport(handler: DepGraphExportHandler): void { this.depGraphExportHandler = handler; }
   onPerfRegression(handler: PerfRegressionHandler): void { this.perfRegressionHandler = handler; }
   onComplianceReport2(handler: ComplianceReportHandler2): void { this.complianceReportHandler2 = handler; }
+  private costOptimizerHandler: CostOptimizerHandler | null = null;
+  private progressHeatmapHandler: ProgressHeatmapHandler | null = null;
+  private moduleDepsHandler: ModuleDepsHandler | null = null;
+  onCostOptimizer(handler: CostOptimizerHandler): void { this.costOptimizerHandler = handler; }
+  onProgressHeatmap(handler: ProgressHeatmapHandler): void { this.progressHeatmapHandler = handler; }
+  onModuleDeps(handler: ModuleDepsHandler): void { this.moduleDepsHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3417,6 +3426,21 @@ ${BOLD}other:${RESET}
       case "/compliance-report":
         if (this.complianceReportHandler2) this.complianceReportHandler2();
         else console.error(`${DIM}compliance-report not available (no TUI)${RESET}`);
+        break;
+
+      case "/cost-optimizer":
+        if (this.costOptimizerHandler) this.costOptimizerHandler();
+        else console.error(`${DIM}cost-optimizer not available (no TUI)${RESET}`);
+        break;
+
+      case "/progress-heatmap":
+        if (this.progressHeatmapHandler) this.progressHeatmapHandler();
+        else console.error(`${DIM}progress-heatmap not available (no TUI)${RESET}`);
+        break;
+
+      case "/module-deps":
+        if (this.moduleDepsHandler) this.moduleDepsHandler();
+        else console.error(`${DIM}module-deps not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

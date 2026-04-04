@@ -203,6 +203,9 @@ import { formatGraphExport } from "./goal-dep-graph-export.js";
 import type { GraphNode, GraphFormat } from "./goal-dep-graph-export.js";
 import { DaemonPerfRegression, formatPerfRegression } from "./daemon-perf-regression.js";
 import { generateComplianceReport as generateCompReport, formatComplianceReportTui as formatCompReportTui } from "./fleet-compliance-report.js";
+import { analyzeCostOptimizations, formatCostOptimizer } from "./fleet-cost-optimizer.js";
+import { createHeatmapState as createProgressHeatmap, formatProgressHeatmap } from "./goal-progress-heatmap.js";
+import { createModuleDepGraph, formatModuleDeps } from "./daemon-module-deps.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -773,6 +776,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const startupProfiler = new DaemonStartupProfiler();
   const shutdownState = createShutdownState();
   const perfRegressionDetector = new DaemonPerfRegression();
+  const progressHeatmapState = createProgressHeatmap();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3788,6 +3792,35 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         sessionCount: tasks.length, healthScore: 70,
       });
       const lines = formatCompReportTui(report);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /cost-optimizer — cost optimization recommendations
+    input.onCostOptimizer(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const allCosts = tui!.getAllSessionCosts();
+      const inputs = tasks.map((t) => {
+        const costStr = allCosts.get(t.sessionTitle) ?? "0";
+        return { sessionTitle: t.sessionTitle, costUsd: parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0, burnRatePerHr: costThrottleState.burnRates.get(t.sessionTitle) ?? 0, progressPct: Math.min(100, t.progress.length * 15), idleMinutes: 0, status: t.status };
+      });
+      const report = analyzeCostOptimizations(inputs);
+      const lines = formatCostOptimizer(report);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /progress-heatmap — hourly progress visualization
+    input.onProgressHeatmap(() => {
+      const lines = formatProgressHeatmap(progressHeatmapState);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /module-deps — daemon module dependency graph
+    input.onModuleDeps(() => {
+      const graph = createModuleDepGraph([
+        { moduleName: "poller", dependsOn: [], category: "core" },
+        { moduleName: "reasoner", dependsOn: ["poller"], category: "core" },
+        { moduleName: "executor", dependsOn: ["reasoner"], category: "core" },
+        { moduleName: "tui", dependsOn: ["poller", "reasoner"], category: "tui" },
+        { moduleName: "intelligence", dependsOn: ["poller"], category: "intelligence" },
+      ]);
+      const lines = formatModuleDeps(graph);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
