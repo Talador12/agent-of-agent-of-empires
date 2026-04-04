@@ -5,16 +5,23 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v5.8.0
+## Version: v5.9.0
+
+## What shipped in v5.9.0
+
+**v5.9.0 — Graceful Shutdown, Dep Impact Analysis, Runbook Library**:
+- `daemon-graceful-shutdown.ts`: Phased shutdown (draining→saving→exiting→complete). Track active/drained sessions, drain timeout, state save confirmation. **`/shutdown-status`** command.
+- `goal-dep-impact.ts`: BFS downstream impact analysis for goal changes. Direct + transitive blocked sessions, critical path detection. Fleet-wide risk assessment. **`/dep-impact <session>`** command.
+- `fleet-runbook-library.ts`: 6 built-in operational runbooks (stuck-session, cost-overspend, fleet-health-drop, scale-up, shift-handoff, debug-session). Searchable by keyword/tag. Auto/manual step markers with TUI commands. **`/runbook [id|search]`** command.
+
+163 TUI commands. 162 source modules. 4503 tests. 0 runtime deps.
 
 ## What shipped in v5.8.0
 
 **v5.8.0 — Startup Profiler, Affinity Groups, Session Clipboard**:
-- `daemon-startup-profiler.ts`: Measure module init time for cold-start optimization. Per-module start/end timing, slowest module ID, threshold filtering, percentage bars. **`/startup-profile`** command.
-- `fleet-affinity-groups.ts`: Auto-group sessions by repo path similarity. Same basename = 90% match, shared prefix = proportional. Threshold-gated grouping. **`/affinity-groups`** command.
-- `session-clipboard.ts`: Copy output snippets to system clipboard. Cross-platform (pbcopy/xclip/xsel/wl-copy/powershell). ANSI stripping, maxLines, preview. **`/clipboard <session>`** command.
-
-160 TUI commands. 159 source modules. 4471 tests. 0 runtime deps.
+- `daemon-startup-profiler.ts`: Module init timing. **`/startup-profile`** command.
+- `fleet-affinity-groups.ts`: Auto-group by repo. **`/affinity-groups`** command.
+- `session-clipboard.ts`: Cross-platform clipboard. **`/clipboard`** command.
 
 ## What shipped in v5.7.0
 
@@ -23,14 +30,7 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - `goal-gamification.ts`: XP/levels/badges. **`/gamification`** command.
 - `daemon-audit-report.ts`: Compliance audit reports. **`/audit-report`** command.
 
-## What shipped in v5.6.0
-
-**v5.6.0 — Alert Dashboard, Language Detection, Goal SLA**:
-- `fleet-alert-dashboard.ts`: Unified alert view. **`/alert-dashboard`** command.
-- `session-lang-detector.ts`: 10-language detector. **`/lang-detect`** command.
-- `goal-sla-enforcement.ts`: Per-goal time limits. **`/goal-sla`** command.
-
-## Ideas Backlog (v5.9+)
+## Ideas Backlog (v6.0+)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
@@ -61,9 +61,10 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Fleet multi-tenant isolation** — separate namespaces per team
 - **Daemon memory profiler** — track per-module memory usage over time
 - **Fleet cost waterfall chart** — visualize cost accumulation over time
-- **Session output diff stream** — real-time diff stream for consumers
-- **Fleet session affinity routing v2** — route by language + complexity + load
-- **Goal dependency impact analysis** — predict downstream effects of goal changes
-- **Daemon graceful shutdown** — drain active sessions before exit
-- **Session output search v2** — regex + fuzzy + semantic search across all output
-- **Fleet operational runbook library** — pre-built runbooks for common scenarios
+- **Session output search v2** — regex + fuzzy + semantic search
+- **Fleet session affinity routing v2** — route by language + complexity
+- **Daemon heartbeat federation** — cross-host daemon health monitoring
+- **Session output AI summarizer** — opt-in LLM summaries for shift handoffs
+- **Fleet compliance report generator** — scheduled HTML/PDF compliance reports
+- **Goal dependency graph export** — export dep graph as DOT/Mermaid for docs
+- **Daemon performance regression detector** — alert when tick times increase

@@ -230,6 +230,9 @@ The main loop is split into two layers:
 | `src/daemon-startup-profiler.ts` | Measure module init time, identify bottlenecks for cold-start optimization |
 | `src/fleet-affinity-groups.ts` | Auto-group sessions by repo path similarity |
 | `src/session-clipboard.ts` | Copy output snippets to system clipboard (cross-platform) |
+| `src/daemon-graceful-shutdown.ts` | Drain active sessions before exit with phased shutdown |
+| `src/goal-dep-impact.ts` | BFS downstream impact analysis for goal changes/failures |
+| `src/fleet-runbook-library.ts` | 6 built-in runbooks for common operational scenarios |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -257,7 +260,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-One hundred and seventeen modules run every daemon tick without LLM calls:
+One hundred and twenty modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -767,7 +770,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4471 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4503 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -1175,6 +1178,21 @@ Shipped 3 features in v5.8.0 (33 new tests, 3 modules, 3 TUI commands):
 
 Milestone: **160 TUI commands — 159 source modules, 4471 tests, zero runtime deps.**
 
+### v5.9.0 Session Response
+
+Shipped 3 features in v5.9.0 (32 new tests, 3 modules, 3 TUI commands):
+1. **`daemon-graceful-shutdown.ts`** + 12 tests — Phased shutdown: draining →
+   saving → exiting → complete. Track active/drained sessions, drain timeout,
+   state save. `/shutdown-status`.
+2. **`goal-dep-impact.ts`** + 10 tests — BFS downstream impact analysis. Direct
+   + transitive blocked sessions, critical path detection. Fleet-wide risk
+   assessment sorted by total affected. `/dep-impact <session>`.
+3. **`fleet-runbook-library.ts`** + 10 tests — 6 built-in runbooks: stuck-session,
+   cost-overspend, fleet-health-drop, scale-up, shift-handoff, debug-session.
+   Searchable by keyword/tag. Step-by-step with auto/manual markers. `/runbook`.
+
+Milestone: **4500+ tests — 162 source modules, 163 TUI commands, zero runtime deps.**
+
 ## AI Working Context
 
 Two files per repo:
@@ -1225,9 +1243,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v5.6 | Alerts + Language + SLA | FleetAlertDashboard, SessionLangDetector, GoalSlaEnforcement |
 | v5.7 | Scaling + Gamification + Audit | FleetAutoScaler, GoalGamification, DaemonAuditReport |
 | v5.8 | Profiling + Affinity + Clipboard | DaemonStartupProfiler, FleetAffinityGroups, SessionClipboard |
+| v5.9 | Shutdown + Impact + Runbooks | DaemonGracefulShutdown, GoalDepImpact, FleetRunbookLibrary |
 
-**Totals**: 159 source modules, 120+ test files, 160 TUI commands, 20 CLI subcommands,
-4471 tests, ~47,000 lines added, zero runtime dependencies.
+**Totals**: 162 source modules, 120+ test files, 163 TUI commands, 20 CLI subcommands,
+4503 tests, ~48,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

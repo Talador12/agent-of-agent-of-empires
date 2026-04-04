@@ -250,6 +250,9 @@ export type AuditReportHandler = () => void; // generate audit compliance report
 export type StartupProfileHandler = () => void; // show startup profiler timings
 export type AffinityGroupsHandler = () => void; // show session affinity groups
 export type ClipboardHandler = (session: string) => void; // copy output to clipboard
+export type GracefulShutdownHandler = () => void; // show shutdown state
+export type DepImpactHandler = (session: string) => void; // analyze dependency impact
+export type RunbookLibraryHandler = (args: string) => void; // browse/search runbooks
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1061,6 +1064,12 @@ export class InputReader {
   onStartupProfile(handler: StartupProfileHandler): void { this.startupProfileHandler = handler; }
   onAffinityGroups(handler: AffinityGroupsHandler): void { this.affinityGroupsHandler = handler; }
   onClipboard(handler: ClipboardHandler): void { this.clipboardHandler = handler; }
+  private gracefulShutdownHandler: GracefulShutdownHandler | null = null;
+  private depImpactHandler: DepImpactHandler | null = null;
+  private runbookLibraryHandler: RunbookLibraryHandler | null = null;
+  onGracefulShutdown(handler: GracefulShutdownHandler): void { this.gracefulShutdownHandler = handler; }
+  onDepImpact(handler: DepImpactHandler): void { this.depImpactHandler = handler; }
+  onRunbookLibrary(handler: RunbookLibraryHandler): void { this.runbookLibraryHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3361,6 +3370,26 @@ ${BOLD}other:${RESET}
         if (!cbArg) { console.error(`${DIM}usage: /clipboard <session>${RESET}`); break; }
         if (this.clipboardHandler) this.clipboardHandler(cbArg);
         else console.error(`${DIM}clipboard not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/shutdown-status":
+        if (this.gracefulShutdownHandler) this.gracefulShutdownHandler();
+        else console.error(`${DIM}shutdown-status not available (no TUI)${RESET}`);
+        break;
+
+      case "/dep-impact": {
+        const diArg = line.slice("/dep-impact".length).trim();
+        if (!diArg) { console.error(`${DIM}usage: /dep-impact <session>${RESET}`); break; }
+        if (this.depImpactHandler) this.depImpactHandler(diArg);
+        else console.error(`${DIM}dep-impact not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/runbook": {
+        const rbArg = line.slice("/runbook".length).trim();
+        if (this.runbookLibraryHandler) this.runbookLibraryHandler(rbArg);
+        else console.error(`${DIM}runbook not available (no TUI)${RESET}`);
         break;
       }
 

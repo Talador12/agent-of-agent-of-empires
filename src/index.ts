@@ -196,6 +196,9 @@ import { generateAuditReport, formatAuditReportTui } from "./daemon-audit-report
 import { DaemonStartupProfiler, formatStartupProfile } from "./daemon-startup-profiler.js";
 import { computeAffinityGroups, formatAffinityGroups } from "./fleet-affinity-groups.js";
 import { buildClipboardResult, formatClipboardResult } from "./session-clipboard.js";
+import { createShutdownState, formatShutdownState } from "./daemon-graceful-shutdown.js";
+import { computeImpact, formatImpact } from "./goal-dep-impact.js";
+import { getRunbook, searchRunbooks, listRunbooks, formatRunbookList, formatRunbookSteps } from "./fleet-runbook-library.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -764,6 +767,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const autoScalerState = createAutoScaler();
   const xpState = createXPState();
   const startupProfiler = new DaemonStartupProfiler();
+  const shutdownState = createShutdownState();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3721,6 +3725,36 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const result = buildClipboardResult(output);
       const lines = formatClipboardResult(result);
       for (const l of lines) tui!.log("system", l);
+    });
+    // wire /shutdown-status — graceful shutdown state
+    input.onGracefulShutdown(() => {
+      const lines = formatShutdownState(shutdownState);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /dep-impact — dependency impact analysis
+    input.onDepImpact((sessionArg) => {
+      const tasks = taskManager?.tasks ?? [];
+      const nodes = tasks.map((t) => ({ sessionTitle: t.sessionTitle, goal: t.goal, status: t.status, dependsOn: t.dependsOn ?? [] }));
+      const result = computeImpact(nodes, sessionArg, "failure");
+      const lines = formatImpact([result]);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /runbook — runbook library
+    input.onRunbookLibrary((args) => {
+      if (!args) {
+        const lines = formatRunbookList(listRunbooks());
+        for (const l of lines) tui!.log("system", l);
+      } else {
+        const rb = getRunbook(args);
+        if (rb) {
+          const lines = formatRunbookSteps(rb);
+          for (const l of lines) tui!.log("system", l);
+        } else {
+          const results = searchRunbooks(args);
+          const lines = formatRunbookList(results);
+          for (const l of lines) tui!.log("system", l);
+        }
+      }
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();
