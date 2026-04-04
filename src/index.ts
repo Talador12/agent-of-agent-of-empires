@@ -209,6 +209,9 @@ import { createModuleDepGraph, formatModuleDeps } from "./daemon-module-deps.js"
 import { FleetCostTrend, formatCostTrend } from "./fleet-cost-trend.js";
 import { tagFleetComplexity, formatComplexityTags } from "./goal-complexity-tagger.js";
 import { createEventStore, formatEventStore } from "./daemon-event-sourcing.js";
+import { createLockState, acquireLock as acquireDaemonLock, formatLockState } from "./daemon-distributed-lock.js";
+import { findCorrelations, formatCorrelationPairs } from "./session-output-correlation.js";
+import { FleetUtilizationForecaster, formatUtilizationForecast } from "./fleet-utilization-forecaster.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -782,6 +785,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const progressHeatmapState = createProgressHeatmap();
   const costTrendTracker = new FleetCostTrend();
   const daemonEventStore = createEventStore();
+  const daemonLock = createLockState();
+  const utilForecaster = new FleetUtilizationForecaster();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3847,6 +3852,25 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     // wire /event-store — daemon event store
     input.onEventSourcing(() => {
       const lines = formatEventStore(daemonEventStore);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /daemon-lock — distributed lock state
+    input.onDaemonLock(() => {
+      const lines = formatLockState(daemonLock);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /output-correlation — find related sessions
+    input.onOutputCorrelation(() => {
+      const sessions = tui!.getSessions();
+      const inputs = sessions.map((s) => ({ title: s.title, output: (tui!.getSessionOutput(s.id) ?? []).join("\n") }));
+      const pairs = findCorrelations(inputs);
+      const lines = formatCorrelationPairs(pairs);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /util-forecast — utilization prediction
+    input.onUtilForecast(() => {
+      const tomorrow = (new Date().getDay() + 1) % 7;
+      const lines = formatUtilizationForecast(utilForecaster, tomorrow);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {

@@ -5,16 +5,23 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v6.2.0
+## Version: v6.3.0
+
+## What shipped in v6.3.0
+
+**v6.3.0 — Distributed Lock, Output Correlation, Utilization Forecaster**:
+- `daemon-distributed-lock.ts`: PID-based lockfile with staleness detection. Acquire/release, stale reclaim after configurable timeout. **`/daemon-lock`** command.
+- `session-output-correlation.ts`: Find related sessions via keyword frequency overlap in recent output. Jaccard-style similarity scoring above configurable threshold. **`/output-correlation`** command.
+- `fleet-utilization-forecaster.ts`: Predict next-day utilization from day-of-week hourly patterns. Peak hour, avg utilization, confidence scoring, sparkline forecast. **`/util-forecast`** command.
+
+175 TUI commands. 174 source modules. 4626 tests. 0 runtime deps.
 
 ## What shipped in v6.2.0
 
 **v6.2.0 — Cost Trend, Complexity Tagger, Event Sourcing**:
-- `fleet-cost-trend.ts`: Week-over-week cost trend with daily snapshots, rolling averages, direction detection, sparkline, weekly/monthly projections. **`/cost-trend`** command.
-- `goal-complexity-tagger.ts`: Tag goals with complexity level (trivial→epic). Keyword scope analysis, description length, deps, multi-task indicators. Score 0-100. **`/complexity`** command.
-- `daemon-event-sourcing.ts`: Immutable event store with append, query (type/source/time-range), type counts, reducer-based replay for state reconstruction. **`/event-store`** command.
-
-172 TUI commands. 171 source modules. 4594 tests. 0 runtime deps.
+- `fleet-cost-trend.ts`: Week-over-week cost trend. **`/cost-trend`** command.
+- `goal-complexity-tagger.ts`: Complexity level tagging. **`/complexity`** command.
+- `daemon-event-sourcing.ts`: Event store with replay. **`/event-store`** command.
 
 ## What shipped in v6.1.0
 
@@ -23,14 +30,7 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - `goal-progress-heatmap.ts`: Hourly progress heatmap. **`/progress-heatmap`** command.
 - `daemon-module-deps.ts`: Module dependency graph. **`/module-deps`** command.
 
-## What shipped in v6.0.0
-
-**v6.0.0 — Dep Graph Export, Perf Regression, Compliance Reports**:
-- `goal-dep-graph-export.ts`: DOT/Mermaid/ASCII export. **`/dep-graph-export`** command.
-- `daemon-perf-regression.ts`: Tick time regression detector. **`/perf-regression`** command.
-- `fleet-compliance-report.ts`: 5-section compliance report. **`/compliance-report`** command.
-
-## Ideas Backlog (v6.3+)
+## Ideas Backlog (v6.4+)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
@@ -55,14 +55,14 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Session sandbox mode** — isolated environments with rollback
 - **Daemon remote control API** — REST API for external commands
 - **Fleet time-travel** — rewind to any snapshot and compare
-- **Fleet session migration** — move sessions between hosts
 - **Daemon heartbeat federation** — cross-host daemon health monitoring
 - **Session output AI summarizer** — opt-in LLM summaries for handoffs
 - **Fleet session priority matrix** — 2D urgency vs importance matrix
-- **Session output anomaly classifier** — categorize by root cause type
-- **Fleet utilization forecaster** — predict next-day utilization
 - **Daemon config version control** — git-style config history with diff
-- **Session output correlation engine** — find related changes across sessions
-- **Fleet cost allocation optimizer** — minimize total cost while maintaining SLA
+- **Fleet cost allocation optimizer** — minimize cost while maintaining SLA
 - **Goal dependency auto-generator** — infer deps from code import analysis
-- **Daemon distributed lock** — prevent concurrent daemon instances
+- **Session output search v2** — regex + fuzzy + semantic search across fleet
+- **Fleet snapshot time machine** — interactive snapshot browser with comparison
+- **Goal progress sparkline dashboard** — all-session sparklines in one view
+- **Daemon tick budget allocator** — allocate compute budget per tick phase
+- **Session output regex library** — curated patterns for common tools/frameworks

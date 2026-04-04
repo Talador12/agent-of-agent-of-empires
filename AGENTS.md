@@ -242,6 +242,9 @@ The main loop is split into two layers:
 | `src/fleet-cost-trend.ts` | Week-over-week cost trend with sparkline + weekly/monthly projection |
 | `src/goal-complexity-tagger.ts` | Tag goals with complexity level (trivial→epic) from keyword + scope analysis |
 | `src/daemon-event-sourcing.ts` | Immutable event store with query/replay/type counts for state reconstruction |
+| `src/daemon-distributed-lock.ts` | PID-based lockfile with staleness detection to prevent concurrent daemons |
+| `src/session-output-correlation.ts` | Find related sessions via keyword overlap in recent output |
+| `src/fleet-utilization-forecaster.ts` | Predict next-day utilization from day-of-week hourly patterns |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -269,7 +272,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-One hundred and twenty-nine modules run every daemon tick without LLM calls:
+One hundred and thirty-two modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -779,7 +782,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4594 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4626 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -1247,6 +1250,21 @@ Shipped 3 features in v6.2.0 (34 new tests, 3 modules, 3 TUI commands):
 
 Running total: 171 source modules, 172 TUI commands, 4594 tests, zero runtime deps.
 
+### v6.3.0 Session Response
+
+Shipped 3 features in v6.3.0 (32 new tests, 3 modules, 3 TUI commands):
+1. **`daemon-distributed-lock.ts`** + 10 tests — PID-based lockfile with
+   staleness detection. Acquire/release, stale reclaim, lock age tracking.
+   Prevents concurrent daemon instances. `/daemon-lock`.
+2. **`session-output-correlation.ts`** + 10 tests — Find related sessions via
+   keyword frequency overlap in recent output. Jaccard-style similarity.
+   Threshold-gated pair detection. `/output-correlation`.
+3. **`fleet-utilization-forecaster.ts`** + 12 tests — Predict next-day
+   utilization from day-of-week hourly patterns. Peak hour, avg util,
+   confidence scoring, sparkline forecast. `/util-forecast`.
+
+Running total: 174 source modules, 175 TUI commands, 4626 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -1301,9 +1319,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v6.0 | Export + Perf + Compliance | GoalDepGraphExport, DaemonPerfRegression, FleetComplianceReport |
 | v6.1 | Optimizer + Heatmap + ModDeps | FleetCostOptimizer, GoalProgressHeatmap, DaemonModuleDeps |
 | v6.2 | Trends + Complexity + Events | FleetCostTrend, GoalComplexityTagger, DaemonEventSourcing |
+| v6.3 | Lock + Correlation + Forecast | DaemonDistributedLock, SessionOutputCorrelation, FleetUtilizationForecaster |
 
-**Totals**: 171 source modules, 120+ test files, 172 TUI commands, 20 CLI subcommands,
-4594 tests, ~51,000 lines added, zero runtime dependencies.
+**Totals**: 174 source modules, 120+ test files, 175 TUI commands, 20 CLI subcommands,
+4626 tests, ~52,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

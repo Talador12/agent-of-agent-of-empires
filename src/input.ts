@@ -262,6 +262,9 @@ export type ModuleDepsHandler = () => void; // show module dependency graph
 export type CostTrendHandler = () => void; // show cost trend analysis
 export type ComplexityTaggerHandler = () => void; // show goal complexity tags
 export type EventSourcingHandler = () => void; // show event store state
+export type DaemonLockHandler = () => void; // show daemon lock state
+export type OutputCorrelationHandler = () => void; // find correlated sessions
+export type UtilForecastHandler = () => void; // predict next-day utilization
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1097,6 +1100,12 @@ export class InputReader {
   onCostTrend(handler: CostTrendHandler): void { this.costTrendHandler = handler; }
   onComplexityTagger(handler: ComplexityTaggerHandler): void { this.complexityTaggerHandler = handler; }
   onEventSourcing(handler: EventSourcingHandler): void { this.eventSourcingHandler = handler; }
+  private daemonLockHandler: DaemonLockHandler | null = null;
+  private outputCorrelationHandler: OutputCorrelationHandler | null = null;
+  private utilForecastHandler: UtilForecastHandler | null = null;
+  onDaemonLock(handler: DaemonLockHandler): void { this.daemonLockHandler = handler; }
+  onOutputCorrelation(handler: OutputCorrelationHandler): void { this.outputCorrelationHandler = handler; }
+  onUtilForecast(handler: UtilForecastHandler): void { this.utilForecastHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3465,6 +3474,21 @@ ${BOLD}other:${RESET}
       case "/event-store":
         if (this.eventSourcingHandler) this.eventSourcingHandler();
         else console.error(`${DIM}event-store not available (no TUI)${RESET}`);
+        break;
+
+      case "/daemon-lock":
+        if (this.daemonLockHandler) this.daemonLockHandler();
+        else console.error(`${DIM}daemon-lock not available (no TUI)${RESET}`);
+        break;
+
+      case "/output-correlation":
+        if (this.outputCorrelationHandler) this.outputCorrelationHandler();
+        else console.error(`${DIM}output-correlation not available (no TUI)${RESET}`);
+        break;
+
+      case "/util-forecast":
+        if (this.utilForecastHandler) this.utilForecastHandler();
+        else console.error(`${DIM}util-forecast not available (no TUI)${RESET}`);
         break;
 
       case "/clear":
