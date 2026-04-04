@@ -247,6 +247,9 @@ export type GoalSlaHandler = (args: string) => void; // manage goal SLA enforcem
 export type AutoScalerHandler = () => void; // show auto-scaler state
 export type GamificationHandler = () => void; // show XP/level leaderboard
 export type AuditReportHandler = () => void; // generate audit compliance report
+export type StartupProfileHandler = () => void; // show startup profiler timings
+export type AffinityGroupsHandler = () => void; // show session affinity groups
+export type ClipboardHandler = (session: string) => void; // copy output to clipboard
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1052,6 +1055,12 @@ export class InputReader {
   onAutoScaler(handler: AutoScalerHandler): void { this.autoScalerHandler = handler; }
   onGamification(handler: GamificationHandler): void { this.gamificationHandler = handler; }
   onAuditReport(handler: AuditReportHandler): void { this.auditReportHandler = handler; }
+  private startupProfileHandler: StartupProfileHandler | null = null;
+  private affinityGroupsHandler: AffinityGroupsHandler | null = null;
+  private clipboardHandler: ClipboardHandler | null = null;
+  onStartupProfile(handler: StartupProfileHandler): void { this.startupProfileHandler = handler; }
+  onAffinityGroups(handler: AffinityGroupsHandler): void { this.affinityGroupsHandler = handler; }
+  onClipboard(handler: ClipboardHandler): void { this.clipboardHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3336,6 +3345,24 @@ ${BOLD}other:${RESET}
         if (this.auditReportHandler) this.auditReportHandler();
         else console.error(`${DIM}audit-report not available (no TUI)${RESET}`);
         break;
+
+      case "/startup-profile":
+        if (this.startupProfileHandler) this.startupProfileHandler();
+        else console.error(`${DIM}startup-profile not available (no TUI)${RESET}`);
+        break;
+
+      case "/affinity-groups":
+        if (this.affinityGroupsHandler) this.affinityGroupsHandler();
+        else console.error(`${DIM}affinity-groups not available (no TUI)${RESET}`);
+        break;
+
+      case "/clipboard": {
+        const cbArg = line.slice("/clipboard".length).trim();
+        if (!cbArg) { console.error(`${DIM}usage: /clipboard <session>${RESET}`); break; }
+        if (this.clipboardHandler) this.clipboardHandler(cbArg);
+        else console.error(`${DIM}clipboard not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

@@ -5,16 +5,23 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v5.7.0
+## Version: v5.8.0
+
+## What shipped in v5.8.0
+
+**v5.8.0 — Startup Profiler, Affinity Groups, Session Clipboard**:
+- `daemon-startup-profiler.ts`: Measure module init time for cold-start optimization. Per-module start/end timing, slowest module ID, threshold filtering, percentage bars. **`/startup-profile`** command.
+- `fleet-affinity-groups.ts`: Auto-group sessions by repo path similarity. Same basename = 90% match, shared prefix = proportional. Threshold-gated grouping. **`/affinity-groups`** command.
+- `session-clipboard.ts`: Copy output snippets to system clipboard. Cross-platform (pbcopy/xclip/xsel/wl-copy/powershell). ANSI stripping, maxLines, preview. **`/clipboard <session>`** command.
+
+160 TUI commands. 159 source modules. 4471 tests. 0 runtime deps.
 
 ## What shipped in v5.7.0
 
 **v5.7.0 — Auto-Scaler, Gamification, Audit Reports**:
-- `fleet-auto-scaler.ts`: Scale session slots based on utilization + queue depth. Scale-up/down/hold with cooldown, min/max limits, target utilization. **`/auto-scaler`** command.
-- `goal-gamification.ts`: XP/levels for sessions. Base XP + bonuses for fast/cheap/zero-error completions. Streak tracking, 6 achievement badges, level progression (100 XP/level). **`/gamification`** command.
-- `daemon-audit-report.ts`: Compliance audit reports from trail data. Action breakdown, session activity, success rate, compliance grading (pass/review-needed/fail). Markdown + TUI. **`/audit-report`** command.
-
-157 TUI commands. 156 source modules. 4438 tests. 0 runtime deps.
+- `fleet-auto-scaler.ts`: Scale slots by utilization. **`/auto-scaler`** command.
+- `goal-gamification.ts`: XP/levels/badges. **`/gamification`** command.
+- `daemon-audit-report.ts`: Compliance audit reports. **`/audit-report`** command.
 
 ## What shipped in v5.6.0
 
@@ -23,14 +30,7 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - `session-lang-detector.ts`: 10-language detector. **`/lang-detect`** command.
 - `goal-sla-enforcement.ts`: Per-goal time limits. **`/goal-sla`** command.
 
-## What shipped in v5.5.0
-
-**v5.5.0 — Ops Dashboard, Dep Auto-Repair, Pattern Evolution**:
-- `fleet-ops-dashboard.ts`: Full-screen fleet monitor. **`/ops-dashboard`** command.
-- `goal-dep-auto-repair.ts`: Fix broken dep chains. **`/dep-repair`** command.
-- `session-pattern-evolution.ts`: Pattern frequency tracking. **`/pattern-evolution`** command.
-
-## Ideas Backlog (v5.8+)
+## Ideas Backlog (v5.9+)
 - **Web dashboard v2** — real-time browser UI via SSE
 - **Reasoner plugin system** — load custom backends as ESM modules
 - **Daemon OpenTelemetry traces** — distributed tracing
@@ -60,9 +60,10 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - **Goal templating engine** — Mustache-style templates with variables
 - **Fleet multi-tenant isolation** — separate namespaces per team
 - **Daemon memory profiler** — track per-module memory usage over time
-- **Session output diff stream** — real-time diff stream for consumers
 - **Fleet cost waterfall chart** — visualize cost accumulation over time
-- **Goal progress gamification v2** — team-based XP with leaderboards across operators
-- **Fleet session affinity groups** — auto-group sessions by repo similarity
-- **Daemon startup profiler** — measure module init time for cold-start optimization
-- **Session output clipboard** — copy output snippets to system clipboard from TUI
+- **Session output diff stream** — real-time diff stream for consumers
+- **Fleet session affinity routing v2** — route by language + complexity + load
+- **Goal dependency impact analysis** — predict downstream effects of goal changes
+- **Daemon graceful shutdown** — drain active sessions before exit
+- **Session output search v2** — regex + fuzzy + semantic search across all output
+- **Fleet operational runbook library** — pre-built runbooks for common scenarios

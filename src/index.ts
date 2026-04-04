@@ -193,6 +193,9 @@ import { createSlaState, registerGoalSla, checkGoalSlas, formatSlaChecks } from 
 import { createAutoScaler, computeScaling, formatAutoScaler } from "./fleet-auto-scaler.js";
 import { createXPState, formatGamification } from "./goal-gamification.js";
 import { generateAuditReport, formatAuditReportTui } from "./daemon-audit-report.js";
+import { DaemonStartupProfiler, formatStartupProfile } from "./daemon-startup-profiler.js";
+import { computeAffinityGroups, formatAffinityGroups } from "./fleet-affinity-groups.js";
+import { buildClipboardResult, formatClipboardResult } from "./session-clipboard.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -760,6 +763,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const goalSlaState = createSlaState();
   const autoScalerState = createAutoScaler();
   const xpState = createXPState();
+  const startupProfiler = new DaemonStartupProfiler();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3695,6 +3699,27 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         totalCostUsd: 0, reasonerCalls: 0,
       });
       const lines = formatAuditReportTui(report);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /startup-profile — daemon startup timings
+    input.onStartupProfile(() => {
+      const lines = formatStartupProfile(startupProfiler);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /affinity-groups — auto-group sessions by repo
+    input.onAffinityGroups(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const inputs = tasks.map((t) => ({ sessionTitle: t.sessionTitle, repo: t.repo }));
+      const groups = computeAffinityGroups(inputs);
+      const lines = formatAffinityGroups(groups);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /clipboard — copy session output to clipboard
+    input.onClipboard((sessionArg) => {
+      const output = tui!.getSessionOutput(sessionArg) ?? [];
+      if (output.length === 0) { tui!.log("system", `clipboard: no output for "${sessionArg}"`); return; }
+      const result = buildClipboardResult(output);
+      const lines = formatClipboardResult(result);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
