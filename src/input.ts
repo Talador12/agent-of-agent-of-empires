@@ -265,6 +265,9 @@ export type EventSourcingHandler = () => void; // show event store state
 export type DaemonLockHandler = () => void; // show daemon lock state
 export type OutputCorrelationHandler = () => void; // find correlated sessions
 export type UtilForecastHandler = () => void; // predict next-day utilization
+export type TimeMachineHandler = (args: string) => void; // browse fleet snapshots
+export type SparklineDashHandler = () => void; // show all-session sparklines
+export type TickBudgetHandler = () => void; // show tick phase budgets
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1106,6 +1109,12 @@ export class InputReader {
   onDaemonLock(handler: DaemonLockHandler): void { this.daemonLockHandler = handler; }
   onOutputCorrelation(handler: OutputCorrelationHandler): void { this.outputCorrelationHandler = handler; }
   onUtilForecast(handler: UtilForecastHandler): void { this.utilForecastHandler = handler; }
+  private timeMachineHandler: TimeMachineHandler | null = null;
+  private sparklineDashHandler: SparklineDashHandler | null = null;
+  private tickBudgetHandler: TickBudgetHandler | null = null;
+  onTimeMachine(handler: TimeMachineHandler): void { this.timeMachineHandler = handler; }
+  onSparklineDash(handler: SparklineDashHandler): void { this.sparklineDashHandler = handler; }
+  onTickBudget(handler: TickBudgetHandler): void { this.tickBudgetHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3489,6 +3498,23 @@ ${BOLD}other:${RESET}
       case "/util-forecast":
         if (this.utilForecastHandler) this.utilForecastHandler();
         else console.error(`${DIM}util-forecast not available (no TUI)${RESET}`);
+        break;
+
+      case "/time-machine": {
+        const tmArg = line.slice("/time-machine".length).trim();
+        if (this.timeMachineHandler) this.timeMachineHandler(tmArg);
+        else console.error(`${DIM}time-machine not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/sparkline-dash":
+        if (this.sparklineDashHandler) this.sparklineDashHandler();
+        else console.error(`${DIM}sparkline-dash not available (no TUI)${RESET}`);
+        break;
+
+      case "/tick-budget":
+        if (this.tickBudgetHandler) this.tickBudgetHandler();
+        else console.error(`${DIM}tick-budget not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

@@ -245,6 +245,9 @@ The main loop is split into two layers:
 | `src/daemon-distributed-lock.ts` | PID-based lockfile with staleness detection to prevent concurrent daemons |
 | `src/session-output-correlation.ts` | Find related sessions via keyword overlap in recent output |
 | `src/fleet-utilization-forecaster.ts` | Predict next-day utilization from day-of-week hourly patterns |
+| `src/fleet-snapshot-time-machine.ts` | Snapshot browser with take/compare/diff + time range queries |
+| `src/goal-sparkline-dashboard.ts` | All-session progress sparklines with trend detection |
+| `src/daemon-tick-budget.ts` | Per-phase compute budget allocation with overrun tracking |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -272,7 +275,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-One hundred and thirty-two modules run every daemon tick without LLM calls:
+One hundred and thirty-five modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -782,7 +785,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4626 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4659 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -1265,6 +1268,28 @@ Shipped 3 features in v6.3.0 (32 new tests, 3 modules, 3 TUI commands):
 
 Running total: 174 source modules, 175 TUI commands, 4626 tests, zero runtime deps.
 
+### v6.4.0 Session Response
+
+Shipped 6 features in v6.4.0 across 2 batches (65 new tests, 6 modules, 6 TUI commands):
+
+Batch 1 — v6.3.0 (32 tests, 3 modules):
+1. **`daemon-distributed-lock.ts`** + 10 tests — PID lockfile with stale
+   reclaim. Prevents concurrent daemons. `/daemon-lock`.
+2. **`session-output-correlation.ts`** + 10 tests — Keyword frequency
+   overlap to find related sessions. `/output-correlation`.
+3. **`fleet-utilization-forecaster.ts`** + 12 tests — Day-of-week hourly
+   pattern prediction with sparkline. `/util-forecast`.
+
+Batch 2 — v6.4.0 (33 tests, 3 modules):
+4. **`fleet-snapshot-time-machine.ts`** + 12 tests — Snapshot browser with
+   take/compare/diff + time range queries. `/time-machine`.
+5. **`goal-sparkline-dashboard.ts`** + 11 tests — All-session progress
+   sparklines with trend detection (up/down/flat). `/sparkline-dash`.
+6. **`daemon-tick-budget.ts`** + 10 tests — Per-phase compute budget
+   (poll 30%, reason 40%, execute 20%, post-tick 10%) with overrun tracking. `/tick-budget`.
+
+Running total: 177 source modules, 178 TUI commands, 4659 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -1320,9 +1345,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v6.1 | Optimizer + Heatmap + ModDeps | FleetCostOptimizer, GoalProgressHeatmap, DaemonModuleDeps |
 | v6.2 | Trends + Complexity + Events | FleetCostTrend, GoalComplexityTagger, DaemonEventSourcing |
 | v6.3 | Lock + Correlation + Forecast | DaemonDistributedLock, SessionOutputCorrelation, FleetUtilizationForecaster |
+| v6.4 | TimeMachine + Sparklines + Budget | FleetSnapshotTimeMachine, GoalSparklineDashboard, DaemonTickBudget |
 
-**Totals**: 174 source modules, 120+ test files, 175 TUI commands, 20 CLI subcommands,
-4626 tests, ~52,000 lines added, zero runtime dependencies.
+**Totals**: 177 source modules, 120+ test files, 178 TUI commands, 20 CLI subcommands,
+4659 tests, ~53,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

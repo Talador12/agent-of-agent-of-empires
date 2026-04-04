@@ -212,6 +212,9 @@ import { createEventStore, formatEventStore } from "./daemon-event-sourcing.js";
 import { createLockState, acquireLock as acquireDaemonLock, formatLockState } from "./daemon-distributed-lock.js";
 import { findCorrelations, formatCorrelationPairs } from "./session-output-correlation.js";
 import { FleetUtilizationForecaster, formatUtilizationForecast } from "./fleet-utilization-forecaster.js";
+import { createTimeMachine, takeSnapshot, compareSnapshots, latestSnapshot, getSnapshot, formatTimeMachine, formatSnapshotDiff } from "./fleet-snapshot-time-machine.js";
+import { buildSparklineEntries, formatSparklineDashboard } from "./goal-sparkline-dashboard.js";
+import { createTickBudget, formatTickBudget } from "./daemon-tick-budget.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -787,6 +790,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const daemonEventStore = createEventStore();
   const daemonLock = createLockState();
   const utilForecaster = new FleetUtilizationForecaster();
+  const timeMachineState = createTimeMachine();
+  const tickBudgetState = createTickBudget();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3871,6 +3876,44 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     input.onUtilForecast(() => {
       const tomorrow = (new Date().getDay() + 1) % 7;
       const lines = formatUtilizationForecast(utilForecaster, tomorrow);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /time-machine — fleet snapshot browser
+    input.onTimeMachine((args) => {
+      if (args === "snap") {
+        const sessions = tui!.getSessions();
+        const allCosts = tui!.getAllSessionCosts();
+        let totalCost = 0;
+        for (const [, c] of allCosts) totalCost += parseFloat(c.replace(/[^0-9.]/g, "")) || 0;
+        takeSnapshot(timeMachineState, { timestamp: Date.now(), sessionCount: sessions.length, activeSessions: sessions.map((s) => s.title), healthScore: 70, totalCostUsd: totalCost });
+        tui!.log("system", "time-machine: snapshot taken");
+      } else if (args.startsWith("diff") && args.split(/\s+/).length >= 3) {
+        const ids = args.split(/\s+/).slice(1).map((x) => parseInt(x, 10));
+        const a = getSnapshot(timeMachineState, ids[0]);
+        const b = getSnapshot(timeMachineState, ids[1]);
+        if (a && b) {
+          const diff = compareSnapshots(a, b);
+          const lines = formatSnapshotDiff(diff);
+          for (const l of lines) tui!.log("system", l);
+        } else tui!.log("system", "time-machine: snapshot not found");
+      } else {
+        const lines = formatTimeMachine(timeMachineState);
+        for (const l of lines) tui!.log("system", l);
+      }
+    });
+    // wire /sparkline-dash — all-session progress sparklines
+    input.onSparklineDash(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const entries = buildSparklineEntries(tasks.filter((t) => t.status === "active").map((t) => ({
+        title: t.sessionTitle,
+        progressHistory: t.progress.map((_, i) => Math.min(100, (i + 1) * 15)),
+      })));
+      const lines = formatSparklineDashboard(entries);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /tick-budget — phase compute budgets
+    input.onTickBudget(() => {
+      const lines = formatTickBudget(tickBudgetState);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
