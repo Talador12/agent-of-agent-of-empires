@@ -248,6 +248,9 @@ The main loop is split into two layers:
 | `src/fleet-snapshot-time-machine.ts` | Snapshot browser with take/compare/diff + time range queries |
 | `src/goal-sparkline-dashboard.ts` | All-session progress sparklines with trend detection |
 | `src/daemon-tick-budget.ts` | Per-phase compute budget allocation with overrun tracking |
+| `src/session-goal-mutation.ts` | Track goal text changes over time with scope creep detection |
+| `src/fleet-cost-chargeback.ts` | Cost allocation by team/project tag with chargeback invoicing |
+| `src/goal-prediction-ensemble.ts` | Confidence-weighted ensemble of multiple prediction methods |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -275,7 +278,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-One hundred and thirty-five modules run every daemon tick without LLM calls:
+One hundred and thirty-eight modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -785,7 +788,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4659 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4688 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -1290,6 +1293,21 @@ Batch 2 — v6.4.0 (33 tests, 3 modules):
 
 Running total: 177 source modules, 178 TUI commands, 4659 tests, zero runtime deps.
 
+### v6.5.0 Session Response
+
+Shipped 3 features in v6.5.0 (29 new tests, 3 modules, 3 TUI commands):
+1. **`session-goal-mutation.ts`** + 11 tests — Track goal text changes over time.
+   Detects initial/refined/expanded/narrowed/replaced. Scope creep detection
+   from repeated expansion. `/goal-mutations [session]`.
+2. **`fleet-cost-chargeback.ts`** + 9 tests — Cost allocation by team/project tag.
+   Chargeback reports with group breakdown, fleet %, untagged tracking.
+   Markdown + TUI. `/chargeback`.
+3. **`goal-prediction-ensemble.ts`** + 9 tests — Confidence-weighted ensemble
+   of linear + velocity + historical prediction methods. Agreement scoring,
+   confidence boosting when methods converge. `/prediction-ensemble`.
+
+Running total: 180 source modules, 181 TUI commands, 4688 tests, zero runtime deps.
+
 ## AI Working Context
 
 Two files per repo:
@@ -1346,9 +1364,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v6.2 | Trends + Complexity + Events | FleetCostTrend, GoalComplexityTagger, DaemonEventSourcing |
 | v6.3 | Lock + Correlation + Forecast | DaemonDistributedLock, SessionOutputCorrelation, FleetUtilizationForecaster |
 | v6.4 | TimeMachine + Sparklines + Budget | FleetSnapshotTimeMachine, GoalSparklineDashboard, DaemonTickBudget |
+| v6.5 | Mutations + Chargeback + Ensemble | SessionGoalMutation, FleetCostChargeback, GoalPredictionEnsemble |
 
-**Totals**: 177 source modules, 120+ test files, 178 TUI commands, 20 CLI subcommands,
-4659 tests, ~53,000 lines added, zero runtime dependencies.
+**Totals**: 180 source modules, 120+ test files, 181 TUI commands, 20 CLI subcommands,
+4688 tests, ~54,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

@@ -215,6 +215,9 @@ import { FleetUtilizationForecaster, formatUtilizationForecast } from "./fleet-u
 import { createTimeMachine, takeSnapshot, compareSnapshots, latestSnapshot, getSnapshot, formatTimeMachine, formatSnapshotDiff } from "./fleet-snapshot-time-machine.js";
 import { buildSparklineEntries, formatSparklineDashboard } from "./goal-sparkline-dashboard.js";
 import { createTickBudget, formatTickBudget } from "./daemon-tick-budget.js";
+import { createMutationState, formatMutationHistory } from "./session-goal-mutation.js";
+import { generateChargeback, formatChargeback } from "./fleet-cost-chargeback.js";
+import { ensemblePredict, buildPredictionMethods, formatEnsemblePredictions } from "./goal-prediction-ensemble.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -792,6 +795,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const utilForecaster = new FleetUtilizationForecaster();
   const timeMachineState = createTimeMachine();
   const tickBudgetState = createTickBudget();
+  const goalMutationState = createMutationState();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3914,6 +3918,37 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     // wire /tick-budget — phase compute budgets
     input.onTickBudget(() => {
       const lines = formatTickBudget(tickBudgetState);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /goal-mutations — track goal changes
+    input.onGoalMutation((args) => {
+      const session = args.trim() || undefined;
+      const lines = formatMutationHistory(goalMutationState, session);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /chargeback — cost chargeback report
+    input.onChargeback(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const allCosts = tui!.getAllSessionCosts();
+      const inputs = tasks.map((t) => {
+        const costStr = allCosts.get(t.sessionTitle) ?? "0";
+        return { sessionTitle: t.sessionTitle, costUsd: parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0, tags: new Map<string, string>() };
+      });
+      const report = generateChargeback(inputs, "team", new Date().toISOString().slice(0, 7));
+      const lines = formatChargeback(report);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /prediction-ensemble — ensemble completion predictions
+    input.onPredictionEnsemble(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const predictions = tasks.filter((t) => t.status === "active").map((t) => {
+        const vel = progressVelocityTracker.estimate(t.sessionTitle);
+        const progressPct = Math.min(100, t.progress.length * 15);
+        const elapsed = t.createdAt ? (Date.now() - t.createdAt) / 3_600_000 : 0;
+        const methods = buildPredictionMethods({ currentProgressPct: progressPct, elapsedHours: elapsed, velocityPctPerHr: vel?.velocityPerHour ?? 0 });
+        return ensemblePredict(t.sessionTitle, methods);
+      });
+      const lines = formatEnsemblePredictions(predictions);
       for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {

@@ -268,6 +268,9 @@ export type UtilForecastHandler = () => void; // predict next-day utilization
 export type TimeMachineHandler = (args: string) => void; // browse fleet snapshots
 export type SparklineDashHandler = () => void; // show all-session sparklines
 export type TickBudgetHandler = () => void; // show tick phase budgets
+export type GoalMutationHandler = (args: string) => void; // track goal changes
+export type ChargebackHandler = () => void; // cost chargeback report
+export type PredictionEnsembleHandler = () => void; // ensemble predictions
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1115,6 +1118,12 @@ export class InputReader {
   onTimeMachine(handler: TimeMachineHandler): void { this.timeMachineHandler = handler; }
   onSparklineDash(handler: SparklineDashHandler): void { this.sparklineDashHandler = handler; }
   onTickBudget(handler: TickBudgetHandler): void { this.tickBudgetHandler = handler; }
+  private goalMutationHandler: GoalMutationHandler | null = null;
+  private chargebackHandler: ChargebackHandler | null = null;
+  private predictionEnsembleHandler: PredictionEnsembleHandler | null = null;
+  onGoalMutation(handler: GoalMutationHandler): void { this.goalMutationHandler = handler; }
+  onChargeback(handler: ChargebackHandler): void { this.chargebackHandler = handler; }
+  onPredictionEnsemble(handler: PredictionEnsembleHandler): void { this.predictionEnsembleHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3515,6 +3524,23 @@ ${BOLD}other:${RESET}
       case "/tick-budget":
         if (this.tickBudgetHandler) this.tickBudgetHandler();
         else console.error(`${DIM}tick-budget not available (no TUI)${RESET}`);
+        break;
+
+      case "/goal-mutations": {
+        const gmArg = line.slice("/goal-mutations".length).trim() || undefined;
+        if (this.goalMutationHandler) this.goalMutationHandler(gmArg ?? "");
+        else console.error(`${DIM}goal-mutations not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/chargeback":
+        if (this.chargebackHandler) this.chargebackHandler();
+        else console.error(`${DIM}chargeback not available (no TUI)${RESET}`);
+        break;
+
+      case "/prediction-ensemble":
+        if (this.predictionEnsembleHandler) this.predictionEnsembleHandler();
+        else console.error(`${DIM}prediction-ensemble not available (no TUI)${RESET}`);
         break;
 
       case "/clear":
