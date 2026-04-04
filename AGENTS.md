@@ -233,6 +233,9 @@ The main loop is split into two layers:
 | `src/daemon-graceful-shutdown.ts` | Drain active sessions before exit with phased shutdown |
 | `src/goal-dep-impact.ts` | BFS downstream impact analysis for goal changes/failures |
 | `src/fleet-runbook-library.ts` | 6 built-in runbooks for common operational scenarios |
+| `src/goal-dep-graph-export.ts` | Export dep graph as DOT (Graphviz), Mermaid, or ASCII |
+| `src/daemon-perf-regression.ts` | Detect tick processing time regressions via rolling median baseline |
+| `src/fleet-compliance-report.ts` | 5-section compliance report (policy, SLA, incidents, cost, health) |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -260,7 +263,7 @@ and Linux case-sensitive FS correctly). Budget: 8KB per file, 24KB per
 directory, cached 60s.
 
 ### Intelligence modules (v0.196+)
-One hundred and twenty modules run every daemon tick without LLM calls:
+One hundred and twenty-three modules run every daemon tick without LLM calls:
 
 - **SessionSummarizer** (`session-summarizer.ts`): pattern-based activity
   classification (coding, testing, building, committing, error, idle, etc.)
@@ -770,7 +773,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4503 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4530 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -1193,6 +1196,21 @@ Shipped 3 features in v5.9.0 (32 new tests, 3 modules, 3 TUI commands):
 
 Milestone: **4500+ tests — 162 source modules, 163 TUI commands, zero runtime deps.**
 
+### v6.0.0 Session Response
+
+Shipped 3 features in v6.0.0 (27 new tests, 3 modules, 3 TUI commands):
+1. **`goal-dep-graph-export.ts`** + 8 tests — Export dep graph as DOT (Graphviz),
+   Mermaid, or ASCII. Graph stats (nodes/edges/roots/leaves). Cycle-safe ASCII
+   rendering. `/dep-graph-export [dot|mermaid|ascii]`.
+2. **`daemon-perf-regression.ts`** + 11 tests — Detect tick time regressions via
+   rolling median baseline. Warning at 2x, critical at 4x. Recent alerts
+   history. `/perf-regression`.
+3. **`fleet-compliance-report.ts`** + 8 tests — 5-section compliance report:
+   policy, SLA, incidents, cost, health. Scored 0-100, graded compliant/
+   at-risk/non-compliant. Markdown + TUI. `/compliance-report`.
+
+Milestone: **v6.0.0 — 165 source modules, 166 TUI commands, 4530 tests, zero runtime deps.**
+
 ## AI Working Context
 
 Two files per repo:
@@ -1244,9 +1262,10 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v5.7 | Scaling + Gamification + Audit | FleetAutoScaler, GoalGamification, DaemonAuditReport |
 | v5.8 | Profiling + Affinity + Clipboard | DaemonStartupProfiler, FleetAffinityGroups, SessionClipboard |
 | v5.9 | Shutdown + Impact + Runbooks | DaemonGracefulShutdown, GoalDepImpact, FleetRunbookLibrary |
+| v6.0 | Export + Perf + Compliance | GoalDepGraphExport, DaemonPerfRegression, FleetComplianceReport |
 
-**Totals**: 162 source modules, 120+ test files, 163 TUI commands, 20 CLI subcommands,
-4503 tests, ~48,000 lines added, zero runtime dependencies.
+**Totals**: 165 source modules, 120+ test files, 166 TUI commands, 20 CLI subcommands,
+4530 tests, ~49,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →

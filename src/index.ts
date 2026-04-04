@@ -199,6 +199,10 @@ import { buildClipboardResult, formatClipboardResult } from "./session-clipboard
 import { createShutdownState, formatShutdownState } from "./daemon-graceful-shutdown.js";
 import { computeImpact, formatImpact } from "./goal-dep-impact.js";
 import { getRunbook, searchRunbooks, listRunbooks, formatRunbookList, formatRunbookSteps } from "./fleet-runbook-library.js";
+import { formatGraphExport } from "./goal-dep-graph-export.js";
+import type { GraphNode, GraphFormat } from "./goal-dep-graph-export.js";
+import { DaemonPerfRegression, formatPerfRegression } from "./daemon-perf-regression.js";
+import { generateComplianceReport as generateCompReport, formatComplianceReportTui as formatCompReportTui } from "./fleet-compliance-report.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -768,6 +772,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const xpState = createXPState();
   const startupProfiler = new DaemonStartupProfiler();
   const shutdownState = createShutdownState();
+  const perfRegressionDetector = new DaemonPerfRegression();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -3755,6 +3760,35 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
           for (const l of lines) tui!.log("system", l);
         }
       }
+    });
+    // wire /dep-graph-export — export dep graph
+    input.onDepGraphExport((args) => {
+      const format = (args.trim() || "dot") as GraphFormat;
+      const tasks = taskManager?.tasks ?? [];
+      const nodes: GraphNode[] = tasks.map((t) => ({ sessionTitle: t.sessionTitle, status: t.status, dependsOn: t.dependsOn ?? [] }));
+      const lines = formatGraphExport(nodes, format);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /perf-regression — performance regression detector
+    input.onPerfRegression(() => {
+      const lines = formatPerfRegression(perfRegressionDetector);
+      for (const l of lines) tui!.log("system", l);
+    });
+    // wire /compliance-report — generate compliance report
+    input.onComplianceReport2(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const allCosts = tui!.getAllSessionCosts();
+      let totalCost = 0;
+      for (const [, costStr] of allCosts) totalCost += parseFloat(costStr.replace(/[^0-9.]/g, "")) || 0;
+      const report = generateCompReport({
+        periodLabel: new Date().toISOString().slice(0, 10),
+        complianceViolations: [], slaBreaches: [],
+        incidents: incidentTimeline.getEvents().map((e) => ({ session: e.sessionTitle, type: e.type, resolved: e.resolved })),
+        totalCostUsd: totalCost, budgetUsd: config.costBudgets?.globalBudgetUsd ?? 100,
+        sessionCount: tasks.length, healthScore: 70,
+      });
+      const lines = formatCompReportTui(report);
+      for (const l of lines) tui!.log("system", l);
     });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();

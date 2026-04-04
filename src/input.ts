@@ -253,6 +253,9 @@ export type ClipboardHandler = (session: string) => void; // copy output to clip
 export type GracefulShutdownHandler = () => void; // show shutdown state
 export type DepImpactHandler = (session: string) => void; // analyze dependency impact
 export type RunbookLibraryHandler = (args: string) => void; // browse/search runbooks
+export type DepGraphExportHandler = (args: string) => void; // export dep graph
+export type PerfRegressionHandler = () => void; // show perf regression state
+export type ComplianceReportHandler2 = () => void; // generate compliance report
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1070,6 +1073,12 @@ export class InputReader {
   onGracefulShutdown(handler: GracefulShutdownHandler): void { this.gracefulShutdownHandler = handler; }
   onDepImpact(handler: DepImpactHandler): void { this.depImpactHandler = handler; }
   onRunbookLibrary(handler: RunbookLibraryHandler): void { this.runbookLibraryHandler = handler; }
+  private depGraphExportHandler: DepGraphExportHandler | null = null;
+  private perfRegressionHandler: PerfRegressionHandler | null = null;
+  private complianceReportHandler2: ComplianceReportHandler2 | null = null;
+  onDepGraphExport(handler: DepGraphExportHandler): void { this.depGraphExportHandler = handler; }
+  onPerfRegression(handler: PerfRegressionHandler): void { this.perfRegressionHandler = handler; }
+  onComplianceReport2(handler: ComplianceReportHandler2): void { this.complianceReportHandler2 = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -3392,6 +3401,23 @@ ${BOLD}other:${RESET}
         else console.error(`${DIM}runbook not available (no TUI)${RESET}`);
         break;
       }
+
+      case "/dep-graph-export": {
+        const dgeArg = line.slice("/dep-graph-export".length).trim() || "dot";
+        if (this.depGraphExportHandler) this.depGraphExportHandler(dgeArg);
+        else console.error(`${DIM}dep-graph-export not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/perf-regression":
+        if (this.perfRegressionHandler) this.perfRegressionHandler();
+        else console.error(`${DIM}perf-regression not available (no TUI)${RESET}`);
+        break;
+
+      case "/compliance-report":
+        if (this.complianceReportHandler2) this.complianceReportHandler2();
+        else console.error(`${DIM}compliance-report not available (no TUI)${RESET}`);
+        break;
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");
