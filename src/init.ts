@@ -167,8 +167,16 @@ export async function runInit(forceOverwrite = false): Promise<InitResult> {
 
   const missingRequired = tools.filter((t) => t.required && !t.path);
   if (missingRequired.length > 0) {
-    console.log(`\n${RED}missing required tools: ${missingRequired.map((t) => t.name).join(", ")}${RESET}`);
-    console.log(`install them and re-run ${BOLD}aoaoe init${RESET}`);
+    const installHints: Record<string, string> = {
+      aoe: "https://github.com/njbrake/agent-of-empires",
+      tmux: "brew install tmux  (macOS) or apt install tmux  (Linux)",
+    };
+    console.log(`\n${RED}missing required tools:${RESET}`);
+    for (const t of missingRequired) {
+      const hint = installHints[t.name];
+      console.log(`  ${RED}✗${RESET} ${t.name}${hint ? `\n    install: ${hint}` : ""}`);
+    }
+    console.log(`\ninstall them and re-run ${BOLD}aoaoe init${RESET}`);
     return { tools, sessions: [], reasoner: null, opencodePort: 4097, opencodeRunning: false, configPath, wrote: false };
   }
 
@@ -319,6 +327,12 @@ export async function runInit(forceOverwrite = false): Promise<InitResult> {
     autoAnswerPermissions: true,
   };
 
+  // safety: set a default cost budget so new users don't burn unlimited tokens
+  config.costBudgets = {
+    globalBudgetUsd: 10.00,
+    autoPauseOnExceed: true,
+  };
+
   if (Object.keys(sessionDirs).length > 0) {
     config.sessionDirs = sessionDirs;
   }
@@ -332,28 +346,20 @@ export async function runInit(forceOverwrite = false): Promise<InitResult> {
   // ── step 6: next steps ─────────────────────────────────────────────────
   console.log(`\n${BOLD}next steps${RESET}`);
 
+  let step = 1;
   if (reasoner === "opencode" && !opencodeRunning) {
-    console.log(`  1. start the reasoner server:`);
+    console.log(`  ${step++}. start the reasoner server:`);
     console.log(`     ${CYAN}opencode serve --port ${opencodePort}${RESET}`);
-    console.log(`  2. run a dry-run to see what aoaoe observes:`);
-    console.log(`     ${CYAN}aoaoe --dry-run${RESET}`);
-    console.log(`  3. go live:`);
-    console.log(`     ${CYAN}aoaoe${RESET}`);
-  } else if (reasoner === "opencode" && opencodeRunning) {
-    console.log(`  1. run a dry-run to see what aoaoe observes:`);
-    console.log(`     ${CYAN}aoaoe --dry-run${RESET}`);
-    console.log(`  2. go live:`);
-    console.log(`     ${CYAN}aoaoe${RESET}`);
-  } else {
-    // claude-code backend
-    console.log(`  1. run a dry-run to see what aoaoe observes:`);
-    console.log(`     ${CYAN}aoaoe --dry-run${RESET}`);
-    console.log(`  2. go live:`);
-    console.log(`     ${CYAN}aoaoe${RESET}`);
   }
+  console.log(`  ${step++}. watch sessions live (free, no LLM calls):`);
+  console.log(`     ${CYAN}aoaoe --observe${RESET}`);
+  console.log(`  ${step++}. test what the AI would do (costs tokens):`);
+  console.log(`     ${CYAN}aoaoe --dry-run${RESET}`);
+  console.log(`  ${step++}. go live:`);
+  console.log(`     ${CYAN}aoaoe${RESET}`);
 
-  console.log(`\n  ${DIM}tip: run ${BOLD}aoaoe test-context${RESET}${DIM} to verify session discovery without starting the daemon${RESET}`);
-  console.log(`  ${DIM}tip: add a "notifications" block to your config for webhook alerts (see ${BOLD}aoaoe --help${RESET}${DIM})${RESET}`);
+  console.log(`\n  ${DIM}tip: run ${BOLD}aoaoe test-context${RESET}${DIM} to verify session discovery${RESET}`);
+  console.log(`  ${DIM}tip: default cost budget is $10 — edit config to change${RESET}`);
   console.log();
 
   return { tools, sessions, reasoner, opencodePort, opencodeRunning, configPath, wrote: true };
@@ -368,12 +374,19 @@ export async function ensureOpencodeServe(port: number): Promise<boolean> {
   try {
     // spawn detached so it survives daemon shutdown
     const { spawn } = await import("node:child_process");
-    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { mkdirSync, writeFileSync, openSync, readFileSync, existsSync } = await import("node:fs");
     const { join } = await import("node:path");
     const { homedir } = await import("node:os");
+
+    const aoaoeDir = join(homedir(), ".aoaoe");
+    mkdirSync(aoaoeDir, { recursive: true });
+    const logPath = join(aoaoeDir, "opencode-serve.log");
+
+    // pipe stdout+stderr to log file so users can diagnose failures
+    const logFd = openSync(logPath, "w");
     const child = spawn("opencode", ["serve", "--port", String(port)], {
       detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", logFd, logFd],
     });
     child.unref();
 
@@ -381,8 +394,7 @@ export async function ensureOpencodeServe(port: number): Promise<boolean> {
     // if the daemon restarts. Without this, detached servers become orphans.
     if (child.pid) {
       try {
-        const pidFile = join(homedir(), ".aoaoe", "opencode-server.pid");
-        mkdirSync(join(homedir(), ".aoaoe"), { recursive: true });
+        const pidFile = join(aoaoeDir, "opencode-server.pid");
         writeFileSync(pidFile, String(child.pid));
       } catch {} // best-effort
     }
@@ -395,7 +407,22 @@ export async function ensureOpencodeServe(port: number): Promise<boolean> {
         return true;
       }
     }
+
+    // show the user what went wrong — read last lines from log
     console.error(`[init] opencode serve did not become ready within 10s`);
+    console.error(`[init] log file: ${logPath}`);
+    try {
+      if (existsSync(logPath)) {
+        const logContent = readFileSync(logPath, "utf-8").trim();
+        if (logContent) {
+          const lastLines = logContent.split("\n").slice(-10);
+          console.error("[init] last output from opencode serve:");
+          for (const l of lastLines) console.error(`  ${l}`);
+        } else {
+          console.error("[init] opencode serve produced no output — it may have crashed immediately");
+        }
+      }
+    } catch {} // best-effort log reading
     return false;
   } catch (e) {
     console.error(`[init] failed to start opencode serve: ${e}`);

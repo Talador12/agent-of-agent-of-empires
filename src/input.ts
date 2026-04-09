@@ -271,6 +271,21 @@ export type TickBudgetHandler = () => void; // show tick phase budgets
 export type GoalMutationHandler = (args: string) => void; // track goal changes
 export type ChargebackHandler = () => void; // cost chargeback report
 export type PredictionEnsembleHandler = () => void; // ensemble predictions
+export type ApiStatusHandler = () => void; // show API server status
+export type AlertInheritanceHandler = () => void; // show alert rule inheritance tree
+export type AffinityRouterHandler = () => void; // show session affinity routing
+export type BatchGoalHandler = (args: string) => void; // parse/apply batch goal manifest
+export type ApiRateLimitHandler = () => void; // show API rate limiter status
+export type KnowledgeHandler = (args: string) => void; // cross-session knowledge store
+export type PriorityMatrixHandler = () => void; // 2D urgency vs importance matrix
+export type WebhookPushHandler = (args: string) => void; // webhook push management
+export type AuditRetentionHandler = () => void; // audit trail retention status
+export type VelocityNormHandler = () => void; // normalized velocity across complexities
+export type ErrorPatternHandler = (args: string) => void; // scan output for known error patterns
+export type ResourceMonitorHandler = () => void; // show daemon resource usage
+export type BurndownHandler = () => void; // show burndown charts
+export type LeakDetectorHandler = () => void; // show memory leak analysis
+export type TopologyHandler = () => void; // show session topology
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -1124,6 +1139,36 @@ export class InputReader {
   onGoalMutation(handler: GoalMutationHandler): void { this.goalMutationHandler = handler; }
   onChargeback(handler: ChargebackHandler): void { this.chargebackHandler = handler; }
   onPredictionEnsemble(handler: PredictionEnsembleHandler): void { this.predictionEnsembleHandler = handler; }
+  private apiStatusHandler: ApiStatusHandler | null = null;
+  onApiStatus(handler: ApiStatusHandler): void { this.apiStatusHandler = handler; }
+  private alertInheritanceHandler: AlertInheritanceHandler | null = null;
+  onAlertInheritance(handler: AlertInheritanceHandler): void { this.alertInheritanceHandler = handler; }
+  private affinityRouterHandler: AffinityRouterHandler | null = null;
+  onAffinityRouter(handler: AffinityRouterHandler): void { this.affinityRouterHandler = handler; }
+  private batchGoalHandler: BatchGoalHandler | null = null;
+  onBatchGoal(handler: BatchGoalHandler): void { this.batchGoalHandler = handler; }
+  private apiRateLimitHandler: ApiRateLimitHandler | null = null;
+  onApiRateLimit(handler: ApiRateLimitHandler): void { this.apiRateLimitHandler = handler; }
+  private knowledgeHandler: KnowledgeHandler | null = null;
+  onKnowledge(handler: KnowledgeHandler): void { this.knowledgeHandler = handler; }
+  private priorityMatrixHandler: PriorityMatrixHandler | null = null;
+  onPriorityMatrix(handler: PriorityMatrixHandler): void { this.priorityMatrixHandler = handler; }
+  private webhookPushHandler: WebhookPushHandler | null = null;
+  onWebhookPush(handler: WebhookPushHandler): void { this.webhookPushHandler = handler; }
+  private auditRetentionHandler: AuditRetentionHandler | null = null;
+  onAuditRetention(handler: AuditRetentionHandler): void { this.auditRetentionHandler = handler; }
+  private velocityNormHandler: VelocityNormHandler | null = null;
+  onVelocityNorm(handler: VelocityNormHandler): void { this.velocityNormHandler = handler; }
+  private errorPatternHandler: ErrorPatternHandler | null = null;
+  onErrorPattern(handler: ErrorPatternHandler): void { this.errorPatternHandler = handler; }
+  private resourceMonitorHandler: ResourceMonitorHandler | null = null;
+  onResourceMonitor(handler: ResourceMonitorHandler): void { this.resourceMonitorHandler = handler; }
+  private burndownHandler: BurndownHandler | null = null;
+  onBurndown(handler: BurndownHandler): void { this.burndownHandler = handler; }
+  private leakDetectorHandler: LeakDetectorHandler | null = null;
+  onLeakDetector(handler: LeakDetectorHandler): void { this.leakDetectorHandler = handler; }
+  private topologyHandler: TopologyHandler | null = null;
+  onTopology(handler: TopologyHandler): void { this.topologyHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -1375,7 +1420,27 @@ export class InputReader {
     const [cmd] = line.split(/\s+/);
 
     switch (cmd) {
-      case "/help":
+      case "/help": {
+        const helpArgs = line.slice("/help".length).trim();
+        if (helpArgs !== "all") {
+          console.error(`
+${BOLD}essential commands:${RESET}
+  just type          send a message to the AI (or update goal in drill-down view)
+  /explain           ask the AI to explain what's happening
+  /pause             pause the supervisor
+  /resume            resume the supervisor
+  /mode [name]       switch mode: observe, dry-run, confirm, autopilot
+  /view <N>          drill into a session (by number)
+  /back              return to fleet overview
+  /pool              show session pool status
+  /doctor            run self-diagnostics
+  /clear             clear the screen
+  ESC ESC            interrupt the AI mid-thought
+
+  ${DIM}type /help all for the full command list (197 commands)${RESET}
+`);
+          break;
+        }
         console.error(`
 ${BOLD}talking to the AI:${RESET}
   just type          in drill-down: update goal for that session; otherwise message AI
@@ -1511,6 +1576,7 @@ ${BOLD}other:${RESET}
   /clear             clear the screen
 `);
         break;
+      }
 
       case "/pause":
         this.paused = true;
@@ -3541,6 +3607,89 @@ ${BOLD}other:${RESET}
       case "/prediction-ensemble":
         if (this.predictionEnsembleHandler) this.predictionEnsembleHandler();
         else console.error(`${DIM}prediction-ensemble not available (no TUI)${RESET}`);
+        break;
+
+      case "/api":
+        if (this.apiStatusHandler) this.apiStatusHandler();
+        else console.error(`${DIM}API server not available (no TUI or apiPort not configured)${RESET}`);
+        break;
+
+      case "/alert-inherit":
+        if (this.alertInheritanceHandler) this.alertInheritanceHandler();
+        else console.error(`${DIM}alert-inherit not available (no TUI)${RESET}`);
+        break;
+
+      case "/affinity-router":
+        if (this.affinityRouterHandler) this.affinityRouterHandler();
+        else console.error(`${DIM}affinity-router not available (no TUI)${RESET}`);
+        break;
+
+      case "/batch-goal": {
+        const bgArgs = line.slice("/batch-goal".length).trim();
+        if (this.batchGoalHandler) this.batchGoalHandler(bgArgs);
+        else console.error(`${DIM}batch-goal not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/api-rate-limit":
+        if (this.apiRateLimitHandler) this.apiRateLimitHandler();
+        else console.error(`${DIM}api-rate-limit not available (no TUI)${RESET}`);
+        break;
+
+      case "/knowledge": {
+        const kArgs = line.slice("/knowledge".length).trim();
+        if (this.knowledgeHandler) this.knowledgeHandler(kArgs);
+        else console.error(`${DIM}knowledge not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/priority-matrix":
+        if (this.priorityMatrixHandler) this.priorityMatrixHandler();
+        else console.error(`${DIM}priority-matrix not available (no TUI)${RESET}`);
+        break;
+
+      case "/webhook-push": {
+        const wpArgs = line.slice("/webhook-push".length).trim();
+        if (this.webhookPushHandler) this.webhookPushHandler(wpArgs);
+        else console.error(`${DIM}webhook-push not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/audit-retention":
+        if (this.auditRetentionHandler) this.auditRetentionHandler();
+        else console.error(`${DIM}audit-retention not available (no TUI)${RESET}`);
+        break;
+
+      case "/velocity-norm":
+        if (this.velocityNormHandler) this.velocityNormHandler();
+        else console.error(`${DIM}velocity-norm not available (no TUI)${RESET}`);
+        break;
+
+      case "/error-patterns": {
+        const epArgs = line.slice("/error-patterns".length).trim();
+        if (this.errorPatternHandler) this.errorPatternHandler(epArgs);
+        else console.error(`${DIM}error-patterns not available (no TUI)${RESET}`);
+        break;
+      }
+
+      case "/resources":
+        if (this.resourceMonitorHandler) this.resourceMonitorHandler();
+        else console.error(`${DIM}resources not available (no TUI)${RESET}`);
+        break;
+
+      case "/burndown":
+        if (this.burndownHandler) this.burndownHandler();
+        else console.error(`${DIM}burndown not available (no TUI)${RESET}`);
+        break;
+
+      case "/leak-detector":
+        if (this.leakDetectorHandler) this.leakDetectorHandler();
+        else console.error(`${DIM}leak-detector not available (no TUI)${RESET}`);
+        break;
+
+      case "/topology":
+        if (this.topologyHandler) this.topologyHandler();
+        else console.error(`${DIM}topology not available (no TUI)${RESET}`);
         break;
 
       case "/clear":

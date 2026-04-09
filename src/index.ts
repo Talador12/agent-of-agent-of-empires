@@ -1,6 +1,29 @@
 #!/usr/bin/env node
+// ┌──────────────────────────────────────────────────────────────────────────┐
+// │ index.ts — daemon entry point                                           │
+// │                                                                         │
+// │ TABLE OF CONTENTS (search for these markers):                           │
+// │                                                                         │
+// │   §IMPORTS        — import statements (~265 lines)                      │
+// │   §MAIN           — main() function entry                               │
+// │   §CLI            — CLI subcommand dispatch (early returns)             │
+// │   §CONFIG         — config loading, lock, TUI setup                    │
+// │   §MODULES        — intelligence module instantiation (~90 instances)   │
+// │   §TUI-COMMANDS   — TUI slash command wiring (~3,600 lines)            │
+// │   §SERVERS        — health server, API server setup                    │
+// │   §SHUTDOWN       — signal handlers, cleanup                           │
+// │   §LOOP           — the daemon loop (while running)                    │
+// │   §TICK           — daemonTick() function                              │
+// │   §HELPERS        — utility functions after main()                     │
+// │                                                                         │
+// │ If you're looking for the daemon loop, search for §LOOP.               │
+// │ If you're adding a TUI command, search for §TUI-COMMANDS.              │
+// │ If you're adding a module, search for §MODULES.                        │
+// └──────────────────────────────────────────────────────────────────────────┘
+
+// §IMPORTS ──────────────────────────────────────────────────────────────────
 import { execSync } from "node:child_process";
-import { loadConfig, validateEnvironment, parseCliArgs, printHelp, configFileExists, findConfigFile, DEFAULTS, computeConfigDiff } from "./config.js";
+import { loadConfig, validateEnvironment, parseCliArgs, printHelp, configFileExists, findConfigFile, DEFAULTS, computeConfigDiff, configWarnings } from "./config.js";
 import { Poller, computeTmuxName } from "./poller.js";
 import { createReasoner } from "./reasoner/index.js";
 import { Executor } from "./executor.js";
@@ -28,6 +51,8 @@ import type { SortMode } from "./tui.js";
 import { isDaemonRunningFromState } from "./chat.js";
 import { sendNotification, sendTestNotification, formatNotifyFilters, parseNotifyEvents, shouldNotifySession } from "./notify.js";
 import { startHealthServer } from "./health.js";
+import { startApiServer, formatApiStatus } from "./api-server.js";
+import type { ApiModules, ApiServer } from "./api-server.js";
 import { loadTuiHistory, searchHistory, TUI_HISTORY_FILE, computeHistoryStats } from "./tui-history.js";
 import { appendSupervisorEvent, loadSupervisorEvents } from "./supervisor-history.js";
 import { savePreset, deletePreset, getPreset, formatPresetList } from "./pin-presets.js";
@@ -68,7 +93,7 @@ import { GraduationManager } from "./session-graduation.js";
 import { filterThroughApproval, formatApprovalWorkflowStatus } from "./approval-workflow.js";
 import { analyzeCompletedTasks, refineGoal, formatGoalRefinement } from "./goal-refiner.js";
 import { generateHtmlReport, buildReportData } from "./fleet-export.js";
-import { installService } from "./service-generator.js";
+import { installService, ensureServiceInstalled } from "./service-generator.js";
 import { buildSessionReplay, formatReplay, summarizeReplay } from "./session-replay.js";
 import { createWorkflowState, advanceWorkflow, formatWorkflow } from "./workflow-engine.js";
 import type { WorkflowState } from "./workflow-engine.js";
@@ -218,6 +243,24 @@ import { createTickBudget, formatTickBudget } from "./daemon-tick-budget.js";
 import { createMutationState, formatMutationHistory } from "./session-goal-mutation.js";
 import { generateChargeback, formatChargeback } from "./fleet-cost-chargeback.js";
 import { ensemblePredict, buildPredictionMethods, formatEnsemblePredictions } from "./goal-prediction-ensemble.js";
+import { resolveInheritance, formatInheritanceTree } from "./alert-rule-inheritance.js";
+import type { InheritableRule } from "./alert-rule-inheritance.js";
+import { createAffinityState, routeSessions, formatAffinityRouting } from "./session-affinity-router.js";
+import { parseManifest, applyManifest, formatManifest, formatAssignment, generateTemplate } from "./batch-goal-assignment.js";
+import { createRateLimiter, formatRateLimiter } from "./api-rate-limiting.js";
+import { createKnowledgeStore, addKnowledge, searchKnowledge, formatKnowledgeStore } from "./cross-session-knowledge.js";
+import { buildPriorityMatrix, formatPriorityMatrix } from "./fleet-priority-matrix.js";
+import type { MatrixInput } from "./fleet-priority-matrix.js";
+import { createWebhookPush, addWebhook, formatWebhookPush, pushEvent } from "./api-webhook-push.js";
+import { createRetentionState, formatRetention } from "./audit-trail-retention.js";
+import { normalizeFleet, formatNormalizedVelocity } from "./goal-velocity-normalization.js";
+import type { VelocityInput } from "./goal-velocity-normalization.js";
+import { scanForErrors, formatErrorScan, supportedLanguages } from "./session-error-pattern-library.js";
+import { createResourceMonitor, recordSample, formatResourceMonitor } from "./daemon-resource-monitor.js";
+import { createBurndown, recordProgress as recordBurndownProgress, formatBurndown } from "./goal-progress-burndown.js";
+import type { BurndownState } from "./goal-progress-burndown.js";
+import { createLeakDetector, recordHeapSample, formatLeakDetector } from "./daemon-memory-leak-detector.js";
+import { buildTopology, formatTopology } from "./fleet-session-topology.js";
 import { buildLifecycleRecords, computeLifecycleStats, formatLifecycleStats } from "./lifecycle-analytics.js";
 import { buildCostAttributions, computeCostReport, formatCostReport } from "./cost-attribution.js";
 import { decomposeGoal, formatDecomposition } from "./goal-decomposer.js";
@@ -238,7 +281,7 @@ import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
 import { actionSession, actionDetail, toActionLogEntry } from "./types.js";
 import { YELLOW, GREEN, DIM, BOLD, RED, RESET } from "./colors.js";
-import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
+import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, chmodSync, unlinkSync, createWriteStream } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -248,8 +291,21 @@ const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
 const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
 const TASK_RECONCILE_EVERY_POLLS = 6;
 
+// §MAIN ────────────────────────────────────────────────────────────────────
 async function main() {
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, runAdopt, adoptTemplate, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runBackup, backupOutput, runRestore, restoreInput, runSync, syncAction, syncRemote, runWeb, webPort, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle, runService, runCompletions, completionsShell } = parseCliArgs(process.argv);
+  // §CLI ──────────────────────────────────────────────────────────────────
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, runAdopt, adoptTemplate, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runBackup, backupOutput, runRestore, restoreInput, runSync, syncAction, syncRemote, runWeb, webPort, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, logFile, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle, runService, runCompletions, completionsShell } = parseCliArgs(process.argv);
+
+  // --log-file: redirect all output to a file (for background/daemon mode)
+  if (logFile) {
+    const logStream = createWriteStream(logFile, { flags: "a" });
+    const origStderrWrite = process.stderr.write.bind(process.stderr);
+    const origStdoutWrite = process.stdout.write.bind(process.stdout);
+    process.stderr.write = (chunk: any, ...args: any[]) => { logStream.write(chunk); return true; };
+    process.stdout.write = (chunk: any, ...args: any[]) => { logStream.write(chunk); return true; };
+    // keep console.error/log working — they write to stderr/stdout
+    console.error(`[${new Date().toISOString()}] logging to ${logFile}`);
+  }
 
   if (help) {
     printHelp();
@@ -548,6 +604,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     }
   }
 
+  // §CONFIG ────────────────────────────────────────────────────────────────
   const configResult = loadConfig(overrides);
   const configPath = configResult._configPath;
   let config: AoaoeConfig = configResult; // strip _configPath from type for downstream (let: hot-reloaded)
@@ -558,8 +615,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     console.error("");
     console.error(`  another aoaoe daemon is already running (pid ${lock.existingPid ?? "unknown"})`);
     console.error("  only one daemon can manage sessions at a time.");
-    console.error("");
-    console.error("  if this is stale, remove ~/.aoaoe/daemon.lock and retry.");
+    console.error(`  stop the other daemon first, or use: kill ${lock.existingPid ?? "<pid>"}`);
     process.exit(1);
   }
 
@@ -647,7 +703,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     const serverReady = await ensureOpencodeServe(config.opencode.port);
     if (!serverReady) {
       console.error("  opencode serve failed to start — cannot reason without it");
-      console.error(`  start manually: opencode serve --port ${config.opencode.port}`);
+      console.error(`  try manually: opencode serve --port ${config.opencode.port}`);
+      console.error(`  check log: ~/.aoaoe/opencode-serve.log`);
       process.exit(1);
     }
   }
@@ -720,6 +777,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const executor = config.observe ? null : new Executor(config);
   if (taskManager && executor) executor.setTaskManager(taskManager);
 
+  // §MODULES ──────────────────────────────────────────────────────────────
   // v0.197+ intelligence modules — instantiated once, fed per-tick
   const sessionSummarizer = new SessionSummarizer();
   const conflictDetector = new ConflictDetector();
@@ -796,6 +854,14 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   const timeMachineState = createTimeMachine();
   const tickBudgetState = createTickBudget();
   const goalMutationState = createMutationState();
+  const affinityRouterState = createAffinityState();
+  const apiRateLimiterState = createRateLimiter();
+  const knowledgeStore = createKnowledgeStore();
+  const webhookPushState = createWebhookPush();
+  const auditRetentionState = createRetentionState();
+  const resourceMonitorState = createResourceMonitor();
+  const burndownStates = new Map<string, BurndownState>();
+  const leakDetectorState = createLeakDetector();
 
   // checkpoint restore: load previous daemon state if available
   if (shouldRestoreCheckpoint()) {
@@ -832,9 +898,33 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
 
   // init reasoner (starts opencode serve, verifies claude, etc) — skip in observe mode
   if (reasoner) {
-    log("initializing reasoner...");
+    log(`initializing ${config.reasoner} reasoner...`);
     await reasoner.init();
-    log("reasoner ready");
+    log(`${config.reasoner} reasoner ready`);
+  }
+
+  // clear startup summary so the user knows what to expect
+  {
+    const mode = config.observe ? "observe-only (no reasoning)" : config.dryRun ? "dry-run (reason but don't execute)" : "autonomous";
+    const pollSec = Math.round(config.pollIntervalMs / 1000);
+    const reasonSec = Math.round(config.reasonIntervalMs / 1000);
+    const summary = [
+      `aoaoe v${pkg ?? "?"} — ${mode} mode`,
+      `  poll: every ${pollSec}s | reason: every ${reasonSec}s | backend: ${config.reasoner}`,
+    ];
+    if (config.apiPort) summary.push(`  API: http://127.0.0.1:${config.apiPort}/api/v1`);
+    if (config.healthPort) summary.push(`  health: http://127.0.0.1:${config.healthPort}/health`);
+    summary.push(`  config: ${configPath} (hot-reloaded on change)`);
+    summary.push(`  type /help for commands, ESC ESC to interrupt`);
+    for (const line of summary) {
+      if (tui) tui.log("system", line); else log(line);
+    }
+    // surface config warnings that were printed to stderr before TUI started
+    if (configWarnings.length > 0) {
+      for (const w of configWarnings) {
+        if (tui) tui.log("error", `config: ${w}`); else console.error(`[config] ${w}`);
+      }
+    }
   }
 
   // restore aliases from sticky prefs
@@ -847,7 +937,10 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   input.start();
   await reasonerConsole.start();
 
-  // wire scroll keys to TUI (PgUp/PgDn/Home/End)
+  // §TUI-COMMANDS ─────────────────────────────────────────────────────────
+  // ~3,600 lines of input.on*() handler wiring for all 197 TUI slash commands.
+  // each handler closes over the module instances above. search for a specific
+  // command by name, e.g. "onBurndown" or "onTopology".
   if (tui) {
     input.onScroll((dir) => {
       if (tui!.getViewMode() === "drilldown") {
@@ -3951,6 +4044,204 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const lines = formatEnsemblePredictions(predictions);
       for (const l of lines) tui!.log("system", l);
     });
+    input.onApiStatus(() => {
+      if (!apiServer) {
+        tui!.log("system", "API server not running (set apiPort in config to enable)");
+        return;
+      }
+      const lines = formatApiStatus(apiServer.stats(), config.apiPort!, !!config.apiToken);
+      for (const l of lines) tui!.log("system", l);
+    });
+    input.onAlertInheritance(() => {
+      // build inheritable rules from existing alert rules + any parent refs
+      const rules: InheritableRule[] = alertRules.map((r, i) => ({
+        id: r.name ?? `rule-${i}`,
+        name: r.name ?? `rule-${i}`,
+        severity: r.severity as any,
+        cooldownMs: r.cooldownMs,
+      }));
+      const result = resolveInheritance(rules);
+      const lines = formatInheritanceTree(result);
+      for (const l of lines) tui!.log("system", l);
+    });
+    input.onAffinityRouter(() => {
+      const sessions = tui!.getSessions();
+      const routable = sessions.map((s) => ({
+        title: s.title,
+        repo: s.path,
+        tags: [...(tui!.getSessionTags(s.title) ?? [])],
+      }));
+      // single instance for now — extensible when multi-reasoner is active
+      const instances = [{ id: config.reasoner, backend: config.reasoner, maxConcurrent: 5, currentLoad: sessions.filter((s) => s.status === "working" || s.status === "running").length }];
+      const result = routeSessions(routable, instances, affinityRouterState);
+      const lines = formatAffinityRouting(result);
+      for (const l of lines) tui!.log("system", l);
+    });
+    input.onBatchGoal((args) => {
+      if (!args) {
+        // generate template
+        const sessions = tui!.getSessions();
+        const template = generateTemplate(sessions.map((s) => ({ title: s.title, repo: s.path })));
+        for (const l of template.split("\n")) tui!.log("system", l);
+        return;
+      }
+      // parse manifest from args (inline text)
+      const manifest = parseManifest(args);
+      const manifestLines = formatManifest(manifest);
+      for (const l of manifestLines) tui!.log("system", l);
+      if (manifest.goals.length > 0) {
+        const sessions = tui!.getSessions().map((s) => s.title);
+        const assignment = applyManifest(manifest, sessions);
+        const assignLines = formatAssignment(assignment);
+        for (const l of assignLines) tui!.log("system", l);
+      }
+    });
+    input.onApiRateLimit(() => {
+      const lines = formatRateLimiter(apiRateLimiterState);
+      for (const l of lines) tui!.log("system", l);
+    });
+    input.onKnowledge((args) => {
+      if (!args) {
+        const lines = formatKnowledgeStore(knowledgeStore);
+        for (const l of lines) tui!.log("system", l);
+        return;
+      }
+      // search knowledge by keyword
+      const results = searchKnowledge(knowledgeStore, { keyword: args, limit: 10 });
+      if (results.length === 0) {
+        tui!.log("system", `knowledge: no entries matching "${args}"`);
+        return;
+      }
+      tui!.log("system", `knowledge: ${results.length} entries matching "${args}":`);
+      for (const e of results) {
+        tui!.log("system", `  [${e.category}] ${e.summary} (from ${e.sourceSession}, ${e.useCount} uses)`);
+      }
+    });
+    input.onPriorityMatrix(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const sessions = tui!.getSessions();
+      const inputs: MatrixInput[] = tasks.filter((t) => t.status !== "completed").map((t) => {
+        const s = sessions.find((ss) => ss.title === t.sessionTitle);
+        return {
+          sessionTitle: t.sessionTitle,
+          hasErrors: s?.status === "error",
+          isStuck: (t.stuckNudgeCount ?? 0) > 0,
+          stuckDurationMs: t.lastProgressAt ? Date.now() - t.lastProgressAt : 0,
+          nudgeCount: t.stuckNudgeCount ?? 0,
+          healthScore: 70,
+          priority: "normal",
+          dependentCount: tasks.filter((other) => other.dependsOn?.includes(t.sessionTitle)).length,
+          costUsd: 0,
+          progressPct: Math.min(100, (t.progress?.length ?? 0) * 15),
+          isBlocking: tasks.some((other) => other.dependsOn?.includes(t.sessionTitle) && other.status !== "completed"),
+        };
+      });
+      const result = buildPriorityMatrix(inputs);
+      const lines = formatPriorityMatrix(result);
+      for (const l of lines) tui!.log("system", l);
+    });
+    input.onWebhookPush((args) => {
+      if (!args) {
+        const lines = formatWebhookPush(webhookPushState);
+        for (const l of lines) tui!.log("system", l);
+        return;
+      }
+      // "add <url> [event1,event2]" syntax
+      const parts = args.split(/\s+/);
+      if (parts[0] === "add" && parts[1]) {
+        const events = parts[2] ? parts[2].split(",") : ["*"];
+        const sub = addWebhook(webhookPushState, parts[1], events);
+        tui!.log("system", `webhook added: ${sub.id} → ${sub.url} (events: ${events.join(", ")})`);
+      } else {
+        tui!.log("system", "usage: /webhook-push [add <url> [event1,event2,...]]");
+      }
+    });
+    input.onAuditRetention(() => {
+      const entries = readRecentAuditEntries(200).map((e) => ({ type: e.type, timestamp: new Date(e.timestamp).getTime(), detail: e.detail }));
+      const lines = formatRetention(auditRetentionState, entries);
+      for (const l of lines) tui!.log("system", l);
+    });
+    input.onVelocityNorm(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const velocityInputs: VelocityInput[] = tasks.filter((t) => t.status !== "completed" && t.status !== "pending").map((t) => {
+        const vel = progressVelocityTracker.estimate(t.sessionTitle);
+        const elapsed = t.createdAt ? (Date.now() - t.createdAt) / 3_600_000 : 0;
+        return {
+          sessionTitle: t.sessionTitle,
+          rawVelocityPctHr: vel?.velocityPerHour ?? 0,
+          complexity: "moderate", // default; would use complexity tagger if available
+          elapsedHours: elapsed,
+          progressPct: Math.min(100, (t.progress?.length ?? 0) * 15),
+        };
+      });
+      const result = normalizeFleet(velocityInputs);
+      const lines = formatNormalizedVelocity(result);
+      for (const l of lines) tui!.log("system", l);
+    });
+    input.onErrorPattern((args) => {
+      // scan a specific session's output, or show supported languages
+      if (!args || args === "languages") {
+        const langs = supportedLanguages();
+        tui!.log("system", `error pattern library: supports ${langs.join(", ")} + general patterns`);
+        return;
+      }
+      // find session by name/number
+      const sessions = tui!.getSessions();
+      const num = /^\d+$/.test(args) ? parseInt(args, 10) : undefined;
+      const session = num !== undefined ? sessions[num - 1] : sessions.find((s) => s.title.toLowerCase().includes(args.toLowerCase()));
+      if (!session) {
+        tui!.log("system", `error-patterns: session "${args}" not found`);
+        return;
+      }
+      const output = tui!.getSessionOutput(session.title);
+      const outputLines = Array.isArray(output) ? output : (output ?? "").split("\n");
+      const result = scanForErrors(outputLines);
+      const lines = formatErrorScan(result);
+      for (const l of lines) tui!.log("system", l);
+    });
+    input.onResourceMonitor(() => {
+      recordSample(resourceMonitorState, totalPolls);
+      const lines = formatResourceMonitor(resourceMonitorState);
+      for (const l of lines) tui!.log("system", l);
+    });
+    input.onBurndown(() => {
+      const tasks = taskManager?.tasks ?? [];
+      // update burndowns from current task progress
+      for (const t of tasks) {
+        if (t.status === "completed" || t.status === "pending") continue;
+        if (!burndownStates.has(t.sessionTitle)) {
+          burndownStates.set(t.sessionTitle, createBurndown(t.sessionTitle, t.createdAt ?? Date.now()));
+        }
+        const pct = Math.min(100, (t.progress?.length ?? 0) * 15);
+        recordBurndownProgress(burndownStates.get(t.sessionTitle)!, pct);
+      }
+      const states = [...burndownStates.values()];
+      const lines = formatBurndown(states);
+      for (const l of lines) tui!.log("system", l);
+    });
+    input.onLeakDetector(() => {
+      recordHeapSample(leakDetectorState);
+      const lines = formatLeakDetector(leakDetectorState);
+      for (const l of lines) tui!.log("system", l);
+    });
+    input.onTopology(() => {
+      const tasks = taskManager?.tasks ?? [];
+      const sessions = tui!.getSessions().map((s) => s.title);
+      // gather deps from task definitions
+      const deps: { from: string; to: string }[] = [];
+      for (const t of tasks) {
+        for (const dep of t.dependsOn ?? []) {
+          deps.push({ from: dep, to: t.sessionTitle });
+        }
+      }
+      // gather shared files from conflict detector
+      const sharedFiles: { session1: string; session2: string; file: string }[] = [];
+      // gather from the conflict detector's recent conflicts
+      const conflicts: { session1: string; session2: string }[] = [];
+      const result = buildTopology(sessions, deps, sharedFiles, [], [], conflicts);
+      const lines = formatTopology(result);
+      for (const l of lines) tui!.log("system", l);
+    });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();
       const summary = computeCostSummary(sessions, tui!.getAllSessionCosts());
@@ -4362,12 +4653,64 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     } catch {}
   }
 
-  // ── health check HTTP server (opt-in via config.healthPort) ────────────────
+  // §SERVERS ──────────────────────────────────────────────────────────────
+  // health check HTTP server (opt-in via config.healthPort)
   const daemonStartedAt = Date.now();
   let healthServer: ReturnType<typeof startHealthServer> | null = null;
   if (config.healthPort) {
     healthServer = startHealthServer(config.healthPort, daemonStartedAt);
     const msg = `health server listening on http://127.0.0.1:${config.healthPort}/health`;
+    if (tui) tui.log("system", msg); else log(msg);
+  }
+
+  // ── REST API server (opt-in via config.apiPort) ────────────────────────────
+  let apiServer: ApiServer | null = null;
+  if (config.apiPort) {
+    const apiModules: ApiModules = {
+      getters: new Map<string, () => unknown>([
+        ["health", () => {
+          const state = readState();
+          return state ? { status: "ok", phase: state.phase, pollCount: state.pollCount, sessionCount: state.sessionCount, paused: state.paused } : { status: "error" };
+        }],
+        ["fleet-sla", () => fleetSlaMonitor.formatStatus()],
+        ["session-pool", () => sessionPoolManager.formatStatus(taskManager?.tasks ?? [])],
+        ["reasoner-cost", () => reasonerCostTracker.getSummary()],
+        ["adaptive-poll", () => adaptivePollController.formatStatus()],
+        ["observation-cache", () => observationCache.getStats()],
+        ["fleet-rate-limit", () => fleetRateLimiter.getStatus()],
+        ["escalations", () => escalationManager.getAllStates()],
+        ["nudge-tracker", () => nudgeTracker.getReport()],
+        ["fleet-event-bus", () => ({ subscriptions: fleetEventBus.getSubscriptionCount(), counts: Object.fromEntries(fleetEventBus.getCounts()) })],
+        ["tick-profiler", () => tickProfiler.getStats()],
+        ["cost-trend", () => costTrendTracker.computeTrend()],
+        ["cost-regression", () => costRegressionDetector.detect(new Map())],
+        ["capacity-forecast", () => capacityForecaster.forecast()],
+        ["heartbeat", () => evaluateHeartbeats(heartbeatState, tui?.getSessions().map((s) => s.title) ?? [])],
+        ["incidents", () => incidentTimeline.getEvents({ unresolvedOnly: false })],
+        ["watchdog", () => formatWatchdog(watchdogState)],
+        ["daemon-metrics", () => daemonMetrics.allStats()],
+        ["perf-regression", () => perfRegressionDetector.recentAlerts()],
+        ["util-forecast", () => utilForecaster.forecast(new Date().getDay())],
+      ]),
+      actions: new Map<string, (body: unknown) => unknown>([
+        ["pause", () => {
+          writeState("sleeping", { paused: true });
+          return { ok: true, paused: true };
+        }],
+        ["resume", () => {
+          writeState("sleeping", { paused: false });
+          return { ok: true, paused: false };
+        }],
+      ]),
+      onEvent: (cb) => {
+        const subId = fleetEventBus.on("*", (event) => {
+          cb({ type: event.type, data: event, timestamp: event.timestamp });
+        });
+        return () => { fleetEventBus.off(subId); };
+      },
+    };
+    apiServer = startApiServer({ port: config.apiPort, token: config.apiToken, modules: apiModules });
+    const msg = `API server listening on http://127.0.0.1:${config.apiPort}/api/v1`;
     if (tui) tui.log("system", msg); else log(msg);
   }
 
@@ -4381,6 +4724,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   let lastReasonerSummary = "";
   let lastReasonerActionCount = 0;
 
+  // §SHUTDOWN ─────────────────────────────────────────────────────────────
   // graceful shutdown — wrap in .catch so unhandled rejections from
   // reasoner.shutdown() or reasonerConsole.stop() don't get swallowed
   let running = true;
@@ -4416,6 +4760,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     log("shutting down...");
     configWatcher.stop();
     if (healthServer) healthServer.close();
+    if (apiServer) apiServer.close();
     // notify: daemon stopped (fire-and-forget, don't block shutdown)
     sendNotification(config, { event: "daemon_stopped", timestamp: Date.now(), detail: `polls: ${totalPolls}, actions: ${totalActionsExecuted}` });
     input.stop();
@@ -4452,6 +4797,14 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+
+   // auto-install service for boot restart (real runs only)
+  if (!config.observe && !config.dryRun) {
+    const svcMsg = ensureServiceInstalled({ workingDir: process.cwd() });
+    if (svcMsg) {
+      if (tui) tui.log("system", svcMsg); else log(svcMsg);
+    }
+  }
 
   // main loop
   let pollCount = 0;
@@ -4491,6 +4844,12 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   // clear any stale interrupt from a previous run
   clearInterrupt();
 
+  // repeated-error suppression state
+  let lastTickError = "";
+  let repeatedErrorCount = 0;
+
+  // §LOOP ────────────────────────────────────────────────────────────────
+  // THE DAEMON LOOP — poll → reason → execute, repeat until shutdown.
   // auto-explain: on the very first tick with sessions, inject an explain prompt
   // so the AI introduces what it sees. Only in normal mode (not observe/confirm/dry-run).
   let autoExplainPending = !config.observe && !config.confirm;
@@ -5216,7 +5575,10 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         writeState("polling", { pollCount, sessionCount: observation.sessions.length, changeCount: observation.changes.length, sessions: sessionStates });
 
         if (observation.sessions.length === 0 && pollCount % 6 === 1) {
-          if (tui) tui.log("observation", "no active aoe sessions found"); else log("no active aoe sessions found");
+          const hint = pollCount <= 1
+            ? "no active aoe sessions found — create one with: aoe add <path> -t <title> -c opencode -y"
+            : "waiting for aoe sessions...";
+          if (tui) tui.log("observation", hint); else log(hint);
         } else if (observation.changes.length > 0) {
           for (const ch of observation.changes) {
             const preview = ch.newLines.split("\n").filter((l) => l.trim()).slice(-3).join(" | ").slice(0, 80);
@@ -5498,8 +5860,23 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
 
       } // end normal mode else block
     } catch (err) {
-      const msg = `tick ${pollCount} failed: ${err}`;
-      if (tui) tui.log("error", msg); else console.error(`[error] ${msg}`);
+      const errStr = String(err);
+      if (errStr === lastTickError) {
+        repeatedErrorCount++;
+        if (repeatedErrorCount === 3) {
+          const msg = `same error repeated 3 times — suppressing until it changes`;
+          if (tui) tui.log("error", msg); else console.error(`[error] ${msg}`);
+        } else if (repeatedErrorCount > 3 && repeatedErrorCount % 10 === 0) {
+          const msg = `same error repeated ${repeatedErrorCount} times: ${errStr.slice(0, 80)}`;
+          if (tui) tui.log("error", msg); else console.error(`[error] ${msg}`);
+        }
+        // suppress individual messages after 3 repeats
+      } else {
+        lastTickError = errStr;
+        repeatedErrorCount = 1;
+        const msg = `tick ${pollCount} failed: ${errStr}`;
+        if (tui) tui.log("error", msg); else console.error(`[error] ${msg}`);
+      }
     }
 
     // re-show input prompt after tick output (no-op when TUI is active since it has its own input line)
@@ -5534,6 +5911,7 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
 
 // wraps the core tick logic (loop.ts) with daemon UI: state file, dashboard, status line,
 // console output, and interrupt support. the core logic in loop.ts is what the tests exercise.
+// §TICK ──────────────────────────────────────────────────────────────────
 async function daemonTick(
   config: AoaoeConfig,
   poller: Poller,
@@ -6058,7 +6436,10 @@ async function daemonTick(
   // skip cases
   if (skippedReason === "no sessions") {
     if (pollCount % 6 === 1) {
-      if (tui) tui.log("observation", "no active aoe sessions found"); else log("no active aoe sessions found");
+      const hint = pollCount <= 1
+        ? "no active aoe sessions found — create one with: aoe add <path> -t <title> -c opencode -y"
+        : "waiting for aoe sessions...";
+      if (tui) tui.log("observation", hint); else log(hint);
     }
     return noStats;
   }
@@ -6362,6 +6743,7 @@ async function daemonTick(
   };
 }
 
+// §HELPERS ───────────────────────────────────────────────────────────────
 class InterruptError extends Error { constructor() { super("interrupted"); this.name = "InterruptError"; } }
 
 // prompt the user for y/n confirmation before an action runs.
@@ -6485,7 +6867,7 @@ async function testContext(): Promise<void> {
   // 1. list sessions
   const listResult = await shellExec("aoe", ["list", "--json"]);
   if (listResult.exitCode !== 0) {
-    console.error("failed to list sessions (is aoe running?)");
+    console.error("failed to list sessions — is aoe installed? (https://github.com/njbrake/agent-of-empires)");
     console.error(listResult.stderr);
     process.exit(1);
   }
@@ -7856,7 +8238,7 @@ async function runDoctorCheck(): Promise<void> {
     { cmd: "tmux", label: "terminal multiplexer", versionArg: ["-V"], required: true },
   ];
   if (config.reasoner === "opencode") {
-    toolChecks.push({ cmd: "opencode", label: "OpenCode CLI", versionArg: ["version"], required: true });
+    toolChecks.push({ cmd: "opencode", label: "OpenCode CLI", versionArg: ["--version"], required: true });
   } else {
     toolChecks.push({ cmd: "claude", label: "Claude Code CLI", versionArg: ["--version"], required: true });
   }
@@ -7865,7 +8247,10 @@ async function runDoctorCheck(): Promise<void> {
     checks++;
     try {
       const result = await shellExec(tool.cmd, tool.versionArg);
-      const ver = result.stdout.trim().split("\n")[0].slice(0, 60) || result.stderr.trim().split("\n")[0].slice(0, 60);
+      // filter out error lines that some tools print alongside version info
+      const cleanStdout = result.stdout.trim().split("\n").filter((l: string) => !l.startsWith("Error:") && !l.startsWith("error:")).join("\n");
+      const cleanStderr = result.stderr.trim().split("\n").filter((l: string) => !l.startsWith("Error:") && !l.startsWith("error:")).join("\n");
+      const ver = (cleanStdout.split("\n")[0] || cleanStderr.split("\n")[0] || "installed").slice(0, 60);
       console.log(`  ${GREEN}✓${RESET} ${tool.cmd} — ${ver}`);
       passed++;
     } catch {
@@ -7917,9 +8302,14 @@ async function runDoctorCheck(): Promise<void> {
   const lockPath = join(homedir(), ".aoaoe", "daemon.lock");
   if (existsSync(lockPath) && !daemonRunning) {
     checks++;
-    console.log(`  ${YELLOW}!${RESET} stale lock file found: ${lockPath}`);
-    console.log(`    ${DIM}remove with: rm ${lockPath}${RESET}`);
-    warnings++;
+    try {
+      unlinkSync(lockPath);
+      console.log(`  ${GREEN}✓${RESET} cleaned up stale lock file: ${lockPath}`);
+    } catch {
+      console.log(`  ${YELLOW}!${RESET} stale lock file found: ${lockPath}`);
+      console.log(`    ${DIM}remove with: rm ${lockPath}${RESET}`);
+      warnings++;
+    }
   }
 
   // ── 5. disk / data ─────────────────────────────────────────────────────
@@ -7984,7 +8374,7 @@ async function runDoctorCheck(): Promise<void> {
         passed++;
       }
     } else {
-      console.log(`  ${YELLOW}!${RESET} aoe list returned non-zero (is aoe running?)`);
+      console.log(`  ${YELLOW}!${RESET} aoe list returned non-zero — is aoe installed? (https://github.com/njbrake/agent-of-empires)`);
       warnings++;
     }
   } catch {

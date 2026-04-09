@@ -162,6 +162,8 @@ export interface AoaoeConfig {
     autoPauseOnExceed?: boolean; // auto-pause tasks when budget exceeded (default: true)
   };
   healthPort?: number; // optional HTTP health check server port (e.g. 4098)
+  apiPort?: number;    // optional REST API server port for remote control (e.g. 4100)
+  apiToken?: string;   // bearer token for API auth (null/empty = no auth)
   tuiHistoryRetentionDays?: number; // how many days of TUI history to keep on startup replay (default: 7)
 }
 

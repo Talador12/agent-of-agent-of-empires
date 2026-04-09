@@ -2,9 +2,10 @@
 // auto-start on boot and crash restart. supports both Linux (systemd) and
 // macOS (launchd) platforms.
 
-import { writeFileSync, mkdirSync, existsSync, chmodSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, chmodSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, platform } from "node:os";
+import { execSync } from "node:child_process";
 
 export interface ServiceConfig {
   name: string;           // service name (default: "aoaoe")
@@ -144,6 +145,46 @@ export function installService(config: Partial<ServiceConfig> = {}): string[] {
     lines.push(`  rm ${installPath}`);
   }
   return lines;
+}
+
+/** Auto-install service on real daemon start. Idempotent — skips if already loaded and unchanged. */
+export function ensureServiceInstalled(config: Partial<ServiceConfig> = {}): string | null {
+  try {
+    const os = platform();
+    if (os === "darwin") {
+      const label = "com.aoaoe.daemon";
+      const installPath = join(homedir(), "Library", "LaunchAgents", `${label}.plist`);
+      const { content } = generateServiceFile(config);
+
+      // Skip if plist exists and is unchanged
+      if (existsSync(installPath)) {
+        const existing = readFileSync(installPath, "utf-8");
+        if (existing === content) return null;
+        // Changed — unload old, write new, reload
+        try { execSync(`launchctl unload ${installPath} 2>/dev/null`); } catch {}
+      }
+
+      mkdirSync(join(homedir(), "Library", "LaunchAgents"), { recursive: true });
+      writeFileSync(installPath, content);
+      execSync(`launchctl load ${installPath}`);
+      return `service installed: ${installPath}`;
+    }
+    if (os === "linux") {
+      // Linux needs sudo — just write the file, log instructions once
+      const { content, filename, installPath } = generateServiceFile(config);
+      if (existsSync(installPath)) {
+        const existing = readFileSync(installPath, "utf-8");
+        if (existing === content) return null;
+      }
+      const outPath = join(homedir(), ".aoaoe", filename);
+      mkdirSync(join(homedir(), ".aoaoe"), { recursive: true });
+      writeFileSync(outPath, content);
+      return `service file updated: ${outPath} — run: sudo cp ${outPath} ${installPath} && sudo systemctl daemon-reload && sudo systemctl enable ${filename}`;
+    }
+  } catch {
+    // Non-fatal — daemon runs fine without the service, just won't auto-restart
+  }
+  return null;
 }
 
 function escXml(s: string): string {

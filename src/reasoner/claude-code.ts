@@ -9,6 +9,7 @@ export class ClaudeCodeReasoner implements Reasoner {
   private config: AoaoeConfig;
   private systemPrompt: string;
   private sessionId: string | null = null;
+  private sessionIdMissCount = 0;
 
   constructor(config: AoaoeConfig, globalContext?: string) {
     this.config = config;
@@ -79,14 +80,16 @@ export class ClaudeCodeReasoner implements Reasoner {
   private tryExtractSessionId(output: string) {
     // claude prints session info to stderr, try to capture it.
     // format varies by version: "session_id: xxx", "Session: xxx", etc.
-    // capture group accepts hex, alphanumeric, hyphens, underscores (covers UUIDs,
-    // base62, and other ID formats). minimum 8 chars to avoid matching short
-    // hex fragments like git short-hashes.
     const match = output.match(/session[_\s]?(?:id)?[:\s]+([a-zA-Z0-9_-]{8,})/i);
     if (match) {
       this.sessionId = match[1];
+      this.sessionIdMissCount = 0;
+    } else if (this.config.claudeCode?.resume) {
+      this.sessionIdMissCount++;
+      if (this.sessionIdMissCount === 5) {
+        this.log("warning: unable to extract session ID from claude output after 5 calls — --resume disabled, each call starts fresh (increased token usage)");
+      }
     }
-    // don't log on every call — the regex not matching is normal for most output
   }
 
   private log(msg: string) {

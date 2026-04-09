@@ -17,6 +17,7 @@ export class OpencodeReasoner implements Reasoner {
   private client: OpencodeClient | null = null;
   private sessionId: string | null = null;
   private messageCount = 0;
+  private sqliteErrorCount = 0;
 
   // rotate to a fresh session after this many reasoning calls to prevent
   // unbounded context accumulation that causes LLM timeouts (~15 messages
@@ -105,25 +106,50 @@ export class OpencodeReasoner implements Reasoner {
         this.log(`session init failed: ${errMsg}`);
         // detect SQLite corruption and auto-wipe
         if (errMsg.includes("SQLiteError") || errMsg.includes("disk I/O error") || errMsg.includes("database is locked")) {
-          this.log("detected corrupt opencode database — wiping and restarting");
-          this.killOrphanedServer();
-          await this.wipeOpencodeState();
-          try {
-            await this.startServer(this.config.opencode.port);
-            for (let i = 0; i < 15; i++) {
-              if (await this.tryConnect(this.config.opencode.port)) {
-                this.log("opencode server restarted with fresh DB");
-                // retry session creation with fresh server
-                const session = await client.createSession("aoaoe-supervisor");
-                this.sessionId = session.id;
-                this.messageCount = 0;
-                await client.sendMessage(this.sessionId, this.systemPrompt, true);
-                break;
+          this.sqliteErrorCount = (this.sqliteErrorCount ?? 0) + 1;
+          if (this.sqliteErrorCount < 2) {
+            // first attempt: restart server without wiping DB (may be transient lock)
+            this.log(`sqlite error (attempt ${this.sqliteErrorCount}) — restarting server without DB wipe`);
+            this.killOrphanedServer();
+            try {
+              await this.startServer(this.config.opencode.port);
+              for (let i = 0; i < 15; i++) {
+                if (await this.tryConnect(this.config.opencode.port)) {
+                  this.log("opencode server restarted (DB preserved)");
+                  const session = await client.createSession("aoaoe-supervisor");
+                  this.sessionId = session.id;
+                  this.messageCount = 0;
+                  await client.sendMessage(this.sessionId, this.systemPrompt, true);
+                  this.sqliteErrorCount = 0; // reset on success
+                  break;
+                }
+                await sleep(1000);
               }
-              await sleep(1000);
+            } catch (restartErr) {
+              this.log(`restart-without-wipe failed: ${restartErr}`);
             }
-          } catch (restartErr) {
-            this.log(`recovery failed: ${restartErr}`);
+          } else {
+            // 2nd+ attempt: wipe DB and restart (genuine corruption)
+            this.log(`sqlite error persists after restart — wiping DB and restarting (backup created)`);
+            this.killOrphanedServer();
+            await this.wipeOpencodeState();
+            try {
+              await this.startServer(this.config.opencode.port);
+              for (let i = 0; i < 15; i++) {
+                if (await this.tryConnect(this.config.opencode.port)) {
+                  this.log("opencode server restarted with fresh DB");
+                  const session = await client.createSession("aoaoe-supervisor");
+                  this.sessionId = session.id;
+                  this.messageCount = 0;
+                  await client.sendMessage(this.sessionId, this.systemPrompt, true);
+                  this.sqliteErrorCount = 0;
+                  break;
+                }
+                await sleep(1000);
+              }
+            } catch (restartErr) {
+              this.log(`recovery with DB wipe failed: ${restartErr}`);
+            }
           }
         }
         if (!this.sessionId) {
@@ -251,8 +277,15 @@ export class OpencodeReasoner implements Reasoner {
     const { spawn } = await import("node:child_process");
     // no detached+unref: child should die with parent on crash/SIGKILL.
     // PID file + killOrphanedServer handles cleanup across normal restarts.
+    // pipe server output to log file for diagnostics (matches init.ts pattern)
+    const { mkdirSync, openSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { homedir } = await import("node:os");
+    const aoaoeDir = join(homedir(), ".aoaoe");
+    mkdirSync(aoaoeDir, { recursive: true });
+    const logFd = openSync(join(aoaoeDir, "opencode-serve.log"), "a"); // append on restart
     this.serverProcess = spawn("opencode", ["serve", "--port", String(port)], {
-      stdio: "ignore",
+      stdio: ["ignore", logFd, logFd],
     });
 
     // monitor for unexpected death — if the server crashes, null out the client

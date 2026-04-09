@@ -46,6 +46,19 @@ export class Poller {
       }
     }
 
+    // warn on case-insensitive title collisions (can cause wrong-session commands)
+    const titleMap = new Map<string, string[]>();
+    for (const s of snapshots) {
+      const key = s.session.title.toLowerCase();
+      if (!titleMap.has(key)) titleMap.set(key, []);
+      titleMap.get(key)!.push(s.session.title);
+    }
+    for (const [, titles] of titleMap) {
+      if (titles.length > 1) {
+        this.log(`warning: sessions with similar titles may cause routing errors: ${titles.join(", ")}`);
+      }
+    }
+
     const changes = this.diffSnapshots(snapshots);
     const observation: Observation = {
       timestamp: Date.now(),

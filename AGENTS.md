@@ -251,6 +251,22 @@ The main loop is split into two layers:
 | `src/session-goal-mutation.ts` | Track goal text changes over time with scope creep detection |
 | `src/fleet-cost-chargeback.ts` | Cost allocation by team/project tag with chargeback invoicing |
 | `src/goal-prediction-ensemble.ts` | Confidence-weighted ensemble of multiple prediction methods |
+| `src/api-server.ts` | REST API server with bearer auth, OpenAPI 3.1 spec, SSE events, route registry |
+| `src/alert-rule-inheritance.ts` | Child alert rules inherit parent severity/cooldown/condition with cycle detection |
+| `src/session-affinity-router.ts` | Route sessions to reasoner instances by capacity, tags, history, affinity rules |
+| `src/batch-goal-assignment.ts` | Parse structured goal manifests for bulk loading with dependency validation |
+| `src/api-rate-limiting.ts` | Per-client request throttling for REST API with sliding window + burst allowance |
+| `src/cross-session-knowledge.ts` | Share learnings between sessions with category/tag/repo search + relevance scoring |
+| `src/fleet-priority-matrix.ts` | 2D urgency × importance classification into Eisenhower quadrants |
+| `src/api-webhook-push.ts` | Push fleet events to external URLs with HMAC signing + retry + backoff |
+| `src/audit-trail-retention.ts` | Configurable TTL with archival for audit trail entries |
+| `src/goal-velocity-normalization.ts` | Normalize velocity by complexity tier with weighted scoring + fleet comparison |
+| `src/session-error-pattern-library.ts` | 28 curated regex patterns for errors across 10+ languages with suggestions |
+| `src/daemon-resource-monitor.ts` | Track CPU/memory per tick with trend detection + sparkline visualization |
+| `src/api-pagination.ts` | Cursor-based pagination with forward/backward navigation + HTTP headers |
+| `src/goal-progress-burndown.ts` | ASCII burndown chart with actual vs ideal, scope-creep detection, ETA |
+| `src/daemon-memory-leak-detector.ts` | Heap growth tracking with linear regression, R² fit, leak classification |
+| `src/fleet-session-topology.ts` | Directed graph of session relationships with cluster/hub/leaf detection |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 
@@ -742,6 +758,124 @@ One hundred and thirty-eight modules run every daemon tick without LLM calls:
   Detects appeared/disappeared/increased/decreased shifts. Sparkline
   trends per pattern. `/pattern-evolution`.
 
+- **API server** (`api-server.ts`): REST API for daemon remote control.
+  HTTP router with route registry pattern — modules register getters (GET)
+  and actions (POST), server auto-builds routes. Bearer token auth via
+  timing-safe comparison. SSE endpoint (`/api/v1/events`) broadcasts fleet
+  events to connected clients. OpenAPI 3.1 spec auto-generated from route
+  definitions. CORS support. Request stats per route. 20 GET + 2 POST
+  endpoints. Config: `apiPort` + `apiToken`. `/api`.
+
+- **Alert rule inheritance** (`alert-rule-inheritance.ts`): child alert
+  rules inherit parent severity, cooldown, condition, enabled state, and
+  tags. Multi-level depth support. Detects orphan rules (missing parent)
+  and circular references via DFS. Tree-view TUI rendering with inheritance
+  annotations showing which fields came from ancestors. `/alert-inherit`.
+
+- **Session affinity router** (`session-affinity-router.ts`): route sessions
+  to preferred reasoner instances using weighted multi-criteria scoring.
+  Factors: capacity (load vs max, +10 light / -100 full), sticky routing
+  (+15 last-used), tag matching (+5 per shared tag), explicit affinity rules
+  (+20 configurable), historical performance (+10 >80% success, -15 <50%).
+  Spreads load across instances for multi-session batches. `/affinity-router`.
+
+- **Batch goal assignment** (`batch-goal-assignment.ts`): parse structured
+  goal manifests for bulk goal loading. Key-value text format with `[session]`
+  blocks supporting goal, priority (critical/high/normal/low), depends,
+  tags, budget, repo fields. Dependency validation against manifest.
+  Case-insensitive session matching. Template generation from existing
+  sessions. `/batch-goal [text]`.
+
+- **API rate limiting** (`api-rate-limiting.ts`): per-client request
+  throttling for the REST API. Sliding window with configurable duration
+  (default 60s), max requests (default 120), and burst allowance (default
+  +20 in first 10% of window). Per-client tracking, automatic expired
+  client cleanup, total allowed/blocked counters. `/api-rate-limit`.
+
+- **Cross-session knowledge** (`cross-session-knowledge.ts`): share
+  learnings between sessions. Knowledge store with 8 categories
+  (error-fix, pattern, command, config, dependency, testing, performance,
+  general). Search by category, tags, repo, keyword with relevance
+  ranking. `findRelevant()` scores by repo match + goal keywords +
+  popularity. Usage tracking with session attribution. LRU eviction
+  keeps most-used entries. `/knowledge [keyword]`.
+
+- **Fleet priority matrix** (`fleet-priority-matrix.ts`): Eisenhower-style
+  2D urgency × importance classification. Urgency from: errors (+30),
+  stuck (+20-40), nudges (+5/ea), low health (+15), deadline (+20).
+  Importance from: priority level (+0-40), blocking (+20), dependents
+  (+5/ea), cost (+5-10), near-completion (+10). Classifies into four
+  quadrants: do-first, schedule, delegate, eliminate. ASCII box-drawing
+  matrix with per-session recommendations. `/priority-matrix`.
+
+- **API webhook push** (`api-webhook-push.ts`): push fleet events to
+  external URLs on configurable triggers. Register subscriptions with
+  URL + event filter + optional HMAC-SHA256 signing secret. Delivery
+  via native fetch with retry + exponential backoff. Toggle enable/
+  disable per subscription. Per-sub delivery and failure tracking.
+  `/webhook-push [add <url> [events]]`.
+
+- **Audit trail retention** (`audit-trail-retention.ts`): configurable
+  TTL with archival for audit entries. Per-type policies (e.g.
+  debug=1d/delete, action=30d/archive). Wildcard default policy.
+  Archive batches with metadata (count, time range, categories).
+  Automatic expired client cleanup. Stats computation. `/audit-retention`.
+
+- **Goal velocity normalization** (`goal-velocity-normalization.ts`):
+  normalize velocity by complexity tier for fair cross-session comparison.
+  5 tiers (trivial→epic) with expected ranges and difficulty weights
+  (1-5). Raw %/hr normalized to 0-100 score relative to tier midpoint.
+  Weighted velocity = raw × weight. Performance ratings (excellent/good/
+  normal/slow/stalled). Fleet average, top/bottom performers. Bar chart
+  TUI rendering. `/velocity-norm`.
+
+- **Session error pattern library** (`session-error-pattern-library.ts`):
+  28 curated regex patterns for common errors across TypeScript, JavaScript,
+  Python, Rust, Go, and general (OOM, segfault, permission, network,
+  timeout, test, assertion, dependency, config). Each pattern has id,
+  language, category, severity, description, and actionable suggestion.
+  Scan output lines, count by severity/category/language. One match per
+  line (first wins). `/error-patterns <session|languages>`.
+
+- **Daemon resource monitor** (`daemon-resource-monitor.ts`): track
+  CPU/memory usage per daemon tick via `process.memoryUsage()` and
+  `process.cpuUsage()`. Rolling sample history (300 default). Peak
+  tracking for heap and RSS. Trend detection (increasing/decreasing/
+  stable) from first-half vs second-half avg comparison. Heap
+  utilization %. Unicode sparkline of heap over last 20 samples.
+  `/resources`.
+
+- **API pagination** (`api-pagination.ts`): cursor-based pagination for
+  list endpoints. Opaque base64url cursors encoding offset + direction.
+  Forward/backward navigation. Configurable page size (default 20,
+  max 100). URL query param parsing helper. HTTP response headers
+  (X-Total-Count, X-Page-Size, X-Page-Index, X-Has-More,
+  X-Next-Cursor, X-Prev-Cursor). Works with any array of items.
+
+- **Goal progress burndown** (`goal-progress-burndown.ts`): ASCII
+  burndown chart from velocity + remaining work. Records progress
+  samples per session over time. Renders actual line (█) vs ideal
+  line (·) on a configurable-size grid. Analyzes: velocity (%/hr),
+  projected completion, deviation from ideal, scope change count.
+  Status classification: ahead/on-track/behind/stalled/scope-creep.
+  `/burndown`.
+
+- **Daemon memory leak detector** (`daemon-memory-leak-detector.ts`):
+  track heap growth via `process.memoryUsage()` with linear regression.
+  Computes growth rate (MB/hr) and R² goodness-of-fit. Classifies:
+  ok (flat), warning (>1 MB/hr R²>0.5), likely-leak (>2 MB/hr R²>0.7),
+  critical (>5 MB/hr R²>0.8). Projects heap exhaustion time from
+  current + total. Baseline established after configurable warmup.
+  Alerting with history. `/leak-detector`.
+
+- **Fleet session topology** (`fleet-session-topology.ts`): directed
+  graph of session relationships. 5 edge types: dependency (weight 5),
+  shared-file (3), event-flow (2), knowledge (4), conflict (7). Node
+  metrics: in/out/total degree, hub/leaf/isolated classification.
+  BFS-based connected cluster detection. Graph density computation.
+  ASCII rendering with typed arrows (──▶ dependency, ◀─▶ shared-file,
+  ~~▶ event-flow, ··▶ knowledge, ✗─✗ conflict). `/topology`.
+
 All modules are instantiated in `main()`. `daemonTick()` receives the
 `intelligence` parameter carrying all module instances. The reasoner pipeline
 (wrappedReasoner) uses intelligence gates in this order:
@@ -788,7 +922,7 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 7. Cost + token tracking
 
 ### Testing
-- 4688 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
+- 4985 unit + integration + property + stress tests across 120+ files, `node:test` (stdlib, zero deps)
 - `pipeline-integration.test.ts` — 28 tests exercising the full autonomous pipeline
   end-to-end: reasoning gates, graduation, recovery, scheduling, escalation,
   SLA, budgets, goal completion, summarization, conflict detection, velocity,
@@ -811,17 +945,22 @@ rate. Goal refiner available via `/refine`. Fleet export via `/export`.
 
 ## Session Workflow
 
-When asked to continue work on this project:
-- **Do multiple roadmap items per request.** Ship 3 features in a single pass:
-  module + tests + wiring + docs. Don't stop at one.
-- **Add new roadmap ideas** to `claude.md` Ideas Backlog that are in line with the
-  project's direction (fleet intelligence, observability, cost management,
-  workflow orchestration, developer experience). Keep the backlog at 15-25 items.
-- **Update both files every commit**: `claude.md` (version, shipped items, counts)
-  and `AGENTS.md` (source layout table, intelligence module descriptions, test counts).
-- Follow the established pattern: standalone module → test → wire into input.ts +
-  index.ts → update docs. Each module is a pure function or stateful class,
-  zero runtime deps, includes a `format*()` function returning `string[]` for TUI.
+**Current directive: usability over features.** The project has 196 modules but
+the user isn't comfortable using it full time. Until told otherwise, prioritize:
+
+1. **Fix usability blockers** — things that make a new user close their terminal.
+   Missing error messages, invisible failures, confusing startup, stale docs.
+2. **Reduce complexity** — extract god files, lazy-load modules, simplify defaults.
+3. **Test the core loop** — the 15 core files matter more than 196 intelligence modules.
+4. **Only add features when explicitly requested.** Don't ship module #197 until
+   the core is bulletproof.
+
+When features ARE requested, follow the established pattern: standalone module → test
+→ wire into input.ts + index.ts → update docs. Each module is a pure function or
+stateful class, zero runtime deps, includes a `format*()` function returning
+`string[]` for TUI.
+
+- **Update both files every commit**: `claude.md` and `AGENTS.md`.
 - **Add this response to AGENTS.md** — every session's shipped summary goes into
   the development session summary table at the bottom.
 
@@ -1365,11 +1504,214 @@ A single extended AI-assisted development session shipped ~40 releases:
 | v6.3 | Lock + Correlation + Forecast | DaemonDistributedLock, SessionOutputCorrelation, FleetUtilizationForecaster |
 | v6.4 | TimeMachine + Sparklines + Budget | FleetSnapshotTimeMachine, GoalSparklineDashboard, DaemonTickBudget |
 | v6.5 | Mutations + Chargeback + Ensemble | SessionGoalMutation, FleetCostChargeback, GoalPredictionEnsemble |
+| v7.0 | **Remote Control API** | ApiServer (REST+SSE+OpenAPI+Auth), AlertRuleInheritance, SessionAffinityRouter, BatchGoalAssignment |
+| v7.1 | Rate Limiting + Knowledge + Matrix | ApiRateLimiting, CrossSessionKnowledge, FleetPriorityMatrix |
+| v7.2 | Webhooks + Retention + Velocity | ApiWebhookPush, AuditTrailRetention, GoalVelocityNormalization |
+| v7.3 | Errors + Resources + Pagination | SessionErrorPatternLibrary, DaemonResourceMonitor, ApiPagination |
+| v7.4 | Burndown + Leak Detection + Topology | GoalProgressBurndown, DaemonMemoryLeakDetector, FleetSessionTopology |
+| v7.4.1 | **Usability fixes** | opencode serve logging, README accuracy, startup UX, tool error messages, title collision warning |
 
-**Totals**: 180 source modules, 120+ test files, 181 TUI commands, 20 CLI subcommands,
-4688 tests, ~54,000 lines added, zero runtime dependencies.
+**Totals**: 196 source modules, 120+ test files, 197 TUI commands, 20 CLI subcommands,
+4985 tests, ~61,000 lines added, zero runtime dependencies.
 
 **Architecture**: standalone module → test → wire into daemon loop → integration test.
 8-gate reasoning pipeline: token quota → rate limit → cache → priority filter →
 compress → LLM → approval → cost+token track. Per-tick: SLA, velocity, recovery,
 dep-scheduler, graduation, workflow, alert rules, fleet utilization, fleet snapshots.
+REST API: route registry → auth gate → handler dispatch → JSON response (+ SSE for events).
+
+### v7.0.0 Session Response
+
+Shipped 4 features in v7.0.0 (95 new tests, 4 modules, 4 TUI commands):
+
+**Flagship: Daemon Remote Control API**
+1. **`api-server.ts`** + 45 tests — Full REST API server for daemon remote control.
+   20 GET endpoints for fleet metrics (SLA, pool, cost, heartbeat, incidents, etc.),
+   2 POST endpoints for actions (pause/resume), SSE live event stream
+   (`/api/v1/events`), bearer token auth with timing-safe comparison, auto-generated
+   OpenAPI 3.1 spec, CORS, per-route request stats. Config via `apiPort` + `apiToken`.
+   `/api` TUI command shows server status + top routes.
+
+**Standard modules:**
+2. **`alert-rule-inheritance.ts`** + 16 tests — Child alert rules inherit parent
+   severity/cooldown/condition/enabled/tags. Multi-level depth, orphan detection,
+   circular reference detection via DFS. Tree-view rendering. `/alert-inherit`.
+3. **`session-affinity-router.ts`** + 14 tests — Route sessions to reasoner instances
+   via weighted scoring: capacity, sticky routing, tag matching, affinity rules,
+   historical performance. Load spreading for multi-session batches. `/affinity-router`.
+4. **`batch-goal-assignment.ts`** + 20 tests — Parse structured goal manifests
+   (`[session]` blocks with goal/priority/depends/tags/budget/repo). Dependency
+   validation, case-insensitive matching, template generation. `/batch-goal`.
+
+Running total: 184 source modules, 185 TUI commands, 4783 tests, zero runtime deps.
+
+### v7.1.0 Session Response
+
+Shipped 3 features in v7.1.0 (52 new tests, 3 modules, 3 TUI commands):
+
+1. **`api-rate-limiting.ts`** + 14 tests — Per-client request throttling for
+   the REST API. Sliding window with configurable duration, max requests, and
+   burst allowance (+20 in first 10% of window). Per-client tracking, automatic
+   expired client cleanup, total/blocked counters. `/api-rate-limit`.
+2. **`cross-session-knowledge.ts`** + 17 tests — Share learnings between sessions.
+   Knowledge store with 8 categories, search by category/tags/repo/keyword.
+   `findRelevant()` scores by repo match + goal keywords + popularity. Usage
+   tracking, LRU eviction. `/knowledge [keyword]`.
+3. **`fleet-priority-matrix.ts`** + 21 tests — Eisenhower-style 2D urgency ×
+   importance classification. Urgency from errors/stuck/nudges/health/deadline.
+   Importance from priority/blocking/deps/cost/progress. Four quadrants with
+   ASCII matrix rendering + per-session recommendations. `/priority-matrix`.
+
+Running total: 187 source modules, 188 TUI commands, 4835 tests, zero runtime deps.
+
+### v7.2.0 Session Response
+
+Shipped 3 features in v7.2.0 (54 new tests, 3 modules, 3 TUI commands):
+
+1. **`api-webhook-push.ts`** + 16 tests — Push fleet events to external URLs.
+   HMAC-SHA256 signing, retry with exponential backoff, per-subscription toggle,
+   delivery/failure tracking. `/webhook-push [add <url> [events]]`.
+2. **`audit-trail-retention.ts`** + 15 tests — Configurable TTL with archival.
+   Per-type policies (debug=1d/delete, action=30d/archive). Archive batches with
+   metadata. Wildcard default. `/audit-retention`.
+3. **`goal-velocity-normalization.ts`** + 23 tests — Normalize velocity by
+   complexity tier (trivial→epic). Expected ranges + difficulty weights (1-5).
+   Normalized 0-100 score, weighted velocity, performance ratings. Fleet-level
+   comparison with bar charts. `/velocity-norm`.
+
+Running total: 190 source modules, 191 TUI commands, 4889 tests, zero runtime deps.
+
+### v7.3.0 Session Response
+
+Shipped 3 features in v7.3.0 (53 new tests, 3 modules, 3 TUI commands):
+
+1. **`session-error-pattern-library.ts`** + 22 tests — 28 curated regex patterns
+   for common errors across TypeScript, JavaScript, Python, Rust, Go + general
+   patterns (OOM, segfault, permission, network, timeout, test, assertion,
+   dependency). Severity/category/language classification. Actionable suggestions
+   per match. `/error-patterns <session>`.
+2. **`daemon-resource-monitor.ts`** + 13 tests — Track CPU/memory per tick via
+   `process.memoryUsage()` + `process.cpuUsage()`. Rolling 300-sample history.
+   Peak tracking. Trend detection. Heap sparkline visualization. `/resources`.
+3. **`api-pagination.ts`** + 18 tests — Cursor-based pagination. Opaque base64url
+   cursors, forward/backward, configurable page size (default 20, max 100). URL
+   query parsing + HTTP response headers. `/api` endpoints gain pagination.
+
+Running total: 193 source modules, 194 TUI commands, 4942 tests, zero runtime deps.
+
+### v7.4.0 Session Response
+
+Shipped 3 features in v7.4.0 (43 new tests, 3 modules, 3 TUI commands):
+
+1. **`goal-progress-burndown.ts`** + 16 tests — ASCII burndown chart with actual
+   vs ideal lines. Scope-creep detection. Status: ahead/on-track/behind/stalled/
+   scope-creep. Projected completion from velocity. `/burndown`.
+2. **`daemon-memory-leak-detector.ts`** + 12 tests — Linear regression on heap
+   samples to detect sustained growth. Growth rate (MB/hr), R² fit quality.
+   ok/warning/likely-leak/critical classification. Heap exhaustion projection.
+   Baseline after warmup. `/leak-detector`.
+3. **`fleet-session-topology.ts`** + 15 tests — Directed graph of session
+   relationships. 5 edge types (dependency/shared-file/event-flow/knowledge/
+   conflict). Hub/leaf/isolated classification. BFS cluster detection. Graph
+   density. ASCII topology rendering with typed arrows. `/topology`.
+
+Running total: 196 source modules, 197 TUI commands, 4985 tests, zero runtime deps.
+
+### v7.4.1 Session Response — Usability Focus
+
+**No new feature modules.** This release fixes the P0 usability blockers identified
+by an honest audit of the project. The core daemon works but the user experience had
+gaps that would make someone close their terminal and not come back.
+
+**Fixes shipped:**
+1. **opencode serve logging** — stderr/stdout now piped to `~/.aoaoe/opencode-serve.log`
+   instead of `stdio: "ignore"`. On startup failure, last 10 lines shown to user.
+   Previously all output was `/dev/null` — invisible crashes.
+2. **README accuracy** — badge updated 3,491→4,985 tests, module count 55→196,
+   project structure rewritten to separate core (15 files) from intelligence modules.
+3. **Missing tool errors** — `validateEnvironment()` now shows per-tool install links
+   (aoe GitHub URL, tmux brew/apt, opencode GitHub, claude npm command).
+4. **Startup summary** — prints version, mode, poll/reason intervals, backend,
+   API/health URLs, `/help` hint on launch. User knows what to expect.
+5. **Session title collision warning** — poller warns on duplicate case-insensitive
+   titles that could cause wrong-session command routing.
+
+6. **index.ts navigability** — table of contents + 11 section markers (§IMPORTS,
+   §MAIN, §CLI, §CONFIG, §MODULES, §TUI-COMMANDS, §SERVERS, §SHUTDOWN, §LOOP,
+   §TICK, §HELPERS). Daemon loop was buried at line 4,800 — now searchable via
+   `§LOOP`. Created `DaemonContext` interface in `daemon-context.ts` (typed bundle
+   of all 90 shared variables from main()) for future TUI handler extraction.
+   Full physical extraction deferred — risk of breaking 90 closures + duplicating
+   264 imports outweighs the benefit now that the file is searchable.
+
+7. **0 sessions = actionable guidance** — both observe and normal mode now tell users
+   how to create sessions (`aoe add <path> -t <title> -c opencode -y`) instead of
+   sitting silently. First poll shows the hint; subsequent polls say "waiting for
+   aoe sessions..." to avoid spam.
+8. **`--observe` promoted** — getting-started flow in `--help` and `init` next-steps
+   now shows observe (free) before dry-run (costs tokens). The funnel is: init →
+   test-context → observe → dry-run → live.
+9. **`/help` tiered** — bare `/help` shows 12 essential commands. `/help all` for
+   the full 197. New users don't drown.
+10. **Default $10 cost budget** — generated config includes `costBudgets` with
+    `globalBudgetUsd: 10.00` and `autoPauseOnExceed: true`. No unlimited burns.
+11. **Config hot-reload in startup banner** — `config: path (hot-reloaded on change)`.
+12. **init next-steps rewritten** — includes --observe, notes cost budget default.
+
+### Daily-use robustness (same session, continued):
+13. **opencode.ts startServer() logs to file** — reasoner restart path now pipes
+    to `~/.aoaoe/opencode-serve.log` (append), matching init.ts. Previously
+    `stdio: "ignore"` — invisible crashes on reasoner-initiated restarts.
+14. **Config warnings surfaced in TUI** — `configWarnings[]` collected during
+    `loadConfig()`, replayed as TUI error entries after `tui.start()`. Unknown
+    keys (typos) now visible instead of hidden behind alternate screen.
+15. **Repeated-error suppression** — same tick error 3+ times → "same error
+    repeated N times" with periodic summary every 10th occurrence. Prevents
+    TUI flooding when reasoner fails every tick (e.g., expired API key).
+16. **SQLite recovery less nuclear** — `database is locked` no longer triggers
+    immediate DB wipe. First attempt: restart server (DB preserved). Second
+    consecutive SQLite error: wipe + restart. Prevents data loss from transient
+    DB locks.
+17. **Claude --resume regex failure warning** — after 5 consecutive calls without
+    session ID match, logs: "unable to extract session ID — --resume disabled,
+    each call starts fresh (increased token usage)".
+18. **Lock file message fixed** — removed misleading "remove daemon.lock" hint
+    (stale locks auto-reclaim). Now shows `kill <pid>` for the running daemon.
+19. **pollIntervalMs upper bound** — max 300,000ms (5 min). Absurdly high values
+    no longer silently accepted.
+20. **sessionDirs path validation** — warns at startup if mapped paths don't exist.
+    Previously silently fell back to heuristic resolution.
+
+### Crash fix + polish (same session, continued):
+21. **CRITICAL: Fixed require() crash** — startup summary used `require("../package.json")`
+    which crashes in ESM. The daemon couldn't start at all. Found by actually running
+    it. Replaced with existing `readPkgVersion()`.
+22. **Doctor cleans stale locks** — auto-deletes stale daemon.lock when daemon isn't
+    running. Shows `kill <pid>` for live daemons instead of misleading `rm` hint.
+23. **Doctor opencode version fixed** — `opencode version` → `opencode --version`.
+    Now shows "1.3.3" instead of "Error: Failed to change directory".
+24. **Doctor version output sanitized** — strips "Error:" lines from tool version output.
+25. **Missing cost budget warning** — configs without `costBudgets` get a TUI warning:
+    "no costBudgets configured — LLM spending is unlimited".
+
+**Verified working end-to-end:**
+- `aoaoe --help` → clear, getting-started funnel
+- `aoaoe test-context` → finds 6 sessions, resolves all project dirs
+- `aoaoe doctor` → all tools detected, versions correct, reasoner responding
+- `aoaoe --observe` → starts, polls 6 sessions, shows output, shuts down clean
+- `aoaoe status` → shows daemon not running with start hint
+- `aoaoe tasks` → shows 6 tasks with progress
+- `aoaoe config` → dumps effective config
+- Non-TTY (headless) mode → works correctly with plain text output
+- 348 core + reasoner tests passing
+
+26. **`--log-file <path>` flag** — redirect all daemon output to a file for
+    background/service mode. No TUI, no terminal. Enables
+    `aoaoe --log-file /var/log/aoaoe.log &` or systemd/launchd integration.
+    Output is appended. Tested end-to-end with --observe.
+
+**All P0/P1/P2 usability items are now complete.**
+- Lazy-load measured as negligible (19ms for 16 modules) — not needed.
+- The daemon has been verified working end-to-end across all modes:
+  --help, test-context, doctor, --observe, --dry-run, status, tasks, config,
+  --log-file, headless (non-TTY pipe).

@@ -4,7 +4,7 @@
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml"><img src="https://github.com/Talador12/agent-of-agent-of-empires/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="https://www.npmjs.com/package/aoaoe"><img src="https://img.shields.io/npm/v/aoaoe" alt="npm version"></a>
     <a href="https://github.com/Talador12/agent-of-agent-of-empires/releases"><img src="https://img.shields.io/github/v/release/Talador12/agent-of-agent-of-empires" alt="GitHub release"></a>
-    <img src="https://img.shields.io/badge/tests-3491-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/tests-4985%2B-brightgreen" alt="tests">
     <img src="https://img.shields.io/badge/node-%3E%3D20-blue" alt="Node.js >= 20">
     <img src="https://img.shields.io/badge/runtime%20deps-0-brightgreen" alt="zero runtime dependencies">
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
@@ -824,67 +824,62 @@ The daemon and chat UI communicate via files in `~/.aoaoe/`:
 
 ## Intelligence Modules
 
-aoaoe includes 55 intelligence modules that run every daemon tick without LLM calls. They handle observability, automation, and fleet management autonomously:
+aoaoe includes 196 intelligence modules that run every daemon tick without LLM calls — pure computation, zero runtime dependencies. They cover fleet observability, cost management, goal tracking, scheduling, health monitoring, and operator tooling.
 
-**Reasoning Pipeline** (7 gates, runs before every LLM call):
-- Fleet rate limiter, observation cache, priority filter, context compressor, LLM call, approval workflow, cost tracker
+**Reasoning Pipeline** (8 gates, runs before every LLM call):
+- Token quota → fleet rate limiter → observation cache → priority filter → context compressor → LLM call → approval workflow → cost tracker
 
-**Per-Tick Autonomous Systems**:
+**Core Per-Tick Autonomous Systems**:
 - Session summarizer, conflict detector + auto-resolver, goal completion detector, cost budget enforcer
-- Activity heatmap, budget predictor, task retry with backoff, adaptive poll controller
-- Fleet SLA monitor, progress velocity tracker, recovery playbook, dependency scheduler
-- Session graduation (trust ladder), fleet utilization tracker, anomaly detector
-- Workflow engine (fan-out/fan-in stage orchestration)
+- Adaptive poll controller, fleet SLA monitor, progress velocity tracker, recovery playbook
+- Dependency scheduler, session graduation (trust ladder), workflow engine
 
-**On-Demand Analytics** (via TUI commands):
-- Audit trail + search, fleet snapshots + diff, lifecycle analytics, cost attribution
-- Goal decomposition, difficulty scoring, smart nudge generation, template auto-detection
-- Fleet-wide search, nudge effectiveness tracking, difficulty-based allocation
-- Goal refinement from completed task patterns, fleet HTML export, session replay
+**Fleet Intelligence** (on-demand via 197 TUI `/commands`):
+- Cost tracking: budgets, forecasts, trends, anomalies, chargebacks, optimization recommendations
+- Goal management: auto-priority, cascading, decomposition, NL parsing, confidence estimation, burndown charts
+- Observability: incident timeline, event bus, health scoring, diagnostics, structured logs, pattern evolution
+- Operations: shift handoff, compliance, runbooks, auto-scaler, canary mode, graceful shutdown
+- API: REST server with OpenAPI spec, SSE events, webhooks, bearer auth, rate limiting, pagination
 
-See `AGENTS.md` for the full source layout with all 55 modules described.
+See `AGENTS.md` for the full module list with descriptions.
 
 ## Project Structure
 
 ```
 src/
+  # ── core daemon (the 15 files that make it go) ──
   index.ts            # daemon entry point, main loop, subcommands
   loop.ts             # extracted tick logic (poll->reason->execute), testable with mocks
-  chat.ts             # interactive chat UI (aoaoe-chat binary)
-  config.ts           # config loader and CLI arg parser
-  config-watcher.ts   # config hot-reload via fs.watch, safe field merge
+  config.ts           # config loader, CLI arg parser, validation
   types.ts            # shared types (SessionSnapshot, Action, DaemonState, etc.)
   poller.ts           # aoe CLI + tmux capture-pane wrapper
   executor.ts         # maps action decisions to shell commands
-  console.ts          # conversation log + file-based IPC
-  dashboard.ts        # periodic CLI status table with task column
-  daemon-state.ts     # shared IPC state file + interrupt flag
-  tui.ts              # in-place terminal UI (alternate screen, scroll, sparklines, cards)
-  tui-history.ts      # persisted TUI history (JSONL file with rotation, replay on startup)
-  input.ts            # stdin readline + keypress handlers (all /commands live here)
-  init.ts             # `aoaoe init`: auto-discover tools, sessions, generate config
-  notify.ts           # webhook + Slack notification dispatcher for daemon events
-  health.ts           # HTTP health check endpoint (GET /health JSON status)
-  colors.ts           # shared ANSI color/style constants
+  tui.ts              # in-place terminal UI (alternate screen, scroll, sparklines)
+  input.ts            # stdin readline + keypress handlers (/commands)
+  init.ts             # `aoaoe init`: auto-discover tools, generate config
   context.ts          # discoverContextFiles, resolveProjectDir, loadSessionContext
-  activity.ts         # detect human keystrokes in tmux sessions
-  prompt-watcher.ts   # reactive permission prompt clearing via tmux pipe-pane
+  health.ts           # HTTP health check endpoint
+  daemon-state.ts     # IPC state file + interrupt flag
   task-manager.ts     # task orchestration: definitions, persistent state
-  task-cli.ts         # `aoaoe task` subcommand: list, start, stop, new, rm, edit
-  task-parser.ts      # parse OpenCode TODO patterns, model, tokens, cost from tmux
-  message.ts          # classifyMessages, formatUserMessages, shouldSkipSleep
-  wake.ts             # wakeableSleep with fs.watch for instant message delivery
-  shell.ts            # exec() wrappers with AbortSignal support
-  export.ts           # timeline export (JSON/Markdown) from actions + history
-  tail.ts             # `aoaoe tail`: live-stream daemon activity to another terminal
-  stats.ts            # `aoaoe stats`: aggregate statistics + activity heatmap
-  replay.ts           # `aoaoe replay`: play back tui-history.jsonl with timing
+
+  # ── reasoner backends ──
   reasoner/
     index.ts          # common Reasoner interface + factory
     prompt.ts         # system prompt + observation formatting
     parse.ts          # response parsing, JSON extraction, action validation
-    opencode.ts       # OpenCode SDK backend
-    claude-code.ts    # Claude Code CLI backend
+    opencode.ts       # OpenCode HTTP backend (native fetch to opencode serve)
+    claude-code.ts    # Claude Code subprocess backend (claude --print)
+
+  # ── CLI tools ──
+  chat.ts             # interactive chat UI (aoaoe-chat binary)
+  tail.ts             # live-stream daemon activity to another terminal
+  stats.ts            # aggregate statistics + activity heatmap
+  replay.ts           # play back tui-history.jsonl with timing
+  export.ts           # timeline export (JSON/Markdown)
+
+  # ── 196 intelligence modules (*.ts + *.test.ts pairs) ──
+  # fleet observability, cost management, goal tracking, scheduling,
+  # health monitoring, operator tooling — see AGENTS.md for full list
 ```
 
 ## Related Projects

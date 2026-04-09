@@ -110,12 +110,17 @@ const KNOWN_KEYS: Record<string, Set<string> | true> = {
   costBudgets: new Set(["globalBudgetUsd", "sessionBudgets", "autoPauseOnExceed"]),
 };
 
+/** collected config warnings (surfaced in TUI after startup) */
+export const configWarnings: string[] = [];
+
 export function warnUnknownKeys(raw: unknown, source: string): void {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
   const obj = raw as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
     if (!(key in KNOWN_KEYS)) {
-      console.error(`warning: unknown config key "${key}" in ${source} (typo?)`);
+      const msg = `unknown config key "${key}" in ${source} (typo?)`;
+      console.error(`warning: ${msg}`);
+      configWarnings.push(msg);
       continue;
     }
     // check nested keys for known sub-objects
@@ -123,7 +128,9 @@ export function warnUnknownKeys(raw: unknown, source: string): void {
     if (schema instanceof Set && obj[key] && typeof obj[key] === "object" && !Array.isArray(obj[key])) {
       for (const subKey of Object.keys(obj[key] as Record<string, unknown>)) {
         if (!schema.has(subKey)) {
-          console.error(`warning: unknown config key "${key}.${subKey}" in ${source} (typo?)`);
+          const msg = `unknown config key "${key}.${subKey}" in ${source} (typo?)`;
+          console.error(`warning: ${msg}`);
+          configWarnings.push(msg);
         }
       }
     }
@@ -137,8 +144,8 @@ export function validateConfig(config: AoaoeConfig): void {
   if (config.reasoner !== "opencode" && config.reasoner !== "claude-code") {
     errors.push(`reasoner must be "opencode" or "claude-code", got "${config.reasoner}"`);
   }
-  if (typeof config.pollIntervalMs !== "number" || config.pollIntervalMs < 1000 || !isFinite(config.pollIntervalMs)) {
-    errors.push(`pollIntervalMs must be a number >= 1000, got ${config.pollIntervalMs}`);
+  if (typeof config.pollIntervalMs !== "number" || config.pollIntervalMs < 1000 || config.pollIntervalMs > 300_000 || !isFinite(config.pollIntervalMs)) {
+    errors.push(`pollIntervalMs must be a number between 1000 and 300000 (5 min), got ${config.pollIntervalMs}`);
   }
   if (typeof config.reasonIntervalMs !== "number" || config.reasonIntervalMs < config.pollIntervalMs || !isFinite(config.reasonIntervalMs)) {
     errors.push(`reasonIntervalMs must be a number >= pollIntervalMs (${config.pollIntervalMs}), got ${config.reasonIntervalMs}`);
@@ -185,6 +192,13 @@ export function validateConfig(config: AoaoeConfig): void {
   // sessionDirs must be a plain object with string values
   if (config.sessionDirs !== undefined && (typeof config.sessionDirs !== "object" || config.sessionDirs === null || Array.isArray(config.sessionDirs))) {
     errors.push(`sessionDirs must be an object mapping session titles to directory paths, got ${typeof config.sessionDirs}`);
+  } else if (config.sessionDirs && typeof config.sessionDirs === "object") {
+    // warn if mapped paths don't exist on disk (silent mismatch otherwise)
+    for (const [title, dir] of Object.entries(config.sessionDirs as Record<string, string>)) {
+      if (typeof dir === "string" && dir && !existsSync(dir)) {
+        configWarnings.push(`sessionDirs["${title}"] points to "${dir}" which does not exist`);
+      }
+    }
   }
   // contextFiles must be an array of strings
   if (config.contextFiles !== undefined && !Array.isArray(config.contextFiles)) {
@@ -252,7 +266,10 @@ export function validateConfig(config: AoaoeConfig): void {
     }
   }
 
-  // costBudgets validation
+  // costBudgets validation — warn if no budget configured (unlimited spending)
+  if (config.costBudgets === undefined && !config.observe) {
+    configWarnings.push("no costBudgets configured — LLM spending is unlimited. add costBudgets.globalBudgetUsd to your config");
+  }
   if (config.costBudgets !== undefined) {
     const cb = config.costBudgets;
     if (cb.globalBudgetUsd !== undefined) {
@@ -296,7 +313,18 @@ export async function validateEnvironment(config: AoaoeConfig): Promise<void> {
   }
 
   if (missing.length > 0) {
-    throw new Error(`missing required tools: ${missing.join(", ")}`);
+    const installHints: Record<string, string> = {
+      "aoe (agent-of-empires)": "https://github.com/njbrake/agent-of-empires",
+      "tmux": "brew install tmux  (macOS) or apt install tmux  (Linux)",
+      "opencode": "https://github.com/anomalyco/opencode",
+      "claude (Claude Code)": "npm install -g @anthropic-ai/claude-code",
+    };
+    const lines = [`missing required tools:\n`];
+    for (const tool of missing) {
+      const hint = installHints[tool];
+      lines.push(`  ✗ ${tool}${hint ? `\n    install: ${hint}` : ""}`);
+    }
+    throw new Error(lines.join("\n"));
   }
 }
 
@@ -461,6 +489,7 @@ export function parseCliArgs(argv: string[]): {
   runService: boolean;
   runCompletions: boolean;
   completionsShell?: string;
+  logFile?: string;
 } {
   const overrides: Partial<AoaoeConfig> = {};
   let help = false;
@@ -474,7 +503,7 @@ export function parseCliArgs(argv: string[]): {
   let runTaskCli = false;
   let registerTitle: string | undefined;
 
-  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showTasksJson: false, runProgress: false, progressSince: undefined as string | undefined, progressJson: false, runHealth: false, healthJson: false, runSummary: false, runAdopt: false, adoptTemplate: undefined as string | undefined, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined as string | undefined, runIncident: false, incidentSince: undefined as string | undefined, incidentLimit: undefined as number | undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined as number | undefined, incidentIntervalMs: undefined as number | undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined as string | undefined, supervisorLimit: undefined as number | undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined as number | undefined, supervisorIntervalMs: undefined as number | undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runBackup: false, backupOutput: undefined as string | undefined, runRestore: false, restoreInput: undefined as string | undefined, runSync: false, syncAction: undefined as string | undefined, syncRemote: undefined as string | undefined, runWeb: false, webPort: undefined as number | undefined, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, exportTasks: false, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined as number | undefined, runStats: false, statsLast: undefined as string | undefined, runReplay: false, replaySpeed: undefined as number | undefined, replayLast: undefined as string | undefined, runService: false, runCompletions: false, completionsShell: undefined as string | undefined };
+  const defaults = { overrides, help: false, version: false, register: false, testContext: false, runTest: false, showTasks: false, showTasksJson: false, runProgress: false, progressSince: undefined as string | undefined, progressJson: false, runHealth: false, healthJson: false, runSummary: false, runAdopt: false, adoptTemplate: undefined as string | undefined, showHistory: false, showStatus: false, runRunbook: false, runbookJson: false, runbookSection: undefined as string | undefined, runIncident: false, incidentSince: undefined as string | undefined, incidentLimit: undefined as number | undefined, incidentJson: false, incidentNdjson: false, incidentWatch: false, incidentChangesOnly: false, incidentHeartbeatSec: undefined as number | undefined, incidentIntervalMs: undefined as number | undefined, runSupervisor: false, supervisorAll: false, supervisorSince: undefined as string | undefined, supervisorLimit: undefined as number | undefined, supervisorJson: false, supervisorNdjson: false, supervisorWatch: false, supervisorChangesOnly: false, supervisorHeartbeatSec: undefined as number | undefined, supervisorIntervalMs: undefined as number | undefined, showConfig: false, configValidate: false, configDiff: false, notifyTest: false, runDoctor: false, runBackup: false, backupOutput: undefined as string | undefined, runRestore: false, restoreInput: undefined as string | undefined, runSync: false, syncAction: undefined as string | undefined, syncRemote: undefined as string | undefined, runWeb: false, webPort: undefined as number | undefined, runLogs: false, logsActions: false, logsGrep: undefined as string | undefined, logsCount: undefined as number | undefined, runExport: false, exportFormat: undefined as string | undefined, exportOutput: undefined as string | undefined, exportLast: undefined as string | undefined, exportTasks: false, runInit: false, initForce: false, runTaskCli: false, runTail: false, tailFollow: false, tailCount: undefined as number | undefined, logFile: undefined as string | undefined, runStats: false, statsLast: undefined as string | undefined, runReplay: false, replaySpeed: undefined as number | undefined, replayLast: undefined as string | undefined, runService: false, runCompletions: false, completionsShell: undefined as string | undefined };
 
   // check for subcommand as first non-flag arg
   if (argv[2] === "test-context") {
@@ -762,7 +791,7 @@ export function parseCliArgs(argv: string[]): {
 
   const knownFlags = new Set([
     "--reasoner", "--opencode", "--claude-code", "--poll-interval", "--reason-interval", "--port", "--model", "--profile", "--health-port",
-    "--verbose", "-v", "--dry-run", "--observe", "--confirm", "--help", "-h", "--version",
+    "--verbose", "-v", "--dry-run", "--observe", "--confirm", "--log-file", "--help", "-h", "--version",
   ]);
 
   for (let i = 2; i < argv.length; i++) {
@@ -831,6 +860,9 @@ export function parseCliArgs(argv: string[]): {
       case "--confirm":
         overrides.confirm = true;
         break;
+      case "--log-file":
+        if (argv[i + 1]) defaults.logFile = argv[++i];
+        break;
       case "--help":
       case "-h":
         help = true;
@@ -861,7 +893,8 @@ usage: aoaoe [command] [options]
 getting started:
   aoaoe init                   # detect environment, generate config
   aoaoe test-context           # see what aoaoe sees (zero side effects)
-  aoaoe --dry-run              # full loop but actions are only logged
+  aoaoe --observe              # watch sessions live, no LLM calls (free)
+  aoaoe --dry-run              # full loop but actions are only logged (costs tokens)
   aoaoe                        # full autonomous mode
 
 commands:
@@ -956,6 +989,8 @@ options:
                                        zero cost. shows what the daemon sees.
   --confirm                          ask before each action — the AI proposes,
                                        you approve with y/n before it runs.
+  --log-file <path>                  redirect all output to a file (no TUI).
+                                       for background/service mode.
   --verbose, -v                      verbose logging
   --help, -h                         show this help
   --version                          show version
