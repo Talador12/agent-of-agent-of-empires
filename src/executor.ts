@@ -284,14 +284,25 @@ export class Executor {
     }
   }
 
-  /** Send model switch command to opencode after pane respawn */
+  /** Switch model in opencode via ctrl+x m -> search -> enter -> variant */
   private async restoreModel(tmuxName: string, model: string): Promise<void> {
     this.log(`restoring model ${model} in ${tmuxName}`);
-    // opencode model switch: /model <name> then Enter
-    await execQuiet("tmux", ["send-keys", "-t", tmuxName, "-l", `/model ${model}`]);
+    // ctrl+x m opens the model picker
+    await execQuiet("tmux", ["send-keys", "-t", tmuxName, "C-x"]);
+    await new Promise((r) => setTimeout(r, 300));
+    await execQuiet("tmux", ["send-keys", "-t", tmuxName, "m"]);
+    await new Promise((r) => setTimeout(r, 1000));
+    // type model name to filter (use just enough to uniquely match)
+    const searchTerm = model.replace(/\s+(Anthropic|OpenAI|Workers AI|Cloudflare).*$/i, "").trim();
+    await execQuiet("tmux", ["send-keys", "-t", tmuxName, "-l", searchTerm]);
+    await new Promise((r) => setTimeout(r, 500));
     await execQuiet("tmux", ["send-keys", "-t", tmuxName, "Enter"]);
-    // Wait for model switch to take effect
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 1000));
+    // select "high" variant (variant picker appears after model selection)
+    await execQuiet("tmux", ["send-keys", "-t", tmuxName, "-l", "high"]);
+    await new Promise((r) => setTimeout(r, 300));
+    await execQuiet("tmux", ["send-keys", "-t", tmuxName, "Enter"]);
+    await new Promise((r) => setTimeout(r, 1000));
   }
 
   private async stopSession(sessionId: string, snapshots: SessionSnapshot[] = []): Promise<ActionLogEntry> {
