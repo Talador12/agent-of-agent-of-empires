@@ -296,10 +296,11 @@ async function attachToDaemon(): Promise<void> {
   // Check if daemon tmux session exists
   const check = execSync(`tmux has-session -t ${DAEMON_TMUX_SESSION} 2>/dev/null; echo $?`, { encoding: "utf-8" }).trim();
   if (check !== "0") {
-    console.error(`No running daemon found. Start one with: aoaoe`);
-    process.exit(1);
+    // No daemon running — start one, then attach
+    const args = process.argv.slice(1).filter(a => a !== "attach").map(a => a.includes(" ") ? `"${a}"` : a).join(" ");
+    const nodeCmd = `AOAOE_IN_TMUX=1 node ${process.argv[1]} ${args}`;
+    execSync(`tmux new-session -d -s ${DAEMON_TMUX_SESSION} '${nodeCmd}'`);
   }
-  // Replace this process with tmux attach
   execSync(`tmux attach -t ${DAEMON_TMUX_SESSION}`, { stdio: "inherit" });
 }
 
