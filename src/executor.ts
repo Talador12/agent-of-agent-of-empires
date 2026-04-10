@@ -1,5 +1,5 @@
 import { exec, execQuiet } from "./shell.js";
-import { appendFileSync, mkdirSync, statSync, renameSync } from "node:fs";
+import { appendFileSync, mkdirSync, statSync, renameSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
@@ -30,8 +30,8 @@ export class Executor {
 
   constructor(config: AoaoeConfig) {
     this.config = config;
-    // ensure log dir exists
     try { mkdirSync(LOG_DIR, { recursive: true }); } catch {}
+    this.loadSessionModels();
   }
 
   setTaskManager(tm: TaskManager): void {
@@ -256,12 +256,32 @@ export class Executor {
     );
   }
 
-  /** Track model per session so we can restore after respawn */
+  /** Track model per session so we can restore after respawn. Persisted to disk. */
   private sessionModels: Map<string, string> = new Map();
+  private static readonly MODEL_STATE_PATH = join(homedir(), ".aoaoe", "session-models.json");
+
+  private loadSessionModels(): void {
+    try {
+      const data = readFileSync(Executor.MODEL_STATE_PATH, "utf-8");
+      const parsed = JSON.parse(data) as Record<string, string>;
+      for (const [k, v] of Object.entries(parsed)) this.sessionModels.set(k, v);
+    } catch { /* first run or corrupt file */ }
+  }
+
+  private saveSessionModels(): void {
+    try {
+      const obj: Record<string, string> = {};
+      for (const [k, v] of this.sessionModels) obj[k] = v;
+      writeFileSync(Executor.MODEL_STATE_PATH, JSON.stringify(obj));
+    } catch { /* non-fatal */ }
+  }
 
   /** Called each tick from the main loop to track detected models */
   updateSessionModel(sessionId: string, model: string | undefined): void {
-    if (model) this.sessionModels.set(sessionId, model);
+    if (model && model !== this.sessionModels.get(sessionId)) {
+      this.sessionModels.set(sessionId, model);
+      this.saveSessionModels();
+    }
   }
 
   /** Send model switch command to opencode after pane respawn */

@@ -184,10 +184,11 @@ export function formatObservation(obs: Observation): string {
    const activeSessions: string[] = [];
    for (const snap of obs.sessions) {
      const s = snap.session;
-     const activeTag = snap.userActive ? " [USER ACTIVE]" : "";
-     const protectedTag = protectedList.some((p) => p.toLowerCase() === s.title.toLowerCase()) ? " [PROTECTED]" : "";
-     const drainingTag = drainingList.has(s.id) ? " [DRAINING — skip, do not send input]" : "";
-     parts.push(`  [${s.id.slice(0, 8)}] "${s.title}" tool=${s.tool} status=${s.status} path=${s.path}${activeTag}${protectedTag}${drainingTag}`);
+      const activeTag = snap.userActive ? " [USER ACTIVE]" : "";
+      const protectedTag = protectedList.some((p) => p.toLowerCase() === s.title.toLowerCase()) ? " [PROTECTED]" : "";
+      const drainingTag = drainingList.has(s.id) ? " [DRAINING — skip, do not send input]" : "";
+      const deadTag = snap.paneDead ? " [PANE DEAD — use start_session to respawn]" : "";
+      parts.push(`  [${s.id.slice(0, 8)}] "${s.title}" tool=${s.tool} status=${s.status} path=${s.path}${activeTag}${protectedTag}${drainingTag}${deadTag}`);
     if (snap.userActive) activeSessions.push(s.title);
   }
    if (activeSessions.length > 0) {
