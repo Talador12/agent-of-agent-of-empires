@@ -204,18 +204,17 @@ export class Poller {
   }
 
   private async captureSession(session: AoeSession): Promise<SessionSnapshot> {
-    const output = await this.captureTmuxPane(session.tmux_name);
+    const paneDead = await this.isPaneDead(session.tmux_name);
+    const output = paneDead ? "" : await this.captureTmuxPane(session.tmux_name);
     const outputHash = quickHash(output);
-    // fix false error detection from AoE when session is actually idle
     session.status = Poller.correctErrorMisdetection(session.status, output);
 
-    // load AI instruction files from session's project directory
-    // auto-discovers AGENTS.md, claude.md, .cursorrules, etc. + user-configured extras
-    // resolves the actual repo dir by matching session title against subdirectories
-    // cached internally with 60s TTL so this is cheap on subsequent polls
     const extraFiles = this.config.contextFiles.length ? this.config.contextFiles : undefined;
     const sessionDirs = Object.keys(this.config.sessionDirs).length ? this.config.sessionDirs : undefined;
     const projectContext = loadSessionContext(session.path, session.title, extraFiles, sessionDirs) || undefined;
+
+    // Parse model from opencode status bar (e.g. "Build  Claude Opus 4.6 Anthropic")
+    const detectedModel = Poller.parseModelFromOutput(output);
 
     return {
       session,
@@ -223,7 +222,27 @@ export class Poller {
       outputHash,
       capturedAt: Date.now(),
       projectContext,
+      paneDead,
+      detectedModel,
     };
+  }
+
+  private async isPaneDead(tmuxName: string): Promise<boolean> {
+    if (!tmuxName) return false;
+    const result = await exec("tmux", [
+      "list-panes", "-t", tmuxName, "-F", "#{pane_dead}",
+    ]);
+    if (result.exitCode !== 0) return false;
+    return result.stdout.trim() === "1";
+  }
+
+  static parseModelFromOutput(output: string): string | undefined {
+    // Matches "Build  Claude Opus 4.6" or "Build · claude-opus-4-6" etc.
+    const match = output.match(/Build\s+[·]?\s*(\S.+?)(?:\s+(?:Anthropic|Workers AI|OpenAI|Cloudflare)[:\s])/i);
+    if (match) return match[1].trim();
+    // Fallback: "▣  Build · claude-opus-4-6"
+    const alt = output.match(/Build\s*[·]\s*([a-z0-9._/-]+)/i);
+    return alt ? alt[1].trim() : undefined;
   }
 
   private async captureTmuxPane(tmuxName: string): Promise<string> {

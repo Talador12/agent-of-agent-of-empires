@@ -12,6 +12,7 @@ export interface PollerLike {
 
 export interface ExecutorLike {
   execute(actions: Action[], snapshots: SessionSnapshot[]): Promise<ActionResult[]>;
+  updateSessionModel?(sessionId: string, model: string | undefined): void;
 }
 
 export interface ActionResult {
@@ -99,6 +100,11 @@ export async function tick(opts: {
   // no changes, no user message, no policy alerts -> skip reasoning
   if (observation.changes.length === 0 && !userMessage && policyAlerts.length === 0) {
     return { observation, result: null, executed: [], skippedReason: "no changes" };
+  }
+
+  // track detected models per session for recovery after dead pane respawn
+  for (const snap of observation.sessions) {
+    executor.updateSessionModel?.(snap.session.id, snap.detectedModel);
   }
 
   // attach policy context

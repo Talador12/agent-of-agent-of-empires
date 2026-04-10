@@ -69,13 +69,16 @@ export async function injectGoalToSession(
   sessionId: string,
   sessionTitle: string,
   goal: string,
+  repoPath?: string,
 ): Promise<boolean> {
   if (!goal.trim()) return false;
   const tmuxName = computeTmuxName(sessionId, sessionTitle);
   const goalLines = goalToList(goal);
-  const prompt = goalLines.length === 1
+  // Prepend repo scope so the agent stays focused
+  const scopePrefix = repoPath ? `Work in ${repoPath} only. ` : "";
+  const prompt = scopePrefix + (goalLines.length === 1
     ? goalLines[0]
-    : goalLines.map((g, i) => `${i + 1}. ${g}`).join("\n");
+    : goalLines.map((g, i) => `${i + 1}. ${g}`).join("\n"));
   const result = await exec("tmux", ["send-keys", "-t", tmuxName, "-l", prompt]);
   if (result.exitCode !== 0) {
     log(`goal injection failed for ${sessionTitle}: ${result.stderr.trim()}`);
@@ -479,7 +482,7 @@ export class TaskManager {
       await new Promise((r) => setTimeout(r, 2000));
       for (const task of newlyActivated) {
         if (task.sessionId && task.goal) {
-          const ok = await injectGoalToSession(task.sessionId, task.sessionTitle, task.goal);
+          const ok = await injectGoalToSession(task.sessionId, task.sessionTitle, task.goal, task.repo);
           if (ok) goalsInjected.push(task.sessionTitle);
         }
       }

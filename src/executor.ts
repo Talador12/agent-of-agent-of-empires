@@ -212,18 +212,66 @@ export class Executor {
   }
 
   private async startSession(sessionId: string, snapshots: SessionSnapshot[] = []): Promise<ActionLogEntry> {
+    const snap = this.resolveSession(sessionId, snapshots);
+    const tmuxName = this.resolveTmuxName(sessionId, snapshots);
+
+    // Dead pane recovery: tmux respawn-pane instead of aoe session start
+    if (snap?.paneDead && tmuxName) {
+      const previousModel = this.sessionModels.get(sessionId) ?? snap.detectedModel;
+      this.log(`pane dead for ${tmuxName}, respawning`);
+      const respawn = await exec("tmux", ["respawn-pane", "-k", "-t", tmuxName]);
+      if (respawn.exitCode !== 0) {
+        return this.logAction(
+          { action: "start_session", session: sessionId },
+          false,
+          `respawn-pane failed: ${respawn.stderr.trim()}`
+        );
+      }
+
+      // Wait for opencode to initialize
+      await new Promise((r) => setTimeout(r, 5000));
+
+      // Restore model if we tracked one before the crash
+      if (previousModel) {
+        await this.restoreModel(tmuxName, previousModel);
+      }
+
+      this.markAction(this.resolveSessionId(sessionId, snapshots));
+      return this.logAction(
+        { action: "start_session", session: sessionId },
+        true,
+        `respawned dead pane${previousModel ? `, restored model: ${previousModel}` : ""}`
+      );
+    }
+
+    // Normal start path
     const resolvedId = this.resolveSessionId(sessionId, snapshots);
     const args = this.buildProfileAwareAoeArgs(sessionId, snapshots, ["session", "start", resolvedId]);
     const result = await exec("aoe", args);
-
-    // only mark action (trigger cooldown) on success — failed starts should be retryable
     if (result.exitCode === 0) this.markAction(resolvedId);
-
     return this.logAction(
       { action: "start_session", session: sessionId },
       result.exitCode === 0,
       result.exitCode === 0 ? "started" : result.stderr.trim()
     );
+  }
+
+  /** Track model per session so we can restore after respawn */
+  private sessionModels: Map<string, string> = new Map();
+
+  /** Called each tick from the main loop to track detected models */
+  updateSessionModel(sessionId: string, model: string | undefined): void {
+    if (model) this.sessionModels.set(sessionId, model);
+  }
+
+  /** Send model switch command to opencode after pane respawn */
+  private async restoreModel(tmuxName: string, model: string): Promise<void> {
+    this.log(`restoring model ${model} in ${tmuxName}`);
+    // opencode model switch: /model <name> then Enter
+    await execQuiet("tmux", ["send-keys", "-t", tmuxName, "-l", `/model ${model}`]);
+    await execQuiet("tmux", ["send-keys", "-t", tmuxName, "Enter"]);
+    // Wait for model switch to take effect
+    await new Promise((r) => setTimeout(r, 2000));
   }
 
   private async stopSession(sessionId: string, snapshots: SessionSnapshot[] = []): Promise<ActionLogEntry> {

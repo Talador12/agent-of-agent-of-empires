@@ -41,6 +41,8 @@ Rules:
 - When sending input, be concise and direct. You are typing into a terminal prompt.
 - Prefer "wait" over unnecessary intervention. Agents work best when left alone.
 - Never send empty or trivial messages to agents.
+- If you see a software update prompt (e.g. "Update available", "new version"), send Escape key to dismiss it.
+  Do NOT type "Skip", "n", or any text — that can kill the process. Just wait for it to auto-dismiss or send an empty Enter.
 - Use "report_progress" to log meaningful milestones (commits, tests passing, features completed).
   Do NOT report trivial progress like "agent is working" -- only concrete accomplishments.
 - Use "complete_task" when a task's goal has been fully achieved and the agent has nothing left to do.

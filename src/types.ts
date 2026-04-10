@@ -29,6 +29,8 @@ export interface SessionSnapshot {
   capturedAt: number; // Date.now()
   projectContext?: string; // AGENTS.md / claude.md content from session's path
   userActive?: boolean; // true if a human user is interacting with this tmux pane
+  paneDead?: boolean; // true if tmux pane process has exited
+  detectedModel?: string; // model name parsed from opencode status bar
 }
 
 export interface Observation {
