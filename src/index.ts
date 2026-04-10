@@ -287,14 +287,26 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const AOAOE_DIR = join(homedir(), ".aoaoe"); // watch dir for wakeable sleep
-const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt"); // file IPC from chat.ts
+const AOAOE_DIR = join(homedir(), ".aoaoe");
+const INPUT_FILE = join(AOAOE_DIR, "pending-input.txt");
 const TASK_RECONCILE_EVERY_POLLS = 6;
+const DAEMON_TMUX_SESSION = "aoaoe-daemon";
+
+async function attachToDaemon(): Promise<void> {
+  // Check if daemon tmux session exists
+  const check = execSync(`tmux has-session -t ${DAEMON_TMUX_SESSION} 2>/dev/null; echo $?`, { encoding: "utf-8" }).trim();
+  if (check !== "0") {
+    console.error(`No running daemon found. Start one with: aoaoe`);
+    process.exit(1);
+  }
+  // Replace this process with tmux attach
+  execSync(`tmux attach -t ${DAEMON_TMUX_SESSION}`, { stdio: "inherit" });
+}
 
 // §MAIN ────────────────────────────────────────────────────────────────────
 async function main() {
   // §CLI ──────────────────────────────────────────────────────────────────
-   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, runAdopt, adoptTemplate, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runBackup, backupOutput, runRestore, restoreInput, runSync, syncAction, syncRemote, runWeb, webPort, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, logFile, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle, runService, runCompletions, completionsShell } = parseCliArgs(process.argv);
+   const { overrides, help, version, register, testContext: isTestContext, runTest, showTasks, showTasksJson, runProgress, progressSince, progressJson, runHealth, healthJson, runSummary, runAdopt, adoptTemplate, showHistory, showStatus, runRunbook, runbookJson, runbookSection, runIncident, incidentSince, incidentLimit, incidentJson, incidentNdjson, incidentWatch, incidentChangesOnly, incidentHeartbeatSec, incidentIntervalMs, runSupervisor, supervisorAll, supervisorSince, supervisorLimit, supervisorJson, supervisorNdjson, supervisorWatch, supervisorChangesOnly, supervisorHeartbeatSec, supervisorIntervalMs, showConfig, configValidate, configDiff, notifyTest, runDoctor, runBackup, backupOutput, runRestore, restoreInput, runSync, syncAction, syncRemote, runWeb, webPort, runLogs, logsActions, logsGrep, logsCount, runExport, exportFormat, exportOutput, exportLast, runInit, initForce, runTaskCli: isTaskCli, runTail: isTail, tailFollow, tailCount, logFile, runStats: isStats, statsLast, runReplay: isReplay, replaySpeed, replayLast, registerTitle, runService, runAttach, runCompletions, completionsShell } = parseCliArgs(process.argv);
 
   // --log-file: redirect all output to a file (for background/daemon mode)
   if (logFile) {
@@ -474,6 +486,11 @@ async function main() {
     return;
   }
 
+  if (runAttach) {
+    await attachToDaemon();
+    return;
+  }
+
   if (runCompletions) {
     const { generateCompletion } = await import("./cli-completions.js");
     const shell = (completionsShell ?? "bash") as "bash" | "zsh" | "fish";
@@ -602,6 +619,17 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       console.error("  continuing with defaults...");
       console.error("");
     }
+  }
+
+  // §TMUX-WRAP — run inside a named tmux session so `aoaoe attach` works.
+  // Skip if: --log-file (background/service mode), or already wrapped.
+  if (!logFile && !process.env.AOAOE_IN_TMUX) {
+    const args = process.argv.slice(1).map(a => a.includes(" ") ? `"${a}"` : a).join(" ");
+    const nodeCmd = `AOAOE_IN_TMUX=1 node ${process.argv[1]} ${args}`;
+    try { execSync(`tmux kill-session -t ${DAEMON_TMUX_SESSION} 2>/dev/null`, { stdio: "ignore" }); } catch {}
+    execSync(`tmux new-session -d -s ${DAEMON_TMUX_SESSION} '${nodeCmd}'`);
+    execSync(`tmux attach -t ${DAEMON_TMUX_SESSION}`, { stdio: "inherit" });
+    process.exit(0);
   }
 
   // §CONFIG ────────────────────────────────────────────────────────────────
