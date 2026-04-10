@@ -20,10 +20,16 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 - [ ] Verify sessions pick up goals from claude.md and make progress autonomously
 
 ### Roadmap (priority order)
-1. **Session resilience** — daemon should survive laptop sleep/wake, network changes, and system restarts without manual intervention. The launchd service handles restart-on-crash and boot-start. The daemon already handles sleep/wake (process suspends and resumes, local commands work, API reconnects on next tick). No code change needed for the "close laptop, walk to desk" case.
-2. **Stale task reconciliation** — when aoaoe.tasks.json changes (tasks added/removed), reconcile against persistent task-state.json without requiring manual deletion of the state file. Currently we had to `rm ~/.aoaoe/task-state.json` to pick up task file changes.
-3. **Scope enforcement** — tasks define a repo path and the agent should stay focused on that repo. Currently behavioral (LLM follows instructions) not technical. Consider: if a task needs to update an upstream dependency, it should be able to check out the dep repo and PR it (same as a human would). The scope is about intent, not filesystem jails.
-4. **Service auto-install on all platforms** — macOS launchd done. Linux systemd needs sudo. Consider: detect if running as root, auto-install. Otherwise write file and log instructions once.
+1. **CRITICAL: Dead pane recovery** — when a tmux pane dies (status 0 or otherwise), `aoe session start` does nothing because the pane is dead. Executor must detect `pane_dead` via `tmux list-panes -F "#{pane_dead}"` and use `tmux respawn-pane -k -t <pane>` instead. Currently dead panes stay dead and aoaoe logs "started" but nothing happened.
+2. **CRITICAL: Session config persistence** — when a session dies and respawns, it loses its model selection and MCP connections. A respawned opencode session defaults to Kimi K2.5 instead of Claude Opus 4.6. aoaoe needs to:
+   - Track each session's model + MCP state (from tmux pane output parsing)
+   - On respawn, restore the model via opencode's model switching mechanism
+   - Verify MCP connections are re-established
+   - This is the difference between "session recovered" and "session actually usable"
+3. **Stale task reconciliation** — when aoaoe.tasks.json changes, reconcile against task-state.json without manual deletion.
+4. **Scope enforcement** — tasks define a repo and the agent should stay focused. Currently behavioral only. Adventure drifted into cc/cloudchamber — the goal text needs to be explicit about repo scope. Consider adding the repo path to the goal prompt automatically.
+5. **Update prompt handling** — sending "Skip" to the opencode v1.4.2 update prompt killed the code-music process (exit 0). Need a safer way to dismiss update prompts without killing the session.
+6. **Service auto-install** — macOS launchd done. Linux systemd needs sudo.
 
 ## Current State
 

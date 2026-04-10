@@ -1,11 +1,27 @@
 [
   {
+    "repo": "/Users/kadler/Documents/repos/github/cloud-hypervisor",
+    "sessionTitle": "cloud-hypervisor",
+    "profile": "default",
+    "sessionMode": "existing",
+    "tool": "opencode",
+    "goal": "Continue the roadmap in claude.md"
+  },
+  {
     "repo": "/Users/kadler/Documents/repos/github/adventure",
     "sessionTitle": "adventure",
     "profile": "default",
     "sessionMode": "existing",
     "tool": "opencode",
-    "goal": "Read claude.md for roadmap. Pick the next item and implement it. Run tests before committing. Commit and push after each self-contained improvement. Update claude.md with what you shipped."
+    "goal": "Continue the roadmap in claude.md"
+  },
+  {
+    "repo": "/Users/kadler/Documents/repos/cc/cloudchamber",
+    "sessionTitle": "cloudchamber",
+    "profile": "default",
+    "sessionMode": "existing",
+    "tool": "opencode",
+    "goal": "Continue the roadmap in claude.md"
   },
   {
     "repo": "/Users/kadler/Documents/repos/github/code-music",
@@ -13,6 +29,30 @@
     "profile": "default",
     "sessionMode": "existing",
     "tool": "opencode",
-    "goal": "Read claude.md for roadmap. Pick the next Tier 1 item and implement it. Run tests before committing. Commit and push after each self-contained improvement. Update claude.md with what you shipped."
+    "goal": "Continue the roadmap in claude.md"
+  },
+  {
+    "repo": "/Users/kadler/Documents/repos",
+    "sessionTitle": "aoaoe",
+    "profile": "default",
+    "sessionMode": "existing",
+    "tool": "opencode",
+    "goal": "Continue the roadmap in claude.md"
+  },
+  {
+    "repo": "/Users/kadler/Documents/repos",
+    "sessionTitle": "business",
+    "profile": "default",
+    "sessionMode": "existing",
+    "tool": "opencode",
+    "goal": "Continue the roadmap in claude.md"
+  },
+  {
+    "repo": "/Users/kadler/Documents/repos",
+    "sessionTitle": "cloudchamber-2",
+    "profile": "default",
+    "sessionMode": "existing",
+    "tool": "opencode",
+    "goal": "Continue the roadmap in claude.md"
   }
 ]
