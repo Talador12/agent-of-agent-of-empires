@@ -2,6 +2,7 @@
 // and run built-in slash commands while the daemon is running.
 // in v0.32.0+ the daemon runs interactively in the same terminal (no separate attach).
 import { createInterface, emitKeypressEvents, type Interface } from "node:readline";
+import { Writable } from "node:stream";
 import { requestInterrupt } from "./daemon-state.js";
 
 import { GREEN, DIM, YELLOW, RED, BOLD, RESET } from "./colors.js";
@@ -286,6 +287,8 @@ export type ResourceMonitorHandler = () => void; // show daemon resource usage
 export type BurndownHandler = () => void; // show burndown charts
 export type LeakDetectorHandler = () => void; // show memory leak analysis
 export type TopologyHandler = () => void; // show session topology
+export type ModelConfigHandler = (arg?: string) => void; // show/set default model enforcement
+export type InputLogHandler = (tag: string, text: string) => void; // route feedback to TUI activity log
 
 // ── Mouse event types ───────────────────────────────────────────────────────
 
@@ -336,6 +339,8 @@ export function parseMouseEvent(data: string): MouseEvent | null {
  *   - Sequences starting with ESC (any ANSI/VT control sequence)
  *   - Bare mouse sequence payloads that leaked after readline consumed the ESC:
  *     e.g. "35;127;16M", "[<35;127;16M", "M" alone, etc.
+ *   - Partial ANSI CSI parameter fragments like "123;52mf;148;" that leak when
+ *     escape sequences are split across reads
  */
 export function isMouseOrEscapeSequence(line: string): boolean {
   if (!line) return false;
@@ -350,6 +355,14 @@ export function isMouseOrEscapeSequence(line: string): boolean {
       line.charCodeAt(2) > 31 && line.charCodeAt(2) < 128) return true;
   // lines consisting entirely of non-printable/control characters
   if (line.length > 0 && /^[\x00-\x1f\x7f-\x9f]+$/.test(line)) return true;
+  // partial ANSI CSI fragments: sequences of digits, semicolons, and single
+  // letters that look like decoded escape parameters (e.g. "123;52mf;148;")
+  if (/^\[?[\d;]+[a-zA-Z]/.test(line) && /;\d/.test(line)) return true;
+  // lines dominated by semicolons and digits with letters mixed in — ANSI garbage
+  // e.g. "38;5;117m", "48;5;234m text", "0m"
+  if (/^\d+(?:;\d+)*m/.test(line)) return true;
+  // contains raw CSI-like fragments mid-line (e.g. "f;148;5;117m")
+  if (/\d+;\d+m/.test(line) && line.replace(/[\d;m[\]?]/g, "").length < line.length * 0.3) return true;
   return false;
 }
 
@@ -540,6 +553,34 @@ export class InputReader {
   private hookHandler: HookHandler | null = null;
   private aliases = new Map<string, string>(); // /shortcut → /full command
   private mouseDataListener: ((data: Buffer) => void) | null = null;
+  private logHandler: InputLogHandler | null = null;
+  private tuiActive = false; // when true, suppress readline prompt and use logHandler
+
+  // register a callback for routing user feedback to TUI activity log
+  onLog(handler: InputLogHandler): void {
+    this.logHandler = handler;
+  }
+
+  // mark TUI as active so we suppress readline prompt writes that corrupt the display
+  setTuiActive(active: boolean): void {
+    this.tuiActive = active;
+  }
+
+  // route feedback: when TUI is active, use logHandler; otherwise console.error
+  private feedback(tag: string, text: string): void {
+    if (this.tuiActive && this.logHandler) {
+      this.logHandler(tag, text);
+    } else {
+      console.error(text);
+    }
+  }
+
+  // safe prompt: only call readline prompt when TUI is NOT active
+  private safePrompt(): void {
+    if (!this.tuiActive) {
+      this.rl?.prompt();
+    }
+  }
 
   // register a callback for scroll key events (PgUp/PgDn/Home/End)
   onScroll(handler: (dir: ScrollDirection) => void): void {
@@ -1169,6 +1210,8 @@ export class InputReader {
   onLeakDetector(handler: LeakDetectorHandler): void { this.leakDetectorHandler = handler; }
   private topologyHandler: TopologyHandler | null = null;
   onTopology(handler: TopologyHandler): void { this.topologyHandler = handler; }
+  private modelConfigHandler: ModelConfigHandler | null = null;
+  onModelConfig(handler: ModelConfigHandler): void { this.modelConfigHandler = handler; }
   onFleetSearch(handler: FleetSearchHandler): void { this.fleetSearchHandler = handler; }
   onNudgeStats(handler: NudgeStatsHandler): void { this.nudgeStatsHandler = handler; }
   onAllocation(handler: AllocationHandler): void { this.allocationHandler = handler; }
@@ -1236,10 +1279,15 @@ export class InputReader {
     // see intact sequences first
     process.stdin.prependListener("data", this.mouseDataListener);
 
+    // when TUI is active, send readline output to a no-op stream so it does not
+    // corrupt the TUI display. the TUI owns the input row via paintInputLine().
+    const rlOutput = this.tuiActive
+      ? new Writable({ write(_chunk, _enc, cb) { cb(); } })
+      : process.stderr;
     this.rl = createInterface({
       input: process.stdin,
-      output: process.stderr, // prompt goes to stderr so stdout stays clean
-      prompt: `${GREEN}you >${RESET} `,
+      output: rlOutput,
+      prompt: this.tuiActive ? "" : `${GREEN}you >${RESET} `,
       terminal: true,
     });
 
@@ -1272,9 +1320,11 @@ export class InputReader {
       }
     });
 
-    // show hint on startup
-    console.error(`${DIM}type a message to talk to the AI supervisor, /help for commands, ESC ESC to interrupt${RESET}`);
-    this.rl.prompt();
+    // show hint on startup - only when not in TUI mode (TUI has its own hints)
+    if (!this.tuiActive) {
+      console.error(`${DIM}type a message to talk to the AI supervisor, /help for commands, ESC ESC to interrupt${RESET}`);
+      this.rl.prompt();
+    }
   }
 
   // drain all pending user messages (called each tick)
@@ -1317,9 +1367,7 @@ export class InputReader {
     requestInterrupt();
     this.queue.push("__CMD_INTERRUPT__");
     this.notifyQueueChange();
-    console.error(`\n${RED}${BOLD}>>> interrupting reasoner <<<${RESET}`);
-    console.error(`${YELLOW}type your message now -- it will be sent before the next cycle${RESET}`);
-    this.rl?.prompt(true);
+    this.feedback("! action", "interrupting reasoner - type your message now");
   }
 
   private handleInsist(msg: string): void {
@@ -1327,12 +1375,12 @@ export class InputReader {
     this.queue.push("__CMD_INTERRUPT__");
     this.queue.push(`${INSIST_PREFIX}${msg}`);
     this.notifyQueueChange();
-    console.error(`${RED}${BOLD}!${RESET} ${GREEN}insist${RESET} ${DIM}— interrupting + delivering your message immediately${RESET}`);
+    this.feedback("you", `! insist: ${msg}`);
   }
 
    private handleLine(line: string): void {
     if (!line) {
-      this.rl?.prompt();
+      this.safePrompt();
       return;
     }
 
@@ -1342,7 +1390,7 @@ export class InputReader {
     // \x1b[<35;127;16M that readline partially consumes, leaving "35;127;16M"
     // as a bare "line". Never send these to the reasoner.
     if (isMouseOrEscapeSequence(line)) {
-      this.rl?.prompt();
+      this.safePrompt();
       return;
     }
 
@@ -1350,12 +1398,12 @@ export class InputReader {
     const gSwitch = line.match(/^g([1-9]\d?)$/);
     if (gSwitch && this.quickSwitchHandler) {
       this.quickSwitchHandler(parseInt(gSwitch[1], 10));
-      this.rl?.prompt();
+      this.safePrompt();
       return;
     }
     if (/^[1-9]$/.test(line) && this.quickSwitchHandler) {
       this.quickSwitchHandler(parseInt(line, 10));
-      this.rl?.prompt();
+      this.safePrompt();
       return;
     }
 
@@ -1364,15 +1412,15 @@ export class InputReader {
       const goal = line.slice(1).trim();
       this.queue.push(`__CMD_QUICKTASK__${goal}`);
       this.notifyQueueChange();
-      console.error(`${GREEN}captured${RESET} ${DIM}task goal queued for current session${RESET}`);
-      this.rl?.prompt();
+      this.feedback("you", `task goal queued: ${goal}`);
+      this.safePrompt();
       return;
     }
 
     // built-in slash commands (resolve aliases first)
     if (line.startsWith("/")) {
       this.handleCommand(resolveAlias(line, this.aliases));
-      this.rl?.prompt();
+      this.safePrompt();
       return;
     }
 
@@ -1381,7 +1429,7 @@ export class InputReader {
       const msg = line.slice(1).trim();
       if (msg) {
         this.handleInsist(msg);
-        this.rl?.prompt();
+        this.safePrompt();
         return;
       }
     }
@@ -1390,8 +1438,8 @@ export class InputReader {
     if (this.goalCaptureModeHandler?.()) {
       this.queue.push(`__CMD_QUICKTASK__${line}`);
       this.notifyQueueChange();
-      console.error(`${GREEN}captured${RESET} ${DIM}goal updated for current session${RESET}`);
-      this.rl?.prompt();
+      this.feedback("you", `goal updated: ${line}`);
+      this.safePrompt();
       return;
     }
 
@@ -1403,8 +1451,8 @@ export class InputReader {
       // __CMD_NATURALTASK__<session>\t<goal> — tab-separated so both parts are recoverable
       this.queue.push(`__CMD_NATURALTASK__${taskIntent.session}\t${taskIntent.goal}`);
       this.notifyQueueChange();
-      console.error(`${GREEN}task intent${RESET} ${DIM}→ ${taskIntent.session}: ${taskIntent.goal}${RESET}`);
-      this.rl?.prompt();
+      this.feedback("you", `task: ${taskIntent.session} - ${taskIntent.goal}`);
+      this.safePrompt();
       return;
     }
 
@@ -1412,8 +1460,8 @@ export class InputReader {
     this.queue.push(line);
     this.notifyQueueChange();
     const pending = this.queue.filter(m => !m.startsWith("__CMD_")).length;
-    console.error(`${GREEN}queued${RESET} ${DIM}(${pending} pending) — will be read next cycle${RESET}`);
-    this.rl?.prompt();
+    this.feedback("(queued)you", `${line} (${pending} pending)`);
+    this.safePrompt();
   }
 
   private handleCommand(line: string): void {
@@ -3691,6 +3739,13 @@ ${BOLD}other:${RESET}
         if (this.topologyHandler) this.topologyHandler();
         else console.error(`${DIM}topology not available (no TUI)${RESET}`);
         break;
+
+      case "/model": {
+        const modelArgs = line.slice("/model".length).trim();
+        if (this.modelConfigHandler) this.modelConfigHandler(modelArgs || undefined);
+        else console.error(`${DIM}model-config not available (no TUI)${RESET}`);
+        break;
+      }
 
       case "/clear":
         process.stderr.write("\x1b[2J\x1b[H");

@@ -41,6 +41,8 @@ export interface Observation {
   taskContext?: TaskState[]; // active tasks with goals + progress (for reasoner)
   protectedSessions?: string[]; // session titles that are observe-only
   drainingSessionIds?: string[]; // session IDs marked as draining — reasoner should skip them
+  // recent nudge history per session so the reasoner avoids repeating messages
+  nudgeHistory?: Array<{ sessionTitle: string; sentAt: number; nudgeText: string; effective: boolean }>;
   // policy enforcement context (attached by main loop, consumed by formatObservation)
   policyContext?: {
     policies: AoaoeConfig["policies"];
@@ -141,6 +143,8 @@ export interface AoaoeConfig {
     allowDestructive?: boolean; // allow remove_agent and stop_session (default: false — blocked unless explicitly enabled)
     maxStuckNudgesBeforePause?: number; // auto-pause task after N stuck nudges with no progress (default: 0 = disabled)
     quietHours?: string; // "HH:MM-HH:MM" range when reasoner skips reasoning but still polls (e.g. "01:00-06:00")
+    maxSendInputsPerTick?: number; // cap send_input actions per tick to avoid rate limit cascade (default: 2)
+    sendInputStaggerMs?: number; // delay between consecutive send_input actions to stagger downstream API calls (default: 5000)
   };
   contextFiles: string[]; // extra AI instruction file paths to load (relative to project root)
   sessionDirs: Record<string, string>; // explicit session title -> project directory mapping (absolute or relative to cwd)
@@ -167,6 +171,8 @@ export interface AoaoeConfig {
   apiPort?: number;    // optional REST API server port for remote control (e.g. 4100)
   apiToken?: string;   // bearer token for API auth (null/empty = no auth)
   tuiHistoryRetentionDays?: number; // how many days of TUI history to keep on startup replay (default: 7)
+  defaultModel?: string; // default model name to enforce on all non-protected sessions (e.g. "Claude Opus 4.6", "claude-opus-4-6")
+  defaultModelPriority?: string; // priority/variant to select in the model picker (default: "high")
 }
 
 export type NotificationEvent = "session_error" | "session_done" | "action_executed" | "action_failed" | "daemon_started" | "daemon_stopped" | "task_completed" | "task_stuck" | "task_unblocked";

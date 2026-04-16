@@ -98,6 +98,7 @@ const KNOWN_KEYS: Record<string, Set<string> | true> = {
   reasoner: true, pollIntervalMs: true, reasonIntervalMs: true, captureLinesCount: true,
   verbose: true, dryRun: true, observe: true, confirm: true,
   contextFiles: true, sessionDirs: true, protectedSessions: true, healthPort: true, tuiHistoryRetentionDays: true,
+  defaultModel: true, defaultModelPriority: true,
   opencode: new Set(["port", "model"]),
   claudeCode: new Set(["model", "yolo", "resume"]),
   aoe: new Set(["profile"]),
@@ -844,6 +845,17 @@ export function parseCliArgs(argv: string[]): {
         const model = nextArg(i, arg);
         overrides.opencode = { ...overrides.opencode, model } as AoaoeConfig["opencode"];
         overrides.claudeCode = { ...overrides.claudeCode, model } as AoaoeConfig["claudeCode"];
+        i++;
+        break;
+      }
+      case "--default-model": {
+        // enforce this model on all supervised opencode sessions
+        overrides.defaultModel = nextArg(i, arg);
+        i++;
+        break;
+      }
+      case "--default-model-priority": {
+        overrides.defaultModelPriority = nextArg(i, arg);
         i++;
         break;
       }

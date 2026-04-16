@@ -5,33 +5,145 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v7.4.2-dev
+## Version: v7.5.0-dev
 
 ## Active Work (April 2026)
 
-### Just shipped (this session, from the business opencode window)
+### Just shipped (this session)
+- [x] **User-active false positive fix** - investigated three approaches:
+  (a) window_activity - rejected, tracks ALL output including agent, not just user.
+  (b) client_activity - CORRECT signal, tracks real user keystrokes only, tmux
+  send-keys does NOT update it. Each terminal tab has its own tmux client so
+  client_activity IS per-session when each session has its own terminal.
+  Also added executor `lastNudgeByDaemon` tracking as safety net for edge cases
+  where daemon activity could be misattributed.
+  Root cause of original "all 5 show active" was coincidental - the user cycled
+  through all windows at the same time, not a shared-client bug.
+- [x] **Nudge dedup for reasoner** - observation now includes per-session nudge
+  history (last 30min) from the NudgeTracker. The prompt tells the reasoner
+  "do NOT repeat these messages - vary your approach or wait." Shows nudge count,
+  effectiveness rate, time since last, and message preview per session.
+- [x] **Rate limit cascade staggering** - executor now caps `send_input` actions
+  per tick (default 2) and adds a configurable delay between sends (default 5s).
+  Excess actions are logged as "deferred" and retried next tick. This prevents
+  all agents from waking up and hitting the API at the same time. Config:
+  `policies.maxSendInputsPerTick` and `policies.sendInputStaggerMs`, both
+  hot-reloadable.
+- [x] **Stale task reconciliation** - tasks file is now hot-reloaded via fs.watch.
+  Editing aoaoe.tasks.json while the daemon runs instantly adds/removes/updates tasks
+  without restart. TaskManager.reloadDefinitions() diffs new definitions against
+  persistent state: adds new tasks, updates changed goals/tool/profile, removes
+  tasks no longer in definitions (keeps completed for history). TUI shows reload
+  summary in activity log.
+- [x] **Task manager discovery bug** - loadTaskDefinitions() now searches ~/.aoaoe/
+  and all sessionDirs paths (from config) for the tasks file, not just basePath.
+  Previously the daemon running from ~/repos could not find tasks at
+  ~/repos/github/agent-of-agent-of-empires/aoaoe.tasks.json.
+- [x] **report_progress fallback** - progress summaries now always persist to
+  ~/.aoaoe/progress.log even when taskManager is not configured. The action is
+  marked as success instead of failing silently. No more "no task manager configured"
+  with lost summaries.
+- [x] **TUI input isolation** - user input box no longer hijacked by observer/reasoner
+  logs. Root cause: `console.error()` calls in `input.ts` handleLine() wrote directly
+  to stderr at the cursor position, corrupting the TUI input row. Also readline's
+  `prompt()` fought with `paintInputLine()` for the last row. Fix: (1) added
+  `InputLogHandler` callback that routes user feedback through `tui.log()` into the
+  activity area, (2) when TUI active, readline output goes to a no-op Writable so it
+  never touches the display, (3) user-submitted text now appears in activity log as
+  `"(queued)you:"` tagged entries at the timestamp submitted.
+- [x] **ANSI escape code garbage filter** - expanded `isMouseOrEscapeSequence()` to
+  catch partial CSI parameter fragments (e.g. `123;52mf;148;`), bare SGR color codes
+  (`38;5;117m`), and lines dominated by semicolons/digits/letters. These leak when
+  tmux splits escape sequences across reads. Previously only full sequences were caught.
+- [x] **Default model enforcement** (`model-config.ts` + 39 tests) - aoaoe can now
+  enforce a specific model across all supervised opencode sessions. Set `defaultModel`
+  in config (e.g. "Claude Opus 4.6") and aoaoe checks every 6 ticks. Sessions using
+  the wrong model get switched via ctrl+x m keyboard automation. Protected sessions
+  are skipped. Discovers available models from opencode config file at
+  `~/.config/opencode/opencode.jsonc`.
+- [x] Config fields: `defaultModel`, `defaultModelPriority` in AoaoeConfig
+- [x] CLI flag: `--default-model <name>`, `--default-model-priority <level>`
+- [x] TUI command: `/model` (show config + enforcement status), `/model set <name>`,
+  `/model clear`
+- [x] Audit trail: `model_enforcement` event type added
+- [x] Executor: `restoreModel()` now public with configurable priority parameter
+- [x] Config updated: `defaultModel: "Claude Opus 4.6"` in ~/.aoaoe/aoaoe.config.json
+- [x] **Trust ladder fix** - protected session blocks no longer trigger trust demotion.
+  Previously any blocked action (including correct blocks on protected sessions) counted
+  as a failure and demoted the daemon to observe mode. Now demotion only happens when
+  ALL actions in a tick fail (actionsOk === 0). This was the #1 operational blocker.
+- [x] **opencode serve default model** - set `"model": "anthropic/claude-opus-4-6"` in
+  `~/.config/opencode/opencode.jsonc` so the daemon's reasoner uses Claude Opus 4.6
+  instead of Kimi K2.5 (the previous default). Dramatically improves reasoning quality
+  for permission approval, session monitoring, and intervention decisions.
+- [x] **Daemon running in autonomous mode** - supervising adventure + code-music sessions.
+  Approving permission prompts, detecting idle sessions, nudging when stuck.
+
+### Previously shipped (earlier sessions)
 - [x] Tasks file trimmed to adventure + code-music only for initial test run
 - [x] Config updated: protectedSessions for all non-target sessions, cost budgets ($50 global, $25/session)
-- [x] `ensureServiceInstalled()` — auto-install launchd/systemd service on real daemon start (not observe/dry-run). Idempotent, updates plist if changed.
-- [x] Wired into index.ts daemon startup path
+- [x] `ensureServiceInstalled()` - auto-install launchd/systemd service on real daemon start
 
 ### In progress
-- [ ] Start aoaoe supervising adventure + code-music sessions
-- [ ] Verify sessions pick up goals from claude.md and make progress autonomously
+- [x] Start aoaoe supervising adventure + code-music sessions - DONE, running in autopilot
+- [ ] Verify sessions make sustained progress autonomously
 
 ### Roadmap (priority order)
-1. ~~CRITICAL: Dead pane recovery~~ DONE — executor detects pane_dead, uses tmux respawn-pane -k
-2. ~~CRITICAL: Session config persistence~~ DONE — models persisted to ~/.aoaoe/session-models.json, restored via ctrl+x m on respawn
-3. ~~Scope enforcement~~ DONE — goal injection prepends "Work in <repo> only."
-4. ~~Update prompt handling~~ DONE — system prompt says use Escape, not text
-5. **`aoaoe attach`** — reconnect to the running daemon's UI from any terminal. For now use `tail -f ~/.aoaoe/daemon.log`. Proper implementation: daemon always runs in a named tmux session, `aoaoe attach` = `tmux attach -t aoaoe-daemon` with input forwarding.
-6. **Stale task reconciliation** — when aoaoe.tasks.json changes, reconcile against task-state.json without manual deletion.
-7. **MCP connection restoration** — model is restored on respawn but MCP server connections are not. Needs opencode SDK support or a config file that opencode reads on startup.
-8. **Service auto-install** — macOS launchd done. Linux systemd needs sudo.
+
+**P0 - Core loop problems (making the daemon less useful than it should be):**
+
+1. ~~Rate limit cascade starvation~~ DONE - executor caps send_input to 2/tick with
+   5s stagger delay. Config: policies.maxSendInputsPerTick, policies.sendInputStaggerMs.
+
+2. **report_progress goes nowhere** - the reasoner generates useful progress summaries
+   (MR merged, test counts, commit SHAs) but `report_progress` always fails with
+   `"no task manager configured"`. 12 failures in the action log. These summaries
+   should persist somewhere useful: append to a progress.log, update claude.md in
+   the target repo, or surface in the TUI activity area. Currently all that context
+   is thrown away.
+
+3. ~~"user active" conflates "window open" with "user typing"~~ DONE - executor
+   tracks daemon-caused activity and bypasses userActive when it was our nudge.
+4. ~~Repetitive nudge messages~~ DONE - nudge history injected into observation
+   prompt with "do NOT repeat" instruction + per-session stats.
+
+**P1 - Usability gaps:**
+
+5. ~~Stale task reconciliation~~ DONE - fs.watch on tasks file, hot-reload with
+   add/remove/update diffing.
+
+6. **"Stuck at loading screen" detection** - the reasoner noticed code-music showing
+   a "B" (building) state for 6+ cycles but could not diagnose whether it was
+   building, stuck, or crashed. No structured state beyond tmux pane scraping.
+   The session-heartbeat module detects dead panes but not "alive but stuck" panes.
+   Fix: if output hash is unchanged for N ticks AND the session is not user-active,
+   classify as "potentially stuck" and include that flag in the observation.
+
+7. **No per-session cost visibility in TUI** - budget config and cost tracking
+   modules exist but the compact agent bar shows no spend info. Add a small cost
+   indicator (e.g. `$1.23`) next to each session in the agent bar, sourced from
+   the existing reasoner-cost tracker.
+
+**P2 - Deferred:**
+
+8. **MCP connection restoration** - model is restored on respawn but MCP server
+   connections are not. Needs opencode SDK support or a config file that opencode
+   reads on startup.
+9. **Service auto-install** - macOS launchd done. Linux systemd needs sudo.
+
+**Done:**
+- ~~CRITICAL: User input box hijacked by observer/reasoner logs~~ DONE
+- ~~CRITICAL: ANSI escape code garbage in you: box~~ DONE
+- ~~CRITICAL: Dead pane recovery~~ DONE
+- ~~CRITICAL: Session config persistence~~ DONE
+- ~~Scope enforcement~~ DONE
+- ~~Update prompt handling~~ DONE
+- ~~`aoaoe attach`~~ DONE
+- ~~Default model enforcement~~ DONE
 
 ## Current State
 
-**196 source modules**, **197 TUI commands**, **4985 tests**, **zero runtime dependencies**.
+**197 source modules**, **198 TUI commands**, **5024 tests**, **zero runtime dependencies**.
 ~61,000 lines of TypeScript. Node stdlib only (`node:test`, `node:fs`, `node:crypto`, etc).
 
 The project is an autonomous supervisor daemon for AI coding sessions. It observes

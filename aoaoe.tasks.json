@@ -1,19 +1,27 @@
 [
   {
-    "repo": "/Users/kadler/Documents/repos/github/cloud-hypervisor",
-    "sessionTitle": "cloud-hypervisor",
-    "profile": "default",
-    "sessionMode": "existing",
-    "tool": "opencode",
-    "goal": "Continue the roadmap in claude.md"
-  },
-  {
     "repo": "/Users/kadler/Documents/repos/github/adventure",
     "sessionTitle": "adventure",
     "profile": "default",
     "sessionMode": "existing",
     "tool": "opencode",
-    "goal": "Continue the roadmap in claude.md"
+    "goal": "Continue the roadmap in claude.md. Fix failing tests and type errors. Ship working features."
+  },
+  {
+    "repo": "/Users/kadler/Documents/repos/github/agent-of-agent-of-empires",
+    "sessionTitle": "aoaoe",
+    "profile": "default",
+    "sessionMode": "existing",
+    "tool": "opencode",
+    "goal": "Continue roadmap in claude.md. TUI input isolation and ANSI filter are shipped - focus on stale task reconciliation and MCP connection restoration next."
+  },
+  {
+    "repo": "/Users/kadler/Documents/repos/ventures",
+    "sessionTitle": "business",
+    "profile": "default",
+    "sessionMode": "existing",
+    "tool": "opencode",
+    "goal": "Continue ventures roadmap. Focus on the curated top 10 platform pitch (INTERNAL-PITCH.md). Ship product improvements for EdgeAuth and other active products."
   },
   {
     "repo": "/Users/kadler/Documents/repos/cc/cloudchamber",
@@ -21,7 +29,7 @@
     "profile": "default",
     "sessionMode": "existing",
     "tool": "opencode",
-    "goal": "Continue the roadmap in claude.md"
+    "goal": "Ship open MRs: !5658 (CH implies microvm-os), !5675 (remove x-internal), docs !150 and !151. Monitor pipelines, fix flakes, address review feedback."
   },
   {
     "repo": "/Users/kadler/Documents/repos/github/code-music",
@@ -29,30 +37,6 @@
     "profile": "default",
     "sessionMode": "existing",
     "tool": "opencode",
-    "goal": "Continue the roadmap in claude.md"
-  },
-  {
-    "repo": "/Users/kadler/Documents/repos",
-    "sessionTitle": "aoaoe",
-    "profile": "default",
-    "sessionMode": "existing",
-    "tool": "opencode",
-    "goal": "Continue the roadmap in claude.md"
-  },
-  {
-    "repo": "/Users/kadler/Documents/repos",
-    "sessionTitle": "business",
-    "profile": "default",
-    "sessionMode": "existing",
-    "tool": "opencode",
-    "goal": "Continue the roadmap in claude.md"
-  },
-  {
-    "repo": "/Users/kadler/Documents/repos",
-    "sessionTitle": "cloudchamber-2",
-    "profile": "default",
-    "sessionMode": "existing",
-    "tool": "opencode",
-    "goal": "Continue the roadmap in claude.md"
+    "goal": "Continue the roadmap in claude.md. Run tests, fix failures. Ship working features."
   }
 ]

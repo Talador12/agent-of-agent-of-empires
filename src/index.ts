@@ -277,6 +277,8 @@ import { searchFleet, formatFleetSearchResults } from "./fleet-search.js";
 import { NudgeTracker } from "./nudge-tracker.js";
 import { computeAllocation, formatAllocation } from "./difficulty-allocator.js";
 import { ConfigWatcher, formatConfigChange } from "./config-watcher.js";
+import { discoverModels, checkModelEnforcement, formatModelConfig, modelsMatch, resolveModel, buildModelSearchTerm } from "./model-config.js";
+import type { ModelConfigState, SessionInfo as ModelSessionInfo, ModelEnforcementResult, AvailableModel } from "./model-config.js";
 import { parseActionLogEntries, parseActivityEntries, mergeTimeline, filterByAge, parseDuration, formatTimelineJson, formatTimelineMarkdown, formatTaskExportJson, formatTaskExportMarkdown } from "./export.js";
 import type { AoaoeConfig, Observation, TaskState } from "./types.js";
 import { actionSession, actionDetail, toActionLogEntry } from "./types.js";
@@ -907,6 +909,19 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
     }
   }
 
+  // model enforcement state
+  const availableModels = discoverModels();
+  let modelEnforcementCount = 0;
+  let lastModelEnforcementAt = 0;
+  let lastModelEnforcementResults: ModelEnforcementResult[] = [];
+  if (config.defaultModel) {
+    const resolved = resolveModel(config.defaultModel, availableModels);
+    const msg = resolved
+      ? `default model: ${resolved.name} (${resolved.provider})`
+      : `default model: "${config.defaultModel}" (not found in opencode config, will match by name)`;
+    if (tui) tui.log("system", msg); else log(msg);
+  }
+
   // audit: log daemon start
   audit("daemon_start", `daemon started (v${pkg ?? "dev"}, reasoner=${config.reasoner})`);
 
@@ -963,6 +978,10 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   }
 
   // start interactive input listener and conversation log
+  if (tui) {
+    input.setTuiActive(true);
+    input.onLog((tag, text) => tui!.log(tag, text));
+  }
   input.start();
   await reasonerConsole.start();
 
@@ -4271,6 +4290,37 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
       const lines = formatTopology(result);
       for (const l of lines) tui!.log("system", l);
     });
+    input.onModelConfig((arg?: string) => {
+      // /model — show current model config and enforcement status
+      // /model set <name> — change the default model at runtime
+      if (arg && arg.startsWith("set ")) {
+        const newModel = arg.slice(4).trim();
+        if (!newModel) {
+          tui!.log("error", "usage: /model set <model-name>");
+          return;
+        }
+        const resolved = resolveModel(newModel, availableModels);
+        config.defaultModel = resolved ? resolved.name : newModel;
+        tui!.log("system", `default model set to: ${config.defaultModel}${resolved ? ` (${resolved.provider})` : ""}`);
+        tui!.log("system", "model will be enforced on next tick for non-protected sessions");
+        return;
+      }
+      if (arg === "clear" || arg === "off") {
+        config.defaultModel = undefined;
+        tui!.log("system", "default model enforcement disabled");
+        return;
+      }
+      const state: ModelConfigState = {
+        defaultModel: config.defaultModel,
+        defaultModelPriority: config.defaultModelPriority ?? "high",
+        availableModels,
+        sessionStatuses: lastModelEnforcementResults,
+        lastEnforcementAt: lastModelEnforcementAt,
+        enforcementCount: modelEnforcementCount,
+      };
+      const lines = formatModelConfig(state);
+      for (const l of lines) tui!.log("system", l);
+    });
     input.onCostSummary(() => {
       const sessions = tui!.getSessions();
       const summary = computeCostSummary(sessions, tui!.getAllSessionCosts());
@@ -4788,6 +4838,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
 
     log("shutting down...");
     configWatcher.stop();
+    if (taskFileWatcher) { try { taskFileWatcher.close(); } catch {} }
+    if (taskFileDebounce) clearTimeout(taskFileDebounce);
     if (healthServer) healthServer.close();
     if (apiServer) apiServer.close();
     // notify: daemon stopped (fire-and-forget, don't block shutdown)
@@ -4865,6 +4917,60 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
   if (watchedPath) {
     const msg = `watching config: ${watchedPath}`;
     if (tui) tui.log("system", msg); else log(msg);
+  }
+
+  // ── task file hot-reload watcher ──────────────────────────────────────────
+  // watch aoaoe.tasks.json for edits so adding/removing/changing tasks takes
+  // effect without restarting the daemon.
+  let taskFileWatcher: import("node:fs").FSWatcher | null = null;
+  let taskFileDebounce: ReturnType<typeof setTimeout> | null = null;
+  if (taskManager) {
+    // find the tasks file that was actually loaded
+    const taskSearchDirs = [basePath, join(homedir(), ".aoaoe")];
+    // also check sessionDirs from config
+    if (config.sessionDirs) {
+      for (const dir of Object.values(config.sessionDirs)) taskSearchDirs.push(dir as string);
+    }
+    let watchedTaskFile: string | null = null;
+    for (const dir of taskSearchDirs) {
+      for (const name of ["aoaoe.tasks.json", ".aoaoe.tasks.json"]) {
+        const p = join(dir, name);
+        if (existsSync(p)) { watchedTaskFile = p; break; }
+      }
+      if (watchedTaskFile) break;
+    }
+    if (watchedTaskFile) {
+      try {
+        const { watch: fsWatch } = await import("node:fs");
+        taskFileWatcher = fsWatch(watchedTaskFile, { persistent: false }, () => {
+          if (taskFileDebounce) clearTimeout(taskFileDebounce);
+          taskFileDebounce = setTimeout(() => {
+            taskFileDebounce = null;
+            try {
+              const newDefs = loadTaskDefinitions(basePath);
+              if (newDefs.length > 0 && taskManager) {
+                const { added, removed, updated } = taskManager.reloadDefinitions(newDefs);
+                if (added.length > 0 || removed.length > 0 || updated.length > 0) {
+                  if (executor) executor.setTaskManager(taskManager);
+                  if (tui) tui.updateState({ supervisorStatus: buildTaskSupervisorStatus(taskManager) });
+                  const parts: string[] = [];
+                  if (added.length > 0) parts.push(`+${added.length} added: ${added.join(", ")}`);
+                  if (removed.length > 0) parts.push(`-${removed.length} removed: ${removed.join(", ")}`);
+                  if (updated.length > 0) parts.push(`~${updated.length} updated: ${updated.join(", ")}`);
+                  const msg = `tasks reloaded: ${parts.join(", ")}`;
+                  if (tui) tui.log("config", msg); else log(msg);
+                }
+              }
+            } catch (err) {
+              const msg = `tasks reload failed: ${err}`;
+              if (tui) tui.log("error", msg); else console.error(msg);
+            }
+          }, 500);
+        });
+        const msg = `watching tasks: ${watchedTaskFile}`;
+        if (tui) tui.log("system", msg); else log(msg);
+      } catch {}
+    }
   }
 
   // notify: daemon started
@@ -5672,6 +5778,8 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
           reasonerDurationMs,
           reasonerActionCount,
           reasonerSummary,
+          modelEnforcementResults: tickModelResults,
+          modelEnforcementsApplied: tickModelEnforced,
         } = await daemonTick(config, poller, reasoner, executor, reasonerConsole, pollCount, policyStates, userMessage, forceDashboard, activeTaskContext, taskManager, tui, {
           sessionSummarizer,
           conflictDetector,
@@ -5692,6 +5800,13 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
         totalDecisions += decisionsThisTick;
         totalActionsExecuted += actionsOk;
         totalActionsFailed += actionsFail;
+
+        // update model enforcement state from tick results
+        if (tickModelResults) {
+          lastModelEnforcementResults = tickModelResults;
+          modelEnforcementCount += (tickModelEnforced ?? 0);
+          if (tickModelEnforced && tickModelEnforced > 0) lastModelEnforcementAt = Date.now();
+        }
 
         // adaptive poll: feed tick results into the controller
         adaptivePollController.recordTick(decisionsThisTick > 0 ? 1 : 0, actionsOk > 0);
@@ -5832,24 +5947,17 @@ async function runTaskExport(format?: string, output?: string): Promise<void> {
           }
         }
 
-        // trust ladder: record stable tick or failure, sync mode if escalated
+        // trust ladder: log failures for visibility but do NOT auto-demote.
+        // auto-demotion caused more harm than good — a single rate-limited action
+        // or transient error would lock the daemon in observe mode for 5+ minutes
+        // (10 stable ticks x 3 escalation levels to recover). The operator can
+        // always manually demote via `/trust observe` or `/mode observe`.
         if (tui && decisionsThisTick > 0) {
-          if (actionsFail > 0) {
+          if (actionsFail > 0 && actionsOk === 0) {
             tui.recordTrustFailure();
-            // sync daemon mode to observe
-            config.observe = true; config.confirm = false; config.dryRun = false;
-            tui.log("system", `trust: demoted to observe (action failure detected)`);
+            tui.log("system", `trust: all ${actionsFail} actions failed this tick (mode unchanged — use /trust observe to demote)`);
           } else {
-            const { level, escalated } = tui.recordStableTick();
-            if (escalated) {
-              // sync daemon mode to match new trust level
-              if (level === "observe") { config.observe = true; config.confirm = false; config.dryRun = false; }
-              else if (level === "dry-run") { config.observe = false; config.confirm = false; config.dryRun = true; }
-              else if (level === "confirm") { config.observe = false; config.confirm = true; config.dryRun = false; }
-              else { config.observe = false; config.confirm = false; config.dryRun = false; }
-              tui.log("system", `trust: escalated to ${level} (${TRUST_STABLE_TICKS_TO_ESCALATE} stable ticks)`);
-              tui.updateState({ reasonerName: getReasonerLabel() });
-            }
+            tui.recordStableTick();
           }
         }
 
@@ -5979,6 +6087,8 @@ async function daemonTick(
   reasonerDurationMs?: number;
   reasonerActionCount?: number;
   reasonerSummary?: string;
+  modelEnforcementResults?: ModelEnforcementResult[];
+  modelEnforcementsApplied?: number;
 }> {
   // pre-tick: write IPC state + tick separator in conversation log
   writeState("polling", { pollCount, pollIntervalMs: config.pollIntervalMs, tickStartedAt: Date.now() });
@@ -6159,9 +6269,14 @@ async function daemonTick(
   // run core tick logic (same code path the tests exercise)
   let tickResult: import("./loop.js").TickResult;
   try {
+     // extract recent nudge history (last 30min) for the reasoner to avoid repeating messages
+     const recentNudges = intelligence?.nudgeTracker
+       ? intelligence.nudgeTracker.getRecent?.() ?? []
+       : [];
      tickResult = await loopTick({
        config, poller, reasoner: wrappedReasoner, executor, policyStates, pollCount, userMessage, taskContext, beforeExecute,
        drainingSessionIds: tui ? [...tui.getDrainingIds()] : undefined,
+       nudgeHistory: recentNudges.length > 0 ? recentNudges : undefined,
      });
   } catch (err) {
     if (err instanceof InterruptError) return {
@@ -6761,6 +6876,35 @@ async function daemonTick(
 
   const actionsOk = executed.filter((e) => e.success && e.action.action !== "wait").length;
   const actionsFail = executed.filter((e) => !e.success && e.action.action !== "wait").length;
+
+  // model enforcement: check every 6 polls (~90s at 15s interval) if defaultModel is set
+  let modelEnforcementResults: ModelEnforcementResult[] | undefined;
+  let modelEnforcementsApplied = 0;
+  if (config.defaultModel && !config.observe && !config.dryRun && pollCount % 6 === 0) {
+    const protectedSet = new Set((config.protectedSessions ?? []).map((s: string) => s.toLowerCase()));
+    const modelSessions: ModelSessionInfo[] = observation.sessions.map((snap) => ({
+      sessionId: snap.session.id,
+      sessionTitle: snap.session.title,
+      tmuxName: snap.session.tmux_name,
+      detectedModel: snap.detectedModel,
+      isProtected: protectedSet.has(snap.session.title.toLowerCase()),
+    }));
+    modelEnforcementResults = checkModelEnforcement(modelSessions, config.defaultModel);
+    const toEnforce = modelEnforcementResults.filter((r) => r.action === "enforce");
+    for (const r of toEnforce) {
+      const msg = `model enforcement: ${r.sessionTitle} has ${r.detectedModel}, switching to ${r.expectedModel}`;
+      if (tui) tui.log("system", msg);
+      try {
+        await executor.restoreModel(r.tmuxName, r.expectedModel, config.defaultModelPriority ?? "high");
+        modelEnforcementsApplied++;
+        audit("model_enforcement", `enforced ${r.expectedModel} on ${r.sessionTitle} (was ${r.detectedModel})`);
+      } catch (e) {
+        const errMsg = `model enforcement failed for ${r.sessionTitle}: ${e}`;
+        if (tui) tui.log("error", errMsg);
+      }
+    }
+  }
+
   return {
     interrupted: false,
     decisionsThisTick: result ? 1 : 0,
@@ -6769,6 +6913,8 @@ async function daemonTick(
     reasonerDurationMs,
     reasonerActionCount,
     reasonerSummary,
+    modelEnforcementResults,
+    modelEnforcementsApplied,
   };
 }
 

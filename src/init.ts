@@ -325,6 +325,8 @@ export async function runInit(forceOverwrite = false): Promise<InitResult> {
     maxIdleBeforeNudgeMs: 120_000,
     maxErrorsBeforeRestart: 3,
     autoAnswerPermissions: true,
+    maxSendInputsPerTick: 2,
+    sendInputStaggerMs: 5_000,
   };
 
   // safety: set a default cost budget so new users don't burn unlimited tokens

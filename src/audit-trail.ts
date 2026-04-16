@@ -24,7 +24,8 @@ export type AuditEventType =
   | "config_change"      // config hot-reloaded
   | "stuck_nudge"        // stuck session nudged
   | "daemon_start"       // daemon started
-  | "daemon_stop";       // daemon stopped
+  | "daemon_stop"        // daemon stopped
+  | "model_enforcement"; // default model enforced on session
 
 export interface AuditEntry {
   timestamp: string;   // ISO 8601

@@ -2,8 +2,13 @@
 // prevents the reasoner from interfering when a user is actively typing
 //
 // detection: `tmux list-clients -t <session> -F '#{client_activity}'`
-// returns Unix epoch seconds of last keystroke per attached client.
-// if any client was active within the threshold, the user is considered active.
+// returns Unix epoch seconds of last KEYSTROKE per attached client.
+// importantly, tmux send-keys does NOT update client_activity - only real
+// user keystrokes in the terminal do. this means the daemon's own nudges
+// do not cause false positives.
+//
+// note: window_activity tracks ALL output (agent + user) and is useless
+// for this purpose. client_activity is the correct signal.
 
 import { exec } from "./shell.js";
 

@@ -27,6 +27,9 @@ export class Executor {
   private recentActions: Map<string, number> = new Map(); // session -> last action timestamp
   private lastActionWasPermission: Map<string, boolean> = new Map(); // session -> was last action a permission approval
   private taskManager?: TaskManager; // optional — set when tasks are loaded
+  // track when WE last nudged each session, so the poller can distinguish
+  // daemon-caused activity from real user keystrokes
+  private lastNudgeByDaemon: Map<string, number> = new Map();
 
   constructor(config: AoaoeConfig) {
     this.config = config;
@@ -48,6 +51,9 @@ export class Executor {
     snapshots: SessionSnapshot[]
   ): Promise<ActionLogEntry[]> {
     const results: ActionLogEntry[] = [];
+    const maxSends = this.config.policies.maxSendInputsPerTick ?? 2;
+    const staggerMs = this.config.policies.sendInputStaggerMs ?? 5_000;
+    let sendCount = 0;
 
     for (const action of actions) {
       // rate limit: don't hammer the same session (or create_agent spam)
@@ -69,6 +75,23 @@ export class Executor {
           results.push(entry);
           continue;
         }
+      }
+
+      // stagger gate: cap send_input actions per tick to avoid rate limit
+      // cascade when multiple agents wake up and hit the API simultaneously
+      if (action.action === "send_input") {
+        if (sendCount >= maxSends) {
+          const entry = this.logAction(action, false,
+            `deferred: send_input cap reached (${maxSends}/tick) — will retry next tick`);
+          results.push(entry);
+          continue;
+        }
+        // stagger delay: wait between consecutive send_input actions so
+        // downstream agents do not all start making API calls at once
+        if (sendCount > 0 && staggerMs > 0) {
+          await new Promise(resolve => setTimeout(resolve, staggerMs));
+        }
+        sendCount++;
       }
 
       const entry = await this.executeOne(action, snapshots);
@@ -138,14 +161,20 @@ export class Executor {
     text: string,
     snapshots: SessionSnapshot[]
   ): Promise<ActionLogEntry> {
-    // user activity guard: refuse to send input when a human is interacting
+    // user activity guard: refuse to send input when a human is interacting.
+    // but if the daemon recently nudged this session, the client_activity
+    // timestamp is from our own send-keys, not a real user - ignore it.
     const snap = this.resolveSession(sessionId, snapshots);
     if (snap?.userActive) {
-      return this.logAction(
-        { action: "send_input", session: sessionId, text },
-        false,
-        `skipped: user active in ${snap.session.title} — will not interfere`
-      );
+      const resolvedId = this.resolveSessionId(sessionId, snapshots);
+      if (!this.wasRecentlyNudgedByDaemon(resolvedId)) {
+        return this.logAction(
+          { action: "send_input", session: sessionId, text },
+          false,
+          `skipped: user active in ${snap.session.title} — will not interfere`
+        );
+      }
+      // daemon caused the activity - proceed with send
     }
 
     // resolve tmux session name from session ID
@@ -202,6 +231,7 @@ export class Executor {
     if (ok) {
       this.markAction(resolvedId);
       setSessionTask(resolvedId, sendText);
+      this.lastNudgeByDaemon.set(resolvedId, Date.now());
     }
 
     return this.logAction(
@@ -284,9 +314,11 @@ export class Executor {
     }
   }
 
-  /** Switch model in opencode via ctrl+x m -> search -> enter -> variant */
-  private async restoreModel(tmuxName: string, model: string): Promise<void> {
+  /** Switch model in opencode via ctrl+x m -> search -> enter -> variant.
+   *  Public so model enforcement can call it directly from daemon tick. */
+  async restoreModel(tmuxName: string, model: string, priority?: string): Promise<void> {
     this.log(`restoring model ${model} in ${tmuxName}`);
+    const variant = priority ?? "high";
     // ctrl+x m opens the model picker
     await execQuiet("tmux", ["send-keys", "-t", tmuxName, "C-x"]);
     await new Promise((r) => setTimeout(r, 300));
@@ -298,8 +330,8 @@ export class Executor {
     await new Promise((r) => setTimeout(r, 500));
     await execQuiet("tmux", ["send-keys", "-t", tmuxName, "Enter"]);
     await new Promise((r) => setTimeout(r, 1000));
-    // select "high" variant (variant picker appears after model selection)
-    await execQuiet("tmux", ["send-keys", "-t", tmuxName, "-l", "high"]);
+    // select variant (variant picker appears after model selection)
+    await execQuiet("tmux", ["send-keys", "-t", tmuxName, "-l", variant]);
     await new Promise((r) => setTimeout(r, 300));
     await execQuiet("tmux", ["send-keys", "-t", tmuxName, "Enter"]);
     await new Promise((r) => setTimeout(r, 1000));
@@ -392,20 +424,25 @@ export class Executor {
     summary: string,
     snapshots: SessionSnapshot[]
   ): Promise<ActionLogEntry> {
-    if (!this.taskManager) {
-      return this.logAction(
-        { action: "report_progress", session: sessionId, summary },
-        false,
-        "no task manager configured"
-      );
-    }
     const snap = this.resolveSession(sessionId, snapshots);
     const title = snap?.session.title ?? sessionId;
-    this.taskManager.reportProgress(title, summary);
+
+    if (this.taskManager) {
+      this.taskManager.reportProgress(title, summary);
+    }
+
+    // always persist progress to a dedicated log so summaries are never lost,
+    // even when taskManager is not configured
+    try {
+      const progressFile = join(LOG_DIR, "progress.log");
+      const ts = new Date().toISOString();
+      appendFileSync(progressFile, `[${ts}] ${title}: ${summary}\n`);
+    } catch {}
+
     return this.logAction(
       { action: "report_progress", session: sessionId, summary },
-      true,
-      `progress recorded for ${title}`
+      true, // always succeeds now - at minimum we log it
+      this.taskManager ? `progress recorded for ${title}` : `progress logged for ${title} (no task manager)`
     );
   }
 
@@ -468,6 +505,18 @@ export class Executor {
     const profile = this.resolveSession(ref, snapshots)?.session.profile;
     if (!profile || profile === "default") return tailArgs;
     return ["-p", profile, ...tailArgs];
+  }
+
+  /**
+   * Returns true if the daemon nudged this session recently enough that the
+   * tmux client_activity timestamp is likely from our nudge, not a real user.
+   * Used by the poller to suppress false "user active" flags caused by the
+   * daemon's own send_input actions updating the terminal.
+   */
+  wasRecentlyNudgedByDaemon(sessionId: string, withinMs = 60_000): boolean {
+    const last = this.lastNudgeByDaemon.get(sessionId);
+    if (!last) return false;
+    return Date.now() - last < withinMs;
   }
 
   // check if a session title is in the protectedSessions list (case-insensitive)

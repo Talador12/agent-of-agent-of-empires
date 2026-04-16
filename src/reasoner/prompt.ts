@@ -250,6 +250,24 @@ export function formatObservation(obs: Observation): string {
     parts.push("");
   }
 
+  // recent nudge history: tell the reasoner what was already sent to avoid repetition
+  if (obs.nudgeHistory && obs.nudgeHistory.length > 0) {
+    parts.push("Recent nudge history (do NOT repeat these messages - vary your approach or wait):");
+    const bySession = new Map<string, typeof obs.nudgeHistory>();
+    for (const n of obs.nudgeHistory) {
+      if (!bySession.has(n.sessionTitle)) bySession.set(n.sessionTitle, []);
+      bySession.get(n.sessionTitle)!.push(n);
+    }
+    for (const [title, nudges] of bySession) {
+      const last = nudges[nudges.length - 1];
+      const ageMin = Math.round((obs.timestamp - last.sentAt) / 60_000);
+      const effective = nudges.filter(n => n.effective).length;
+      const preview = last.nudgeText.length > 80 ? last.nudgeText.slice(0, 77) + "..." : last.nudgeText;
+      parts.push(`  ${title}: ${nudges.length} nudge(s), ${effective} effective, last ${ageMin}m ago: "${preview}"`);
+    }
+    parts.push("");
+  }
+
   // policy alerts: inject concrete idle/error/permission data so the reasoner has facts
   const policyStates = obs.policyContext?.sessionStates;
   if (policies && policyStates && policyStates.length > 0) {

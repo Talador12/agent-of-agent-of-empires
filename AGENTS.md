@@ -267,6 +267,7 @@ The main loop is split into two layers:
 | `src/goal-progress-burndown.ts` | ASCII burndown chart with actual vs ideal, scope-creep detection, ETA |
 | `src/daemon-memory-leak-detector.ts` | Heap growth tracking with linear regression, R² fit, leak classification |
 | `src/fleet-session-topology.ts` | Directed graph of session relationships with cluster/hub/leaf detection |
+| `src/model-config.ts` | Default model enforcement — discover models from opencode config, enforce across sessions |
 | `src/shell.ts` | Child process helpers |
 | `src/integration-test.ts` | End-to-end integration test (real aoe sessions, tmux, daemon) |
 

@@ -81,6 +81,14 @@ export class NudgeTracker {
     };
   }
 
+  /** Get recent nudge records for injection into the reasoner observation. */
+  getRecent(windowMs = 30 * 60_000, now = Date.now()): Array<{ sessionTitle: string; sentAt: number; nudgeText: string; effective: boolean }> {
+    this.finalize(now);
+    return this.records
+      .filter(r => now - r.sentAt <= windowMs)
+      .map(r => ({ sessionTitle: r.sessionTitle, sentAt: r.sentAt, nudgeText: r.nudgeText, effective: r.effective }));
+  }
+
   /** Format report for TUI display. */
   formatReport(now = Date.now()): string[] {
     const r = this.getReport(now);

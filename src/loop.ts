@@ -42,6 +42,7 @@ export async function tick(opts: {
   pollCount: number;
   userMessage?: string;
   taskContext?: TaskState[];
+  nudgeHistory?: Array<{ sessionTitle: string; sentAt: number; nudgeText: string; effective: boolean }>;
   beforeExecute?: (action: Action) => Promise<boolean>; // confirm hook: return false to skip action
   drainingSessionIds?: string[]; // session IDs marked as draining — injected into observation
 }): Promise<TickResult> {
@@ -113,6 +114,10 @@ export async function tick(opts: {
     sessionStates: [...policyStates.values()],
   };
 
+  // attach nudge history so reasoner avoids repeating messages
+  if (opts.nudgeHistory && opts.nudgeHistory.length > 0) {
+    observation.nudgeHistory = opts.nudgeHistory;
+  }
   // attach protected sessions list for the prompt formatter
   if (config.protectedSessions && config.protectedSessions.length > 0) {
     observation.protectedSessions = config.protectedSessions;

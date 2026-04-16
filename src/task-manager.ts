@@ -146,22 +146,55 @@ async function listSessionsAcrossProfiles(profiles: string[]): Promise<ListedSes
 
 // load task definitions from file or config. returns empty array if none found.
 export function loadTaskDefinitions(basePath: string): TaskDefinition[] {
-  // check for standalone tasks file first
-  for (const name of TASK_FILE_NAMES) {
-    const p = resolve(basePath, name);
-    if (existsSync(p)) {
-      try {
-        const raw = JSON.parse(readFileSync(p, "utf-8"));
-        const tasks = Array.isArray(raw) ? raw : raw.tasks;
-        if (Array.isArray(tasks)) {
-          log(`loaded ${tasks.length} task(s) from ${name}`);
-          return validateDefinitions(tasks, basePath);
+  // search for standalone tasks file in: basePath, ~/.aoaoe/, and the aoaoe
+  // project directory (sessionDirs mapping). the daemon often runs from a
+  // parent directory (e.g. ~/repos) while the tasks file lives next to the
+  // aoaoe source or in the user config dir.
+  const searchDirs = [basePath, AOAOE_DIR];
+  for (const dir of searchDirs) {
+    for (const name of TASK_FILE_NAMES) {
+      const p = resolve(dir, name);
+      if (existsSync(p)) {
+        try {
+          const raw = JSON.parse(readFileSync(p, "utf-8"));
+          const tasks = Array.isArray(raw) ? raw : raw.tasks;
+          if (Array.isArray(tasks)) {
+            log(`loaded ${tasks.length} task(s) from ${p}`);
+            return validateDefinitions(tasks, basePath);
+          }
+        } catch (e) {
+          console.error(`warning: failed to parse ${p}: ${e}`);
         }
-      } catch (e) {
-        console.error(`warning: failed to parse ${p}: ${e}`);
       }
     }
   }
+
+  // also check sessionDirs values - the tasks file may live in the aoaoe project dir
+  try {
+    const configPath = resolve(AOAOE_DIR, "aoaoe.config.json");
+    if (existsSync(configPath)) {
+      const config = JSON.parse(readFileSync(configPath, "utf-8"));
+      if (config.sessionDirs && typeof config.sessionDirs === "object") {
+        for (const dir of Object.values(config.sessionDirs) as string[]) {
+          for (const name of TASK_FILE_NAMES) {
+            const p = resolve(dir, name);
+            if (existsSync(p)) {
+              try {
+                const raw = JSON.parse(readFileSync(p, "utf-8"));
+                const tasks = Array.isArray(raw) ? raw : raw.tasks;
+                if (Array.isArray(tasks)) {
+                  log(`loaded ${tasks.length} task(s) from ${p}`);
+                  return validateDefinitions(tasks, basePath);
+                }
+              } catch (e) {
+                console.error(`warning: failed to parse ${p}: ${e}`);
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch {}
 
   // fall back to "tasks" key in config (search ~/.aoaoe/ then basePath)
   const configNames = ["aoaoe.config.json", ".aoaoe.json"];
@@ -376,6 +409,68 @@ export class TaskManager {
       }
     }
     this.save();
+  }
+
+  /**
+   * Hot-reload: re-read task definitions and reconcile with persistent state.
+   * Adds new tasks, updates changed goals/tool/profile, removes tasks that
+   * disappeared from definitions (unless completed - those are kept for history).
+   * Returns a summary of what changed.
+   */
+  reloadDefinitions(newDefs: TaskDefinition[]): { added: string[]; removed: string[]; updated: string[] } {
+    const added: string[] = [];
+    const removed: string[] = [];
+    const updated: string[] = [];
+
+    // build a set of keys from new definitions
+    const newKeys = new Set<string>();
+    for (const def of newDefs) {
+      const sessionTitle = def.sessionTitle || deriveTitle(def.repo);
+      const key = taskStateKey(def.repo, sessionTitle);
+      newKeys.add(key);
+
+      if (!this.states.has(key)) {
+        // new task - add it
+        const hasDeps = def.dependsOn && def.dependsOn.length > 0;
+        this.states.set(key, {
+          repo: def.repo,
+          sessionTitle,
+          profile: def.profile || "default",
+          sessionMode: def.sessionMode ?? "auto",
+          tool: def.tool ?? "opencode",
+          goal: normalizeGoal(def.goal),
+          dependsOn: def.dependsOn,
+          status: hasDeps ? "pending" : "pending",
+          progress: [],
+        });
+        added.push(sessionTitle);
+      } else {
+        // existing task - update if definition changed
+        const existing = this.states.get(key)!;
+        let changed = false;
+        const newGoal = normalizeGoal(def.goal);
+        if (def.goal && existing.goal !== newGoal) { existing.goal = newGoal; changed = true; }
+        if (def.tool && existing.tool !== def.tool) { existing.tool = def.tool; changed = true; }
+        if (def.sessionTitle && existing.sessionTitle !== def.sessionTitle) { existing.sessionTitle = def.sessionTitle; changed = true; }
+        if (def.profile && existing.profile !== def.profile) { existing.profile = def.profile; changed = true; }
+        if (def.sessionMode && existing.sessionMode !== def.sessionMode) { existing.sessionMode = def.sessionMode; changed = true; }
+        if (changed) updated.push(sessionTitle);
+      }
+    }
+
+    // remove tasks that are no longer in definitions (keep completed for history)
+    for (const [key, state] of this.states) {
+      if (!newKeys.has(key) && state.status !== "completed") {
+        removed.push(state.sessionTitle);
+        this.states.delete(key);
+      }
+    }
+
+    this.definitions = newDefs;
+    if (added.length > 0 || removed.length > 0 || updated.length > 0) {
+      this.save();
+    }
+    return { added, removed, updated };
   }
 
   get tasks(): TaskState[] {
