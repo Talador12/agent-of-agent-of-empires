@@ -13,6 +13,8 @@ import {
 } from "./types.js";
 import { resolveProfiles } from "./tui.js";
 
+const POTENTIALLY_STUCK_TICKS = 6;
+
 export class Poller {
   private config: AoaoeConfig;
   private previousSnapshots: Map<string, SessionSnapshot> = new Map();
@@ -44,6 +46,10 @@ export class Poller {
         const info = activityMap.get(snap.session.tmux_name);
         snap.userActive = info?.userActive ?? false;
       }
+    }
+
+    for (const snap of snapshots) {
+      annotateOutputStallState(snap, this.previousSnapshots.get(snap.session.id));
     }
 
     // warn on case-insensitive title collisions (can cause wrong-session commands)
@@ -314,6 +320,26 @@ export class Poller {
       console.error(`[poller] ${msg}`);
     }
   }
+}
+
+export function annotateOutputStallState(
+  snap: SessionSnapshot,
+  previous?: SessionSnapshot,
+  stuckTicks = POTENTIALLY_STUCK_TICKS,
+): SessionSnapshot {
+  if (!previous || snap.outputHash !== previous.outputHash) {
+    snap.outputUnchangedTicks = 0;
+    snap.lastOutputChangeAt = snap.capturedAt;
+    snap.potentiallyStuck = false;
+    return snap;
+  }
+
+  const unchangedTicks = (previous.outputUnchangedTicks ?? 0) + 1;
+  snap.outputUnchangedTicks = unchangedTicks;
+  snap.lastOutputChangeAt = previous.lastOutputChangeAt ?? previous.capturedAt;
+  const terminalStatus = snap.session.status === "done" || snap.session.status === "stopped" || snap.session.status === "error";
+  snap.potentiallyStuck = unchangedTicks >= stuckTicks && !snap.userActive && !snap.paneDead && !terminalStatus;
+  return snap;
 }
 
 // exported for testing -- pure utility functions below

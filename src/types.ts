@@ -31,6 +31,9 @@ export interface SessionSnapshot {
   userActive?: boolean; // true if a human user is interacting with this tmux pane
   paneDead?: boolean; // true if tmux pane process has exited
   detectedModel?: string; // model name parsed from opencode status bar
+  outputUnchangedTicks?: number; // consecutive polls where outputHash has not changed
+  lastOutputChangeAt?: number; // Date.now() when outputHash last changed
+  potentiallyStuck?: boolean; // unchanged output for threshold ticks while user is inactive
 }
 
 export interface Observation {

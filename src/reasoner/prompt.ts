@@ -188,8 +188,19 @@ export function formatObservation(obs: Observation): string {
       const protectedTag = protectedList.some((p) => p.toLowerCase() === s.title.toLowerCase()) ? " [PROTECTED]" : "";
       const drainingTag = drainingList.has(s.id) ? " [DRAINING — skip, do not send input]" : "";
       const deadTag = snap.paneDead ? " [PANE DEAD — use start_session to respawn]" : "";
-      parts.push(`  [${s.id.slice(0, 8)}] "${s.title}" tool=${s.tool} status=${s.status} path=${s.path}${activeTag}${protectedTag}${drainingTag}${deadTag}`);
+      const stuckTag = snap.potentiallyStuck ? ` [POTENTIALLY STUCK — output unchanged for ${snap.outputUnchangedTicks ?? 0} polls]` : "";
+      parts.push(`  [${s.id.slice(0, 8)}] "${s.title}" tool=${s.tool} status=${s.status} path=${s.path}${activeTag}${protectedTag}${drainingTag}${deadTag}${stuckTag}`);
     if (snap.userActive) activeSessions.push(s.title);
+  }
+  const potentiallyStuck = obs.sessions.filter((s) => s.potentiallyStuck);
+  if (potentiallyStuck.length > 0) {
+    parts.push("");
+    parts.push("POTENTIALLY STUCK: these sessions have unchanged terminal output and no user activity.");
+    for (const snap of potentiallyStuck) {
+      const ageMs = obs.timestamp - (snap.lastOutputChangeAt ?? snap.capturedAt);
+      const ageMin = Math.max(0, Math.round(ageMs / 60_000));
+      parts.push(`  - "${snap.session.title}" unchanged for ${snap.outputUnchangedTicks ?? 0} polls (${ageMin}m since output changed). Check whether it is waiting, building forever, or needs a nudge.`);
+    }
   }
    if (activeSessions.length > 0) {
      parts.push("");

@@ -1716,3 +1716,21 @@ gaps that would make someone close their terminal and not come back.
 - The daemon has been verified working end-to-end across all modes:
   --help, test-context, doctor, --observe, --dry-run, status, tasks, config,
   --log-file, headless (non-TTY pipe).
+
+### v7.5.0 Session Response — Stuck Output Detection
+
+Shipped structured detection for sessions that are alive but not moving.
+
+1. **Poller stall metadata** — `SessionSnapshot` now carries
+   `outputUnchangedTicks`, `lastOutputChangeAt`, and `potentiallyStuck`.
+   `annotateOutputStallState()` increments unchanged-output counters across polls,
+   resets on output changes, and avoids false positives when the user is active,
+   the pane is dead, or the session is terminal (`done`, `stopped`, `error`).
+2. **Reasoner prompt visibility** — `formatObservation()` now adds a
+   `[POTENTIALLY STUCK]` tag to the session summary and a short stuck-session
+   section. The reasoner can now distinguish quiet progress from a build/loading
+   screen that has not changed for 6+ polls.
+3. **Regression coverage** — added Poller tests for reset, threshold, user-active,
+   and terminal-status behavior plus prompt formatting coverage.
+
+Verified with `npm test`: 5029 tests passing, zero runtime dependencies unchanged.

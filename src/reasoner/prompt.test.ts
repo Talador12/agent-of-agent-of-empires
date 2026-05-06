@@ -44,6 +44,17 @@ describe("formatObservation", () => {
     assert.ok(result.includes("No new output from any session since last poll."));
   });
 
+  it("surfaces potentially stuck unchanged output", () => {
+    const snap = makeSnap("abc12345", "agent-1");
+    snap.potentiallyStuck = true;
+    snap.outputUnchangedTicks = 6;
+    snap.lastOutputChangeAt = 1699999700000;
+    const result = formatObservation(makeObs({ sessions: [snap] }));
+    assert.ok(result.includes("[POTENTIALLY STUCK"));
+    assert.ok(result.includes("output unchanged for 6 polls"));
+    assert.ok(result.includes("POTENTIALLY STUCK: these sessions"));
+  });
+
   it("shows change details", () => {
     const obs = makeObs({
       sessions: [makeSnap("abc12345", "agent-1")],

@@ -10,6 +10,13 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Active Work (April 2026)
 
 ### Just shipped (this session)
+- [x] **Potentially-stuck output detection** - Poller now carries output stall
+  metadata on every session snapshot: `outputUnchangedTicks`, `lastOutputChangeAt`,
+  and `potentiallyStuck`. The reasoner prompt now surfaces sessions with unchanged
+  output for 6+ polls and no user activity, even when no new terminal lines appear.
+  This fixes the blind spot where a session could sit on a build/loading screen for
+  many cycles but look merely quiet to the reasoner. Verified with `npm test`:
+  5029 tests passing.
 - [x] **User-active false positive fix** - investigated three approaches:
   (a) window_activity - rejected, tracks ALL output including agent, not just user.
   (b) client_activity - CORRECT signal, tracks real user keystrokes only, tmux
@@ -112,12 +119,13 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 5. ~~Stale task reconciliation~~ DONE - fs.watch on tasks file, hot-reload with
    add/remove/update diffing.
 
-6. **"Stuck at loading screen" detection** - the reasoner noticed code-music showing
-   a "B" (building) state for 6+ cycles but could not diagnose whether it was
-   building, stuck, or crashed. No structured state beyond tmux pane scraping.
-   The session-heartbeat module detects dead panes but not "alive but stuck" panes.
-   Fix: if output hash is unchanged for N ticks AND the session is not user-active,
-   classify as "potentially stuck" and include that flag in the observation.
+6. ~~"Stuck at loading screen" detection~~ DONE - the reasoner noticed code-music showing
+    a "B" (building) state for 6+ cycles but could not diagnose whether it was
+    building, stuck, or crashed. No structured state beyond tmux pane scraping.
+    The session-heartbeat module detects dead panes but not "alive but stuck" panes.
+    Now if output hash is unchanged for 6 ticks AND the session is not user-active,
+    the snapshot is classified as `potentiallyStuck` and that flag is included in
+    the reasoner observation.
 
 7. **No per-session cost visibility in TUI** - budget config and cost tracking
    modules exist but the compact agent bar shows no spend info. Add a small cost
@@ -143,7 +151,7 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 
 ## Current State
 
-**197 source modules**, **198 TUI commands**, **5024 tests**, **zero runtime dependencies**.
+**197 source modules**, **198 TUI commands**, **5029 tests**, **zero runtime dependencies**.
 ~61,000 lines of TypeScript. Node stdlib only (`node:test`, `node:fs`, `node:crypto`, etc).
 
 The project is an autonomous supervisor daemon for AI coding sessions. It observes
