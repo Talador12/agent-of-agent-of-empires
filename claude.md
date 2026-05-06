@@ -5,7 +5,7 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v7.5.0-dev
+## Version: v7.5.0
 
 ## Active Work (April 2026)
 
