@@ -7,7 +7,25 @@ import {
   extractNewLines,
   stripAnsi,
   buildProfileListArgs,
+  annotateOutputStallState,
 } from "./poller.js";
+import type { SessionSnapshot } from "./types.js";
+
+function snap(outputHash: string, capturedAt = 1000): SessionSnapshot {
+  return {
+    session: {
+      id: "abcdef1234567890",
+      title: "agent",
+      path: "/tmp",
+      tool: "opencode",
+      status: "working",
+      tmux_name: "aoe_agent_abcdef12",
+    },
+    output: "output",
+    outputHash,
+    capturedAt,
+  };
+}
 
 describe("sanitizeTmuxName", () => {
   it("passes through alphanumeric and dashes/underscores", () => {
@@ -65,6 +83,46 @@ describe("quickHash", () => {
   });
 
 
+});
+
+describe("annotateOutputStallState", () => {
+  it("resets stall counters when output changes", () => {
+    const previous = snap("old", 1000);
+    previous.outputUnchangedTicks = 5;
+    previous.lastOutputChangeAt = 1000;
+    const current = annotateOutputStallState(snap("new", 2000), previous);
+    assert.equal(current.outputUnchangedTicks, 0);
+    assert.equal(current.lastOutputChangeAt, 2000);
+    assert.equal(current.potentiallyStuck, false);
+  });
+
+  it("flags unchanged inactive output after threshold", () => {
+    const previous = snap("same", 1000);
+    previous.outputUnchangedTicks = 5;
+    previous.lastOutputChangeAt = 1000;
+    const current = annotateOutputStallState(snap("same", 7000), previous, 6);
+    assert.equal(current.outputUnchangedTicks, 6);
+    assert.equal(current.lastOutputChangeAt, 1000);
+    assert.equal(current.potentiallyStuck, true);
+  });
+
+  it("does not flag user-active sessions", () => {
+    const previous = snap("same", 1000);
+    previous.outputUnchangedTicks = 5;
+    const current = snap("same", 7000);
+    current.userActive = true;
+    annotateOutputStallState(current, previous, 6);
+    assert.equal(current.potentiallyStuck, false);
+  });
+
+  it("does not flag terminal statuses", () => {
+    const previous = snap("same", 1000);
+    previous.outputUnchangedTicks = 5;
+    const current = snap("same", 7000);
+    current.session.status = "done";
+    annotateOutputStallState(current, previous, 6);
+    assert.equal(current.potentiallyStuck, false);
+  });
 });
 
 describe("stripAnsi", () => {
