@@ -45,6 +45,7 @@ import {
   truncateRename, MAX_RENAME_LEN,
   sortSessions, nextSortMode, SORT_MODES,
   formatCompactRows, computeCompactRowCount, COMPACT_NAME_LEN,
+  formatCompactCostBadge,
   shouldBell, BELL_COOLDOWN_MS,
   computeBookmarkOffset, MAX_BOOKMARKS,
   shouldMuteEntry, MUTE_ICON, formatMuteBadge,
@@ -1388,6 +1389,84 @@ describe("formatCompactRows", () => {
     assert.ok(plain.includes("1"), "should have index 1");
     assert.ok(plain.includes("2"), "should have index 2");
     assert.ok(plain.includes("3"), "should have index 3");
+  });
+});
+
+// ── formatCompactCostBadge ──────────────────────────────────────────────────
+
+describe("formatCompactCostBadge", () => {
+  it("returns empty string for undefined", () => {
+    assert.equal(formatCompactCostBadge(undefined), "");
+  });
+
+  it("returns empty string for empty input", () => {
+    assert.equal(formatCompactCostBadge(""), "");
+    assert.equal(formatCompactCostBadge("   "), "");
+  });
+
+  it("returns empty string for malformed strings with no number", () => {
+    assert.equal(formatCompactCostBadge("$"), "");
+    assert.equal(formatCompactCostBadge("free"), "");
+  });
+
+  it("returns empty string for zero cost so quiet sessions stay clutter-free", () => {
+    assert.equal(formatCompactCostBadge("$0.00"), "");
+    assert.equal(formatCompactCostBadge("$0"), "");
+    assert.equal(formatCompactCostBadge("0.0"), "");
+  });
+
+  it("renders the trimmed cost string when spend is positive", () => {
+    const out = stripAnsi(formatCompactCostBadge("$1.23"));
+    assert.equal(out, "$1.23");
+  });
+
+  it("trims whitespace before rendering", () => {
+    const out = stripAnsi(formatCompactCostBadge("  $0.42  "));
+    assert.equal(out, "$0.42");
+  });
+
+  it("supports cents-only and dollar-only formats", () => {
+    assert.equal(stripAnsi(formatCompactCostBadge("$0.05")), "$0.05");
+    assert.equal(stripAnsi(formatCompactCostBadge("$12")), "$12");
+  });
+});
+
+// ── formatCompactRows with sessionCosts ─────────────────────────────────────
+
+describe("formatCompactRows with sessionCosts", () => {
+  it("includes the cost badge when a session has positive spend", () => {
+    const sessions = [makeSession({ id: "a", title: "Alpha" })];
+    const costs = new Map([["a", "$1.23"]]);
+    const rows = formatCompactRows(sessions, 80, undefined, undefined, undefined, undefined, undefined, undefined, costs);
+    assert.ok(stripAnsi(rows.join("")).includes("$1.23"), "expected cost badge in compact row");
+  });
+
+  it("omits the cost badge when sessionCosts is missing", () => {
+    const sessions = [makeSession({ id: "a", title: "Alpha" })];
+    const rows = formatCompactRows(sessions, 80);
+    assert.ok(!stripAnsi(rows.join("")).includes("$"), "no $ should appear without cost data");
+  });
+
+  it("omits the cost badge for zero-cost sessions", () => {
+    const sessions = [makeSession({ id: "a", title: "Alpha" })];
+    const costs = new Map([["a", "$0.00"]]);
+    const rows = formatCompactRows(sessions, 80, undefined, undefined, undefined, undefined, undefined, undefined, costs);
+    assert.ok(!stripAnsi(rows.join("")).includes("$"), "zero cost should not render");
+  });
+
+  it("renders different costs for different sessions", () => {
+    const sessions = [
+      makeSession({ id: "a", title: "Alpha" }),
+      makeSession({ id: "b", title: "Bravo" }),
+    ];
+    const costs = new Map([
+      ["a", "$0.10"],
+      ["b", "$2.50"],
+    ]);
+    const rows = formatCompactRows(sessions, 200, undefined, undefined, undefined, undefined, undefined, undefined, costs);
+    const plain = stripAnsi(rows.join(""));
+    assert.ok(plain.includes("$0.10"), "Alpha cost should render");
+    assert.ok(plain.includes("$2.50"), "Bravo cost should render");
   });
 });
 

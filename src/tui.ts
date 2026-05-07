@@ -161,6 +161,7 @@ function formatCompactRows(
   healthScores?: Map<string, number>,
   activityRates?: Map<string, number>,
   sessionColors?: Map<string, string>, // session ID → accent color name (from /color)
+  sessionCosts?: ReadonlyMap<string, string>, // session ID → "$N.NN" cost string from reasoner-cost
 ): string[] {
   if (sessions.length === 0) return [`${DIM}no agents connected${RESET}`];
 
@@ -205,8 +206,13 @@ function formatCompactRows(
     const rateBadge = formatActivityRateBadge(rate);
     const rateVisible = rateBadge ? stripAnsiForLen(rateBadge) : 0;
 
-    tokens.push(`${SLATE}${idx}${RESET}${pin}${muteIcon}${noteIcon}${dot}${nameColor}${BOLD}${name}${RESET}${healthGlyph}${rateBadge}`);
-    widths.push(idx.length + (pinned ? 1 : 0) + (muted ? 1 : 0) + (noted ? 1 : 0) + 1 + name.length + healthWidth + rateVisible);
+    // cost badge: "$1.23" when reasoner-cost has accumulated spend
+    const costBadge = formatCompactCostBadge(sessionCosts?.get(s.id));
+    const costVisible = costBadge ? stripAnsiForLen(costBadge) : 0;
+    const costSep = costBadge ? " " : "";
+
+    tokens.push(`${SLATE}${idx}${RESET}${pin}${muteIcon}${noteIcon}${dot}${nameColor}${BOLD}${name}${RESET}${healthGlyph}${rateBadge}${costSep}${costBadge}`);
+    widths.push(idx.length + (pinned ? 1 : 0) + (muted ? 1 : 0) + (noted ? 1 : 0) + 1 + name.length + healthWidth + rateVisible + (costBadge ? costVisible + 1 : 0));
   }
 
   const rows: string[] = [];
@@ -328,6 +334,22 @@ export function formatActivityRateBadge(rate: number): string {
   if (rate <= 0) return "";
   const rounded = Math.max(1, Math.round(rate));
   return `${DIM}${rounded}/m${RESET}`;
+}
+
+/**
+ * Format a session cost as a compact badge for compact mode tokens.
+ * Source string is the raw cost string from sessionCosts (e.g. "$1.23").
+ * Returns empty string when cost is missing, malformed, or zero so quiet
+ * sessions stay clutter-free.
+ */
+export function formatCompactCostBadge(costStr: string | undefined): string {
+  if (!costStr) return "";
+  const trimmed = costStr.trim();
+  if (!trimmed) return "";
+  const numericMatch = trimmed.match(/-?\d+(?:\.\d+)?/);
+  if (!numericMatch) return "";
+  if (parseFloat(numericMatch[0]) <= 0) return "";
+  return `${DIM}${trimmed}${RESET}`;
 }
 
 // ── Header status tag helpers (pure, exported for testing) ──────────────────
@@ -3769,7 +3791,7 @@ export class TUI {
           this.activityBuffer, this.activityTimestamps, s.id, nowMsCompact
         ));
       }
-      const compactRows = formatCompactRows(visibleSessions, this.cols - 3, this.pinnedIds, this.mutedIds, noteIdSet, compactHealthScores, compactActivityRates, this.sessionColors);
+      const compactRows = formatCompactRows(visibleSessions, this.cols - 3, this.pinnedIds, this.mutedIds, noteIdSet, compactHealthScores, compactActivityRates, this.sessionColors, this.sessionCosts);
       for (let r = 0; r < compactRows.length; r++) {
         process.stderr.write(moveTo(startRow + 1 + r, 1) + CLEAR_LINE +
           `${STEEL}${BOX.v}${RESET} ${compactRows[r]}`);
