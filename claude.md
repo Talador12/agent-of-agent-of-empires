@@ -10,6 +10,15 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Active Work (April 2026)
 
 ### Just shipped (this session)
+- [x] **Per-session cost badge in the compact agent bar** - `formatCompactRows()`
+  now takes a `sessionCosts` map and appends the existing per-session "$N.NN"
+  string from the reasoner-cost tracker (already plumbed through the TUI as
+  `sessionCosts`) to each token. New `formatCompactCostBadge()` helper trims,
+  parses, and skips zero/missing/malformed values so quiet sessions stay
+  clutter-free. 11 new tests in `tui.test.ts` (7 for the helper + 4 for the
+  renderer wiring). Closes P0 #7. Full suite: 5040 passing.
+
+### Just shipped (previous session)
 - [x] **Potentially-stuck output detection** - Poller now carries output stall
   metadata on every session snapshot: `outputUnchangedTicks`, `lastOutputChangeAt`,
   and `potentiallyStuck`. The reasoner prompt now surfaces sessions with unchanged
@@ -127,10 +136,9 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
     the snapshot is classified as `potentiallyStuck` and that flag is included in
     the reasoner observation.
 
-7. **No per-session cost visibility in TUI** - budget config and cost tracking
-   modules exist but the compact agent bar shows no spend info. Add a small cost
-   indicator (e.g. `$1.23`) next to each session in the agent bar, sourced from
-   the existing reasoner-cost tracker.
+7. ~~No per-session cost visibility in TUI~~ DONE - `formatCompactRows()` now
+   appends a dim "$N.NN" badge to each compact agent token, sourced from the
+   existing `sessionCosts` map. Zero/missing values render as nothing.
 
 **P2 - Deferred:**
 
