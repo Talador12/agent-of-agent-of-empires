@@ -25,9 +25,16 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
   the pre-existing 19876 port collision between health.test and
   api-server.test. Design writeup in `DESIGN.md` (answers the
   design-first/missing-primitives feedback from the upstream thread).
-  Follow-ups: record a dashboard screencap for the featured-plugin PR, cut a
-  v8.0.0 release tag, then PR the release tree hash (`aoe plugin hash .`)
-  to aoe's `plugins/featured.toml` to get featured.
+  Shipped downstream: v8.0.0 tagged + GitHub release published; `aoe-plugin`
+  topic added (marketplace discovery); install verified end-to-end with aoe
+  1.13.1 built from source (`aoe plugin install gh:... --yes` → build →
+  grants → CLI command grafting); featured-index PR opened upstream:
+  agent-of-empires#3108 (tree hash
+  sha256:38c1c6708edea12da6128c5f7e466a6f78909314ec6e4194b9cfadacf3341dd7).
+  Follow-ups: **npm publish of 8.0.0 failed — NPM_TOKEN secret is
+  expired/invalid (404 on PUT), rotate it and re-run the Release workflow**;
+  add `[[screenshots]]` + dashboard screencap in a patch release once the
+  pane is seen live.
 
 ### Previously shipped (April 2026)
 - [x] **Per-session cost badge in the compact agent bar** - `formatCompactRows()`
