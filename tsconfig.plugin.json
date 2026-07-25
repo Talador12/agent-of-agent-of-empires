@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": ".aoe-build/dist",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "typeRoots": ["node_modules/@types", ".aoe-build/deps/node_modules/@types"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", ".aoe-build", "src/**/*.test.ts", "src/integration-test.ts"]
+}

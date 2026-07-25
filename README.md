@@ -25,6 +25,49 @@ An autonomous supervisor for [Agent of Empires](https://github.com/njbrake/agent
 
 This is the conductor, not the orchestra. AoE manages the sessions. The agents inside do the coding. aoaoe watches everything and steps in when needed.
 
+aoaoe runs in **two modes**:
+
+1. **AoE plugin** (recommended for current AoE) -- installs into AoE's plugin system, appears in the dashboard, and drives sessions through the official plugin API. This is the direction agreed with the AoE maintainers in [agent-of-empires#553](https://github.com/agent-of-empires/agent-of-empires/issues/553) / [PR #2699](https://github.com/agent-of-empires/agent-of-empires/pull/2699): orchestration ships as an installable plugin rather than inside AoE core.
+2. **Standalone daemon** (the original mode) -- polls sessions via the `aoe` CLI and tmux directly. Full pane-content intelligence, works with older AoE versions.
+
+## Install as an AoE plugin
+
+Requires AoE >= 1.13 (the plugin runtime) and Node >= 20 on the daemon host.
+
+```bash
+aoe plugin install gh:Talador12/agent-of-agent-of-empires
+```
+
+The install prompts for the capability grants declared in
+[`aoe-plugin.toml`](aoe-plugin.toml) and builds the worker into `.aoe-build/`.
+Everything is **dry-run by default**: the orchestrator observes, ranks, and
+recommends, but executes nothing until you flip the `dry_run` setting off in
+AoE's plugin settings.
+
+What you get:
+
+- **Attention queue** -- every session ranked by who needs eyes next (status +
+  time-in-status escalation), as a dashboard card, a sortable "Attention"
+  column, row badges, and a per-session Orchestrator pane.
+- **Recommendations & notifications** -- urgent sessions (errors, long waits)
+  trigger deduplicated notifications with the reason.
+- **Spawn from GitHub issues** -- the `Orchestrator: spawn` command creates one
+  session per open issue in `spawn_repo` (via `gh`), each seeded with the issue
+  as its goal and an idempotency key so reruns never double-spawn. Dry-run
+  until `spawn_live` is enabled.
+- **Reasoners** -- `rules` (deterministic, zero LLM cost, default), or
+  `claude-code` / `opencode` for LLM-driven decisions.
+- **Commands** -- `Orchestrator: status / tick now / pause / resume / spawn`
+  in the command palette.
+
+Guardrails: nudges are off by default (`allow_nudge`) and only ever reach
+sessions the orchestrator itself created (enforced by the AoE host);
+destructive actions have no plugin primitive at all; ticking has a 5s floor,
+per-session action cooldowns, and optional quiet hours. See
+[`DESIGN.md`](DESIGN.md) for the full architecture and the security model.
+
+The rest of this README documents the **standalone daemon** mode.
+
 ## Prerequisites
 
 You need these installed first:

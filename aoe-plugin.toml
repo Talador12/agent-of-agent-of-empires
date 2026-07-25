@@ -1,0 +1,189 @@
+# Agent of Empires plugin manifest for the aoaoe orchestrator.
+# Install: aoe plugin install gh:Talador12/agent-of-agent-of-empires
+# Design: see DESIGN.md. The worker is the same engine as the standalone
+# `aoaoe` CLI, driven through the AoE plugin API instead of tmux + the aoe CLI.
+
+id = "dev.talador12.aoaoe"
+name = "aoaoe Orchestrator"
+version = "8.0.0"
+api_version = 11
+aoe_version = ">=1.13.0, <2.0.0"
+description = "Autonomous orchestrator: ranks sessions by attention, recommends actions, and spawns sessions from GitHub issues. Dry-run by default."
+
+capabilities = [
+  "runtime.worker",
+  "session.read",
+  "notifications",
+  "acp.capabilities.read",
+  "session.create",
+  "session.prompt",
+  "process.spawn", # `gh` CLI for spawn-from-issues; `claude --print` when the claude-code reasoner is selected
+  "net",           # OpenCode server when the opencode reasoner is selected
+]
+
+[[commands]]
+id = "status"
+title = "Orchestrator: status"
+description = "Refresh the attention queue and push it to the dashboard."
+
+[[commands]]
+id = "tick"
+title = "Orchestrator: tick now"
+description = "Run one observe-reason-execute tick immediately."
+
+[[commands]]
+id = "pause"
+title = "Orchestrator: pause"
+description = "Pause orchestration (observation continues, no reasoning or actions)."
+
+[[commands]]
+id = "resume"
+title = "Orchestrator: resume"
+description = "Resume orchestration after a pause."
+
+[[commands]]
+id = "spawn"
+title = "Orchestrator: spawn from GitHub issues"
+description = "Create one session per open GitHub issue in the configured repo. Dry-run unless spawn_live is enabled."
+
+[[settings]]
+key = "dry_run"
+label = "Dry run"
+description = "Recommend only; never execute actions. Disable deliberately."
+type = "boolean"
+default = true
+
+[[settings]]
+key = "tick_interval_secs"
+label = "Tick interval (seconds)"
+description = "How often the orchestrator observes and reasons. Floor of 5s is enforced."
+type = "integer"
+default = 60
+min = 5
+max = 3600
+
+[[settings]]
+key = "reasoner"
+label = "Reasoner"
+description = "rules = deterministic, no LLM, free. claude-code / opencode call an LLM."
+type = "select"
+options = ["rules", "claude-code", "opencode"]
+default = "rules"
+
+[[settings]]
+key = "allow_nudge"
+label = "Allow nudges"
+description = "Let the orchestrator send turns to sessions it created (host-enforced ownership)."
+type = "boolean"
+default = false
+
+[[settings]]
+key = "quiet_hours"
+label = "Quiet hours"
+description = "HH:MM-HH:MM window when the orchestrator observes but never reasons or acts. Empty disables."
+type = "string"
+default = ""
+advanced = true
+
+[[settings]]
+key = "action_cooldown_secs"
+label = "Action cooldown (seconds)"
+description = "Minimum gap between actions of the same kind on the same session."
+type = "integer"
+default = 300
+min = 0
+max = 86400
+advanced = true
+
+[[settings]]
+key = "spawn_repo"
+label = "Spawn: GitHub repo"
+description = "owner/repo whose open issues become sessions via the spawn command."
+type = "string"
+default = ""
+
+[[settings]]
+key = "spawn_label"
+label = "Spawn: issue label filter"
+description = "Only spawn sessions for issues carrying this label. Empty = all open issues."
+type = "string"
+default = ""
+advanced = true
+
+[[settings]]
+key = "spawn_limit"
+label = "Spawn: max issues per run"
+type = "integer"
+default = 5
+min = 1
+max = 20
+
+[[settings]]
+key = "spawn_live"
+label = "Spawn: live mode"
+description = "Actually create sessions. Off = report what would be spawned."
+type = "boolean"
+default = false
+
+[[settings]]
+key = "spawn_agent"
+label = "Spawn: agent"
+description = "ACP agent used for spawned sessions."
+type = "dynamic_select"
+option_source = "acp.agents"
+
+[[settings]]
+key = "spawn_model"
+label = "Spawn: model"
+type = "dynamic_select"
+option_source = "acp.models"
+depends_on = ["spawn_agent"]
+
+[[settings]]
+key = "spawn_project_path"
+label = "Spawn: project"
+description = "Project the spawned sessions run in."
+type = "dynamic_select"
+option_source = "projects"
+
+[[settings]]
+key = "max_active_sessions"
+label = "Max active plugin sessions"
+description = "Orchestrator-side cap on concurrently active sessions it created (host also caps at 5)."
+type = "integer"
+default = 5
+min = 1
+max = 5
+advanced = true
+
+[[ui]]
+slot = "card"
+id = "queue_card"
+
+[[ui]]
+slot = "status-bar"
+id = "orchestrator_status"
+
+[[ui]]
+slot = "row-badge"
+id = "attention_badge"
+
+[[ui]]
+slot = "row-column"
+id = "attention_score"
+
+[[ui]]
+slot = "sort-key"
+id = "attention_sort"
+
+[[ui]]
+slot = "pane"
+id = "orchestrator_pane"
+
+[runtime]
+kind = "command"
+command = ["node", ".aoe-build/dist/plugin/worker.js"]
+system = true
+
+[[runtime.build]]
+command = ["node", "scripts/plugin-build.mjs"]

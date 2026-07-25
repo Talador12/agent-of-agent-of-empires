@@ -126,7 +126,7 @@ describe("startHealthServer", () => {
   });
 
   it("responds to GET /health with JSON", async () => {
-    const port = 19876; // unlikely to conflict
+    const port = 19976; // must not collide with api-server.test.ts (19876) under the parallel runner
     server = startHealthServer(port, Date.now() - 5_000);
 
     // give server time to bind
@@ -144,7 +144,7 @@ describe("startHealthServer", () => {
   });
 
   it("responds to GET / as alias for /health", async () => {
-    const port = 19877;
+    const port = 19977;
     server = startHealthServer(port, Date.now());
     await new Promise((r) => setTimeout(r, 100));
 
@@ -155,7 +155,7 @@ describe("startHealthServer", () => {
   });
 
   it("returns 404 for unknown paths", async () => {
-    const port = 19878;
+    const port = 19978;
     server = startHealthServer(port, Date.now());
     await new Promise((r) => setTimeout(r, 100));
 

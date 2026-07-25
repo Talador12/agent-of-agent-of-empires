@@ -41,6 +41,17 @@ The main loop is split into two layers:
 - **`index.ts`** — `daemonTick()` wraps `loop.ts` tick() with dashboard, status
   line, IPC state file, console output, and interrupt support.
 
+**AoE plugin mode** (`aoe-plugin.toml` + `src/plugin/`) reuses the same
+`loop.ts` seam with a JSON-RPC worker over the official AoE plugin API
+(`sessions.list`, `sessions.create`, `sessions.turn.send`, `ui.state.set`,
+`plugin.storage.*`) instead of tmux + the aoe CLI. Built at install time by
+`scripts/plugin-build.mjs` into `.aoe-build/dist/` (the only directory AoE
+excludes from the plugin integrity hash). Modules: `protocol` (stdio framing),
+`host` (typed RPCs), `settings`, `attention` (queue scoring), `plugin-poller`,
+`plugin-executor` (policy gates + in-batch cooldowns), `rules-reasoner`
+(deterministic, no LLM), `spawn` (GitHub issues -> sessions), `ui`
+(card/pane/badge payloads), `worker` (entry point). Design: `DESIGN.md`.
+
 ## Source Layout
 
 | File | Purpose |

@@ -5,11 +5,31 @@ See `AGENTS.md` for architecture, build commands, conventions, and full session 
 ## Rules
 - Update this file with every commit.
 
-## Version: v7.5.0
+## Version: v8.0.0
 
-## Active Work (April 2026)
+## Active Work (July 2026)
 
 ### Just shipped (this session)
+- [x] **AoE plugin mode (v8.0.0)** — the community decision on upstream PR
+  [agent-of-empires#2699](https://github.com/agent-of-empires/agent-of-empires/pull/2699)
+  was to ship the orchestrator as an installable plugin living in this repo
+  instead of inside aoe core. Implemented: `aoe-plugin.toml` (api_version 11,
+  validated against the real `aoe-plugin-api` crate), `src/plugin/` worker
+  (JSON-RPC over stdio: protocol, host client, settings, attention queue,
+  plugin-poller/executor over the loop.ts seam, deterministic rules reasoner,
+  spawn-from-GitHub-issues with idempotency keys, card/pane/badge/sort UI,
+  worker entry), install-time build via `scripts/plugin-build.mjs` into
+  `.aoe-build/dist/` (only hash-excluded dir). Dry-run + allow_nudge=false by
+  default; nudges only reach plugin-created sessions (host-enforced). 58 new
+  tests incl. a fake-host contract test; full suite 5098 passing. Also fixed
+  the pre-existing 19876 port collision between health.test and
+  api-server.test. Design writeup in `DESIGN.md` (answers the
+  design-first/missing-primitives feedback from the upstream thread).
+  Follow-ups: record a dashboard screencap for the featured-plugin PR, cut a
+  v8.0.0 release tag, then PR the release tree hash (`aoe plugin hash .`)
+  to aoe's `plugins/featured.toml` to get featured.
+
+### Previously shipped (April 2026)
 - [x] **Per-session cost badge in the compact agent bar** - `formatCompactRows()`
   now takes a `sessionCosts` map and appends the existing per-session "$N.NN"
   string from the reasoner-cost tracker (already plumbed through the TUI as
