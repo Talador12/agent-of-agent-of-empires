@@ -5,7 +5,7 @@
 
 id = "dev.talador12.aoaoe"
 name = "aoaoe Orchestrator"
-version = "8.0.0"
+version = "8.0.1"
 api_version = 11
 aoe_version = ">=1.13.0, <2.0.0"
 description = "Autonomous orchestrator: ranks sessions by attention, recommends actions, and spawns sessions from GitHub issues. Dry-run by default."
@@ -159,6 +159,12 @@ advanced = true
 [[ui]]
 slot = "card"
 id = "queue_card"
+
+# The card slot takes { title, body, tone } only — the ranked queue in block
+# form (and its Tick/Pause actions) lives on the settings page instead.
+[[ui]]
+slot = "settings-page"
+id = "orchestrator_queue"
 
 [[ui]]
 slot = "status-bar"

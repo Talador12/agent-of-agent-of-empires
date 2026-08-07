@@ -47,7 +47,8 @@ AoE's plugin settings.
 What you get:
 
 - **Attention queue** -- every session ranked by who needs eyes next (status +
-  time-in-status escalation), as a dashboard card, a sortable "Attention"
+  time-in-status escalation), as a dashboard card, a full Orchestrator queue
+  page under Settings (with Tick / Pause controls), a sortable "Attention"
   column, row badges, and a per-session Orchestrator pane.
 - **Recommendations & notifications** -- urgent sessions (errors, long waits)
   trigger deduplicated notifications with the reason.
