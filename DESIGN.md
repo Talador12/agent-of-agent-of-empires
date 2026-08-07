@@ -46,7 +46,7 @@ public plugin API (worker JSON-RPC, `api_version = 11`):
 | Create sessions (e.g. from GitHub issues) | `sessions.create` (+ `initial_turn`, `idempotency_key`) |
 | Nudge a session | `sessions.turn.send` — host-enforced to sessions this plugin created |
 | Persist state | `plugin.storage.*` |
-| Show the queue | `ui.state.set` (card, pane, row-badge, row-column, sort-key, status-bar) |
+| Show the queue | `ui.state.set` (card, settings-page, pane, row-badge, row-column, sort-key, status-bar) |
 | Alert the operator | `ui.notify` |
 | Interop with other plugins | `events.publish` (`queue.updated` topic) |
 
@@ -113,7 +113,7 @@ src/plugin/
   plugin-poller.ts         PollerLike over sessions.list
   plugin-executor.ts       ExecutorLike over sessions.create / turn.send + gates
   spawn.ts                 GitHub issues -> sessions (gh CLI, dry-run default)
-  ui.ts                    card / pane / badge / column / status-bar payloads
+  ui.ts                    per-slot payloads (card, settings-page, pane, badge, column, status-bar)
   worker.ts                entry point: tick loop, command dispatch, lifecycle
 ```
 
@@ -130,5 +130,12 @@ snoozed/archived (excluded), and whether the session is plugin-created (can
 be acted on) . Score is a weighted sum with idle escalation: the longer a
 session sits in `waiting`/`error` unacknowledged, the higher it climbs.
 The ranked queue is one canonical shape (`QueueRow`) used by the card, the
-pane, the `status` command JSON, and the `queue.updated` event — a single
-schema, as the PR review requested.
+settings page, the pane, the `status` command JSON, and the `queue.updated`
+event — a single schema, as the PR review requested.
+
+Each slot has its own payload schema and the host parses it with
+`deny_unknown_fields`, rejecting the whole push with `-32602` on a stray key.
+Only `pane` and `settings-page` take a `blocks` list; `card` is
+`{ title, body, tone }`. `UiSlotPayloads` in `ui.ts` keys the payload type off
+the slot name, and `HostClient.uiStateSet` is generic over it, so a slot
+mismatch is a compile error rather than a warning once per tick.

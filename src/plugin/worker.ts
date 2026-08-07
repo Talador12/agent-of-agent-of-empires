@@ -22,8 +22,8 @@ import { PluginExecutor, type CooldownState } from "./plugin-executor.js";
 import { RulesReasoner } from "./rules-reasoner.js";
 import { spawnFromIssues, type SpawnReport } from "./spawn.js";
 import {
-  queueCardPayload, statusBarPayload, attentionBadgePayload, attentionColumnPayload,
-  attentionSortPayload, sessionPanePayload, spawnReportBlocks, type WorkerStatusSummary, type UiBlock,
+  queueCardPayload, queuePagePayload, statusBarPayload, attentionBadgePayload, attentionColumnPayload,
+  attentionSortPayload, sessionPanePayload, type WorkerStatusSummary,
 } from "./ui.js";
 
 export const PLUGIN_ID = "dev.talador12.aoaoe";
@@ -244,12 +244,13 @@ export class OrchestratorWorker {
       lastTickSummary: this.lastTickSummary || undefined,
       quiet,
     };
-    const card = queueCardPayload(rows, summary);
-    if (this.lastSpawnReport) {
-      card.blocks.push({ kind: "divider" } as UiBlock, ...spawnReportBlocks(this.lastSpawnReport));
-    }
     const pushes: Array<Promise<unknown>> = [
-      this.host.uiStateSet("card", "queue_card", card),
+      this.host.uiStateSet("card", "queue_card", queueCardPayload(rows, summary)),
+      this.host.uiStateSet(
+        "settings-page",
+        "orchestrator_queue",
+        queuePagePayload(rows, summary, this.lastSpawnReport ?? undefined)
+      ),
       this.host.uiStateSet("status-bar", "orchestrator_status", statusBarPayload(rows, summary)),
     ];
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { queueCardPayload, statusBarPayload, attentionColumnPayload, attentionSortPayload, sessionPanePayload, spawnReportBlocks } from "./ui.js";
+import { queueCardPayload, queuePagePayload, statusBarPayload, attentionColumnPayload, attentionSortPayload, sessionPanePayload, spawnReportBlocks } from "./ui.js";
 import type { QueueRow } from "./attention.js";
 import type { SpawnReport } from "./spawn.js";
 
@@ -21,21 +21,50 @@ function row(overrides: Partial<QueueRow>): QueueRow {
 
 const summary = { paused: false, dryRun: true, reasoner: "rules" };
 
-test("queue card shows top rows, dry-run note, and action buttons", () => {
+// The `card` slot is parsed with deny_unknown_fields against { title, body,
+// tone } — anything else (a `blocks` list, notably) fails the push with -32602.
+test("queue card carries only the card slot's fields", () => {
+  const card = queueCardPayload([row({})], summary);
+  assert.deepEqual(Object.keys(card).sort(), ["body", "title", "tone"]);
+  assert.equal(typeof card.body, "string");
+});
+
+test("queue card flattens the top rows into body text", () => {
   const rows = Array.from({ length: 7 }, (_, i) => row({ sessionId: `s${i}`, title: `sess ${i}` }));
   const card = queueCardPayload(rows, summary);
-  assert.match(JSON.stringify(card.blocks[0]), /Dry run/);
-  const rowBlocks = card.blocks.filter((b) => b.kind === "row");
+  const lines = card.body.split("\n");
+  assert.match(lines[0], /Dry run/);
+  assert.equal(lines.filter((l) => /sess \d/.test(l)).length, 5); // top 5 only
+  assert.match(card.body, /\+2 more/);
+});
+
+test("card tone reflects the worst thing in the queue", () => {
+  assert.equal(queueCardPayload([], summary).tone, "info");
+  assert.equal(queueCardPayload([row({ attentionScore: 80 })], summary).tone, "warn");
+  assert.equal(queueCardPayload([row({ status: "Error" })], summary).tone, "danger");
+  assert.equal(queueCardPayload([], { ...summary, paused: true }).tone, "warn");
+});
+
+test("queue page shows top rows, dry-run note, and action buttons", () => {
+  const rows = Array.from({ length: 7 }, (_, i) => row({ sessionId: `s${i}`, title: `sess ${i}` }));
+  const page = queuePagePayload(rows, summary);
+  assert.match(JSON.stringify(page.blocks[0]), /Dry run/);
+  const rowBlocks = page.blocks.filter((b) => b.kind === "row");
   assert.equal(rowBlocks.length, 5); // top 5 only
-  assert.match(JSON.stringify(card.blocks), /\+2 more/);
-  const actions = card.blocks.filter((b) => b.kind === "action");
+  assert.match(JSON.stringify(page.blocks), /\+2 more/);
+  const actions = page.blocks.filter((b) => b.kind === "action");
   assert.deepEqual(actions.map((a) => a.method), ["aoaoe.tick", "aoaoe.pause"]);
 });
 
-test("paused card offers resume instead of pause", () => {
-  const card = queueCardPayload([], { ...summary, paused: true });
-  const actions = card.blocks.filter((b) => b.kind === "action");
+test("paused queue page offers resume instead of pause", () => {
+  const page = queuePagePayload([], { ...summary, paused: true });
+  const actions = page.blocks.filter((b) => b.kind === "action");
   assert.deepEqual(actions.map((a) => a.method), ["aoaoe.tick", "aoaoe.resume"]);
+});
+
+test("queue page appends the last spawn report", () => {
+  const page = queuePagePayload([], summary, { repo: "o/r", live: false, outcomes: [] });
+  assert.match(JSON.stringify(page.blocks), /Spawn: o\/r/);
 });
 
 test("status bar flags urgent counts and pause state", () => {

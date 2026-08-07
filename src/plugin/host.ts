@@ -3,6 +3,7 @@
 // response is validated defensively since the host owns the schema.
 
 import { RpcConnection } from "./protocol.js";
+import type { UiSlotPayloads } from "./ui.js";
 
 /** Session row from `sessions.list`. `status` is the host's Debug-formatted
  * Status enum: Running | Waiting | Idle | Unknown | Stopped | Error |
@@ -89,13 +90,22 @@ export class HostClient {
     return res?.value ?? null;
   }
 
-  async uiStateSet(slot: string, id: string, payload: unknown, sessionId?: string): Promise<void> {
+  /** The host validates each entry against the schema for its slot with
+   * `deny_unknown_fields`, so the payload type is keyed off the slot name —
+   * pushing a pane-shaped payload at the `card` slot is a compile error, not a
+   * -32602 once per tick. */
+  async uiStateSet<S extends keyof UiSlotPayloads>(
+    slot: S,
+    id: string,
+    payload: UiSlotPayloads[S],
+    sessionId?: string
+  ): Promise<void> {
     const params: Record<string, unknown> = { slot, id, payload };
     if (sessionId) params.session_id = sessionId;
     await this.rpc.call("ui.state.set", params);
   }
 
-  async uiStateRemove(slot: string, id: string, sessionId?: string): Promise<void> {
+  async uiStateRemove(slot: keyof UiSlotPayloads, id: string, sessionId?: string): Promise<void> {
     const params: Record<string, unknown> = { slot, id };
     if (sessionId) params.session_id = sessionId;
     await this.rpc.call("ui.state.remove", params);
